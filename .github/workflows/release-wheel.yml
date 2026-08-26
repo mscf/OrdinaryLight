@@ -1,0 +1,41 @@
+name: Build release wheel
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  wheel:
+    name: Build and attach wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Require release tag to match package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/check_release_version.py "$RELEASE_TAG"
+      - name: Install build tools
+        run: python -m pip install --upgrade build twine
+      - name: Build wheel
+        run: python -m build --wheel
+      - name: Validate wheel
+        run: python -m twine check dist/*.whl && python scripts/verify_wheel.py dist/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ordinarylight-${{ github.event.release.tag_name }}-wheel
+          path: dist/*.whl
+          if-no-files-found: error
+      - name: Attach wheel to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/*.whl --clobber

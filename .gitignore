@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+/build/
+/dist/
+
+# Local environments and downloaded tools
+.venv/
+.tools/
+.libdecor-cairo/
+
+# Renderer output generated from the repository root
+/execution_parity_*.ppm
+/hitch_trace*.csv
+/reference_render.ppm
+/restir_*.csv
+/restir_*.npz
+/restir_matrix*/
+/rgen.spv
+
+# Historical benchmark evidence: keep compact summaries in Git, while large
+# binary captures remain available locally under artifacts/benchmarks.
+/artifacts/benchmarks/**/*.npy
+/artifacts/benchmarks/*.npz
+/artifacts/benchmarks/*.ppm
+/artifacts/benchmarks/*.spv
+/artifacts/benchmarks/hitch_trace*.csv

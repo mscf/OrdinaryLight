@@ -1,0 +1,29 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+#define WAVE_INDIRECT_REUSE_STORAGE 1
+#include "wavefront_indirect_reuse.glsl"
+
+void main()
+{
+    if (gl_GlobalInvocationID.x != 0u)
+        return;
+    IndirectLightReservoir reservoir = emptyIndirectLightReservoir();
+    reservoir.selected.secondary_position = vec3(2.25, -1.5, 0.75);
+    reservoir.selected.proposal_pdf = 0.375;
+    reservoir.selected.secondary_normal = normalize(vec3(0.2, 0.9, -0.3));
+    reservoir.selected.target = 3.25;
+    reservoir.selected.radiance = vec3(8.0, 1.5, 0.125);
+    reservoir.weight_sum = 7.5;
+    reservoir.sample_count = 9u;
+    reservoir.valid = true;
+    storeIndirectLightReservoir(0u, reservoir, vec3(0.0));
+    memoryBarrierBuffer();
+    IndirectLightReservoir decoded = loadIndirectLightReservoir(
+        0u, vec3(0.0));
+    // Keep the decoded path observable so compilers validate both ABI halves.
+    if (!decoded.valid)
+        indirect_reservoir_words[5] = 0u;
+}

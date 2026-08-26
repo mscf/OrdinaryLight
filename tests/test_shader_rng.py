@@ -1,0 +1,24 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class ShaderRngTests(unittest.TestCase):
+    def test_frame_seed_is_not_xor_cancelled_by_camera_metadata(self):
+        for relative in (
+            "ordinarylight/shaders/wavefront_generate.comp",
+            "ordinarylight/shaders/wavefront_primary_impl.glsl",
+        ):
+            with self.subTest(shader=relative):
+                source = (ROOT / relative).read_text()
+                seed_start = source.index("uint rng = hashValue(pixel_index")
+                seed_end = source.index(";", seed_start)
+                expression = source[seed_start:seed_end]
+                self.assertIn("hashValue(push.tile_frame.z)", expression)
+                self.assertNotIn("camera", expression)
+
+
+if __name__ == "__main__":
+    unittest.main()

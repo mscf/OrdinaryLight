@@ -1,0 +1,23 @@
+#version 460
+
+// This intentionally has a descriptor layout independent from production
+// tracing. Compact indirect reservoirs are six uint words (24 bytes) each.
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) buffer IndirectReservoirStorage {
+    uint words[];
+} indirect_reservoirs;
+
+layout(push_constant) uniform ClearConstants {
+    uint reservoir_count;
+} clear_constants;
+
+void main()
+{
+    uint reservoir_index = gl_GlobalInvocationID.x;
+    if (reservoir_index >= clear_constants.reservoir_count)
+        return;
+    uint base = reservoir_index * 6u;
+    for (uint word = 0u; word < 6u; ++word)
+        indirect_reservoirs.words[base + word] = 0u;
+}

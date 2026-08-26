@@ -1,0 +1,92 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WaveRay {
+    vec4 origin_tmin;
+    vec4 direction_tmax;
+    uint path_index;
+    uint padding_a;
+    uint padding_b;
+    uint padding_c;
+};
+
+struct WaveHit {
+    vec4 position_t;
+    vec3 geometric_normal;
+    uint primitive_index;
+    vec2 barycentrics;
+    uint ray_index;
+    uint path_index;
+};
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene_tlas;
+
+layout(set = 0, binding = 1, std430) readonly buffer RayQueue {
+    uint count;
+    uint capacity;
+    uint overflow;
+    uint queue_padding;
+    WaveRay rays[];
+} ray_queue;
+
+layout(set = 0, binding = 2, std430) buffer HitQueue {
+    uint count;
+    uint capacity;
+    uint overflow;
+    uint queue_padding;
+    WaveHit hits[];
+} hit_queue;
+
+layout(set = 0, binding = 3, std430) readonly buffer VertexBuffer {
+    vec4 vertices[];
+};
+
+void main()
+{
+    uint ray_index = gl_GlobalInvocationID.x;
+    uint active_count = min(ray_queue.count, ray_queue.capacity);
+    if (ray_index >= active_count)
+        return;
+    if (ray_index == 0u)
+        hit_queue.count = min(active_count, hit_queue.capacity);
+
+    WaveRay ray = ray_queue.rays[ray_index];
+    rayQueryEXT query;
+    rayQueryInitializeEXT(
+        query, scene_tlas, gl_RayFlagsOpaqueEXT, 0x01,
+        ray.origin_tmin.xyz, ray.origin_tmin.w,
+        ray.direction_tmax.xyz, ray.direction_tmax.w
+    );
+    while (rayQueryProceedEXT(query)) {}
+
+    uint hit_index = ray_index;
+    if (hit_index >= hit_queue.capacity)
+        return;
+
+    WaveHit hit;
+    hit.path_index = ray.path_index;
+    hit.ray_index = ray_index;
+    if (rayQueryGetIntersectionTypeEXT(query, true)
+            == gl_RayQueryCommittedIntersectionTriangleEXT) {
+        float distance = rayQueryGetIntersectionTEXT(query, true);
+        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
+            + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+        vec3 a = vertices[primitive * 3u + 0u].xyz;
+        vec3 b = vertices[primitive * 3u + 1u].xyz;
+        vec3 c = vertices[primitive * 3u + 2u].xyz;
+        hit.position_t = vec4(
+            ray.origin_tmin.xyz + distance * ray.direction_tmax.xyz, distance
+        );
+        hit.geometric_normal = normalize(cross(b - a, c - a));
+        hit.primitive_index = primitive;
+        hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+    } else {
+        hit.position_t = vec4(0.0, 0.0, 0.0, -1.0);
+        hit.geometric_normal = vec3(0.0);
+        hit.primitive_index = 0xffffffffu;
+        hit.barycentrics = vec2(0.0);
+    }
+    hit_queue.hits[hit_index] = hit;
+}

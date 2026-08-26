@@ -1,0 +1,41 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WavePathState {
+    vec4 throughput;
+    vec4 radiance;
+    uvec4 metadata;
+};
+
+struct ResolvedPixel {
+    vec4 radiance;
+    uvec4 metadata;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer PathStates {
+    WavePathState paths[];
+};
+
+layout(set = 0, binding = 1, std430) writeonly buffer ResolvedPixels {
+    ResolvedPixel pixels[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint path_count;
+    uint padding_a;
+    uint padding_b;
+    uint padding_c;
+} push;
+
+void main()
+{
+    uint path_index = gl_GlobalInvocationID.x;
+    if (path_index >= push.path_count)
+        return;
+    pixels[path_index].radiance = vec4(paths[path_index].radiance.rgb, 1.0);
+    pixels[path_index].metadata = uvec4(
+        paths[path_index].metadata.xy,
+        uint(paths[path_index].throughput.w),
+        paths[path_index].metadata.w);
+}

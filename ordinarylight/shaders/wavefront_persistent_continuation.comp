@@ -1,0 +1,37 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#if WAVE_NATIVE_TEXTURES
+#extension GL_EXT_nonuniform_qualifier : require
+#endif
+
+#define WAVE_MEGAKERNEL 1
+#define WAVE_HYBRID 0
+#define WAVE_CONTINUATION 1
+#define WAVE_LOCAL_SIZE_X 64
+#define WAVE_LOCAL_SIZE_Y 1
+#include "wavefront_primary_impl.glsl"
+
+void main()
+{
+    uint queue_index = gl_GlobalInvocationID.x
+        + gl_GlobalInvocationID.y
+            * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    if (queue_index >= output_queue.count)
+        return;
+    WaveRay ray = output_queue.rays[queue_index];
+    uint path_index = ray.path_index;
+    WavePathState path = paths[path_index];
+    vec3 origin = ray.origin_tmin.xyz;
+    vec3 direction = ray.direction_tmax.xyz;
+    float cone_width = uintBitsToFloat(ray.padding_a);
+    float cone_spread = uintBitsToFloat(ray.padding_b);
+    uint medium_depth = max(path.metadata.w >> 8u, 1u);
+    uint rng = pathRng(path);
+    traceRemaining(
+        path, origin, direction, path_index, medium_depth, rng,
+        cone_width, cone_spread);
+    paths[path_index] = path;
+}

@@ -1,0 +1,53 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct ResolvedPixel {
+    vec4 radiance;
+    uvec4 metadata;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer ResolvedPixels {
+    ResolvedPixel pixels[];
+};
+
+layout(set = 0, binding = 1, std430) writeonly buffer PackedPixels {
+    uint rgba8[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint path_count;
+    float exposure;
+    uint padding_a;
+    uint padding_b;
+} push;
+
+vec3 acesApproximation(vec3 color)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) /
+                 (color * (c * color + d) + e), 0.0, 1.0);
+}
+
+vec3 linearToSrgb(vec3 color)
+{
+    bvec3 low = lessThanEqual(color, vec3(0.0031308));
+    vec3 lower = color * 12.92;
+    vec3 upper = 1.055 * pow(color, vec3(1.0 / 2.4)) - 0.055;
+    return mix(upper, lower, low);
+}
+
+void main()
+{
+    uint path_index = gl_GlobalInvocationID.x;
+    if (path_index >= push.path_count)
+        return;
+    vec3 mapped = acesApproximation(
+        max(pixels[path_index].radiance.rgb, vec3(0.0)) * push.exposure
+    );
+    rgba8[path_index] = packUnorm4x8(vec4(linearToSrgb(mapped), 1.0));
+}

@@ -1,0 +1,130 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D accumulation_a;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D gbuffer_a;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D accumulation_b;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D gbuffer_b;
+layout(set = 0, binding = 8, r32f) uniform readonly image2D moment_a;
+layout(set = 0, binding = 9, r32f) uniform readonly image2D moment_b;
+layout(set = 0, binding = 12, rgba32f) uniform image2D filtered_a;
+layout(set = 0, binding = 13, rgba32f) uniform image2D filtered_b;
+
+layout(push_constant) uniform Camera {
+    vec4 origin;
+    vec4 forward;
+    vec4 right;
+    vec4 up;
+    vec4 overlay;
+    vec4 accumulation;
+    vec4 previous_origin;
+    vec4 previous_forward;
+    vec4 previous_right;
+    vec4 previous_up;
+    vec4 lighting; // w: one-based à-trous iteration
+} camera;
+
+vec3 decodeNormal(vec2 encoded)
+{
+    vec3 normal = vec3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+    if (normal.z < 0.0)
+        normal.xy = (1.0 - abs(normal.yx)) * sign(normal.xy);
+    return normalize(normal);
+}
+
+vec4 loadHistory(ivec2 pixel)
+{
+    bool current_a = (int(camera.accumulation.x) & 1) == 0;
+    return current_a ? imageLoad(accumulation_a, pixel) : imageLoad(accumulation_b, pixel);
+}
+
+vec4 loadGbuffer(ivec2 pixel)
+{
+    bool current_a = (int(camera.accumulation.x) & 1) == 0;
+    return current_a ? imageLoad(gbuffer_a, pixel) : imageLoad(gbuffer_b, pixel);
+}
+
+float loadMoment(ivec2 pixel)
+{
+    bool current_a = (int(camera.accumulation.x) & 1) == 0;
+    return current_a ? imageLoad(moment_a, pixel).r : imageLoad(moment_b, pixel).r;
+}
+
+vec4 loadSource(int iteration, ivec2 pixel)
+{
+    if (iteration == 0) return loadHistory(pixel);
+    return ((iteration - 1) & 1) == 0
+        ? imageLoad(filtered_a, pixel) : imageLoad(filtered_b, pixel);
+}
+
+void storeResult(int iteration, ivec2 pixel, vec4 value)
+{
+    if ((iteration & 1) == 0) imageStore(filtered_a, pixel, value);
+    else imageStore(filtered_b, pixel, value);
+}
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(camera.origin.w, camera.forward.w);
+    if (any(greaterThanEqual(pixel, size))) return;
+    int iteration = max(int(camera.lighting.w) - 1, 0);
+    int step_width = 1 << iteration;
+    vec4 center = loadSource(iteration, pixel);
+    vec4 raw_history = loadHistory(pixel);
+    vec4 center_gbuffer = loadGbuffer(pixel);
+    vec3 center_normal = decodeNormal(center_gbuffer.xy);
+    float center_depth = center_gbuffer.z;
+    bool center_background = center_depth < 0.0;
+    // Preserve mirror, transmissive, and emissive primary surfaces exactly.
+    if (center_gbuffer.w > 0.5) {
+        storeResult(iteration, pixel, center);
+        return;
+    }
+    float center_luminance = dot(
+        raw_history.rgb, vec3(0.2126, 0.7152, 0.0722)
+    );
+    float variance = max(
+        loadMoment(pixel) - center_luminance * center_luminance, 0.0
+    );
+    float relative_variance = variance /
+        max(center_luminance * center_luminance, 0.01);
+    float variance_threshold = max(camera.right.w, 0.000001);
+    if (relative_variance <= variance_threshold) {
+        storeResult(iteration, pixel, center);
+        return;
+    }
+    float filter_blend = clamp(
+        (relative_variance - variance_threshold) /
+        (variance_threshold * 4.0), 0.0, 1.0
+    );
+    float color_scale = max(2.0 * sqrt(variance), 0.015);
+    const float kernel[5] = float[5](1.0, 4.0, 6.0, 4.0, 1.0);
+    vec3 sum = vec3(0.0);
+    float weight_sum = 0.0;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            ivec2 sample_pixel = pixel + ivec2(x, y) * step_width;
+            if (any(lessThan(sample_pixel, ivec2(0))) ||
+                any(greaterThanEqual(sample_pixel, size))) continue;
+            vec4 sample_gbuffer = loadGbuffer(sample_pixel);
+            bool sample_background = sample_gbuffer.z < 0.0;
+            if (sample_background != center_background) continue;
+            vec3 sample_normal = decodeNormal(sample_gbuffer.xy);
+            float normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 64.0);
+            float depth_scale = max(abs(center_depth) * 0.01, 0.005);
+            float depth_weight = exp(-abs(sample_gbuffer.z - center_depth) / depth_scale);
+            vec4 sample_color = loadSource(iteration, sample_pixel);
+            float sample_luminance = dot(sample_color.rgb, vec3(0.2126, 0.7152, 0.0722));
+            float color_weight = exp(-abs(sample_luminance - center_luminance) / color_scale);
+            float weight = kernel[x + 2] * kernel[y + 2] *
+                normal_weight * depth_weight * color_weight;
+            sum += sample_color.rgb * weight;
+            weight_sum += weight;
+        }
+    }
+    vec3 filtered = sum / max(weight_sum, 0.000001);
+    storeResult(iteration, pixel, vec4(
+        mix(center.rgb, filtered, filter_blend), center.a
+    ));
+}

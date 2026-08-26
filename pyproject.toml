@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ordinarylight"
+version = "0.1.0"
+description = "A Pythonic, general-purpose hardware-accelerated path tracing renderer"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["rendering", "path-tracing", "ray-tracing", "vulkan"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+]
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "pygltflib>=1.16.5",
+    "vulkan==1.3.275.1",
+]
+
+[project.optional-dependencies]
+gui = ["dearpygui>=2.0"]
+window = ["glfw>=2.8", "PyOpenGL>=3.1"]
+qt = ["PySide6>=6.7", "glfw>=2.8"]
+dev = ["build>=1.2", "twine>=5.1"]
+
+[project.scripts]
+ordinarylight-workbench = "ordinarylight.integrations.qt_workbench:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["ordinarylight*"]
+
+[tool.setuptools.package-data]
+ordinarylight = [
+    "shaders/*.spv", "shaders/*.comp", "shaders/*.glsl",
+    "showcases/catalog/*.py", "showcases/catalog/*.md",
+]

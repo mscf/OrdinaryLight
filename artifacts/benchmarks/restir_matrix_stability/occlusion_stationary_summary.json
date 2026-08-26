@@ -1,0 +1,107 @@
+{
+  "scene": "occlusion",
+  "quality": {
+    "conventional": {
+      "mae_mean": 0.11511101853102446,
+      "mae_p95": 0.11529809720814228,
+      "mae_max": 0.1153046190738678,
+      "rmse_mean": 0.16081709787249565,
+      "rmse_p95": 0.16140929535031318,
+      "rmse_max": 0.1614443063735962,
+      "relative_rmse_mean": 0.3856921742962423,
+      "relative_rmse_p95": 0.38712414259589956,
+      "relative_rmse_max": 0.38719369462544756,
+      "bias_mean": 0.0014801804172748234,
+      "bias_p95": 0.002358336793258786,
+      "bias_max": 0.002590593183413148,
+      "temporal_residual_rmse_mean": 0.17044413089752197,
+      "temporal_residual_rmse_p95": 0.2279639095067978,
+      "temporal_residual_rmse_max": 0.22800876200199127,
+      "history_lag_ratio_mean": 0.8298048559850729,
+      "history_lag_ratio_p95": 0.9790866229090267,
+      "history_lag_ratio_max": 1.0
+    },
+    "canonical": {
+      "mae_mean": 0.11230950802564621,
+      "mae_p95": 0.11762055344879627,
+      "mae_max": 0.12056369334459305,
+      "rmse_mean": 0.15906989015638828,
+      "rmse_p95": 0.1652078241109848,
+      "rmse_max": 0.16864924132823944,
+      "relative_rmse_mean": 0.38150222451724913,
+      "relative_rmse_p95": 0.39624953720478767,
+      "relative_rmse_max": 0.40451642243477887,
+      "bias_mean": 8.641539898235351e-05,
+      "bias_p95": 0.0018962941830977793,
+      "bias_max": 0.0021248047705739737,
+      "temporal_residual_rmse_mean": 0.17511829361319542,
+      "temporal_residual_rmse_p95": 0.22001555189490318,
+      "temporal_residual_rmse_max": 0.22053883969783783,
+      "history_lag_ratio_mean": 0.8746751928479303,
+      "history_lag_ratio_p95": 1.0065522629947432,
+      "history_lag_ratio_max": 1.0089621334478427
+    },
+    "pairwise": {
+      "mae_mean": 0.11307292897254229,
+      "mae_p95": 0.11776196658611297,
+      "mae_max": 0.12056369334459305,
+      "rmse_mean": 0.1591979768127203,
+      "rmse_p95": 0.16517779901623725,
+      "rmse_max": 0.16864924132823944,
+      "relative_rmse_mean": 0.3818095222311564,
+      "relative_rmse_p95": 0.3961899371587096,
+      "relative_rmse_max": 0.40451642243477887,
+      "bias_mean": -0.0031856634996074717,
+      "bias_p95": 0.0009129432131885546,
+      "bias_max": 0.0012052315287292004,
+      "temporal_residual_rmse_mean": 0.17448353581130505,
+      "temporal_residual_rmse_p95": 0.21909068748354912,
+      "temporal_residual_rmse_max": 0.21948117017745972,
+      "history_lag_ratio_mean": 0.8746207771470711,
+      "history_lag_ratio_p95": 1.006470033438421,
+      "history_lag_ratio_max": 1.0087717561520564
+    },
+    "generalized": {
+      "mae_mean": 0.12959349900484085,
+      "mae_p95": 0.1730912648141384,
+      "mae_max": 0.19607853889465332,
+      "rmse_mean": 1.704847438260913,
+      "rmse_p95": 6.42721616029739,
+      "rmse_max": 8.973575592041016,
+      "relative_rmse_mean": 4.087594648612705,
+      "relative_rmse_p95": 15.40760957768046,
+      "relative_rmse_max": 21.51184971558725,
+      "bias_mean": 0.015964548620104324,
+      "bias_p95": 0.05963908825069662,
+      "bias_max": 0.08256396651268005,
+      "temporal_residual_rmse_mean": 1.8103110361844301,
+      "temporal_residual_rmse_p95": 6.482428234815593,
+      "temporal_residual_rmse_max": 9.0314359664917,
+      "history_lag_ratio_mean": 0.8759402026187684,
+      "history_lag_ratio_p95": 1.0057338105889664,
+      "history_lag_ratio_max": 1.0086391857741062
+    }
+  },
+  "gpu_ms_mean": {
+    "conventional": 0.23554133333333335,
+    "canonical": 0.2746613333333333,
+    "pairwise": 0.2724533333333333,
+    "generalized": 0.31135466666666667
+  },
+  "gate": {
+    "enabled": true,
+    "status": "fail",
+    "failures": [
+      "generalized: |bias_mean| 0.0159645 > 0.01",
+      "generalized: relative-RMSE ratio 10.5981 > 1.2000",
+      "generalized: canonical MAE ratio 1.1539 > 1.0200"
+    ],
+    "thresholds": {
+      "max_abs_bias": 0.01,
+      "max_error_ratio": 1.2,
+      "max_mae_ratio": 1.02,
+      "max_pairwise_gpu_ratio": 1.25,
+      "max_generalized_gpu_ratio": 1.5
+    }
+  }
+}

@@ -1,0 +1,496 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#if WAVE_NATIVE_TEXTURES
+#extension GL_EXT_nonuniform_qualifier : require
+#endif
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+const uint WAVE_MAX_MEDIUM_STACK_DEPTH = 16u;
+const uint PATH_ACTIVE_BIT = 1u;
+const uint PATH_PREVIOUS_DIFFUSE_BIT = 2u;
+const uint PATH_PREVIOUS_UNIFIED_NEE_BIT = 4u;
+const uint PATH_INDIRECT_CAPTURE_BIT = 8u;
+
+struct WaveRay {
+    vec4 origin_tmin;
+    vec4 direction_tmax;
+    uint path_index;
+    uint padding_a;
+    uint padding_b;
+    uint padding_c;
+};
+struct WaveHit {
+    vec4 position_t;
+    vec3 geometric_normal;
+    uint primitive_index;
+    vec2 barycentrics;
+    uint ray_index;
+    uint path_index;
+};
+struct WavePathState {
+    vec4 throughput;
+    vec4 radiance;
+    uvec4 metadata;
+};
+struct SecondaryPathState {
+    vec4 position_valid;
+    vec4 normal_pdf;
+    vec4 primary_throughput;
+    vec4 primary_radiance;
+};
+
+uint pathRng(WavePathState path) { return path.metadata.z; }
+void setPathRng(inout WavePathState path, uint rng) {
+    path.metadata.z = rng;
+}
+uint pathBounce(WavePathState path) { return uint(path.throughput.w); }
+void setPathBounce(inout WavePathState path, uint bounce) {
+    path.throughput.w = float(bounce);
+}
+float pathPreviousPdf(WavePathState path) { return path.radiance.w; }
+void setPathPreviousPdf(inout WavePathState path, float pdf) {
+    path.radiance.w = pdf;
+}
+struct WaveMediumStack {
+    float ior[WAVE_MAX_MEDIUM_STACK_DEPTH];
+};
+struct MaterialData {
+    vec4 base_roughness;
+    vec4 emission_metallic;
+    vec4 attenuation_transmission;
+    vec4 ior_distance;
+    vec4 texture_indices;
+    vec4 texture_parameters;
+};
+
+struct VertexAttributeData { vec4 normal; vec4 texcoord; vec4 tangent; };
+struct PointLightData {
+    vec4 position_type;
+    vec4 direction_range;
+    vec4 color_intensity;
+    vec4 spot_parameters;
+};
+struct AreaLightData {
+    vec4 a; vec4 b; vec4 c; vec4 emission_area; vec4 distribution;
+};
+struct TextureBindingData { vec4 texture_rotation; vec4 offset_scale; };
+
+layout(set = 0, binding = 0, std430) readonly buffer HitQueue {
+    uint count; uint capacity; uint overflow; uint queue_padding;
+    WaveHit hits[];
+} hit_queue;
+layout(set = 0, binding = 1, std430) readonly buffer InputRayQueue {
+    uint count; uint capacity; uint overflow; uint queue_padding;
+    WaveRay rays[];
+} input_queue;
+layout(set = 0, binding = 2, std430) buffer PathStates {
+    WavePathState paths[];
+};
+layout(set = 0, binding = 3, std430) readonly buffer MaterialBuffer {
+    MaterialData materials[];
+};
+layout(set = 0, binding = 4, std430) readonly buffer VertexBuffer {
+    vec4 vertices[];
+};
+layout(set = 0, binding = 5, std430) readonly buffer AttributeBuffer {
+    VertexAttributeData attributes[];
+};
+layout(set = 0, binding = 6, std430) buffer OutputRayQueue {
+    uint count; uint capacity; uint overflow; uint queue_padding;
+    WaveRay rays[];
+} output_queue;
+layout(set = 0, binding = 7, std430) buffer MediumStacks {
+    WaveMediumStack stacks[];
+};
+layout(set = 0, binding = 8) uniform accelerationStructureEXT scene_tlas;
+layout(set = 0, binding = 9, std430) readonly buffer PointLightBuffer {
+    PointLightData point_lights[];
+};
+layout(set = 0, binding = 10, std430) readonly buffer AreaLightBuffer {
+    AreaLightData area_lights[];
+};
+layout(set = 0, binding = 11, std430) readonly buffer TextureBuffer {
+    uint texture_words[];
+};
+layout(set = 0, binding = 12, std430) readonly buffer TextureBindingBuffer {
+    TextureBindingData texture_bindings[];
+};
+#if WAVE_NATIVE_TEXTURES
+layout(set = 0, binding = 13) uniform sampler2D native_textures[128];
+#endif
+#if WAVE_WORK_COUNTERS
+layout(set = 0, binding = 14, std430) buffer WorkCounterBuffer {
+    uint work_counters[];
+};
+uint profile_bounce = 0u;
+void profileWork(uint counter, uint amount)
+{
+    atomicAdd(work_counters[counter], amount);
+    uint bounce = min(profile_bounce, 7u);
+    if (counter == 0u)
+        atomicAdd(work_counters[16u + bounce], amount);
+    else if (counter == 1u)
+        atomicAdd(work_counters[24u + bounce], amount);
+    else if (counter == 3u)
+        atomicAdd(work_counters[32u + bounce], amount);
+}
+#endif
+layout(set = 0, binding = 15, std430) buffer SecondaryPathStates {
+    SecondaryPathState secondary_paths[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint max_bounces;
+    uint point_light_count;
+    uint area_light_count;
+    uint area_light_samples;
+    uint secondary_area_light_samples;
+    float area_light_weight;
+    uint environment_samples;
+    uint russian_roulette_start;
+    float russian_roulette_min_survival;
+    uint fused_intersection;
+    uint subgroup_enqueue;
+    float secondary_nee_probability;
+    uint unified_secondary_nee;
+    uint indirect_secondary_capture;
+} push;
+
+uint reserveOutputIndex()
+{
+    if (push.subgroup_enqueue == 0u)
+        return atomicAdd(output_queue.count, 1u);
+    uvec4 active_lanes = subgroupBallot(true);
+    uint base = 0u;
+    if (subgroupElect())
+        base = atomicAdd(
+            output_queue.count, subgroupBallotBitCount(active_lanes));
+    base = subgroupBroadcastFirst(base);
+    return base + subgroupBallotExclusiveBitCount(active_lanes);
+}
+
+#define WAVE_VOLUME_HEADER_BINDING 17
+#define WAVE_VOLUME_SCALAR_BINDING 18
+#define WAVE_VOLUME_TRANSFER_BINDING 19
+#define WAVE_VOLUME_TRIANGLE_BINDING 20
+#define WAVE_VOLUME_SAMPLER_BINDING 21
+#include "wavefront_textures.glsl"
+#include "wavefront_volumes.glsl"
+#include "wavefront_lighting.glsl"
+
+void terminatePath(uint path_index)
+{
+    paths[path_index].metadata.w &= ~PATH_ACTIVE_BIT;
+}
+
+void main()
+{
+    uint hit_index = gl_GlobalInvocationID.x;
+    WaveHit hit;
+    WaveRay input_ray;
+    if (push.fused_intersection != 0u) {
+        if (hit_index >= min(input_queue.count, input_queue.capacity))
+            return;
+        input_ray = input_queue.rays[hit_index];
+#if WAVE_WORK_COUNTERS
+        profile_bounce = min(
+            pathBounce(paths[input_ray.path_index]), 7u);
+        profileWork(0u, 1u);
+#endif
+        rayQueryEXT query;
+        rayQueryInitializeEXT(
+            query, scene_tlas, gl_RayFlagsOpaqueEXT, 0x01,
+            input_ray.origin_tmin.xyz, input_ray.origin_tmin.w,
+            input_ray.direction_tmax.xyz, input_ray.direction_tmax.w
+        );
+        while (rayQueryProceedEXT(query)) {}
+        hit.path_index = input_ray.path_index;
+        hit.ray_index = hit_index;
+        if (rayQueryGetIntersectionTypeEXT(query, true)
+                == gl_RayQueryCommittedIntersectionTriangleEXT) {
+            float distance = rayQueryGetIntersectionTEXT(query, true);
+            uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(
+                query, true)
+                + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+            vec3 a = vertices[primitive * 3u + 0u].xyz;
+            vec3 b = vertices[primitive * 3u + 1u].xyz;
+            vec3 c = vertices[primitive * 3u + 2u].xyz;
+            hit.position_t = vec4(
+                input_ray.origin_tmin.xyz
+                    + distance * input_ray.direction_tmax.xyz,
+                distance);
+            hit.geometric_normal = normalize(cross(b - a, c - a));
+            hit.primitive_index = primitive;
+            hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(
+                query, true);
+        } else {
+#if WAVE_WORK_COUNTERS
+            profileWork(4u, 1u);
+#endif
+            hit.position_t = vec4(0.0, 0.0, 0.0, -1.0);
+            hit.geometric_normal = vec3(0.0);
+            hit.primitive_index = 0xffffffffu;
+            hit.barycentrics = vec2(0.0);
+        }
+    } else {
+        if (hit_index >= min(hit_queue.count, hit_queue.capacity))
+            return;
+        hit = hit_queue.hits[hit_index];
+        input_ray = input_queue.rays[hit.ray_index];
+    }
+    uint path_index = hit.path_index;
+    WavePathState path = paths[path_index];
+#if WAVE_WORK_COUNTERS
+    profile_bounce = min(pathBounce(path), 7u);
+#endif
+    vec3 incoming = input_ray.direction_tmax.xyz;
+    float surface_distance = hit.primitive_index == 0xffffffffu
+        ? input_ray.direction_tmax.w : hit.position_t.w;
+    integrateVolumesBeforeSurface(
+        input_ray.origin_tmin.xyz, incoming, surface_distance,
+        path.radiance.rgb, path.throughput.rgb);
+    if (max(path.throughput.r,
+            max(path.throughput.g, path.throughput.b)) < 1e-4) {
+        path.metadata.w &= ~PATH_ACTIVE_BIT;
+        paths[path_index] = path;
+        return;
+    }
+
+    if (hit.primitive_index == 0xffffffffu) {
+        float environment_mis = 1.0;
+        if ((path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u &&
+                push.environment_samples > 0u) {
+            float pdf = pathPreviousPdf(path);
+            float light_pdf = pdf * float(push.environment_samples);
+            if ((path.metadata.w & PATH_PREVIOUS_UNIFIED_NEE_BIT) != 0u)
+                light_pdf = pdf * (1.0 - unifiedAreaDomainProbability());
+            environment_mis = powerHeuristic(pdf, light_pdf);
+        }
+        path.radiance.rgb += path.throughput.rgb
+            * environmentColor(incoming) * environment_mis;
+        path.metadata.w &= ~PATH_ACTIVE_BIT;
+        paths[path_index] = path;
+        return;
+    }
+#if WAVE_WORK_COUNTERS
+    profileWork(3u, 1u);
+#endif
+
+    uint primitive = hit.primitive_index;
+    float cone_spread = uintBitsToFloat(input_ray.padding_b);
+    float cone_width = uintBitsToFloat(input_ray.padding_a)
+        + hit.position_t.w * cone_spread;
+    vec3 weights = vec3(
+        1.0 - hit.barycentrics.x - hit.barycentrics.y,
+        hit.barycentrics.x, hit.barycentrics.y
+    );
+    vec3 shading_normal = normalize(
+        attributes[primitive * 3u + 0u].normal.xyz * weights.x
+        + attributes[primitive * 3u + 1u].normal.xyz * weights.y
+        + attributes[primitive * 3u + 2u].normal.xyz * weights.z
+    );
+    vec3 geometric_normal = hit.geometric_normal;
+    if (dot(shading_normal, geometric_normal) < 0.0)
+        shading_normal = -shading_normal;
+    bool entering = dot(incoming, geometric_normal) < 0.0;
+    vec3 normal = entering ? shading_normal : -shading_normal;
+    MaterialData material = materials[primitive];
+    vec3 a = vertices[primitive * 3u + 0u].xyz;
+    vec3 b = vertices[primitive * 3u + 1u].xyz;
+    vec3 c = vertices[primitive * 3u + 2u].xyz;
+    if (materialHasTextures(material)) {
+        vec2 uv0 = attributes[primitive * 3u + 0u].texcoord.xy * weights.x
+            + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
+            + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;
+        vec2 uv1 = vec2(0.0);
+        float uv0_footprint = cone_width
+            * attributes[primitive * 3u + 0u].normal.w;
+        float uv1_footprint = 0.0;
+        if (materialUsesUv1(material)) {
+            uv1 = attributes[primitive * 3u + 0u].texcoord.zw * weights.x
+                + attributes[primitive * 3u + 1u].texcoord.zw * weights.y
+                + attributes[primitive * 3u + 2u].texcoord.zw * weights.z;
+            uv1_footprint = cone_width * triangleUvDensity(
+                a, b, c,
+                attributes[primitive * 3u + 0u].texcoord.zw,
+                attributes[primitive * 3u + 1u].texcoord.zw,
+                attributes[primitive * 3u + 2u].texcoord.zw);
+        }
+        applyMaterialTextures(
+            material, uv0, uv1, uv0_footprint, uv1_footprint);
+        vec4 tangent_data =
+            attributes[primitive * 3u + 0u].tangent * weights.x
+            + attributes[primitive * 3u + 1u].tangent * weights.y
+            + attributes[primitive * 3u + 2u].tangent * weights.z;
+        if (textureBindingUsesUv1(material.texture_indices.w))
+            tangent_data = triangleTangent(
+                a, b, c,
+                attributes[primitive * 3u + 0u].texcoord.zw,
+                attributes[primitive * 3u + 1u].texcoord.zw,
+                attributes[primitive * 3u + 2u].texcoord.zw,
+                shading_normal);
+        shading_normal = applyNormalTexture(
+            material, uv0, uv1, uv0_footprint, uv1_footprint,
+            shading_normal, tangent_data);
+        if (dot(shading_normal, geometric_normal) < 0.0)
+            shading_normal = -shading_normal;
+        normal = entering ? shading_normal : -shading_normal;
+    }
+    if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u
+            && pathBounce(path) == 1u
+            && secondary_paths[path_index].primary_throughput.w > 0.5) {
+        secondary_paths[path_index].position_valid = vec4(
+            hit.position_t.xyz, 1.0);
+        secondary_paths[path_index].normal_pdf.xyz = normal;
+    }
+
+    bool emission_visible = entering || material.ior_distance.w > 0.5;
+    if (emission_visible) {
+        float emission_mis = 1.0;
+        if ((path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u &&
+                dot(material.emission_metallic.rgb,
+                    material.emission_metallic.rgb) > 0.0) {
+            float area = 0.5 * length(cross(b - a, c - a));
+            float light_cosine_raw = dot(geometric_normal, -incoming);
+            float light_cosine = material.ior_distance.w > 0.5
+                ? abs(light_cosine_raw) : max(light_cosine_raw, 0.0);
+            float luminance = dot(material.emission_metallic.rgb,
+                vec3(0.2126, 0.7152, 0.0722));
+            float selection_pdf = area * luminance /
+                max(push.area_light_weight, 0.000001);
+            float light_pdf = selection_pdf * hit.position_t.w * hit.position_t.w /
+                max(light_cosine * area, 0.000001);
+            float sampled_light_pdf = light_pdf * float(max(
+                push.secondary_area_light_samples, 1u));
+            if ((path.metadata.w & PATH_PREVIOUS_UNIFIED_NEE_BIT) != 0u)
+                sampled_light_pdf = light_pdf
+                    * unifiedAreaDomainProbability();
+            emission_mis = powerHeuristic(
+                pathPreviousPdf(path), sampled_light_pdf);
+        }
+        path.radiance.rgb += path.throughput.rgb
+            * material.emission_metallic.rgb * emission_mis;
+    }
+
+    uint next_bounce = pathBounce(path) + 1u;
+    if (next_bounce >= push.max_bounces) {
+        setPathBounce(path, next_bounce);
+        path.metadata.w &= ~PATH_ACTIVE_BIT;
+        paths[path_index] = path;
+        return;
+    }
+
+    uint rng = pathRng(path);
+    vec3 next_direction;
+    float bsdf_pdf = 0.0;
+    float transmission = material.attenuation_transmission.a;
+    uint medium_depth = max(path.metadata.w >> 8u, 1u);
+    if (transmission > 0.001) {
+        float current_ior = stacks[path_index].ior[medium_depth - 1u];
+        float target_ior = entering ? max(material.ior_distance.x, 1.0001)
+            : (medium_depth > 1u ? stacks[path_index].ior[medium_depth - 2u] : 1.0);
+        next_direction = refract(incoming, normal, current_ior / target_ior);
+        if (dot(next_direction, next_direction) < 0.01)
+            next_direction = reflect(incoming, normal);
+        else if (entering && medium_depth < WAVE_MAX_MEDIUM_STACK_DEPTH) {
+            stacks[path_index].ior[medium_depth] = target_ior;
+            medium_depth++;
+        } else if (!entering && medium_depth > 1u) {
+            medium_depth--;
+        }
+        path.throughput.rgb *= mix(
+            vec3(1.0), material.base_roughness.rgb, 0.2
+        ) * transmission;
+    } else {
+        float nee_probability = clamp(
+            push.secondary_nee_probability, 0.000001, 1.0);
+        bool sample_direct = selectSecondaryNee(
+            nee_probability, path.metadata.x, path.metadata.y, next_bounce);
+        if (sample_direct) {
+            vec3 direct = samplePointLights(
+                hit.position_t.xyz, normal, incoming, material);
+            if (push.unified_secondary_nee != 0u) {
+                direct += sampleUnifiedSecondaryLight(
+                    hit.position_t.xyz, normal, incoming, material, rng);
+            } else {
+                uint light_samples = clamp(
+                    push.secondary_area_light_samples, 1u, 16u);
+                vec3 area_direct = vec3(0.0);
+                for (uint sample_index = 0u;
+                        sample_index < light_samples; ++sample_index)
+                    area_direct += sampleAreaLight(
+                        hit.position_t.xyz, normal, incoming, material, rng,
+                        sample_index, light_samples);
+                direct += area_direct / float(light_samples);
+                uint environment_samples = min(push.environment_samples, 4u);
+                if (environment_samples > 0u) {
+                    vec3 environment_direct = vec3(0.0);
+                    for (uint sample_index = 0u;
+                            sample_index < environment_samples; ++sample_index)
+                        environment_direct += sampleEnvironment(
+                            hit.position_t.xyz, normal, incoming, material,
+                            rng, environment_samples);
+                    direct += environment_direct /
+                        float(environment_samples);
+                }
+            }
+            path.radiance.rgb += path.throughput.rgb
+                * direct / nee_probability;
+        }
+        vec3 bsdf_weight;
+        samplePbr(material, normal, incoming, rng,
+            next_direction, bsdf_weight, bsdf_pdf);
+        path.throughput.rgb *= bsdf_weight;
+        cone_spread += material.base_roughness.a * 0.25;
+    }
+    next_direction = normalize(next_direction);
+    setPathBounce(path, next_bounce);
+    path.metadata.w = PATH_ACTIVE_BIT | (medium_depth << 8u)
+        | (path.metadata.w & PATH_INDIRECT_CAPTURE_BIT);
+    if (transmission <= 0.001) {
+        path.metadata.w |= PATH_PREVIOUS_DIFFUSE_BIT;
+        if (push.unified_secondary_nee != 0u)
+            path.metadata.w |= PATH_PREVIOUS_UNIFIED_NEE_BIT;
+        setPathPreviousPdf(path, bsdf_pdf);
+    }
+    // Preserve transmissive paths so nested glass remains stable. For other
+    // materials this is an unbiased estimator: surviving paths compensate
+    // for terminated paths by dividing throughput by their survival chance.
+    if (push.russian_roulette_start > 0u
+            && next_bounce >= push.russian_roulette_start
+            && transmission <= 0.001) {
+        float survival = clamp(
+            max(path.throughput.r,
+                max(path.throughput.g, path.throughput.b)),
+            push.russian_roulette_min_survival, 0.95
+        );
+        if (randomFloat(rng) >= survival) {
+            path.metadata.w &= ~PATH_ACTIVE_BIT;
+            setPathRng(path, rng);
+            paths[path_index] = path;
+            return;
+        }
+        path.throughput.rgb /= survival;
+    }
+    setPathRng(path, rng);
+    paths[path_index] = path;
+
+    uint output_index = reserveOutputIndex();
+    if (output_index >= output_queue.capacity) {
+        atomicAdd(output_queue.overflow, 1u);
+        terminatePath(path_index);
+        return;
+    }
+    output_queue.rays[output_index].origin_tmin = vec4(
+        hit.position_t.xyz + next_direction * 0.002, 0.001
+    );
+    output_queue.rays[output_index].direction_tmax = vec4(next_direction, 1.0e30);
+    output_queue.rays[output_index].path_index = path_index;
+    output_queue.rays[output_index].padding_a = floatBitsToUint(cone_width);
+    output_queue.rays[output_index].padding_b = floatBitsToUint(cone_spread);
+    output_queue.rays[output_index].padding_c = 0u;
+}

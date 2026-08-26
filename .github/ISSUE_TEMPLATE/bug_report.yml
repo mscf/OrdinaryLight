@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible Ordinary Light defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Ordinary Light.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Include the expected and observed behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest script and scene that reproduce the issue.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ordinary Light version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, GPU, Vulkan driver, and relevant optional dependencies.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or validation output
+      render: shell
+

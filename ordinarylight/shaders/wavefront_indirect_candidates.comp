@@ -1,0 +1,410 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define WAVE_INDIRECT_REUSE_STORAGE 1
+#include "wavefront_indirect_reuse.glsl"
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D hdr_image;
+layout(set = 0, binding = 2, r32f) uniform readonly image2D position_image;
+layout(set = 0, binding = 3, r32ui) uniform readonly uimage2D normal_image;
+
+struct CameraData { vec4 origin; vec4 forward; vec4 right; vec4 up; };
+layout(set = 0, binding = 4, std430) readonly buffer CurrentCamera {
+    CameraData camera;
+};
+layout(set = 0, binding = 5, std430) readonly buffer PreviousReservoirStorage {
+    uint previous_reservoir_words[];
+};
+layout(set = 0, binding = 6, r32f) uniform readonly image2D previous_position;
+layout(set = 0, binding = 7, r32ui) uniform readonly uimage2D previous_normal;
+layout(set = 0, binding = 8, std430) readonly buffer PreviousCamera {
+    CameraData previous_camera;
+};
+layout(set = 0, binding = 9, r32ui) uniform readonly uimage2D material_image;
+layout(set = 0, binding = 10, r32ui) uniform readonly uimage2D previous_material;
+layout(set = 0, binding = 11, std430) buffer CandidateCounters {
+    uint counters[18];
+};
+layout(set = 0, binding = 12) uniform accelerationStructureEXT scene_tlas;
+
+layout(push_constant) uniform CandidateConstants {
+    uint source_width;
+    uint source_height;
+    uint reservoir_width;
+    uint reservoir_height;
+    uint history_valid;
+    uint frame_index;
+    uint spatial_enabled;
+    uint profiling_enabled;
+    uint history_limit;
+} push;
+
+bool instrumentedPixel()
+{
+    uint index = gl_GlobalInvocationID.y * push.reservoir_width
+        + gl_GlobalInvocationID.x;
+    return push.profiling_enabled != 0u && (index & 63u) == 0u;
+}
+
+void countEvent(uint event)
+{
+    if (instrumentedPixel())
+        atomicAdd(counters[event], 1u);
+}
+
+uint rejectionDebugFlag(uint counter)
+{
+    if (counter == 5u || counter == 11u)
+        return 1u << 10u;
+    if (counter == 6u || counter == 12u)
+        return 1u << 11u;
+    if (counter == 7u || counter == 13u)
+        return 1u << 12u;
+    return 1u << 13u;
+}
+
+void boundReservoirHistory(
+    inout IndirectLightReservoir reservoir, inout bool was_clamped)
+{
+    if (reservoir.sample_count <= push.history_limit)
+        return;
+    float scale = float(push.history_limit) / float(reservoir.sample_count);
+    reservoir.weight_sum *= scale;
+    reservoir.sample_count = push.history_limit;
+    was_clamped = true;
+}
+
+IndirectLightReservoir loadPreviousReservoir(
+    uint reservoir_index, vec3 camera_origin)
+{
+    uint word = reservoir_index * 6u;
+    uint header = previous_reservoir_words[word + 5u];
+    uint sample_count = header & 0x7fu;
+    if ((header & 0x80000000u) == 0u || sample_count == 0u)
+        return emptyIndirectLightReservoir();
+    vec2 position_xy = unpackHalf2x16(previous_reservoir_words[word]);
+    vec2 position_z_pdf = unpackHalf2x16(
+        previous_reservoir_words[word + 1u]);
+    vec2 weight_target = unpackHalf2x16(
+        previous_reservoir_words[word + 4u]);
+    IndirectLightReservoir reservoir;
+    reservoir.selected.secondary_position = camera_origin
+        + vec3(position_xy, position_z_pdf.x);
+    reservoir.selected.proposal_pdf = position_z_pdf.y;
+    reservoir.selected.secondary_normal = indirectDecodeNormal(
+        unpackUnorm2x16(previous_reservoir_words[word + 2u]) * 2.0 - 1.0);
+    reservoir.selected.target = weight_target.y;
+    reservoir.selected.radiance = indirectUnpackRgb9e5(
+        previous_reservoir_words[word + 3u]);
+    reservoir.weight_sum = weight_target.x;
+    reservoir.sample_count = sample_count;
+    reservoir.valid = true;
+    return reservoir;
+}
+
+float candidateRandom(uvec2 pixel, uint salt)
+{
+    uint value = pixel.x * 0x9e3779b9u ^ pixel.y * 0x85ebca6bu
+        ^ push.frame_index * 0xc2b2ae35u ^ salt * 0x27d4eb2du;
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    return float(value) * (1.0 / 4294967296.0);
+}
+
+void mergePreviousCandidate(
+    inout IndirectLightReservoir reservoir,
+    IndirectLightReservoir old, float current_target,
+    uvec2 reservoir_pixel, uint salt, inout bool history_was_clamped)
+{
+    if (!old.valid || old.selected.target <= 0.0)
+        return;
+    float reuse_weight = current_target * old.weight_sum
+        / old.selected.target;
+    float combined_weight = reservoir.weight_sum + reuse_weight;
+    if (reuse_weight > 0.0 && candidateRandom(reservoir_pixel, salt)
+            * combined_weight < reuse_weight) {
+        reservoir.selected = old.selected;
+        reservoir.selected.target = current_target;
+    }
+    reservoir.weight_sum = combined_weight;
+    reservoir.sample_count += old.sample_count;
+    boundReservoirHistory(reservoir, history_was_clamped);
+}
+
+vec3 decodePrimaryNormal(uint packed)
+{
+    vec2 encoded = vec2(
+        float(packed & 0x7fffu),
+        float((packed >> 15u) & 0x7fffu)
+    ) / 32767.0 * 2.0 - 1.0;
+    return indirectDecodeNormal(encoded);
+}
+
+vec3 primaryWorldPosition(ivec2 pixel, float distance)
+{
+    vec2 ndc = ((vec2(pixel) + 0.5)
+        / vec2(push.source_width, push.source_height)) * 2.0 - 1.0;
+    float aspect = float(push.source_width) / float(push.source_height);
+    vec3 direction = normalize(camera.forward.xyz
+        + ndc.x * aspect * camera.right.xyz
+        - ndc.y * camera.up.xyz);
+    return camera.origin.xyz + direction * distance;
+}
+
+vec3 previousWorldPosition(ivec2 pixel, float distance)
+{
+    vec2 ndc = ((vec2(pixel) + 0.5)
+        / vec2(push.source_width, push.source_height)) * 2.0 - 1.0;
+    float aspect = float(push.source_width) / float(push.source_height);
+    vec3 direction = normalize(previous_camera.forward.xyz
+        + ndc.x * aspect * previous_camera.right.xyz
+        - ndc.y * previous_camera.up.xyz);
+    return previous_camera.origin.xyz + direction * distance;
+}
+
+bool secondaryVisible(vec3 primary_position, vec3 primary_normal,
+    vec3 secondary_position)
+{
+    vec3 offset = secondary_position - primary_position;
+    float connection_distance = length(offset);
+    if (connection_distance <= 0.006)
+        return true;
+    vec3 direction = offset / connection_distance;
+    rayQueryEXT query;
+    rayQueryInitializeEXT(
+        query, scene_tlas,
+        gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+        0x01, primary_position + primary_normal * 0.002, 0.001,
+        direction, max(connection_distance - 0.004, 0.001));
+    while (rayQueryProceedEXT(query)) {}
+    return rayQueryGetIntersectionTypeEXT(query, true)
+        == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+bool reprojectPrevious(
+    vec3 world_position, vec3 world_normal, uint material_signature,
+    out uint previous_reservoir_index, out uint rejection)
+{
+    rejection = 5u;
+    vec3 relative = world_position - previous_camera.origin.xyz;
+    float forward_distance = dot(relative, previous_camera.forward.xyz);
+    if (forward_distance <= 0.0)
+        return false;
+    float aspect = float(push.source_width) / float(push.source_height);
+    float ndc_x = dot(relative, previous_camera.right.xyz)
+        / max(dot(previous_camera.right.xyz, previous_camera.right.xyz), 1e-8)
+        / forward_distance / aspect;
+    float ndc_y = -dot(relative, previous_camera.up.xyz)
+        / max(dot(previous_camera.up.xyz, previous_camera.up.xyz), 1e-8)
+        / forward_distance;
+    vec2 previous_coordinate = (vec2(ndc_x, ndc_y) * 0.5 + 0.5)
+        * vec2(push.source_width, push.source_height) - 0.5;
+    ivec2 previous_pixel = ivec2(round(previous_coordinate));
+    if (any(lessThan(previous_pixel, ivec2(0)))
+            || any(greaterThanEqual(previous_pixel,
+                ivec2(push.source_width, push.source_height))))
+        return false;
+    float old_distance = imageLoad(previous_position, previous_pixel).x;
+    if (old_distance <= 0.0 || isnan(old_distance) || isinf(old_distance))
+        return false;
+    vec3 old_position = previousWorldPosition(previous_pixel, old_distance);
+    float position_tolerance = max(0.02, old_distance * 0.02);
+    if (distance(old_position, world_position) > position_tolerance)
+        return false;
+    vec3 old_normal = decodePrimaryNormal(
+        imageLoad(previous_normal, previous_pixel).x);
+    if (dot(old_normal, world_normal) < 0.9)
+    {
+        rejection = 6u;
+        return false;
+    }
+    if (imageLoad(previous_material, previous_pixel).x != material_signature)
+    {
+        rejection = 7u;
+        return false;
+    }
+    uvec2 reservoir_pixel = min(
+        uvec2((vec2(previous_pixel) + 0.5)
+            * vec2(push.reservoir_width, push.reservoir_height)
+            / vec2(push.source_width, push.source_height)),
+        uvec2(push.reservoir_width - 1u, push.reservoir_height - 1u));
+    previous_reservoir_index = reservoir_pixel.y * push.reservoir_width
+        + reservoir_pixel.x;
+    return true;
+}
+
+bool spatiallyCompatiblePrevious(
+    uvec2 previous_reservoir_pixel, vec3 world_position,
+    vec3 world_normal, uint material_signature, out uint rejection)
+{
+    rejection = 11u;
+    ivec2 previous_pixel = clamp(ivec2(
+        (vec2(previous_reservoir_pixel) + 0.5)
+        * vec2(push.source_width, push.source_height)
+        / vec2(push.reservoir_width, push.reservoir_height)),
+        ivec2(0), ivec2(push.source_width, push.source_height) - 1);
+    float old_distance = imageLoad(previous_position, previous_pixel).x;
+    if (old_distance <= 0.0 || isnan(old_distance) || isinf(old_distance))
+        return false;
+    if (imageLoad(previous_material, previous_pixel).x != material_signature)
+    {
+        rejection = 13u;
+        return false;
+    }
+    vec3 old_normal = decodePrimaryNormal(
+        imageLoad(previous_normal, previous_pixel).x);
+    if (dot(old_normal, world_normal) < 0.9)
+    {
+        rejection = 12u;
+        return false;
+    }
+    vec3 old_position = previousWorldPosition(previous_pixel, old_distance);
+    float tolerance = max(
+        0.05, length(world_position - previous_camera.origin.xyz) * 0.05);
+    return distance(old_position, world_position) <= tolerance;
+}
+
+void main()
+{
+    uvec2 reservoir_pixel = gl_GlobalInvocationID.xy;
+    if (reservoir_pixel.x >= push.reservoir_width
+            || reservoir_pixel.y >= push.reservoir_height)
+        return;
+    uint reservoir_index = reservoir_pixel.y * push.reservoir_width
+        + reservoir_pixel.x;
+    countEvent(0u);
+    vec2 source_coordinate = (vec2(reservoir_pixel) + 0.5)
+        * vec2(push.source_width, push.source_height)
+        / vec2(push.reservoir_width, push.reservoir_height);
+    ivec2 source_pixel = clamp(
+        ivec2(source_coordinate), ivec2(0),
+        ivec2(push.source_width, push.source_height) - 1);
+    float distance = imageLoad(position_image, source_pixel).x;
+    IndirectLightReservoir reservoir = loadIndirectLightReservoir(
+        reservoir_index, camera.origin.xyz);
+    float target = reservoir.selected.target;
+    if (distance <= 0.0 || isnan(distance) || isinf(distance)) {
+        countEvent(2u);
+        storeIndirectLightReservoir(
+            reservoir_index, emptyIndirectLightReservoir(), camera.origin.xyz);
+        return;
+    }
+    if (!reservoir.valid || target <= 0.0
+            || isnan(target) || isinf(target)) {
+        reservoir = emptyIndirectLightReservoir();
+        target = 0.0;
+        countEvent(2u);
+    } else {
+        countEvent(1u);
+    }
+    vec3 current_position = primaryWorldPosition(source_pixel, distance);
+    vec3 current_normal = decodePrimaryNormal(
+        imageLoad(normal_image, source_pixel).x);
+    bool history_was_clamped = false;
+    if (push.history_valid != 0u) {
+        countEvent(3u);
+        uint previous_index = 0u;
+        uint material_signature = imageLoad(material_image, source_pixel).x;
+        uint temporal_rejection = material_signature == 0xffffffffu ? 7u : 5u;
+        if (material_signature != 0xffffffffu && reprojectPrevious(
+                current_position, current_normal, material_signature,
+                previous_index, temporal_rejection)) {
+            IndirectLightReservoir old = loadPreviousReservoir(
+                previous_index, previous_camera.origin.xyz);
+            if (old.valid && !secondaryVisible(
+                    current_position, current_normal,
+                    old.selected.secondary_position))
+                old.valid = false;
+            // Validated reprojection represents the same primary surface,
+            // so the bootstrap reconnection Jacobian is exactly one.
+            float old_target = dot(old.selected.radiance,
+                vec3(0.2126, 0.7152, 0.0722));
+            mergePreviousCandidate(
+                reservoir, old, old_target, reservoir_pixel, 0u,
+                history_was_clamped);
+            if (old.valid && old.selected.target > 0.0)
+            {
+                countEvent(4u);
+                reservoir.debug_flags |= 1u << 8u;
+            }
+            else
+            {
+                countEvent(8u);
+                reservoir.debug_flags |= rejectionDebugFlag(8u);
+            }
+            if (push.spatial_enabled != 0u) {
+                uvec2 previous_center = uvec2(
+                    previous_index % push.reservoir_width,
+                    previous_index / push.reservoir_width);
+                int sign_x = ((push.frame_index + reservoir_pixel.y) & 1u)
+                    == 0u ? -1 : 1;
+                int sign_y = ((push.frame_index + reservoir_pixel.x) & 1u)
+                    == 0u ? -1 : 1;
+                ivec2 offsets[4] = ivec2[4](
+                    ivec2(sign_x * 2, 0), ivec2(0, sign_y * 2),
+                    ivec2(-sign_x * 4, 0), ivec2(0, -sign_y * 4));
+                for (uint neighbor = 0u; neighbor < 4u; ++neighbor) {
+                    ivec2 coordinate = ivec2(previous_center)
+                        + offsets[neighbor];
+                    if (any(lessThan(coordinate, ivec2(0)))
+                            || any(greaterThanEqual(coordinate, ivec2(
+                                push.reservoir_width,
+                                push.reservoir_height))))
+                        continue;
+                    countEvent(9u);
+                    uvec2 spatial_pixel = uvec2(coordinate);
+                    uint spatial_rejection = 11u;
+                    if (!spatiallyCompatiblePrevious(
+                            spatial_pixel,
+                            current_position, current_normal,
+                            material_signature, spatial_rejection)) {
+                        countEvent(spatial_rejection);
+                        reservoir.debug_flags |= rejectionDebugFlag(
+                            spatial_rejection);
+                        continue;
+                    }
+                    uint spatial_index = spatial_pixel.y
+                        * push.reservoir_width + spatial_pixel.x;
+                    IndirectLightReservoir spatial = loadPreviousReservoir(
+                        spatial_index, previous_camera.origin.xyz);
+                    if (spatial.valid && !secondaryVisible(
+                            current_position, current_normal,
+                            spatial.selected.secondary_position))
+                        spatial.valid = false;
+                    float spatial_target = dot(spatial.selected.radiance,
+                        vec3(0.2126, 0.7152, 0.0722));
+                    mergePreviousCandidate(
+                        reservoir, spatial,
+                        spatial_target, reservoir_pixel, neighbor + 1u,
+                        history_was_clamped);
+                    if (spatial.valid && spatial.selected.target > 0.0)
+                    {
+                        countEvent(10u);
+                        reservoir.debug_flags |= 1u << 9u;
+                    }
+                    else
+                    {
+                        countEvent(14u);
+                        reservoir.debug_flags |= rejectionDebugFlag(14u);
+                    }
+                }
+            }
+        } else {
+            countEvent(temporal_rejection);
+            reservoir.debug_flags |= rejectionDebugFlag(temporal_rejection);
+        }
+    }
+    if (instrumentedPixel()) {
+        atomicAdd(counters[15], reservoir.sample_count);
+        if (history_was_clamped)
+            atomicAdd(counters[16], 1u);
+        if (reservoir.weight_sum >= 65504.0)
+            atomicAdd(counters[17], 1u);
+    }
+    storeIndirectLightReservoir(
+        reservoir_index, reservoir, camera.origin.xyz);
+}

@@ -1,0 +1,621 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene_tlas;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D output_image;
+struct MaterialData {
+    vec4 base_roughness;
+    vec4 emission_metallic;
+    vec4 attenuation_transmission;
+    vec4 ior_distance;
+    vec4 texture_indices;
+    vec4 texture_parameters;
+};
+struct MaterialEvaluation {
+    vec3 base_color;
+    vec3 emission;
+    float metallic;
+    float roughness;
+    float transmission;
+    float ior;
+    vec3 attenuation_color;
+    float attenuation_distance;
+    float custom_scattering;
+    vec3 weight;
+    vec3 next_direction;
+    float event;
+    float pdf;
+};
+float waveFresnelSchlick(float cosine, float ior_from, float ior_to);
+vec3 waveCosineHemisphere(vec3 normal, float random_u, float random_v);
+// WAVE_RENDER_MATERIAL_BEGIN
+MaterialEvaluation evaluateMaterial(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)
+{
+    MaterialEvaluation result;
+    result.base_color = material.base_roughness.rgb;
+    result.emission = material.emission_metallic.rgb;
+    result.metallic = material.emission_metallic.a;
+    result.roughness = material.base_roughness.a;
+    result.transmission = material.attenuation_transmission.a;
+    result.ior = material.ior_distance.x;
+    result.attenuation_color = material.attenuation_transmission.rgb;
+    result.attenuation_distance = material.ior_distance.y;
+    result.custom_scattering = 0.0;
+    result.weight = vec3(0.0);
+    result.next_direction = direction;
+    result.event = 0.0;
+    result.pdf = 1.0;
+    return result;
+}
+// WAVE_RENDER_MATERIAL_END
+float waveFresnelSchlick(float cosine, float ior_from, float ior_to)
+{
+    float r0 = (ior_from - ior_to) / max(ior_from + ior_to, 0.000001);
+    r0 *= r0;
+    return r0 + (1.0 - r0) * pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
+}
+
+vec3 waveCosineHemisphere(vec3 normal, float random_u, float random_v)
+{
+    float radius = sqrt(random_u);
+    float phi = 6.28318530718 * random_v;
+    vec3 tangent = normalize(abs(normal.z) < 0.999 ? cross(normal, vec3(0.0, 0.0, 1.0)) : cross(normal, vec3(0.0, 1.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    return normalize(tangent * (radius * cos(phi)) + bitangent * (radius * sin(phi)) + normal * sqrt(max(0.0, 1.0 - random_u)));
+}
+
+float waveRandom(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return float(word) * (1.0 / 4294967296.0);
+}
+
+vec2 waveEncodeNormal(vec3 normal)
+{
+    normal /= abs(normal.x) + abs(normal.y) + abs(normal.z);
+    vec2 encoded = normal.xy;
+    if (normal.z < 0.0)
+        encoded = (1.0 - abs(encoded.yx)) * sign(encoded.xy);
+    return encoded;
+}
+layout(set = 0, binding = 2, std430) readonly buffer MaterialBuffer {
+    MaterialData materials[];
+};
+layout(set = 0, binding = 3, std430) readonly buffer VertexBuffer {
+    vec4 vertices[];
+};
+layout(set = 0, binding = 4, rgba32f) uniform image2D accumulation_a;
+layout(set = 0, binding = 5, rgba32f) uniform image2D gbuffer_a;
+layout(set = 0, binding = 6, rgba32f) uniform image2D accumulation_b;
+layout(set = 0, binding = 7, rgba32f) uniform image2D gbuffer_b;
+layout(set = 0, binding = 8, r32f) uniform image2D moment_a;
+layout(set = 0, binding = 9, r32f) uniform image2D moment_b;
+struct PointLightData {
+    vec4 position_type;
+    vec4 direction_range;
+    vec4 color_intensity;
+    vec4 spot_parameters;
+};
+layout(set = 0, binding = 10, std430) readonly buffer PointLightBuffer {
+    PointLightData point_lights[];
+};
+struct VertexAttributeData { vec4 normal; vec4 texcoord; vec4 tangent; };
+layout(set = 0, binding = 14, std430) readonly buffer AttributeBuffer {
+    VertexAttributeData attributes[];
+};
+struct AreaLightData {
+    vec4 a;
+    vec4 b;
+    vec4 c;
+    vec4 emission_area;
+    vec4 distribution; // x: CDF, y: selection probability, z: two-sided
+};
+layout(set = 0, binding = 11, std430) readonly buffer AreaLightBuffer {
+    AreaLightData area_lights[];
+};
+
+layout(push_constant) uniform Camera {
+    vec4 origin;
+    vec4 forward;
+    vec4 right;
+    vec4 up;
+    vec4 overlay; // x: smoothed FPS, y: enabled
+    vec4 accumulation; // x: frame, y: temporal enabled, z: history valid
+    vec4 previous_origin;
+    vec4 previous_forward;
+    vec4 previous_right;
+    vec4 previous_up;
+    vec4 lighting; // x: triangle count, y: total weight, z: NEE samples
+} camera;
+
+vec3 waveDecodeNormal(vec2 encoded)
+{
+    vec3 normal = vec3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+    if (normal.z < 0.0)
+        normal.xy = (1.0 - abs(normal.yx)) * sign(normal.xy);
+    return normalize(normal);
+}
+
+vec4 waveLoadAccumulation(bool use_a, ivec2 pixel)
+{
+    return use_a ? imageLoad(accumulation_a, pixel) : imageLoad(accumulation_b, pixel);
+}
+
+vec4 waveLoadGbuffer(bool use_a, ivec2 pixel)
+{
+    return use_a ? imageLoad(gbuffer_a, pixel) : imageLoad(gbuffer_b, pixel);
+}
+
+void waveStoreAccumulation(bool use_a, ivec2 pixel, vec4 value)
+{
+    if (use_a) imageStore(accumulation_a, pixel, value);
+    else imageStore(accumulation_b, pixel, value);
+}
+
+void waveStoreGbuffer(bool use_a, ivec2 pixel, vec4 value)
+{
+    if (use_a) imageStore(gbuffer_a, pixel, value);
+    else imageStore(gbuffer_b, pixel, value);
+}
+
+float waveLoadMoment(bool use_a, ivec2 pixel)
+{
+    return use_a ? imageLoad(moment_a, pixel).r : imageLoad(moment_b, pixel).r;
+}
+
+void waveStoreMoment(bool use_a, ivec2 pixel, float value)
+{
+    if (use_a) imageStore(moment_a, pixel, vec4(value));
+    else imageStore(moment_b, pixel, vec4(value));
+}
+
+vec3 environmentColor(vec3 direction)
+{
+    float blend = clamp(0.5 * (direction.y + 1.0), 0.0, 1.0);
+    return mix(vec3(0.8), vec3(0.2, 0.4, 0.9), blend);
+}
+
+void primaryRay(vec2 screen, out vec3 origin, out vec3 direction)
+{
+    int projection = int(camera.up.w + 0.5);
+    origin = camera.origin.xyz;
+    if (projection == 1) {
+        origin += screen.x * camera.right.xyz + screen.y * camera.up.xyz;
+        direction = normalize(camera.forward.xyz);
+    } else if (projection == 2) {
+        float yaw = screen.x * length(camera.right.xyz);
+        float pitch = screen.y * length(camera.up.xyz);
+        direction = normalize(
+            normalize(camera.forward.xyz) * cos(pitch) * cos(yaw)
+            + normalize(camera.right.xyz) * cos(pitch) * sin(yaw)
+            + normalize(camera.up.xyz) * sin(pitch));
+    } else {
+        direction = normalize(camera.forward.xyz
+            + screen.x * camera.right.xyz + screen.y * camera.up.xyz);
+    }
+}
+
+vec3 samplePointLights(vec3 hit, vec3 normal, vec3 diffuse_albedo)
+{
+    vec3 direct = vec3(0.0);
+    int light_count = clamp(int(camera.previous_up.w), 0, 64);
+    for (int light_index = 0; light_index < 64; ++light_index) {
+        if (light_index >= light_count) break;
+        PointLightData light = point_lights[light_index];
+        int light_type = int(light.position_type.w + 0.5);
+        if (light_type == 3) continue;
+        vec3 light_direction;
+        float distance_to_light = 10000.0;
+        float attenuation = 1.0;
+        if (light_type == 1) {
+            light_direction = -normalize(light.direction_range.xyz);
+        } else {
+            vec3 to_light = light.position_type.xyz - hit;
+            float distance_squared = max(dot(to_light, to_light), 0.000001);
+            distance_to_light = sqrt(distance_squared);
+            light_direction = to_light / distance_to_light;
+            if (light.direction_range.w > 0.0 &&
+                    distance_to_light > light.direction_range.w) continue;
+            attenuation = 1.0 / distance_squared;
+            if (light_type == 2) {
+                float cone = dot(normalize(light.direction_range.xyz),
+                    -light_direction);
+                float spot = smoothstep(
+                    light.spot_parameters.y, light.spot_parameters.x, cone);
+                if (spot <= 0.0) continue;
+                attenuation *= spot;
+            }
+        }
+        float cosine = max(dot(normal, light_direction), 0.0);
+        if (cosine <= 0.0) continue;
+        rayQueryEXT shadow_query;
+        rayQueryInitializeEXT(
+            shadow_query, scene_tlas,
+            gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+            0xff, hit + normal * 0.002, 0.001, light_direction,
+            light_type == 1 ? 10000.0 : max(distance_to_light - 0.004, 0.001)
+        );
+        while (rayQueryProceedEXT(shadow_query)) {}
+        if (rayQueryGetIntersectionTypeEXT(shadow_query, true) !=
+            gl_RayQueryCommittedIntersectionNoneEXT) continue;
+        vec3 incident = light.color_intensity.rgb * light.color_intensity.a
+            * attenuation;
+        direct += diffuse_albedo * incident * (cosine / 3.14159265359);
+    }
+    return direct;
+}
+
+float powerHeuristic(float first_pdf, float second_pdf)
+{
+    float first_squared = first_pdf * first_pdf;
+    float second_squared = second_pdf * second_pdf;
+    return first_squared / max(first_squared + second_squared, 0.000001);
+}
+
+vec3 sampleAreaLight(
+    vec3 hit, vec3 normal, vec3 diffuse_albedo, inout uint random_state,
+    int sample_index, int sample_count
+)
+{
+    int light_count = max(int(camera.lighting.x), 0);
+    if (light_count == 0) return vec3(0.0);
+    float selection = (float(sample_index) + waveRandom(random_state)) /
+        float(sample_count);
+    int lower = 0;
+    int upper = light_count - 1;
+    for (int search_step = 0; search_step < 32 && lower < upper; ++search_step) {
+        int middle = lower + (upper - lower) / 2;
+        if (selection <= area_lights[middle].distribution.x)
+            upper = middle;
+        else
+            lower = middle + 1;
+    }
+    int light_index = lower;
+    AreaLightData light = area_lights[light_index];
+    float root_u = sqrt(waveRandom(random_state));
+    float v = waveRandom(random_state);
+    vec3 light_position =
+        (1.0 - root_u) * light.a.xyz +
+        root_u * (1.0 - v) * light.b.xyz + root_u * v * light.c.xyz;
+    vec3 to_light = light_position - hit;
+    float distance_squared = dot(to_light, to_light);
+    float distance_to_light = sqrt(distance_squared);
+    vec3 light_direction = to_light / max(distance_to_light, 0.000001);
+    float surface_cosine = max(dot(normal, light_direction), 0.0);
+    vec3 light_normal = normalize(cross(
+        light.b.xyz - light.a.xyz, light.c.xyz - light.a.xyz
+    ));
+    float raw_light_cosine = dot(light_normal, -light_direction);
+    float light_cosine = light.distribution.z > 0.5
+        ? abs(raw_light_cosine) : max(raw_light_cosine, 0.0);
+    if (surface_cosine <= 0.0 || light_cosine <= 0.000001) return vec3(0.0);
+
+    rayQueryEXT shadow_query;
+    rayQueryInitializeEXT(
+        shadow_query, scene_tlas,
+        gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+        0xff, hit + normal * 0.002, 0.001, light_direction,
+        max(distance_to_light - 0.004, 0.001)
+    );
+    while (rayQueryProceedEXT(shadow_query)) {}
+    if (rayQueryGetIntersectionTypeEXT(shadow_query, true) !=
+        gl_RayQueryCommittedIntersectionNoneEXT) return vec3(0.0);
+
+    float light_pdf = light.distribution.y * distance_squared /
+        max(light_cosine * light.emission_area.a, 0.000001);
+    float bsdf_pdf = surface_cosine / 3.14159265359;
+    float mis_weight = powerHeuristic(
+        light_pdf * float(sample_count), bsdf_pdf
+    );
+    return diffuse_albedo * light.emission_area.rgb *
+        (surface_cosine / 3.14159265359) * mis_weight /
+        max(light_pdf, 0.000001);
+}
+
+vec3 tracePath(
+    vec3 origin, vec3 direction, uint random_state,
+    out float primary_depth, out vec3 primary_normal, out float primary_id
+)
+{
+    vec3 radiance = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+    int max_bounces = clamp(int(camera.overlay.z), 1, 16);
+    float medium_iors[8];
+    medium_iors[0] = 1.0;
+    int medium_depth = 1;
+    primary_depth = -1.0;
+    primary_normal = vec3(0.0);
+    primary_id = -1.0;
+    float previous_bsdf_pdf = 0.0;
+    bool previous_was_diffuse = false;
+    for (int bounce = 0; bounce < 16; ++bounce) {
+        if (bounce >= max_bounces) break;
+        rayQueryEXT query;
+        rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, 0xff,
+                              origin, 0.001, direction, 10000.0);
+        while (rayQueryProceedEXT(query)) {}
+        if (rayQueryGetIntersectionTypeEXT(query, true) ==
+            gl_RayQueryCommittedIntersectionNoneEXT) {
+            radiance += throughput * environmentColor(direction);
+            break;
+        }
+
+        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
+            + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+        float distance = rayQueryGetIntersectionTEXT(query, true);
+        vec3 hit = origin + direction * distance;
+        vec3 a = vertices[primitive * 3 + 0].xyz;
+        vec3 b = vertices[primitive * 3 + 1].xyz;
+        vec3 c = vertices[primitive * 3 + 2].xyz;
+        vec3 geometric_normal = normalize(cross(b - a, c - a));
+        bool entering = dot(direction, geometric_normal) < 0.0;
+        vec2 barycentric = rayQueryGetIntersectionBarycentricsEXT(query, true);
+        vec3 weights = vec3(1.0 - barycentric.x - barycentric.y,
+                            barycentric.x, barycentric.y);
+        vec3 shading_normal = normalize(
+            attributes[primitive * 3 + 0].normal.xyz * weights.x +
+            attributes[primitive * 3 + 1].normal.xyz * weights.y +
+            attributes[primitive * 3 + 2].normal.xyz * weights.z
+        );
+        if (dot(shading_normal, geometric_normal) < 0.0)
+            shading_normal = -shading_normal;
+        vec3 normal = entering ? shading_normal : -shading_normal;
+        vec2 uv = attributes[primitive * 3 + 0].texcoord.xy * weights.x +
+                  attributes[primitive * 3 + 1].texcoord.xy * weights.y +
+                  attributes[primitive * 3 + 2].texcoord.xy * weights.z;
+        if (bounce == 0) {
+            primary_depth = distance;
+            primary_normal = normal;
+        }
+        MaterialData material = materials[primitive];
+        bool emitted_toward_ray = entering || material.ior_distance.w > 0.5;
+        float current_ior = medium_iors[medium_depth - 1];
+        float exterior_ior = entering ? max(material.ior_distance.x, 1.0001) :
+            (medium_depth > 1 ? medium_iors[medium_depth - 2] : 1.0);
+        float random_u = waveRandom(random_state);
+        float random_v = waveRandom(random_state);
+        MaterialEvaluation evaluated = evaluateMaterial(
+            material, normal, uv, direction, entering, random_u, random_v,
+            float(bounce), current_ior, exterior_ior
+        );
+        if (bounce == 0) {
+            int primary_event = int(evaluated.event + 0.5);
+            bool custom_delta = evaluated.custom_scattering > 0.5 &&
+                primary_event != 1;
+            primary_id = emitted_toward_ray &&
+                dot(evaluated.emission, evaluated.emission) > 0.0 ? 3.0 :
+                (custom_delta || evaluated.transmission > 0.001 ? 2.0 :
+                (evaluated.metallic > 0.5 ? 1.0 : 0.0));
+        }
+        vec3 base = evaluated.base_color;
+        float emission_weight = 1.0;
+        if (emitted_toward_ray && bounce > 0 && previous_was_diffuse &&
+            dot(evaluated.emission, evaluated.emission) > 0.0) {
+            float area = 0.5 * length(cross(b - a, c - a));
+            float raw_light_cosine = dot(geometric_normal, -direction);
+            float light_cosine = material.ior_distance.w > 0.5
+                ? abs(raw_light_cosine) : max(raw_light_cosine, 0.0);
+            float emission_luminance = dot(
+                material.emission_metallic.rgb, vec3(0.2126, 0.7152, 0.0722)
+            );
+            float selection_probability = area * emission_luminance /
+                max(camera.lighting.y, 0.000001);
+            float light_pdf = selection_probability * distance * distance /
+                max(light_cosine * area, 0.000001);
+            emission_weight = powerHeuristic(
+                previous_bsdf_pdf,
+                light_pdf * max(camera.lighting.z, 1.0)
+            );
+        }
+        if (emitted_toward_ray)
+            radiance += throughput * evaluated.emission * emission_weight;
+        if (evaluated.custom_scattering > 0.5) {
+            int event = int(evaluated.event + 0.5);
+            if (event == 0)
+                break;
+            if (event == 1) {
+                vec3 diffuse_albedo = evaluated.weight / max(evaluated.pdf, 0.000001);
+                radiance += throughput * samplePointLights(
+                    hit, normal, diffuse_albedo
+                );
+                int area_sample_count = clamp(int(camera.lighting.z), 1, 16);
+                vec3 area_direct = vec3(0.0);
+                for (int light_sample = 0; light_sample < 16; ++light_sample) {
+                    if (light_sample >= area_sample_count) break;
+                    area_direct += sampleAreaLight(
+                        hit, normal, diffuse_albedo, random_state,
+                        light_sample, area_sample_count
+                    );
+                }
+                radiance += throughput * area_direct / float(area_sample_count);
+            }
+            previous_bsdf_pdf = evaluated.pdf;
+            previous_was_diffuse = event == 1;
+            direction = normalize(evaluated.next_direction);
+            origin = hit + direction * 0.002;
+            throughput *= evaluated.weight / max(evaluated.pdf, 0.000001);
+            if (event == 3) {
+                if (entering && medium_depth < 8)
+                    medium_iors[medium_depth++] = max(material.ior_distance.x, 1.0001);
+                else if (!entering && medium_depth > 1)
+                    medium_depth--;
+            }
+            continue;
+        }
+
+        float transmission = evaluated.transmission;
+        if (transmission > 0.001) {
+            float target_ior = entering ? max(evaluated.ior, 1.0001) : exterior_ior;
+            float eta = current_ior / target_ior;
+            vec3 next_direction = refract(direction, normal, eta);
+            if (dot(next_direction, next_direction) < 0.01)
+                next_direction = reflect(direction, normal);
+            direction = normalize(next_direction);
+            origin = hit + direction * 0.002;
+            throughput *= mix(vec3(1.0), base, 0.2) * transmission;
+            if (entering && medium_depth < 8)
+                medium_iors[medium_depth++] = target_ior;
+            else if (!entering && medium_depth > 1)
+                medium_depth--;
+            continue;
+        }
+
+        float metallic = evaluated.metallic;
+        if (metallic > 0.5 && bounce + 1 < max_bounces) {
+            direction = normalize(reflect(direction, normal));
+            origin = hit + direction * 0.002;
+            throughput *= base;
+            continue;
+        }
+
+        vec3 light_direction = normalize(vec3(-0.45, 0.8, 0.35));
+        float diffuse = max(dot(normal, light_direction), 0.0);
+        radiance += throughput * base * (0.10 + 0.90 * diffuse);
+        break;
+    }
+    return radiance;
+}
+
+void main()
+{
+    uvec2 pixel = gl_GlobalInvocationID.xy;
+    uvec2 size = uvec2(camera.origin.w, camera.forward.w);
+    if (any(greaterThanEqual(pixel, size))) return;
+    bool write_a = (int(camera.accumulation.x) & 1) == 0;
+    bool read_a = !write_a;
+    int sample_count = clamp(int(camera.overlay.w), 1, 64);
+    if (camera.previous_origin.w > 0.5 && camera.accumulation.z > 0.5) {
+        vec4 previous_accumulation = waveLoadAccumulation(read_a, ivec2(pixel));
+        float previous_second_moment = waveLoadMoment(read_a, ivec2(pixel));
+        float previous_luminance = dot(
+            previous_accumulation.rgb, vec3(0.2126, 0.7152, 0.0722)
+        );
+        float variance = max(
+            previous_second_moment - previous_luminance * previous_luminance, 0.0
+        );
+        if (previous_accumulation.a >= 2.0 && variance < camera.previous_forward.w)
+            sample_count = min(sample_count, max(1, int(camera.previous_right.w)));
+    }
+    vec3 color = vec3(0.0);
+    float current_second_moment = 0.0;
+    float primary_depth = -1.0;
+    vec3 primary_normal = vec3(0.0);
+    float primary_id = -1.0;
+    vec3 primary_direction = camera.forward.xyz;
+    for (int sample_index = 0; sample_index < 64; ++sample_index) {
+        if (sample_index >= sample_count) break;
+        uint random_state = pixel.x * 1973u + pixel.y * 9277u + uint(sample_index) * 26699u + uint(camera.accumulation.x) * 104729u + 911u;
+        vec2 jitter = sample_count > 1 ? vec2(waveRandom(random_state), waveRandom(random_state)) : vec2(0.5);
+        vec2 screen = ((vec2(pixel) + jitter) / vec2(size)) * 2.0 - 1.0;
+        screen.y = -screen.y;
+        vec3 ray_origin, direction;
+        primaryRay(screen, ray_origin, direction);
+        float sample_depth;
+        vec3 sample_normal;
+        float sample_id;
+        vec3 sample_color = tracePath(
+            ray_origin, direction, random_state,
+            sample_depth, sample_normal, sample_id
+        );
+        color += sample_color;
+        float sample_luminance = dot(sample_color, vec3(0.2126, 0.7152, 0.0722));
+        current_second_moment += sample_luminance * sample_luminance;
+        if (sample_index == 0) {
+            primary_depth = sample_depth;
+            primary_normal = sample_normal;
+            primary_id = sample_id;
+            primary_direction = direction;
+        }
+    }
+    color /= float(sample_count);
+    current_second_moment /= float(sample_count);
+    vec4 history = vec4(0.0);
+    ivec2 history_pixel = ivec2(pixel);
+    if (camera.accumulation.z > 0.5 && primary_depth >= 0.0) {
+        bool valid = true;
+        if (camera.accumulation.y > 0.5) {
+            vec3 primary_origin, ignored_direction;
+            primaryRay(vec2(
+                (float(pixel.x) + 0.5) / float(size.x) * 2.0 - 1.0,
+                1.0 - (float(pixel.y) + 0.5) / float(size.y) * 2.0),
+                primary_origin, ignored_direction);
+            vec3 world_position = primary_origin
+                + primary_direction * primary_depth;
+            vec3 relative = world_position - camera.previous_origin.xyz;
+            float previous_z = dot(relative, camera.previous_forward.xyz);
+            float previous_x = dot(relative, normalize(camera.previous_right.xyz)) /
+                max(previous_z * length(camera.previous_right.xyz), 0.000001);
+            float previous_y = dot(relative, normalize(camera.previous_up.xyz)) /
+                max(previous_z * length(camera.previous_up.xyz), 0.000001);
+            vec2 previous_uv = vec2(previous_x, -previous_y) * 0.5 + 0.5;
+            valid = previous_z > 0.0 && all(greaterThanEqual(previous_uv, vec2(0.0))) &&
+                all(lessThan(previous_uv, vec2(1.0)));
+            history_pixel = ivec2(previous_uv * vec2(size));
+            if (valid) {
+                vec4 previous_gbuffer = waveLoadGbuffer(read_a, history_pixel);
+                float expected_depth = length(relative);
+                vec3 previous_normal = waveDecodeNormal(previous_gbuffer.xy);
+                valid = abs(previous_gbuffer.z - expected_depth) < max(0.03 * expected_depth, 0.02) &&
+                    abs(previous_gbuffer.w - primary_id) < 0.25 &&
+                    dot(previous_normal, primary_normal) > 0.85;
+            }
+        }
+        if (valid) {
+            history = waveLoadAccumulation(read_a, history_pixel);
+            if (camera.accumulation.y > 0.5 && camera.accumulation.z < 1.5) {
+                vec3 neighborhood_min = vec3(1e30);
+                vec3 neighborhood_max = vec3(-1e30);
+                int compatible_neighbors = 0;
+                for (int offset_y = -1; offset_y <= 1; ++offset_y) {
+                    for (int offset_x = -1; offset_x <= 1; ++offset_x) {
+                        if (offset_x == 0 && offset_y == 0) continue;
+                        ivec2 neighbor = history_pixel + ivec2(offset_x, offset_y);
+                        if (any(lessThan(neighbor, ivec2(0))) ||
+                            any(greaterThanEqual(neighbor, ivec2(size)))) continue;
+                        vec4 neighbor_gbuffer = waveLoadGbuffer(read_a, neighbor);
+                        vec3 neighbor_normal = waveDecodeNormal(neighbor_gbuffer.xy);
+                        if (abs(neighbor_gbuffer.w - primary_id) >= 0.25 ||
+                            dot(neighbor_normal, primary_normal) <= 0.85) continue;
+                        vec3 neighbor_color = waveLoadAccumulation(read_a, neighbor).rgb;
+                        neighborhood_min = min(neighborhood_min, neighbor_color);
+                        neighborhood_max = max(neighborhood_max, neighbor_color);
+                        compatible_neighbors++;
+                    }
+                }
+                if (compatible_neighbors > 0) {
+                    vec3 extent = max(
+                        neighborhood_max - neighborhood_min, vec3(0.02)
+                    );
+                    history.rgb = clamp(
+                        history.rgb,
+                        neighborhood_min - extent * 0.1,
+                        neighborhood_max + extent * 0.1
+                    );
+                }
+            }
+            history.a = min(history.a, camera.accumulation.w);
+        }
+    }
+    float new_samples = float(sample_count);
+    float history_second_moment = history.a > 0.0
+        ? waveLoadMoment(read_a, history_pixel) : 0.0;
+    float total_samples = history.a + new_samples;
+    float combined_second_moment = (
+        history_second_moment * history.a + current_second_moment * new_samples
+    ) / max(total_samples, 1.0);
+    color = (history.rgb * history.a + color * new_samples) / max(total_samples, 1.0);
+    waveStoreAccumulation(write_a, ivec2(pixel), vec4(color, total_samples));
+    if (camera.previous_origin.w > 0.5 || camera.lighting.w > 0.5)
+        waveStoreMoment(write_a, ivec2(pixel), combined_second_moment);
+    if (camera.accumulation.y > 0.5) {
+        vec2 encoded_normal = primary_depth >= 0.0
+            ? waveEncodeNormal(primary_normal) : vec2(0.0);
+        waveStoreGbuffer(
+            write_a, ivec2(pixel),
+            vec4(encoded_normal, primary_depth, primary_id)
+        );
+    }
+}

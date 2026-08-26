@@ -1,0 +1,19 @@
+{
+  "width": 320,
+  "height": 180,
+  "frames": 8,
+  "scene": "small_emitter",
+  "motion_radians": 0.35,
+  "spatial_neighbors": 4,
+  "spatial_radius": 4,
+  "pairwise_mis": false,
+  "generalized_mis": false,
+  "compare_strategies": true,
+  "candidate_modes": [
+    "canonical",
+    "pairwise",
+    "generalized"
+  ],
+  "reference_samples": 16,
+  "format": "NumPy float32 RGBA memory-mapped sequence"
+}

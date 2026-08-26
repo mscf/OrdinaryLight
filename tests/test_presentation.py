@@ -1,0 +1,84 @@
+import time
+import unittest
+from threading import Event, get_ident
+
+from ordinarylight.integrations.presentation import AsyncPresenter
+
+
+class FakePresenter:
+    def __init__(self, config):
+        self.config = config
+        self.last_timings = {"gpu_ms": 3.0}
+        self.effective_samples_per_pixel = 1
+        self.closed = False
+        self.reset_count = 0
+        self.thread_ids = []
+
+    def present_wavefront(self, scene, camera, width, height):
+        self.thread_ids.append(get_ident())
+
+    def reset_accumulation(self):
+        self.thread_ids.append(get_ident())
+        self.reset_count += 1
+
+    def close(self):
+        self.thread_ids.append(get_ident())
+        self.closed = True
+
+
+def wait_event(worker, kind, timeout=1.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for event in worker.poll():
+            if event.kind == kind:
+                return event
+        time.sleep(0.001)
+    raise AssertionError(f"timed out waiting for {kind!r}")
+
+
+class AsyncPresenterTests(unittest.TestCase):
+    def test_lifecycle_and_frames_stay_on_one_worker(self):
+        created = []
+
+        def factory(config):
+            presenter = FakePresenter(config)
+            created.append(presenter)
+            return presenter
+
+        worker = AsyncPresenter(factory)
+        caller = get_ident()
+        generation = worker.restart("first")
+        self.assertEqual(wait_event(worker, "ready").generation, generation)
+        self.assertTrue(worker.request_frame(object(), object(), (32, 16)))
+        self.assertFalse(worker.request_frame(object(), object(), (32, 16)))
+        frame = wait_event(worker, "frame")
+        self.assertEqual(
+            (frame.statistics.width, frame.statistics.height), (32, 16)
+        )
+        self.assertEqual(frame.statistics.gpu_ms, 3.0)
+        worker.reset()
+        generation = worker.restart("second")
+        self.assertEqual(wait_event(worker, "ready").generation, generation)
+        self.assertTrue(worker.close(1.0))
+        self.assertEqual(len(created), 2)
+        worker_threads = {
+            thread for presenter in created for thread in presenter.thread_ids
+        }
+        self.assertEqual(len(worker_threads), 1)
+        self.assertNotIn(caller, worker_threads)
+        self.assertTrue(all(presenter.closed for presenter in created))
+
+    def test_factory_error_is_reported_without_cross_thread_raise(self):
+        worker = AsyncPresenter(
+            lambda _config: (_ for _ in ()).throw(RuntimeError("broken"))
+        )
+        generation = worker.restart(None)
+        event = wait_event(worker, "error")
+        self.assertEqual(event.generation, generation)
+        self.assertIsInstance(event.error, RuntimeError)
+        self.assertFalse(worker.ready)
+        self.assertTrue(worker.close(1.0))
+
+
+if __name__ == "__main__":
+    unittest.main()

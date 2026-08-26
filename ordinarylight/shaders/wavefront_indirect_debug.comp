@@ -1,0 +1,147 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define WAVE_INDIRECT_REUSE_STORAGE 1
+#include "wavefront_indirect_reuse.glsl"
+
+layout(set = 0, binding = 1, rgba16f) uniform image2D debug_image;
+layout(set = 0, binding = 2, std430) readonly buffer IndirectSeedStorage {
+    uint indirect_seed_words[];
+};
+layout(set = 0, binding = 3, r32ui) uniform readonly uimage2D material_image;
+
+layout(push_constant) uniform DebugConstants {
+    uint output_width;
+    uint output_height;
+    uint reservoir_width;
+    uint reservoir_height;
+    uint mode;
+    uint history_limit;
+    float apply_strength;
+} push;
+
+vec3 acceptanceColor(uint flags)
+{
+    bool temporal = (flags & (1u << 8u)) != 0u;
+    bool spatial = (flags & (1u << 9u)) != 0u;
+    bool position_rejected = (flags & (1u << 10u)) != 0u;
+    bool normal_rejected = (flags & (1u << 11u)) != 0u;
+    bool material_rejected = (flags & (1u << 12u)) != 0u;
+    bool empty = (flags & (1u << 13u)) != 0u;
+    // Neutral gray means a valid reservoir with no temporal/spatial event.
+    vec3 color = vec3(0.04);
+    if (temporal)
+        color.g += 0.7;
+    if (spatial)
+        color.b += 0.7;
+    if (position_rejected)
+        color.r += 0.8;
+    if (normal_rejected)
+        color += vec3(0.7, 0.7, 0.0);
+    if (material_rejected)
+        color += vec3(0.7, 0.0, 0.7);
+    if (empty)
+        color += vec3(0.8, 0.25, 0.0);
+    return min(color, vec3(1.0));
+}
+
+vec3 invalidColor(uvec2 pixel)
+{
+    bool bright = (((pixel.x >> 4u) ^ (pixel.y >> 4u)) & 1u) != 0u;
+    return bright ? vec3(1.0, 0.0, 1.0) : vec3(0.12, 0.0, 0.12);
+}
+
+bool indirectCorrection(
+    ivec2 reservoir_pixel, uint output_material,
+    out vec3 correction, out float confidence)
+{
+    if (any(lessThan(reservoir_pixel, ivec2(0))) || any(greaterThanEqual(
+            reservoir_pixel, ivec2(push.reservoir_width,
+                push.reservoir_height))))
+        return false;
+    uint reservoir_index = uint(reservoir_pixel.y) * push.reservoir_width
+        + uint(reservoir_pixel.x);
+    IndirectLightReservoir reservoir = loadIndirectLightReservoir(
+        reservoir_index, vec3(0.0));
+    if (!reservoir.valid || reservoir.sample_count <= 1u)
+        return false;
+    ivec2 representative = clamp(ivec2(
+        (vec2(reservoir_pixel) + 0.5)
+        * vec2(push.output_width, push.output_height)
+        / vec2(push.reservoir_width, push.reservoir_height)),
+        ivec2(0), ivec2(push.output_width, push.output_height) - 1);
+    if (output_material == 0xffffffffu || output_material != imageLoad(
+            material_image, representative).x)
+        return false;
+    float normalization = reservoir.weight_sum / max(
+        float(reservoir.sample_count) * reservoir.selected.target, 1e-6);
+    vec3 reconstructed = reservoir.selected.radiance
+        * clamp(normalization, 0.25, 4.0);
+    vec3 current_seed = indirectUnpackRgb9e5(
+        indirect_seed_words[reservoir_index]);
+    correction = reconstructed - current_seed;
+    confidence = 1.0 - 1.0 / float(reservoir.sample_count);
+    return true;
+}
+
+void main()
+{
+    uvec2 output_pixel = gl_GlobalInvocationID.xy;
+    if (output_pixel.x >= push.output_width
+            || output_pixel.y >= push.output_height)
+        return;
+    uvec2 reservoir_pixel = min(
+        uvec2((vec2(output_pixel) + 0.5)
+            * vec2(push.reservoir_width, push.reservoir_height)
+            / vec2(push.output_width, push.output_height)),
+        uvec2(push.reservoir_width - 1u, push.reservoir_height - 1u));
+    uint reservoir_index = reservoir_pixel.y * push.reservoir_width
+        + reservoir_pixel.x;
+    IndirectLightReservoir reservoir = loadIndirectLightReservoir(
+        reservoir_index, vec3(0.0));
+    vec3 color = vec3(0.04);
+    if (push.mode == 5u) {
+        uint output_material = imageLoad(
+            material_image, ivec2(output_pixel)).x;
+        vec3 current = imageLoad(debug_image, ivec2(output_pixel)).rgb;
+        vec2 reservoir_coordinate = (vec2(output_pixel) + 0.5)
+            * vec2(push.reservoir_width, push.reservoir_height)
+            / vec2(push.output_width, push.output_height) - 0.5;
+        ivec2 base = ivec2(floor(reservoir_coordinate));
+        vec2 fraction = fract(reservoir_coordinate);
+        vec3 filtered_correction = vec3(0.0);
+        for (int y = 0; y <= 1; ++y) {
+            for (int x = 0; x <= 1; ++x) {
+                vec3 correction;
+                float confidence;
+                if (!indirectCorrection(
+                        base + ivec2(x, y), output_material,
+                        correction, confidence))
+                    continue;
+                float filter_weight = (x == 0 ? 1.0 - fraction.x : fraction.x)
+                    * (y == 0 ? 1.0 - fraction.y : fraction.y);
+                filtered_correction += correction * filter_weight
+                    * confidence;
+            }
+        }
+        color = max(current + filtered_correction
+            * clamp(push.apply_strength, 0.0, 1.0), vec3(0.0));
+        imageStore(debug_image, ivec2(output_pixel), vec4(color, 1.0));
+        return;
+    }
+    if (push.mode == 1u && reservoir.valid)
+        color = reservoir.selected.radiance;
+    else if (push.mode == 2u && reservoir.valid)
+        color = vec3(float(reservoir.sample_count)
+            / float(max(push.history_limit, 1u)));
+    else if (push.mode == 3u)
+        color = reservoir.valid
+            ? vec3(0.0, 1.0, 0.0) : invalidColor(output_pixel);
+    else if (push.mode == 4u)
+        color = reservoir.valid
+            ? max(acceptanceColor(reservoir.debug_flags), vec3(0.04))
+            : invalidColor(output_pixel);
+    imageStore(debug_image, ivec2(output_pixel), vec4(color, 1.0));
+}

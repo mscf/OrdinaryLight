@@ -1,0 +1,132 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const uint WAVE_MAX_MEDIUM_STACK_DEPTH = 16u;
+
+struct WaveRay {
+    vec4 origin_tmin;
+    vec4 direction_tmax;
+    uint path_index;
+    uint padding_a;
+    uint padding_b;
+    uint padding_c;
+};
+
+struct WavePathState {
+    vec4 throughput;
+    vec4 radiance;
+    uvec4 metadata;
+};
+struct WaveMediumStack {
+    float ior[WAVE_MAX_MEDIUM_STACK_DEPTH];
+};
+
+layout(set = 0, binding = 0, std430) buffer RayQueue {
+    uint count;
+    uint capacity;
+    uint overflow;
+    uint queue_padding;
+    WaveRay rays[];
+} ray_queue;
+
+layout(set = 0, binding = 1, std430) buffer PathStates {
+    WavePathState paths[];
+};
+layout(set = 0, binding = 2, std430) buffer MediumStacks {
+    WaveMediumStack stacks[];
+};
+layout(set = 0, binding = 3, std430) readonly buffer CameraData {
+    vec4 camera_origin;
+    vec4 camera_forward;
+    vec4 camera_right;
+    vec4 camera_up;
+} camera;
+
+layout(push_constant) uniform PushConstants {
+    uvec4 image_tile;  // image width/height, tile origin x/y
+    uvec4 tile_frame;  // tile width/height, frame index, sample index
+} push;
+
+uint hashValue(uint value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+float randomFloat(inout uint state)
+{
+    state = hashValue(state);
+    return float(state) * (1.0 / 4294967296.0);
+}
+
+void main()
+{
+    uvec2 local_pixel = gl_GlobalInvocationID.xy;
+    if (any(greaterThanEqual(local_pixel, push.tile_frame.xy)))
+        return;
+
+    uvec2 pixel = push.image_tile.zw + local_pixel;
+    if (any(greaterThanEqual(pixel, push.image_tile.xy)))
+        return;
+
+    uint path_index = local_pixel.y * push.tile_frame.x + local_pixel.x;
+    if (path_index == 0u)
+        ray_queue.count = min(
+            push.tile_frame.x * push.tile_frame.y, ray_queue.capacity
+        );
+    if (path_index >= ray_queue.capacity)
+        return;
+
+    uint pixel_index = pixel.y * push.image_tile.x + pixel.x;
+    // camera_origin.w carries the same frame sequence as tile_frame.z.
+    // Mixing both with XOR cancels the frame term and freezes the noise in
+    // screen space, which becomes conspicuous during fast camera motion.
+    uint rng = hashValue(pixel_index ^ hashValue(push.tile_frame.z)
+                         ^ hashValue(push.tile_frame.w + 1u));
+    vec2 jitter = vec2(randomFloat(rng), randomFloat(rng));
+    vec2 ndc = ((vec2(pixel) + jitter) / vec2(push.image_tile.xy)) * 2.0 - 1.0;
+    float aspect = float(push.image_tile.x) / float(push.image_tile.y);
+    int projection = int(camera.camera_up.w + 0.5);
+    vec3 ray_origin = camera.camera_origin.xyz;
+    vec3 direction;
+    if (projection == 1) {
+        ray_origin += ndc.x * aspect * camera.camera_right.xyz
+            - ndc.y * camera.camera_up.xyz;
+        direction = normalize(camera.camera_forward.xyz);
+    } else if (projection == 2) {
+        float yaw = ndc.x * length(camera.camera_right.xyz);
+        float pitch = -ndc.y * length(camera.camera_up.xyz);
+        direction = normalize(
+            normalize(camera.camera_forward.xyz) * cos(pitch) * cos(yaw)
+            + normalize(camera.camera_right.xyz) * cos(pitch) * sin(yaw)
+            + normalize(camera.camera_up.xyz) * sin(pitch));
+    } else {
+        direction = normalize(
+            camera.camera_forward.xyz
+            + ndc.x * aspect * camera.camera_right.xyz
+            - ndc.y * camera.camera_up.xyz);
+    }
+
+    ray_queue.rays[path_index].origin_tmin = vec4(ray_origin, 0.001);
+    ray_queue.rays[path_index].direction_tmax = vec4(direction, 1.0e30);
+    ray_queue.rays[path_index].path_index = path_index;
+    ray_queue.rays[path_index].padding_a = 0u;
+    ray_queue.rays[path_index].padding_b = 0u;
+    ray_queue.rays[path_index].padding_c = 0u;
+
+    paths[path_index].throughput = vec4(1.0);
+    paths[path_index].radiance = vec4(0.0);
+    // metadata.w packs the active flag in bit 0 and medium-stack depth above bit 8.
+    paths[path_index].metadata = uvec4(
+        pixel_index,
+        (push.tile_frame.z << 8u) | (push.tile_frame.w & 255u),
+        rng, 257u);
+    paths[path_index].throughput.w = 0.0;
+    // Only live entries are ever read; avoid clearing 60 cold bytes per path.
+    stacks[path_index].ior[0] = 1.0;
+}

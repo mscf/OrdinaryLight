@@ -1,0 +1,105 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define WAVE_INDIRECT_REUSE_STORAGE 1
+#define WAVE_INDIRECT_REUSE_BINDING 3
+#include "wavefront_indirect_reuse.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WavePathState {
+    vec4 throughput;
+    vec4 radiance;
+    uvec4 metadata;
+};
+struct SecondaryPathState {
+    vec4 position_valid;
+    vec4 normal_pdf;
+    vec4 primary_throughput;
+    vec4 primary_radiance;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer PathStates {
+    WavePathState paths[];
+};
+layout(set = 0, binding = 1, rgba16f) uniform image2D hdr_image;
+layout(set = 0, binding = 2, std430) readonly buffer SecondaryPathStates {
+    SecondaryPathState secondary_paths[];
+};
+layout(set = 0, binding = 4, std430) readonly buffer CameraData {
+    vec4 origin;
+    vec4 forward;
+    vec4 right;
+    vec4 up;
+} camera;
+layout(set = 0, binding = 5, std430) buffer IndirectSeedStorage {
+    uint indirect_seed_words[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint path_count;
+    uint image_width;
+    uint image_height;
+    uint sample_index;
+    uint sample_count;
+    uint indirect_secondary_capture;
+    uint reservoir_width;
+    uint reservoir_height;
+} push;
+
+void main()
+{
+    uint path_index = gl_GlobalInvocationID.x;
+    if (path_index >= push.path_count)
+        return;
+    uint pixel_index = paths[path_index].metadata.x;
+    ivec2 pixel = ivec2(
+        int(pixel_index % push.image_width), int(pixel_index / push.image_width)
+    );
+    if (pixel.y >= int(push.image_height))
+        return;
+    vec3 contribution = paths[path_index].radiance.rgb / float(push.sample_count);
+    vec3 accumulated = push.sample_index == 0u
+        ? vec3(0.0) : imageLoad(hdr_image, pixel).rgb;
+    imageStore(hdr_image, pixel, vec4(accumulated + contribution, 1.0));
+    if (push.indirect_secondary_capture == 0u || push.sample_index != 0u)
+        return;
+    uvec2 reservoir_pixel = min(
+        uvec2((vec2(pixel) + 0.5) * vec2(
+            push.reservoir_width, push.reservoir_height)
+            / vec2(push.image_width, push.image_height)),
+        uvec2(push.reservoir_width - 1u, push.reservoir_height - 1u));
+    ivec2 representative = ivec2((vec2(reservoir_pixel) + 0.5)
+        * vec2(push.image_width, push.image_height)
+        / vec2(push.reservoir_width, push.reservoir_height));
+    if (pixel != representative)
+        return;
+    uint reservoir_index = reservoir_pixel.y * push.reservoir_width
+        + reservoir_pixel.x;
+    SecondaryPathState secondary = secondary_paths[path_index];
+    vec3 indirect_contribution = max(
+        paths[path_index].radiance.rgb - secondary.primary_radiance.rgb,
+        vec3(0.0));
+    float target = dot(indirect_contribution, vec3(0.2126, 0.7152, 0.0722));
+    indirect_seed_words[reservoir_index] = indirectPackRgb9e5(
+        indirect_contribution);
+    if (secondary.position_valid.w < 0.5 || target <= 0.0
+            || isnan(target) || isinf(target)) {
+        storeIndirectLightReservoir(
+            reservoir_index, emptyIndirectLightReservoir(), camera.origin.xyz);
+        return;
+    }
+    IndirectLightReservoir reservoir = emptyIndirectLightReservoir();
+    reservoir.selected.secondary_position = secondary.position_valid.xyz;
+    reservoir.selected.secondary_normal = normalize(secondary.normal_pdf.xyz);
+    // The stored contribution already contains the primary BSDF/PDF ratio.
+    // Reservoir selection therefore operates over one contribution candidate.
+    reservoir.selected.proposal_pdf = 1.0;
+    reservoir.selected.target = target;
+    reservoir.selected.radiance = indirect_contribution;
+    reservoir.weight_sum = target;
+    reservoir.sample_count = 1u;
+    reservoir.valid = true;
+    storeIndirectLightReservoir(
+        reservoir_index, reservoir, camera.origin.xyz);
+}

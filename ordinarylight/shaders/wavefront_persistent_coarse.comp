@@ -1,0 +1,16 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#if WAVE_NATIVE_TEXTURES
+#extension GL_EXT_nonuniform_qualifier : require
+#endif
+
+#define WAVE_MEGAKERNEL 1
+#define WAVE_HYBRID 0
+#define WAVE_PERSISTENT 1
+#define WAVE_PERSISTENT_COARSE 1
+#define WAVE_LOCAL_SIZE_X 8
+#define WAVE_LOCAL_SIZE_Y 8
+#include "wavefront_primary_impl.glsl"
