@@ -5,6 +5,17 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.2 - 2026-08-27
+
+- Fixed hosted CI collection by installing the Vulkan loader and optional
+  Python binding for hardware-independent renderer unit tests while keeping
+  GPU gates opt-in.
+- Added optional motion-aware internal resolution scaling for the wavefront
+  backend. Moving and settling frames can render at a configured lower scale
+  while presentation and exported video allocations remain full resolution.
+- Added target-FPS motion scaling, which automatically chooses a bounded
+  interactive render scale and restores full quality while stationary.
+
 ## 0.3.1 - 2026-08-27
 
 - Added stationary-aware temporal accumulation for conventional and wavefront

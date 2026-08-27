@@ -185,6 +185,7 @@ config = ol.RendererConfig(
     stationary_accumulation=True,
     stationary_delay_seconds=0.15,
     interactive_samples_per_pixel=1,
+    wavefront_interactive_render_scale=0.5,
 )
 renderer = ol.Renderer(config=config)
 
@@ -203,6 +204,21 @@ Camera changes, scene revisions, output/internal extent changes, hot setting
 changes, and explicit sequence resets invalidate history. This changes only
 the history policy: the Vulkan device, pipelines, external NV12/P010 frame
 pool, CUDA imports, and NVENC session stay resident.
+`wavefront_interactive_render_scale` optionally lowers only the internal
+wavefront extent while the camera or scene is moving or settling. Output
+dimensions and exported NV12/P010 allocations do not change, so encoders see a
+stable resolution. Once stationary, rendering returns to
+`wavefront_render_scale`; switching extents invalidates incompatible temporal
+history before accumulation resumes.
+
+Set `wavefront_interactive_target_fps` to enable automatic motion-only dynamic
+resolution. The renderer estimates cost from Vulkan GPU timestamps and chooses
+the highest scale likely to meet the target, bounded by
+`wavefront_interactive_min_scale` (default `0.5`). Stable frames always return
+to `wavefront_render_scale`. If `wavefront_interactive_render_scale` is also
+set, it acts as the maximum automatic motion scale. This mode is distinct from
+the all-frame `wavefront_dynamic_resolution` mode and the two cannot be enabled
+together.
 
 ### Resident scene and settings transitions
 

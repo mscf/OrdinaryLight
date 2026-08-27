@@ -1092,6 +1092,7 @@ config = ol.RendererConfig(
     progressive_accumulation=True,
     stationary_accumulation=True,
     stationary_delay_seconds=0.15,
+    wavefront_interactive_render_scale=0.5,
 )
 renderer = ol.Renderer(config=config)
 frame = renderer.render_gpu(
@@ -1105,6 +1106,28 @@ resets produce `moving` or `settling` frames; stable frames report
 `accumulating`. The same exported NV12/P010 pool and NVENC session remain in
 use throughout. `renderer.accumulation_state` and
 `renderer.accumulated_frames` expose the state without reading pixels back.
+When `wavefront_interactive_render_scale` is set, moving and settling frames
+render at that internal scale and reconstruct to the unchanged output extent;
+stable frames return to `wavefront_render_scale`. Values from `0.25` through
+`1.0` are accepted and must not exceed the full-quality render scale.
+
+For automatic motion-only scaling, specify a frame-rate target instead of a
+fixed interactive scale:
+
+```python
+config = ol.RendererConfig(
+    wavefront_render_scale=1.0,
+    wavefront_interactive_target_fps=60.0,
+    wavefront_interactive_min_scale=0.5,
+    stationary_delay_seconds=0.15,
+)
+```
+
+The controller uses measured Vulkan GPU time to select the highest scale
+expected to meet the target while the camera or scene is moving. It will not
+go below `wavefront_interactive_min_scale`; once stationary, rendering returns
+to `wavefront_render_scale`. A fixed `wavefront_interactive_render_scale` may
+also be supplied as the automatic controller's maximum motion scale.
 
 Use a smaller sample budget while the camera is moving and switch back after
 it settles:

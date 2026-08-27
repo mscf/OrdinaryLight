@@ -25,8 +25,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install core dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Install Vulkan loader for module collection
+        run: sudo apt-get update && sudo apt-get install --yes libvulkan1
+      - name: Install unit-test dependencies
+        # Vulkan configuration, layout, and shader-contract tests are useful
+        # without a GPU, but importing those modules requires the optional
+        # Python Vulkan binding. Actual device and performance gates remain
+        # disabled here and run only on the self-hosted GPU workflow.
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[vulkan]'
       - name: Run hardware-independent tests
         run: python -m unittest discover -s tests -v
 

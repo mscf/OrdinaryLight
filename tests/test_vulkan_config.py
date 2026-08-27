@@ -98,6 +98,41 @@ class RendererConfigTests(unittest.TestCase):
                 stationary_accumulation=1,
             )
 
+    def test_interactive_render_scale_is_optional_and_bounded(self):
+        self.assertIsNone(
+            RendererConfig().wavefront_interactive_render_scale
+        )
+        config = RendererConfig(wavefront_interactive_render_scale=0.5)
+        self.assertEqual(config.wavefront_interactive_render_scale, 0.5)
+        with self.assertRaisesRegex(ValueError, "between 0.25 and 1.0"):
+            RendererConfig(wavefront_interactive_render_scale=0.2)
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
+            RendererConfig(
+                wavefront_render_scale=0.5,
+                wavefront_interactive_render_scale=0.75,
+            )
+
+    def test_interactive_target_fps_is_optional_and_bounded(self):
+        config = RendererConfig(
+            wavefront_interactive_target_fps=60.0,
+            wavefront_interactive_min_scale=0.4,
+        )
+        self.assertEqual(config.wavefront_interactive_target_fps, 60.0)
+        self.assertEqual(config.wavefront_interactive_min_scale, 0.4)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            RendererConfig(wavefront_interactive_target_fps=0.0)
+        with self.assertRaisesRegex(ValueError, "interactive maximum"):
+            RendererConfig(
+                wavefront_interactive_render_scale=0.5,
+                wavefront_interactive_min_scale=0.75,
+                wavefront_interactive_target_fps=60.0,
+            )
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            RendererConfig(
+                wavefront_interactive_target_fps=60.0,
+                wavefront_dynamic_resolution=True,
+            )
+
     def test_stationary_accumulation_motion_state_machine(self):
         core = object.__new__(VulkanRayQueryCore)
         core.config = RendererConfig(
@@ -119,41 +154,72 @@ class RendererConfigTests(unittest.TestCase):
             "ordinarylight.vulkan_rt.time.perf_counter",
             side_effect=(0.0, 0.05, 0.20, 0.21, 0.22),
         ):
-            signature, active = core._begin_accumulation_frame(
+            signature, active, interactive = core._begin_accumulation_frame(
                 (1, 0, 64, 64), camera
             )
             self.assertFalse(active)
+            self.assertTrue(interactive)
             self.assertEqual(core.accumulation_state, ol.AccumulationState.MOVING)
             core._finish_accumulation_frame(signature, active)
 
-            signature, active = core._begin_accumulation_frame(
+            signature, active, interactive = core._begin_accumulation_frame(
                 (1, 0, 64, 64), camera
             )
             self.assertFalse(active)
+            self.assertTrue(interactive)
             self.assertEqual(
                 core.accumulation_state, ol.AccumulationState.SETTLING
             )
             core._finish_accumulation_frame(signature, active)
 
-            signature, active = core._begin_accumulation_frame(
+            signature, active, interactive = core._begin_accumulation_frame(
                 (1, 0, 64, 64), camera
             )
             self.assertTrue(active)
+            self.assertFalse(interactive)
             core._finish_accumulation_frame(signature, active)
             self.assertEqual(core.accumulation_frame, 1)
 
-            signature, active = core._begin_accumulation_frame(
+            signature, active, interactive = core._begin_accumulation_frame(
                 (1, 0, 64, 64), moved
             )
             self.assertFalse(active)
+            self.assertTrue(interactive)
             self.assertEqual(core.accumulation_frame, 0)
             core._finish_accumulation_frame(signature, active)
 
-            _signature, active = core._begin_accumulation_frame(
+            _signature, active, interactive = core._begin_accumulation_frame(
                 (1, 1, 64, 64), moved
             )
             self.assertFalse(active)
+            self.assertTrue(interactive)
             self.assertEqual(core.accumulation_state, ol.AccumulationState.MOVING)
+
+    def test_interactive_motion_detection_does_not_require_accumulation(self):
+        core = object.__new__(VulkanRayQueryCore)
+        core.config = RendererConfig(stationary_delay_seconds=0.1)
+        core.accumulation_frame = 0
+        core.accumulation_key = None
+        core.accumulation_history_valid = False
+        core.accumulation_camera_signature = None
+        core.accumulation_state = ol.AccumulationState.DISABLED
+        core.camera_change_time = 0.0
+        camera = ol.PerspectiveCamera((0, 0, -3), (0, 0, 0))
+        with patch(
+            "ordinarylight.vulkan_rt.time.perf_counter",
+            side_effect=(0.0, 0.2),
+        ):
+            signature, active, interactive = core._begin_accumulation_frame(
+                (1, 0, 64, 64), camera
+            )
+            self.assertFalse(active)
+            self.assertTrue(interactive)
+            core._finish_accumulation_frame(signature, active)
+            _signature, active, interactive = core._begin_accumulation_frame(
+                (1, 0, 64, 64), camera
+            )
+            self.assertFalse(active)
+            self.assertFalse(interactive)
 
     def test_volume_empty_space_skipping_is_boolean_and_opt_in(self):
         self.assertFalse(RendererConfig().volume_empty_space_skipping)

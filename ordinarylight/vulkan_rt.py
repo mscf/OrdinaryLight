@@ -3393,6 +3393,22 @@ class VulkanRayQueryCore:
                 maximum_scale=config.wavefront_render_scale,
                 current_scale=config.wavefront_render_scale,
             )
+        self.interactive_dynamic_resolution = None
+        if config.wavefront_interactive_target_fps is not None:
+            from .integrations.dynamic_resolution import (
+                DynamicResolutionController,
+            )
+            interactive_max_scale = (
+                config.wavefront_interactive_render_scale
+                if config.wavefront_interactive_render_scale is not None
+                else config.wavefront_render_scale
+            )
+            self.interactive_dynamic_resolution = DynamicResolutionController(
+                target_ms=1000.0 / config.wavefront_interactive_target_fps,
+                minimum_scale=config.wavefront_interactive_min_scale,
+                maximum_scale=interactive_max_scale,
+                current_scale=interactive_max_scale,
+            )
         self.glfw_window = glfw_window
         self._headless_surface = bool(headless_surface)
         if (external_instance is None) != (external_surface is None):
@@ -3450,6 +3466,7 @@ class VulkanRayQueryCore:
         self.accumulation_history_valid = False
         self.accumulation_state = AccumulationState.DISABLED
         self.accumulation_camera_signature = None
+        self.accumulation_render_extent = None
         self.previous_camera = None
         self.wavefront_previous_present_camera = None
         self.camera_change_time = time.perf_counter()
@@ -7159,6 +7176,12 @@ class VulkanRayQueryCore:
                 (timestamps[1] - timestamps[0]) * self.timestamp_period
                 / 1_000_000.0
             )
+        accumulation_key = (id(scene), scene.revision, width, height)
+        (
+            accumulation_camera_signature,
+            accumulation_active,
+            interactive_active,
+        ) = self._begin_accumulation_frame(accumulation_key, camera)
         render_scale = (
             self.dynamic_resolution.update(
                 gpu_frame_ms, frame["wavefront_render_scale"]
@@ -7166,21 +7189,27 @@ class VulkanRayQueryCore:
             if self.dynamic_resolution is not None
             else self.config.wavefront_render_scale
         )
+        interactive_scale = self.config.wavefront_interactive_render_scale
+        if interactive_active and interactive_scale is not None:
+            render_scale = min(render_scale, interactive_scale)
+        if interactive_active and self.interactive_dynamic_resolution is not None:
+            render_scale = min(
+                render_scale,
+                self.interactive_dynamic_resolution.update(
+                    gpu_frame_ms, frame["wavefront_render_scale"]
+                ),
+            )
         render_width = max(1, int(round(width * render_scale)))
         render_height = max(1, int(round(height * render_scale)))
-        accumulation_key = (
-            id(scene), scene.revision, width, height,
-            render_width, render_height,
-        )
-        accumulation_camera_signature, accumulation_active = (
-            self._begin_accumulation_frame(accumulation_key, camera)
-        )
+        render_extent = (render_width, render_height)
+        if render_extent != self.accumulation_render_extent:
+            self.accumulation_frame = 0
+            self.accumulation_history_valid = False
+            self.accumulation_render_extent = render_extent
         effective_samples = self.config.samples_per_pixel
         if (
             self.config.interactive_samples_per_pixel is not None
-            and self.accumulation_state in {
-                AccumulationState.MOVING, AccumulationState.SETTLING,
-            }
+            and interactive_active
         ):
             effective_samples = self.config.interactive_samples_per_pixel
         self.effective_samples_per_pixel = effective_samples
@@ -7295,6 +7324,9 @@ class VulkanRayQueryCore:
             wavefront_temporal_enabled
             and accumulation_active
             and self.window_frames[1 - frame_slot]["wavefront_history_valid"]
+            and self.window_frames[1 - frame_slot].get(
+                "wavefront_render_extent"
+            ) == render_extent
             and temporal_motion_valid
             and perspective_history_compatible
         )
@@ -7760,6 +7792,20 @@ class VulkanRayQueryCore:
             ),
             "wavefront_render_extent": (render_width, render_height),
             "wavefront_render_scale": render_scale,
+            "wavefront_interactive_resolution": bool(
+                interactive_active and (
+                    interactive_scale is not None
+                    or self.interactive_dynamic_resolution is not None
+                )
+            ),
+            "wavefront_interactive_dynamic_resolution": bool(
+                interactive_active
+                and self.interactive_dynamic_resolution is not None
+            ),
+            "wavefront_interactive_dynamic_gpu_ms": (
+                self.interactive_dynamic_resolution.filtered_gpu_ms
+                if self.interactive_dynamic_resolution is not None else 0.0
+            ),
             "wavefront_dynamic_resolution": (
                 self.dynamic_resolution is not None
             ),
@@ -8024,6 +8070,7 @@ class VulkanRayQueryCore:
                 "frame_slot": int(slot),
                 "accumulation_state": self.accumulation_state.value,
                 "accumulated_frames": int(self.accumulation_frame),
+                "render_extent": tuple(frame["wavefront_render_extent"]),
             }
         else:
             metadata = VulkanImageMetadata(
@@ -8055,6 +8102,7 @@ class VulkanRayQueryCore:
                 "frame_slot": int(slot),
                 "accumulation_state": self.accumulation_state.value,
                 "accumulated_frames": int(self.accumulation_frame),
+                "render_extent": tuple(frame["wavefront_render_extent"]),
             }
         return GpuFrame(
             api="vulkan",
@@ -8191,7 +8239,16 @@ class VulkanRayQueryCore:
             self.accumulation_history_valid = False
         self.accumulation_key = scene_key
         self.accumulation_state = state
-        return camera_signature, state is AccumulationState.ACCUMULATING
+        interactive_active = (
+            content_changed
+            or now - self.camera_change_time
+            < self.config.stationary_delay_seconds
+        )
+        return (
+            camera_signature,
+            state is AccumulationState.ACCUMULATING,
+            interactive_active,
+        )
 
     def _finish_accumulation_frame(
         self, camera_signature, accumulation_active,
@@ -8214,15 +8271,14 @@ class VulkanRayQueryCore:
             self.create_window_swapchain(width, height)
         width, height = self.swapchain_extent
         scene_key = (id(scene), scene.revision, width, height)
-        camera_signature, accumulation_active = (
+        camera_signature, accumulation_active, interactive_active = (
             self._begin_accumulation_frame(scene_key, camera)
         )
         effective_samples = samples
         interactive_samples = self.config.interactive_samples_per_pixel
         if (
             interactive_samples is not None
-            and time.perf_counter() - self.camera_change_time
-            < self.config.stationary_delay_seconds
+            and interactive_active
         ):
             effective_samples = interactive_samples
         self.effective_samples_per_pixel = effective_samples
@@ -8615,6 +8671,7 @@ class VulkanRayQueryCore:
         self.accumulation_key = None
         self.accumulation_history_valid = False
         self.accumulation_camera_signature = None
+        self.accumulation_render_extent = None
         self.accumulation_state = (
             AccumulationState.SETTLING
             if self.config.progressive_accumulation

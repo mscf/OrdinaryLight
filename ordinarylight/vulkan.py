@@ -67,6 +67,9 @@ class RendererConfig:
     wavefront_pipeline_statistics: bool = False
     wavefront_hdr_capture: bool = False
     wavefront_render_scale: float = 1.0
+    wavefront_interactive_render_scale: float | None = None
+    wavefront_interactive_target_fps: float | None = None
+    wavefront_interactive_min_scale: float = 0.5
     wavefront_dynamic_resolution: bool = False
     wavefront_dynamic_target_ms: float = 16.67
     wavefront_dynamic_min_scale: float = 0.5
@@ -247,6 +250,52 @@ class RendererConfig:
             raise ValueError("wavefront_exposure must be positive")
         if not 0.25 <= self.wavefront_render_scale <= 1.0:
             raise ValueError("wavefront_render_scale must be between 0.25 and 1.0")
+        if (
+            self.wavefront_interactive_render_scale is not None
+            and not 0.25 <= self.wavefront_interactive_render_scale <= 1.0
+        ):
+            raise ValueError(
+                "wavefront_interactive_render_scale must be between 0.25 and 1.0"
+            )
+        if (
+            self.wavefront_interactive_render_scale is not None
+            and self.wavefront_interactive_render_scale
+            > self.wavefront_render_scale
+        ):
+            raise ValueError(
+                "wavefront_interactive_render_scale cannot exceed "
+                "wavefront_render_scale"
+            )
+        if (
+            self.wavefront_interactive_target_fps is not None
+            and self.wavefront_interactive_target_fps <= 0.0
+        ):
+            raise ValueError("wavefront_interactive_target_fps must be positive")
+        interactive_max_scale = (
+            self.wavefront_interactive_render_scale
+            if self.wavefront_interactive_render_scale is not None
+            else self.wavefront_render_scale
+        )
+        if not 0.25 <= self.wavefront_interactive_min_scale <= 1.0:
+            raise ValueError(
+                "wavefront_interactive_min_scale must be between 0.25 and 1.0"
+            )
+        if (
+            self.wavefront_interactive_target_fps is not None
+            and self.wavefront_interactive_min_scale > interactive_max_scale
+        ):
+            raise ValueError(
+                "wavefront_interactive_min_scale cannot exceed the interactive "
+                "maximum scale"
+            )
+        if (
+            self.wavefront_interactive_target_fps is not None
+            and self.wavefront_dynamic_resolution
+        ):
+            raise ValueError(
+                "wavefront_interactive_target_fps cannot be combined with "
+                "wavefront_dynamic_resolution"
+            )
         if self.wavefront_dynamic_target_ms <= 0.0:
             raise ValueError("wavefront_dynamic_target_ms must be positive")
         if not 0.25 <= self.wavefront_dynamic_min_scale <= self.wavefront_render_scale:
@@ -647,7 +696,8 @@ class VulkanRayTracingBackend:
 
     _HOT_SETTINGS = frozenset({
         "samples_per_pixel", "max_bounces", "wavefront_exposure",
-        "wavefront_render_scale", "stationary_delay_seconds",
+        "wavefront_render_scale", "wavefront_interactive_render_scale",
+        "stationary_delay_seconds",
     })
 
     def reconfigure(self, **changes):
@@ -661,6 +711,28 @@ class VulkanRayTracingBackend:
         updated = replace(self.config, **changes)
         self.config = updated
         self._core.config = updated
+        if (
+            getattr(self._core, "interactive_dynamic_resolution", None) is not None
+            and changes.keys() & {
+                "wavefront_render_scale", "wavefront_interactive_render_scale",
+            }
+        ):
+            from .integrations.dynamic_resolution import (
+                DynamicResolutionController,
+            )
+            interactive_max_scale = (
+                updated.wavefront_interactive_render_scale
+                if updated.wavefront_interactive_render_scale is not None
+                else updated.wavefront_render_scale
+            )
+            self._core.interactive_dynamic_resolution = (
+                DynamicResolutionController(
+                    target_ms=1000.0 / updated.wavefront_interactive_target_fps,
+                    minimum_scale=updated.wavefront_interactive_min_scale,
+                    maximum_scale=interactive_max_scale,
+                    current_scale=interactive_max_scale,
+                )
+            )
         self._core.reset_accumulation()
         self.reset_output_history()
         for frame in self._core.window_frames:
