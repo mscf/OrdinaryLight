@@ -22,6 +22,10 @@ python -m unittest tests.gates.test_gpu_gates -v
 ```
 
 See `tests/gates/README.md` for the 4K performance gate and direct gate usage.
+GitHub-hosted CI runs only the hardware-independent suite. The manually
+dispatched `GPU gates` workflow targets a self-hosted Linux runner labeled
+`ordinarylight-gpu`; it is not a required check unless the project has such a
+runner registered.
 
 ## Pull requests
 
@@ -39,4 +43,3 @@ See `tests/gates/README.md` for the 4K performance gate and direct gate usage.
 2. Merge the release changes and create a GitHub Release tagged `vVERSION`.
 3. Publishing the release runs the wheel workflow, validates the tag/version,
    and attaches the wheel to the release.
-

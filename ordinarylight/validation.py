@@ -21,6 +21,45 @@ from .materials import (
 from .scene import Material, PerspectiveCamera, Scene, Texture, TextureTransform
 
 
+def performance_gate_result(
+    throughput_fps,
+    minimum_fps,
+    measured_extent,
+    requested_extent,
+    minimum_pixel_ratio,
+    *,
+    allow_failure=False,
+    override_reason="",
+):
+    """Evaluate a renderer benchmark without importing a window integration."""
+    requested_pixels = max(requested_extent[0] * requested_extent[1], 1)
+    measured_pixels = measured_extent[0] * measured_extent[1]
+    pixel_ratio = measured_pixels / requested_pixels
+    failures = []
+    if throughput_fps < minimum_fps:
+        failures.append(
+            f"throughput {throughput_fps:.2f} FPS < {minimum_fps:.2f} FPS"
+        )
+    if pixel_ratio < minimum_pixel_ratio:
+        failures.append(
+            f"pixel ratio {pixel_ratio:.4f} < {minimum_pixel_ratio:.4f} "
+            f"({measured_extent[0]}x{measured_extent[1]} versus "
+            f"{requested_extent[0]}x{requested_extent[1]})"
+        )
+    overridden = bool(failures and allow_failure and override_reason.strip())
+    return {
+        "status": "override" if overridden else ("fail" if failures else "pass"),
+        "failures": failures,
+        "override_reason": override_reason.strip() if overridden else "",
+        "throughput_fps": throughput_fps,
+        "minimum_fps": minimum_fps,
+        "measured_extent": list(measured_extent),
+        "requested_extent": list(requested_extent),
+        "pixel_ratio": pixel_ratio,
+        "minimum_pixel_ratio": minimum_pixel_ratio,
+    }
+
+
 @material
 def _parity_diffuse(ctx):
     direction = cosine_sample_hemisphere(ctx.normal, ctx.random_u, ctx.random_v)

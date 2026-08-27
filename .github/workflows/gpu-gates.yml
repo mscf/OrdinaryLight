@@ -1,0 +1,33 @@
+name: GPU gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      performance:
+        description: Include the 4K performance gate
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-gates:
+    name: Vulkan ray-tracing gates
+    # Register a suitable Linux runner with this custom label before dispatching.
+    runs-on: [self-hosted, linux, x64, ordinarylight-gpu]
+    timeout-minutes: 90
+    env:
+      ORDINARYLIGHT_RUN_GPU_GATES: "1"
+      ORDINARYLIGHT_RUN_PERFORMANCE_GATES: ${{ inputs.performance && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install Ordinary Light with window integration
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[window]'
+      - name: Run Vulkan gates
+        run: python -m unittest tests.gates.test_gpu_gates -v

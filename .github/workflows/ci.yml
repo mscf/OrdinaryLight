@@ -9,9 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  tests:
-    name: Python ${{ matrix.python-version }}
+  core-tests:
+    name: Core tests / Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    env:
+      ORDINARYLIGHT_RUN_GPU_GATES: "0"
+      ORDINARYLIGHT_RUN_PERFORMANCE_GATES: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -22,9 +25,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install Ordinary Light
+      - name: Install core dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e .
-      - name: Run unit tests
+      - name: Run hardware-independent tests
         run: python -m unittest discover -s tests -v
 
   package:
@@ -49,4 +52,3 @@ jobs:
           name: ordinarylight-distributions
           path: dist/
           if-no-files-found: error
-

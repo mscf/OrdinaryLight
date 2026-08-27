@@ -38,3 +38,6 @@ tests/gates/run_4k_performance.sh
 Gate reports default to `/tmp` or to an explicitly supplied output directory.
 Tests must not write generated captures into the source tree.
 
+GitHub-hosted runners execute the normal suite only. `.github/workflows/gpu-gates.yml`
+provides a manual hardware workflow for a self-hosted Linux runner carrying the
+`ordinarylight-gpu` label. Its `performance` input controls the 4K stage.
