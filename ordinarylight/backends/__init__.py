@@ -1,6 +1,9 @@
 """Renderer backend contracts and implementations."""
 
-from .base import GpuRenderBackend, ProductRenderBackend, RenderBackend
+from .base import (
+    GpuRenderBackend, ProductRenderBackend, RenderBackend,
+    ResidentSceneBackend,
+)
 from .reference import ReferenceBackend, ReferenceConfig
 
 
@@ -19,5 +22,6 @@ __all__ = [
     "ReferenceBackend",
     "ReferenceConfig",
     "RenderBackend",
+    "ResidentSceneBackend",
     "vulkan",
 ]

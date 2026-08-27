@@ -31,6 +31,10 @@ class _ProductsBackend:
     device = "consumer-contract"
     last_timings = {"total_ms": 1.0}
 
+    def __init__(self):
+        self.resident_scene = None
+        self.settings = {}
+
     @property
     def capabilities(self):
         return {
@@ -57,6 +61,13 @@ class _ProductsBackend:
 
     def close(self):
         pass
+
+    def replace_scene(self, scene):
+        self.resident_scene = scene
+
+    def reconfigure(self, **changes):
+        self.settings.update(changes)
+        return dict(self.settings)
 
 
 def _write_minimal_gltf(path):
@@ -120,7 +131,10 @@ def main():
         assert result is output
         assert result.shape == (6, 8, 4) and result.dtype == np.float32
 
-    with ol.Renderer(backend=_ProductsBackend()) as renderer:
+    products_backend = _ProductsBackend()
+    with ol.Renderer(backend=products_backend) as renderer:
+        renderer.replace_scene(scene)
+        renderer.reconfigure(samples_per_pixel=2)
         frame = renderer.render(
             scene, camera, (8, 6), outputs=("color", "depth", "object_id")
         )
@@ -128,6 +142,8 @@ def main():
         assert frame.depth.shape == (6, 8)
         assert frame.object_id.dtype == np.uint32
         assert renderer.capabilities.supports_output("depth")
+        assert products_backend.resident_scene is scene
+        assert products_backend.settings == {"samples_per_pixel": 2}
 
     asynchronous = asyncio.run(_render_awaitable(scene, camera))
     assert asynchronous.shape == (6, 8, 4)
@@ -143,6 +159,7 @@ def main():
         "hdr_shape": list(output.shape),
         "named_outputs": ["color", "depth", "object_id"],
         "async": True,
+        "resident_transitions": True,
         "gltf": True,
     }, indent=2))
 

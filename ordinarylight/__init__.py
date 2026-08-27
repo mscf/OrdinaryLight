@@ -80,6 +80,7 @@ from .backends import (
     ReferenceBackend,
     ReferenceConfig,
     RenderBackend,
+    ResidentSceneBackend,
 )
 
 
@@ -124,6 +125,7 @@ __all__ = [
     "RenderBackend",
     "ProductRenderBackend",
     "GpuRenderBackend",
+    "ResidentSceneBackend",
     "Transform",
     "VertexAttributeLayout",
     "MATERIAL_PARAMETER_LAYOUT",

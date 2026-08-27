@@ -156,6 +156,12 @@ P010 is tone-mapped directly from the linear HDR render target into BT.709
 limited-range 10-bit codes in the high bits of 16-bit samples. It remains
 GPU-resident through Vulkan conversion, CUDA import, and NVENC.
 
+Scene changes do not require reconstructing the renderer. For long-running
+viewers and video streams, use `renderer.replace_scene(next_scene)` to retain
+the Vulkan device, pipelines, and external video buffers. Runtime samples,
+bounces, exposure, and render scale can be updated with
+`renderer.reconfigure(...)`; structural changes explicitly require recreation.
+
 Asset ingestion is organized under `ordinarylight.loaders`. Format modules own a
 uniform `load()` entry point, so glTF is available as
 `ol.loaders.gltf.load(path)`; the descriptive

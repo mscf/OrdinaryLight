@@ -14,6 +14,7 @@ PYTHON_GATES = (
     "restir_quality",
     "ser_quality",
     "temporal_quality",
+    "transition_latency",
     "tile_quality",
     "validation_matrix",
     "volume_compositing",

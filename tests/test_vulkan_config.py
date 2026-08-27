@@ -1,10 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 import ordinarylight as ol
 from ordinarylight.showcases.materials import diffuse, fresnel_glass
-from ordinarylight import RendererConfig
+from ordinarylight import RendererConfig, VulkanRayTracingBackend
 from ordinarylight.vulkan import _render_options, _resolve_execution_strategy
 from ordinarylight.vulkan_rt import (
     VulkanRayQueryCore,
@@ -14,6 +15,66 @@ from ordinarylight.vulkan_rt import (
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_scene_replacement_preserves_output_resources(self):
+        core = object.__new__(VulkanRayQueryCore)
+        core.device = object()
+        core.material_programs = ()
+        old = type("OldResources", (), {
+            "scene": object(), "scene_revision": 0,
+            "custom_attribute_layout": None,
+            "closed": False,
+            "close": lambda self: setattr(self, "closed", True),
+        })()
+        core.scene_resources = old
+        core._try_update_window_scene = lambda _scene: False
+        core._capture_scene_state = lambda: {}
+        core._restore_scene_state = lambda _state: None
+        activated = []
+        invalidated = []
+        core._activate_scene_resources = activated.append
+        core._invalidate_scene_history = lambda: invalidated.append(True)
+        core._destroy_swapchain_resources = lambda: self.fail(
+            "resident scene replacement destroyed output resources"
+        )
+        replacement = object()
+        with patch(
+            "ordinarylight.vulkan_rt.vk.vkDeviceWaitIdle"
+        ), patch(
+            "ordinarylight.vulkan_rt.VulkanSceneResources",
+            return_value=replacement,
+        ):
+            core.upload_window_scene(object())
+        self.assertEqual(activated, [replacement])
+        self.assertEqual(invalidated, [True])
+        self.assertTrue(old.closed)
+
+    def test_hot_reconfigure_updates_core_without_recreation(self):
+        backend = object.__new__(VulkanRayTracingBackend)
+        backend.config = RendererConfig()
+        backend._output_history = object()
+
+        class Core:
+            config = backend.config
+            window_frames = [{"wavefront_command_key": "old"}]
+            reset = False
+
+            def reset_accumulation(self):
+                self.reset = True
+
+        backend._core = Core()
+        updated = backend.reconfigure(
+            samples_per_pixel=2, max_bounces=8, wavefront_exposure=1.2,
+        )
+        self.assertEqual(updated.samples_per_pixel, 2)
+        self.assertEqual(backend._core.config, updated)
+        self.assertTrue(backend._core.reset)
+        self.assertIsNone(backend._output_history)
+        self.assertIsNone(
+            backend._core.window_frames[0]["wavefront_command_key"]
+        )
+        with self.assertRaisesRegex(RuntimeError, "recreation required"):
+            backend.reconfigure(present_mode="fifo")
+
     def test_external_image_interop_is_boolean_and_opt_in(self):
         self.assertFalse(RendererConfig().external_image_interop)
         self.assertTrue(

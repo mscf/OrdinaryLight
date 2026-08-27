@@ -73,4 +73,16 @@ class GpuRenderBackend(RenderBackend, Protocol):
         ...
 
 
-__all__ = ["GpuRenderBackend", "ProductRenderBackend", "RenderBackend"]
+@runtime_checkable
+class ResidentSceneBackend(RenderBackend, Protocol):
+    """Optional extension for replacing GPU scene data in place."""
+
+    def replace_scene(self, scene) -> None:
+        """Make ``scene`` resident while retaining backend initialization."""
+        ...
+
+
+__all__ = [
+    "GpuRenderBackend", "ProductRenderBackend", "RenderBackend",
+    "ResidentSceneBackend",
+]

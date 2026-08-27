@@ -1,6 +1,6 @@
 """Vulkan hardware ray-tracing capability discovery and public API."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import numpy as np
@@ -620,6 +620,33 @@ class VulkanRayTracingBackend:
     def reset_output_history(self):
         """Discard prior-frame state used by opt-in motion output."""
         self._output_history = None
+
+    def replace_scene(self, scene):
+        """Upload ``scene`` while retaining the initialized Vulkan renderer."""
+        self._core.upload_window_scene(scene)
+        self.reset_output_history()
+
+    _HOT_SETTINGS = frozenset({
+        "samples_per_pixel", "max_bounces", "wavefront_exposure",
+        "wavefront_render_scale",
+    })
+
+    def reconfigure(self, **changes):
+        """Apply runtime shader settings without rebuilding Vulkan resources."""
+        unsupported = set(changes) - self._HOT_SETTINGS
+        if unsupported:
+            names = ", ".join(sorted(unsupported))
+            raise RuntimeError(
+                f"renderer recreation required for settings: {names}"
+            )
+        updated = replace(self.config, **changes)
+        self.config = updated
+        self._core.config = updated
+        self._core.reset_accumulation()
+        self.reset_output_history()
+        for frame in self._core.window_frames:
+            frame["wavefront_command_key"] = None
+        return updated
 
     @property
     def capabilities(self):

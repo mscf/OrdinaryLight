@@ -36,6 +36,9 @@ class VulkanGateTests(unittest.TestCase):
     def test_accepted_noise_quality_baseline(self):
         self._run("tests.gates.noise_quality")
 
+    def test_resident_transition_latency(self):
+        self._run("tests.gates.transition_latency")
+
     def test_volume_compositing(self):
         self._run(
             "tests.gates.volume_compositing",

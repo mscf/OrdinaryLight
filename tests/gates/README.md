@@ -35,6 +35,14 @@ python -m tests.gates.restir_matrix --help
 tests/gates/run_4k_performance.sh
 ```
 
+Resident scene/settings transitions have a dedicated gate. It verifies that
+the Vulkan device and two-frame external P010 pool survive scene replacement,
+and separately budgets startup and transition latency:
+
+```bash
+python -m tests.gates.transition_latency
+```
+
 The accepted multi-scene noise baseline covers diffuse, area-light,
 glossy/glass, fast-motion dense geometry, and volume rendering:
 

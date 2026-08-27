@@ -173,6 +173,39 @@ the image width for tightly packed output, and MSB-aligned 10-bit samples. Its
 conversion reads the linear HDR render target directly, avoiding an
 intermediate RGBA8 quantization step.
 
+### Resident scene and settings transitions
+
+Do not create a new `Renderer` when a stream changes scenes. Replace resident
+scene resources transactionally while retaining the Vulkan device, compiled
+pipelines, swapchain/headless images, and exported NV12/P010 pool:
+
+```python
+renderer.replace_scene(next_scene)
+frame = renderer.render_gpu(
+    next_scene, next_camera, (1920, 1080), pixel_format="nv12"
+)
+```
+
+Already-submitted asynchronous work completes first. If building `next_scene`
+fails, the previous resident scene remains valid. The deterministic frame
+sequence and temporal history reset by default; an encoder should request an
+IDR frame at the same application-level transition.
+
+Common shader parameters can also change without rebuilding Vulkan:
+
+```python
+renderer.reconfigure(
+    samples_per_pixel=2,
+    max_bounces=8,
+    wavefront_exposure=1.1,
+    wavefront_render_scale=0.75,
+)
+```
+
+Structural settings deliberately raise an error saying renderer recreation is
+required. This makes a device-loss/recreation fallback explicit and keeps the
+normal transition path zero-copy.
+
 ## Workbench showcases
 
 `ordinarylight-workbench` is the sole interactive feature browser. Built-in

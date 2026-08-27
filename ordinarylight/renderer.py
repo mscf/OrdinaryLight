@@ -305,6 +305,67 @@ class Renderer:
             # and ahead of later submissions.
             self._executor.submit(self._reset_backend_history).result()
 
+    def replace_scene(self, scene: Scene, *, reset_sequence=True):
+        """Make ``scene`` resident without recreating this renderer.
+
+        Vulkan backends retain their device, compiled pipelines, presentation
+        resources, and exported video-frame pool.  The operation is ordered
+        after already submitted asynchronous renders.  Backends without
+        resident-scene support raise ``RuntimeError`` rather than silently
+        rebuilding themselves.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._backend is None:
+                    raise RuntimeError("renderer is closed")
+            future = self._executor.submit(self._replace_scene_serialized, scene)
+            future.result()
+            if reset_sequence:
+                with self._state_lock:
+                    self._frame_index = 0
+        return scene
+
+    def _replace_scene_serialized(self, scene):
+        with self._backend_lock:
+            replace_scene = getattr(self._backend, "replace_scene", None)
+            if not callable(replace_scene):
+                raise RuntimeError(
+                    "the active backend does not support resident scene replacement"
+                )
+            replace_scene(scene)
+            self._last_statistics = None
+
+    def reconfigure(self, **changes):
+        """Apply settings supported by the resident backend in place.
+
+        Common per-frame Vulkan settings currently include
+        ``samples_per_pixel``, ``max_bounces``, ``wavefront_exposure``, and
+        ``wavefront_render_scale``. Structural changes raise ``RuntimeError``
+        with an explicit recreation requirement.
+        """
+        if not changes:
+            return self.config
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._backend is None:
+                    raise RuntimeError("renderer is closed")
+            return self._executor.submit(
+                self._reconfigure_serialized, dict(changes)
+            ).result()
+
+    def _reconfigure_serialized(self, changes):
+        with self._backend_lock:
+            reconfigure = getattr(self._backend, "reconfigure", None)
+            if not callable(reconfigure):
+                raise RuntimeError(
+                    "the active backend requires renderer recreation for settings"
+                )
+            config = reconfigure(**changes)
+            self._last_statistics = None
+            return config
+
     def _reset_backend_history(self):
         with self._backend_lock:
             reset_history = getattr(self._backend, "reset_output_history", None)

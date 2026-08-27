@@ -17,6 +17,8 @@ class FakeBackend:
         self.device = "test-device"
         self.last_timings = {"gpu_ms": 2.5}
         self.calls = []
+        self.scene_replacements = []
+        self.setting_changes = []
         self.closed = False
 
     def render_frame(
@@ -44,6 +46,13 @@ class FakeBackend:
 
     def close(self):
         self.closed = True
+
+    def replace_scene(self, scene):
+        self.scene_replacements.append(scene)
+
+    def reconfigure(self, **changes):
+        self.setting_changes.append(changes)
+        return changes
 
 
 class BlockingBackend(FakeBackend):
@@ -262,6 +271,36 @@ class RendererTests(unittest.TestCase):
             "total_ms": None,
             "gpu_ms": 2.5,
         })
+
+    def test_replace_scene_reuses_backend_and_resets_sequence(self):
+        backend = FakeBackend()
+        renderer = ol.Renderer(backend=backend)
+        first, camera = fixture()
+        second, _camera = fixture()
+        renderer.render(first, camera, (2, 2))
+        returned = renderer.replace_scene(second)
+        self.assertIs(returned, second)
+        self.assertEqual(backend.scene_replacements, [second])
+        self.assertEqual(renderer.frame_index, 0)
+        self.assertIsNone(renderer.last_statistics)
+        renderer.render(second, camera, (2, 2))
+        self.assertEqual(backend.calls[-1][-1], 0)
+
+    def test_replace_scene_requires_backend_support(self):
+        backend = FakeBackend()
+        backend.replace_scene = None
+        renderer = ol.Renderer(backend=backend)
+        scene, _camera = fixture()
+        with self.assertRaisesRegex(RuntimeError, "resident scene replacement"):
+            renderer.replace_scene(scene)
+
+    def test_reconfigure_is_ordered_and_does_not_replace_backend(self):
+        backend = FakeBackend()
+        renderer = ol.Renderer(backend=backend)
+        result = renderer.reconfigure(samples_per_pixel=2, max_bounces=8)
+        self.assertEqual(result, {"samples_per_pixel": 2, "max_bounces": 8})
+        self.assertEqual(backend.setting_changes, [result])
+        self.assertIs(renderer._backend, backend)
 
     def test_statistics_preserve_backend_timings_without_name_collisions(self):
         statistics = ol.RenderStatistics(

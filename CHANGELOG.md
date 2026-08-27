@@ -5,6 +5,18 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-27
+
+- Added transactional `Renderer.replace_scene()` and hot
+  `Renderer.reconfigure()` APIs. Scene and common settings transitions now
+  retain the Vulkan device, compiled pipelines, history/output allocation, and
+  two-frame external NV12/P010 pool; failed scene uploads leave the prior scene
+  resident.
+- Reduced first-frame startup work by creating only the configured execution
+  strategy's shader pipelines (the scene-dependent `auto` strategy retains its
+  complete strategy set). Added a hardware gate for startup, transition
+  latency, device identity, and external-pool identity.
+
 ## 0.2.1 - 2026-08-27
 
 - Added direct linear-HDR-to-P010 BT.709 limited-range output and zero-copy
