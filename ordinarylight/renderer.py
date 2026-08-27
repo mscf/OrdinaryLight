@@ -304,6 +304,14 @@ class Renderer:
         """Frames represented by the current progressive history."""
         return int(getattr(self._backend, "accumulated_frames", 0))
 
+    @property
+    def effective_samples_per_pixel(self):
+        """Sample budget selected for the most recently completed frame."""
+        return int(getattr(
+            self._backend, "effective_samples_per_pixel",
+            getattr(self.config, "samples_per_pixel", 1),
+        ))
+
     def reset_sequence(self, frame_index=0):
         """Reset deterministic sampling for a new camera or data sequence."""
         frame_index = int(frame_index)
@@ -486,9 +494,19 @@ class Renderer:
                     scene, camera, width, height, samples=samples,
                     frame_index=current_frame, pixel_format=pixel_format,
                 )
+                effective_samples = int(
+                    frame.attributes.get(
+                        "samples_per_pixel",
+                        getattr(
+                            self._backend, "effective_samples_per_pixel",
+                            samples if samples is not None
+                            else getattr(self.config, "samples_per_pixel", 1),
+                        ),
+                    )
+                )
                 self._last_statistics = RenderStatistics(
                     frame_index=current_frame, size=(width, height),
-                    samples=samples, timings=self.last_timings,
+                    samples=effective_samples, timings=self.last_timings,
                 )
                 return frame
 

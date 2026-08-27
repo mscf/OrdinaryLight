@@ -133,6 +133,30 @@ class RendererConfigTests(unittest.TestCase):
                 wavefront_dynamic_resolution=True,
             )
 
+    def test_interactive_sample_scaling_is_opt_in_and_bounded(self):
+        config = RendererConfig(
+            samples_per_pixel=8,
+            wavefront_interactive_target_fps=60.0,
+            wavefront_interactive_sample_scaling=True,
+            wavefront_interactive_min_samples=2,
+        )
+        self.assertTrue(config.wavefront_interactive_sample_scaling)
+        self.assertEqual(config.wavefront_interactive_min_samples, 2)
+        with self.assertRaisesRegex(ValueError, "requires"):
+            RendererConfig(wavefront_interactive_sample_scaling=True)
+        with self.assertRaisesRegex(ValueError, "between 1"):
+            RendererConfig(
+                samples_per_pixel=2,
+                wavefront_interactive_min_samples=3,
+            )
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            RendererConfig(
+                samples_per_pixel=4,
+                interactive_samples_per_pixel=1,
+                wavefront_interactive_target_fps=60.0,
+                wavefront_interactive_sample_scaling=True,
+            )
+
     def test_stationary_accumulation_motion_state_machine(self):
         core = object.__new__(VulkanRayQueryCore)
         core.config = RendererConfig(

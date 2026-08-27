@@ -46,6 +46,7 @@ class GpuBackend:
             close=self._release,
             attributes={
                 "frame_index": frame_index, "pixel_format": pixel_format,
+                "samples_per_pixel": 3,
             },
         )
 
@@ -76,6 +77,7 @@ class GpuFrameTests(unittest.TestCase):
         self.assertEqual((frame.metadata.width, frame.metadata.height), (64, 32))
         self.assertEqual(renderer.frame_index, 1)
         self.assertEqual(renderer.last_statistics.gpu_ms, 1.25)
+        self.assertEqual(renderer.last_statistics.samples, 3)
         self.assertTrue(frame.wait())
         descriptors = (
             frame.export_memory_fd(), frame.export_ready_semaphore_fd()

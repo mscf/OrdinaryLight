@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from ordinarylight.gpu import VulkanBufferMetadata
 from ordinarylight.outputs.nvenc import (
@@ -7,6 +8,18 @@ from ordinarylight.outputs.nvenc import (
 
 
 class NvencOutputTests(unittest.TestCase):
+    @staticmethod
+    def _keyframe_writer(encoder):
+        writer = object.__new__(NvencVideoWriter)
+        writer._encoder = encoder
+        writer._nvc = SimpleNamespace(
+            NV_ENC_PIC_FLAGS=SimpleNamespace(FORCEIDR=2, OUTPUT_SPSPPS=4)
+        )
+        writer._closed = False
+        writer._pending_keyframe = False
+        writer._pending_repeat_headers = False
+        return writer
+
     def test_nv12_cuda_planes_preserve_external_pitch_and_offsets(self):
         metadata = VulkanBufferMetadata(
             width=1920, height=1080, format="NV12", pitch=2048,
@@ -70,6 +83,64 @@ class NvencOutputTests(unittest.TestCase):
     def test_writer_rejects_p010_with_h264(self):
         with self.assertRaisesRegex(ValueError, "HEVC/H.265 or AV1"):
             NvencVideoWriter(None, (1280, 720), pixel_format="p010")
+
+    def test_encode_combines_idr_and_repeated_header_flags(self):
+        class Encoder:
+            def __init__(self):
+                self.calls = []
+
+            def Encode(self, frame, **kwargs):
+                self.calls.append((frame, kwargs))
+                return []
+
+        encoder = Encoder()
+        writer = self._keyframe_writer(encoder)
+        marker = object()
+        writer._encode(marker, force_idr=True, repeat_headers=True)
+        self.assertEqual(encoder.calls, [(marker, {"pic_flags": 6})])
+
+    def test_encode_uses_unflagged_path_for_normal_frames(self):
+        class Encoder:
+            def __init__(self):
+                self.calls = []
+
+            def Encode(self, *args):
+                self.calls.append(args)
+                return []
+
+        encoder = Encoder()
+        writer = self._keyframe_writer(encoder)
+        marker = object()
+        writer._encode(marker)
+        self.assertEqual(encoder.calls, [(marker,)])
+
+    def test_encode_falls_back_to_positional_picture_flags(self):
+        class Encoder:
+            def __init__(self):
+                self.calls = []
+
+            def Encode(self, frame, flags=None):
+                self.calls.append((frame, flags))
+                return []
+
+        encoder = Encoder()
+        writer = self._keyframe_writer(encoder)
+        marker = object()
+        writer._encode(marker, force_idr=True, repeat_headers=True)
+        self.assertEqual(encoder.calls[-1], (marker, 6))
+
+    def test_request_keyframe_is_coalesced_and_retained(self):
+        writer = self._keyframe_writer(None)
+        writer.request_keyframe(repeat_headers=False)
+        writer.request_keyframe(repeat_headers=True)
+        self.assertTrue(writer._pending_keyframe)
+        self.assertTrue(writer._pending_repeat_headers)
+
+    def test_request_keyframe_rejects_closed_writer(self):
+        writer = self._keyframe_writer(None)
+        writer._closed = True
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            writer.request_keyframe()
 
 
 if __name__ == "__main__":

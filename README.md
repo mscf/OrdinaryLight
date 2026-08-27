@@ -156,6 +156,27 @@ P010 is tone-mapped directly from the linear HDR render target into BT.709
 limited-range 10-bit codes in the high bits of 16-bit samples. It remains
 GPU-resident through Vulkan conversion, CUDA import, and NVENC.
 
+Long-running streams can insert recovery points without rebuilding NVENC or
+the Vulkan/CUDA interop pool. This emits an IDR with repeated codec headers
+every two seconds and also supports an immediate application request:
+
+```python
+with ol.outputs.NvencVideoWriter(
+    stream, (width, height), fps=30, bitrate="6M",
+    keyframe_interval_seconds=2.0,
+    repeat_headers_on_keyframe=True,
+) as video:
+    video.write(frame)
+    video.request_keyframe()  # applies to the next successful frame
+    video.write(next_frame)
+
+# Or mark a particular frame directly:
+video.write(frame, force_idr=True, repeat_headers=True)
+```
+
+`forced_keyframe_count` reports IDRs requested through the periodic, queued,
+or per-frame controls. Failed encode attempts do not consume a queued request.
+
 Scene changes do not require reconstructing the renderer. For long-running
 viewers and video streams, use `renderer.replace_scene(next_scene)` to retain
 the Vulkan device, pipelines, and external video buffers. Runtime samples,
@@ -1128,6 +1149,29 @@ expected to meet the target while the camera or scene is moving. It will not
 go below `wavefront_interactive_min_scale`; once stationary, rendering returns
 to `wavefront_render_scale`. A fixed `wavefront_interactive_render_scale` may
 also be supplied as the automatic controller's maximum motion scale.
+
+Simple scenes can spend otherwise unused motion-frame budget on additional
+samples. The configured `samples_per_pixel` remains the ceiling, while the
+motion controller begins at `wavefront_interactive_min_samples` and selects
+the highest integer SPP predicted to meet the same frame-rate target:
+
+```python
+config = ol.RendererConfig(
+    samples_per_pixel=8,
+    wavefront_interactive_target_fps=60.0,
+    wavefront_interactive_sample_scaling=True,
+    wavefront_interactive_min_samples=1,
+)
+```
+
+When combined with automatic motion resolution, resolution recovery has
+priority: the renderer holds the minimum SPP until it can sustain the maximum
+allowed interactive scale, then spends remaining headroom on samples. Stable
+frames always use `samples_per_pixel`. The selected value is available as
+`renderer.effective_samples_per_pixel`, the `wavefront_samples_per_pixel`
+timing statistic, and `GpuFrame.attributes["samples_per_pixel"]` for streaming.
+Fixed `interactive_samples_per_pixel` and automatic sample scaling are mutually
+exclusive.
 
 Use a smaller sample budget while the camera is moving and switch back after
 it settles:

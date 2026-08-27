@@ -7,6 +7,7 @@ PyNvVideoCodec; those dependencies are loaded only when this writer is built.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 
@@ -131,7 +132,8 @@ class NvencVideoWriter:
 
     def __init__(
         self, path, size, *, fps=30, bitrate=None, preset="P4", device=0,
-        codec="h264", pixel_format="nv12",
+        codec="h264", pixel_format="nv12", keyframe_interval_seconds=None,
+        repeat_headers_on_keyframe=True,
     ):
         self.width, self.height = map(int, size)
         if self.width <= 0 or self.height <= 0:
@@ -149,6 +151,22 @@ class NvencVideoWriter:
             "hevc", "h265", "av1",
         }:
             raise ValueError("P010 output requires HEVC/H.265 or AV1")
+        fps = float(fps)
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("fps must be a positive finite value")
+        if keyframe_interval_seconds is None:
+            self.keyframe_interval_frames = None
+        else:
+            interval = float(keyframe_interval_seconds)
+            if not math.isfinite(interval) or interval <= 0:
+                raise ValueError(
+                    "keyframe_interval_seconds must be positive and finite"
+                )
+            self.keyframe_interval_frames = max(1, round(fps * interval))
+        self.repeat_headers_on_keyframe = bool(repeat_headers_on_keyframe)
+        self._pending_keyframe = False
+        self._pending_repeat_headers = False
+        self.forced_keyframe_count = 0
         self._cudart, self._nvc = _cuda_modules()
         self.destination = path
         self._owns_file = not hasattr(path, "write")
@@ -176,6 +194,46 @@ class NvencVideoWriter:
             self.width, self.height, self.pixel_format, False,
             cudastream=_device_pointer(self._stream), **options,
         )
+
+    def request_keyframe(self, *, repeat_headers=True):
+        """Force the next frame to be an IDR recovery point.
+
+        The request is retained if encoding the next frame fails. No encoder,
+        CUDA import, or Vulkan allocation is recreated.
+        """
+        if self._closed:
+            raise RuntimeError("video writer is closed")
+        self._pending_keyframe = True
+        self._pending_repeat_headers |= bool(repeat_headers)
+
+    def _encode(self, cuda_frame, *, force_idr=False, repeat_headers=False):
+        """Call PyNvVideoCodec with portable per-picture flag handling."""
+        flags = 0
+        if force_idr or repeat_headers:
+            picture_flags = getattr(self._nvc, "NV_ENC_PIC_FLAGS", None)
+            if picture_flags is None:
+                raise RuntimeError(
+                    "keyframe control requires a PyNvVideoCodec release "
+                    "that exposes NV_ENC_PIC_FLAGS"
+                )
+            if force_idr:
+                flags |= int(picture_flags.FORCEIDR)
+            if repeat_headers:
+                flags |= int(picture_flags.OUTPUT_SPSPPS)
+        if not flags:
+            return self._encoder.Encode(cuda_frame)
+        try:
+            return self._encoder.Encode(cuda_frame, pic_flags=flags)
+        except TypeError as keyword_error:
+            # PyNvVideoCodec releases have exposed this argument both as a
+            # named and positional pybind parameter.
+            try:
+                return self._encoder.Encode(cuda_frame, flags)
+            except TypeError:
+                raise RuntimeError(
+                    "installed PyNvVideoCodec does not support per-frame "
+                    "NVENC picture flags"
+                ) from keyword_error
 
     def _import_semaphore(self, descriptor):
         desc = self._cudart.cudaExternalSemaphoreHandleDesc()
@@ -267,8 +325,10 @@ class NvencVideoWriter:
             self._slots[index] = slot
         return slot
 
-    def write(self, frame: GpuFrame):
-        """Encode one matching NV12/P010 GPU frame and return byte count."""
+    def write(
+        self, frame: GpuFrame, *, force_idr=False, repeat_headers=False,
+    ):
+        """Encode a GPU frame, optionally forcing an IDR and codec headers."""
         if self._closed:
             raise RuntimeError("video writer is closed")
         if not isinstance(frame, GpuFrame):
@@ -299,9 +359,22 @@ class NvencVideoWriter:
             ),
             "cudaWaitExternalSemaphoresAsync",
         )
+        periodic_keyframe = (
+            self.keyframe_interval_frames is not None
+            and (self.frame_count + 1) % self.keyframe_interval_frames == 0
+        )
+        pending_keyframe = self._pending_keyframe
+        encode_force_idr = bool(force_idr) or pending_keyframe or periodic_keyframe
+        encode_repeat_headers = (
+            bool(repeat_headers)
+            or (pending_keyframe and self._pending_repeat_headers)
+            or (periodic_keyframe and self.repeat_headers_on_keyframe)
+        )
         try:
-            packets = self._encoder.Encode(
-                _Yuv420CudaFrame(slot.pointer, metadata)
+            packets = self._encode(
+                _Yuv420CudaFrame(slot.pointer, metadata),
+                force_idr=encode_force_idr,
+                repeat_headers=encode_repeat_headers,
             )
         finally:
             signal_params = self._cudart.cudaExternalSemaphoreSignalParams()
@@ -313,6 +386,11 @@ class NvencVideoWriter:
             )
             frame.mark_external_release_scheduled()
             frame.close()
+        if pending_keyframe:
+            self._pending_keyframe = False
+            self._pending_repeat_headers = False
+        if encode_force_idr:
+            self.forced_keyframe_count += 1
         byte_count = 0
         for packet in packets:
             data = packet["data"] if isinstance(packet, dict) else packet

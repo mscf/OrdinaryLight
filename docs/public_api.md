@@ -154,6 +154,26 @@ array, CPU tone mapping, CPU YUV conversion, or CPU-to-GPU upload. The writer
 accepts either a path or a binary file-like stream and emits an H.264 elementary
 stream.
 
+For packet-loss recovery, configure periodic IDRs without recreating the
+encoder or any external GPU resource:
+
+```python
+video = ol.outputs.NvencVideoWriter(
+    stream, (1920, 1080), fps=30,
+    keyframe_interval_seconds=2.0,
+    repeat_headers_on_keyframe=True,
+)
+video.write(frame)
+video.request_keyframe()  # queued until the next successful write
+video.write(next_frame)
+video.write(urgent_frame, force_idr=True, repeat_headers=True)
+```
+
+`forced_keyframe_count` is cumulative for periodic, queued, and direct IDR
+requests. A queued recovery request survives a failed encode. These controls
+only change per-picture NVENC flags; they retain the encoder session, imported
+CUDA memory/semaphores, and Ordinary Light's Vulkan output pool.
+
 For a 10-bit path, request the distinct P010 product and configure NVENC for
 HEVC or AV1:
 
@@ -219,6 +239,26 @@ to `wavefront_render_scale`. If `wavefront_interactive_render_scale` is also
 set, it acts as the maximum automatic motion scale. This mode is distinct from
 the all-frame `wavefront_dynamic_resolution` mode and the two cannot be enabled
 together.
+
+Enable `wavefront_interactive_sample_scaling` to use spare motion-frame time
+for more samples rather than leaving the GPU budget unused:
+
+```python
+config = ol.RendererConfig(
+    samples_per_pixel=8,                 # motion and stable ceiling
+    wavefront_interactive_target_fps=60,
+    wavefront_interactive_sample_scaling=True,
+    wavefront_interactive_min_samples=1,
+)
+```
+
+The controller normalizes completed Vulkan GPU timestamps by the actual prior
+frame scale and sample count. It chooses an integer SPP between the configured
+minimum and `samples_per_pixel` only during moving/settling frames. With dynamic
+resolution active, reaching the maximum interactive scale takes priority over
+raising SPP. Stationary frames return to the configured ceiling. GPU-resident
+frames report the selected value in `attributes["samples_per_pixel"]`; output
+extent and NVENC allocations remain unchanged.
 
 ### Resident scene and settings transitions
 

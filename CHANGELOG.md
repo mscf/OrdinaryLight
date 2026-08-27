@@ -5,6 +5,16 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.3 - 2026-08-27
+
+- Added zero-recreation NVENC recovery controls: periodic IDRs, queued
+  `request_keyframe()` recovery, per-frame IDR/header flags, repeated SPS/PPS,
+  and a cumulative forced-keyframe counter.
+- Added optional GPU-time-driven motion SPP scaling. It selects the highest
+  sample count up to `samples_per_pixel` that fits the interactive FPS target,
+  composes with motion resolution scaling, and reports the effective SPP on
+  GPU-resident frames.
+
 ## 0.3.2 - 2026-08-27
 
 - Fixed hosted CI collection by installing the Vulkan loader and optional

@@ -44,16 +44,29 @@ class DynamicResolutionController:
         self.sample_count = 0
         self.under_budget_updates = 0
 
-    def update(self, gpu_ms, sample_scale=None):
+    def update(
+        self, gpu_ms, sample_scale=None, *, work_units=1.0,
+        target_work_units=1.0,
+    ):
         """Observe a completed GPU frame and return the selected scale."""
         gpu_ms = float(gpu_ms)
         if not math.isfinite(gpu_ms) or gpu_ms <= 0.0:
+            return self.current_scale
+        work_units = float(work_units)
+        target_work_units = float(target_work_units)
+        if (
+            not math.isfinite(work_units) or work_units <= 0.0
+            or not math.isfinite(target_work_units)
+            or target_work_units <= 0.0
+        ):
             return self.current_scale
         sample_scale = (
             self.current_scale if sample_scale is None else float(sample_scale)
         )
         sample_scale = max(self.minimum_scale, min(self.maximum_scale, sample_scale))
-        full_scale_ms = gpu_ms / (sample_scale * sample_scale)
+        full_scale_ms = gpu_ms / (
+            sample_scale * sample_scale * work_units
+        )
         if self.filtered_full_scale_ms <= 0.0:
             self.filtered_full_scale_ms = full_scale_ms
         else:
@@ -65,13 +78,18 @@ class DynamicResolutionController:
                 full_scale_ms - self.filtered_full_scale_ms
             )
         self.filtered_gpu_ms = (
-            self.filtered_full_scale_ms * self.current_scale * self.current_scale
+            self.filtered_full_scale_ms * self.current_scale
+            * self.current_scale * target_work_units
         )
         self.sample_count += 1
         if self.sample_count % self.update_interval:
             return self.current_scale
 
-        raw_ratio = gpu_ms / self.target_ms
+        raw_current_ms = (
+            gpu_ms / (sample_scale * sample_scale * work_units)
+            * self.current_scale * self.current_scale * target_work_units
+        )
+        raw_ratio = raw_current_ms / self.target_ms
         if 1.0 - self.hysteresis <= raw_ratio <= 1.0 + self.hysteresis:
             self.under_budget_updates = 0
             return self.current_scale
@@ -87,7 +105,9 @@ class DynamicResolutionController:
         else:
             self.under_budget_updates = 0
         ideal = math.sqrt(
-            self.target_ms / max(self.filtered_full_scale_ms, 1e-6)
+            self.target_ms / max(
+                self.filtered_full_scale_ms * target_work_units, 1e-6
+            )
         )
         delta = max(
             -self.maximum_step,
@@ -100,6 +120,7 @@ class DynamicResolutionController:
         )
         self.under_budget_updates = 0
         self.filtered_gpu_ms = (
-            self.filtered_full_scale_ms * self.current_scale * self.current_scale
+            self.filtered_full_scale_ms * self.current_scale
+            * self.current_scale * target_work_units
         )
         return self.current_scale

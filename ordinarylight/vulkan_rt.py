@@ -3409,6 +3409,15 @@ class VulkanRayQueryCore:
                 maximum_scale=interactive_max_scale,
                 current_scale=interactive_max_scale,
             )
+        self.interactive_dynamic_samples = None
+        if config.wavefront_interactive_sample_scaling:
+            from .integrations.dynamic_sampling import DynamicSampleController
+            self.interactive_dynamic_samples = DynamicSampleController(
+                target_ms=1000.0 / config.wavefront_interactive_target_fps,
+                minimum_samples=config.wavefront_interactive_min_samples,
+                maximum_samples=config.samples_per_pixel,
+                current_samples=config.wavefront_interactive_min_samples,
+            )
         self.glfw_window = glfw_window
         self._headless_surface = bool(headless_surface)
         if (external_instance is None) != (external_surface is None):
@@ -6512,6 +6521,7 @@ class VulkanRayQueryCore:
                     "query_start": index * 2,
                     "has_timestamps": False,
                     "wavefront_render_scale": self.config.wavefront_render_scale,
+                    "wavefront_samples_per_pixel": self.config.samples_per_pixel,
                     "wavefront_query_count": 0,
                     "wavefront_query_labels": (),
                 })
@@ -7184,7 +7194,9 @@ class VulkanRayQueryCore:
         ) = self._begin_accumulation_frame(accumulation_key, camera)
         render_scale = (
             self.dynamic_resolution.update(
-                gpu_frame_ms, frame["wavefront_render_scale"]
+                gpu_frame_ms, frame["wavefront_render_scale"],
+                work_units=frame["wavefront_samples_per_pixel"],
+                target_work_units=frame["wavefront_samples_per_pixel"],
             )
             if self.dynamic_resolution is not None
             else self.config.wavefront_render_scale
@@ -7193,10 +7205,17 @@ class VulkanRayQueryCore:
         if interactive_active and interactive_scale is not None:
             render_scale = min(render_scale, interactive_scale)
         if interactive_active and self.interactive_dynamic_resolution is not None:
+            target_work_units = (
+                self.config.wavefront_interactive_min_samples
+                if self.interactive_dynamic_samples is not None
+                else frame["wavefront_samples_per_pixel"]
+            )
             render_scale = min(
                 render_scale,
                 self.interactive_dynamic_resolution.update(
-                    gpu_frame_ms, frame["wavefront_render_scale"]
+                    gpu_frame_ms, frame["wavefront_render_scale"],
+                    work_units=frame["wavefront_samples_per_pixel"],
+                    target_work_units=target_work_units,
                 ),
             )
         render_width = max(1, int(round(width * render_scale)))
@@ -7212,6 +7231,19 @@ class VulkanRayQueryCore:
             and interactive_active
         ):
             effective_samples = self.config.interactive_samples_per_pixel
+        if interactive_active and self.interactive_dynamic_samples is not None:
+            interactive_max_scale = (
+                self.config.wavefront_interactive_render_scale
+                if self.config.wavefront_interactive_render_scale is not None
+                else self.config.wavefront_render_scale
+            )
+            effective_samples = self.interactive_dynamic_samples.update(
+                gpu_frame_ms,
+                frame["wavefront_samples_per_pixel"],
+                frame["wavefront_render_scale"],
+                selected_scale=render_scale,
+                allow_increase=(render_scale >= interactive_max_scale - 1e-6),
+            )
         self.effective_samples_per_pixel = effective_samples
 
         acquire_start = time.perf_counter()
@@ -7743,6 +7775,7 @@ class VulkanRayQueryCore:
         present_ms = (time.perf_counter() - present_start) * 1000.0
         frame["has_timestamps"] = True
         frame["wavefront_render_scale"] = render_scale
+        frame["wavefront_samples_per_pixel"] = effective_samples
         frame["wavefront_render_extent"] = (render_width, render_height)
         frame["wavefront_query_count"] = len(query_labels) + 1 if profiling else 0
         frame["wavefront_query_labels"] = tuple(query_labels)
@@ -7814,6 +7847,13 @@ class VulkanRayQueryCore:
                 if self.dynamic_resolution is not None else 0.0
             ),
             "wavefront_samples_per_pixel": effective_samples,
+            "wavefront_interactive_sample_scaling": bool(
+                interactive_active and self.interactive_dynamic_samples is not None
+            ),
+            "wavefront_interactive_sample_gpu_ms": (
+                self.interactive_dynamic_samples.filtered_gpu_ms
+                if self.interactive_dynamic_samples is not None else 0.0
+            ),
             "accumulation_state": self.accumulation_state.value,
             "accumulated_frames": self.accumulation_frame,
             "present_mode": self.present_mode_name,
@@ -8071,6 +8111,7 @@ class VulkanRayQueryCore:
                 "accumulation_state": self.accumulation_state.value,
                 "accumulated_frames": int(self.accumulation_frame),
                 "render_extent": tuple(frame["wavefront_render_extent"]),
+                "samples_per_pixel": int(frame["wavefront_samples_per_pixel"]),
             }
         else:
             metadata = VulkanImageMetadata(
@@ -8103,6 +8144,7 @@ class VulkanRayQueryCore:
                 "accumulation_state": self.accumulation_state.value,
                 "accumulated_frames": int(self.accumulation_frame),
                 "render_extent": tuple(frame["wavefront_render_extent"]),
+                "samples_per_pixel": int(frame["wavefront_samples_per_pixel"]),
             }
         return GpuFrame(
             api="vulkan",

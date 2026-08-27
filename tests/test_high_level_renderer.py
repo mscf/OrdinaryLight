@@ -22,6 +22,7 @@ class FakeBackend:
         self.closed = False
         self.accumulation_state = ol.AccumulationState.ACCUMULATING
         self.accumulated_frames = 7
+        self.effective_samples_per_pixel = 3
 
     def render_frame(
         self, scene, camera, width, height, *, samples=None, frame_index=0,
@@ -87,6 +88,7 @@ class RendererTests(unittest.TestCase):
             renderer.accumulation_state, ol.AccumulationState.ACCUMULATING
         )
         self.assertEqual(renderer.accumulated_frames, 7)
+        self.assertEqual(renderer.effective_samples_per_pixel, 3)
         renderer.close()
 
     def test_backend_contract_is_structural_and_backend_neutral(self):

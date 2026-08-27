@@ -70,6 +70,8 @@ class RendererConfig:
     wavefront_interactive_render_scale: float | None = None
     wavefront_interactive_target_fps: float | None = None
     wavefront_interactive_min_scale: float = 0.5
+    wavefront_interactive_sample_scaling: bool = False
+    wavefront_interactive_min_samples: int = 1
     wavefront_dynamic_resolution: bool = False
     wavefront_dynamic_target_ms: float = 16.67
     wavefront_dynamic_min_scale: float = 0.5
@@ -295,6 +297,29 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_interactive_target_fps cannot be combined with "
                 "wavefront_dynamic_resolution"
+            )
+        if not isinstance(self.wavefront_interactive_sample_scaling, bool):
+            raise TypeError("wavefront_interactive_sample_scaling must be a bool")
+        if not 1 <= self.wavefront_interactive_min_samples <= self.samples_per_pixel:
+            raise ValueError(
+                "wavefront_interactive_min_samples must be between 1 and "
+                "samples_per_pixel"
+            )
+        if (
+            self.wavefront_interactive_sample_scaling
+            and self.wavefront_interactive_target_fps is None
+        ):
+            raise ValueError(
+                "wavefront_interactive_sample_scaling requires "
+                "wavefront_interactive_target_fps"
+            )
+        if (
+            self.wavefront_interactive_sample_scaling
+            and self.interactive_samples_per_pixel is not None
+        ):
+            raise ValueError(
+                "wavefront_interactive_sample_scaling cannot be combined with "
+                "fixed interactive_samples_per_pixel"
             )
         if self.wavefront_dynamic_target_ms <= 0.0:
             raise ValueError("wavefront_dynamic_target_ms must be positive")
@@ -689,6 +714,11 @@ class VulkanRayTracingBackend:
         """Number of frames represented by current progressive history."""
         return self._core.accumulation_frame
 
+    @property
+    def effective_samples_per_pixel(self):
+        """Sample budget selected for the most recently submitted frame."""
+        return self._core.effective_samples_per_pixel
+
     def replace_scene(self, scene):
         """Upload ``scene`` while retaining the initialized Vulkan renderer."""
         self._core.upload_window_scene(scene)
@@ -732,6 +762,17 @@ class VulkanRayTracingBackend:
                     maximum_scale=interactive_max_scale,
                     current_scale=interactive_max_scale,
                 )
+            )
+        if (
+            getattr(self._core, "interactive_dynamic_samples", None) is not None
+            and "samples_per_pixel" in changes
+        ):
+            from .integrations.dynamic_sampling import DynamicSampleController
+            self._core.interactive_dynamic_samples = DynamicSampleController(
+                target_ms=1000.0 / updated.wavefront_interactive_target_fps,
+                minimum_samples=updated.wavefront_interactive_min_samples,
+                maximum_samples=updated.samples_per_pixel,
+                current_samples=updated.wavefront_interactive_min_samples,
             )
         self._core.reset_accumulation()
         self.reset_output_history()
