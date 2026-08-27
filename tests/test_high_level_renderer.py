@@ -19,13 +19,13 @@ class FakeBackend:
         self.calls = []
         self.closed = False
 
-    def render_wavefront(
+    def render_frame(
         self, scene, camera, width, height, *, samples=None, frame_index=0,
     ):
         self.calls.append((scene, camera, width, height, samples, frame_index))
         return np.full((height, width, 4), frame_index, np.float32)
 
-    def render_wavefront_outputs(
+    def render_products(
         self, scene, camera, width, height, *, outputs, samples=None,
         frame_index=0,
     ):
@@ -53,11 +53,11 @@ class BlockingBackend(FakeBackend):
         self.release = Event()
         self.render_thread = None
 
-    def render_wavefront(self, *args, **kwargs):
+    def render_frame(self, *args, **kwargs):
         self.render_thread = get_ident()
         self.started.set()
         self.release.wait(2.0)
-        return super().render_wavefront(*args, **kwargs)
+        return super().render_frame(*args, **kwargs)
 
 
 def fixture():
@@ -70,6 +70,21 @@ def fixture():
 
 
 class RendererTests(unittest.TestCase):
+    def test_backend_contract_is_structural_and_backend_neutral(self):
+        backend = FakeBackend()
+        self.assertIsInstance(backend, ol.RenderBackend)
+        self.assertIsInstance(backend, ol.ProductRenderBackend)
+
+        class WavefrontOnlyBackend:
+            def render_wavefront(self, *args, **kwargs):
+                return None
+
+            def close(self):
+                pass
+
+        with self.assertRaisesRegex(TypeError, "render_frame"):
+            ol.Renderer(backend=WavefrontOnlyBackend())
+
     def test_render_job_is_awaitable(self):
         renderer = ol.Renderer(backend=FakeBackend())
         scene, camera = fixture()

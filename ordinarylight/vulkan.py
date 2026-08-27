@@ -543,7 +543,10 @@ def probe_vulkan_devices():
     try:
         import vulkan as vk
     except ImportError as error:
-        raise RuntimeError("Install the renderer dependencies with: pip install -e .") from error
+        raise RuntimeError(
+            "The Vulkan backend requires the optional Vulkan dependencies; "
+            "install them with: pip install 'ordinarylight[vulkan]'"
+        ) from error
 
     application = vk.VkApplicationInfo(
         sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -749,6 +752,25 @@ class VulkanRayTracingBackend:
             scene, camera, width, height, outputs=("color",),
             samples=samples, frame_index=frame_index,
         )["color"]
+
+    def render_frame(
+        self, scene, camera, width, height, *, samples=None, frame_index=0,
+    ):
+        """Implement the backend-neutral linear-HDR frame contract."""
+        return self.render_wavefront(
+            scene, camera, width, height,
+            samples=samples, frame_index=frame_index,
+        )
+
+    def render_products(
+        self, scene, camera, width, height, *, outputs,
+        samples=None, frame_index=0,
+    ):
+        """Implement the optional backend-neutral named-product contract."""
+        return self.render_wavefront_outputs(
+            scene, camera, width, height, outputs=outputs,
+            samples=samples, frame_index=frame_index,
+        )
 
     def render_wavefront_outputs(
         self, scene, camera, width, height, *, outputs=("color",),

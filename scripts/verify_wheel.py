@@ -10,12 +10,15 @@ from zipfile import ZipFile
 REQUIRED_SUFFIXES = (
     "ordinarylight/__init__.py",
     "ordinarylight/renderer.py",
+    "ordinarylight/backends/base.py",
+    "ordinarylight/backends/vulkan.py",
     "ordinarylight/loaders/gltf.py",
     "ordinarylight/outputs/image.py",
     "ordinarylight/integrations/qt_workbench.py",
     "ordinarylight/showcases/catalog/volumes.py",
     "ordinarylight/shaders/wavefront_primary.comp",
     "ordinarylight/shaders/wavefront_primary.comp.spv",
+    "ordinarylight/shaders/manifest.json",
 )
 
 

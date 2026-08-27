@@ -65,14 +65,6 @@ from .materials import (
     vec3,
     vec4,
 )
-from .vulkan import (
-    RendererConfig,
-    VulkanDeviceInfo,
-    VulkanGlfwPresenter,
-    VulkanSurfacePresenter,
-    VulkanRayTracingBackend,
-    probe_vulkan_devices,
-)
 from .renderer import RenderFrame, RenderJob, Renderer, RenderStatistics
 from .capabilities import RendererCapabilities
 from .primitives import (
@@ -81,7 +73,33 @@ from .primitives import (
 from .volume import volume_empty_space_statistics
 from . import outputs
 from . import backends
-from .backends import ReferenceBackend, ReferenceConfig
+from .backends import (
+    ProductRenderBackend,
+    ReferenceBackend,
+    ReferenceConfig,
+    RenderBackend,
+)
+
+
+_LAZY_VULKAN_EXPORTS = frozenset({
+    "RendererConfig",
+    "VulkanDeviceInfo",
+    "VulkanGlfwPresenter",
+    "VulkanSurfacePresenter",
+    "VulkanRayTracingBackend",
+    "probe_vulkan_devices",
+})
+
+
+def __getattr__(name):
+    """Load optional Vulkan API names only when an application requests them."""
+    if name in _LAZY_VULKAN_EXPORTS:
+        from .backends import vulkan
+
+        value = getattr(vulkan, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(name)
 
 __all__ = [
     "Material",
@@ -101,6 +119,8 @@ __all__ = [
     "backends",
     "ReferenceBackend",
     "ReferenceConfig",
+    "RenderBackend",
+    "ProductRenderBackend",
     "Transform",
     "VertexAttributeLayout",
     "MATERIAL_PARAMETER_LAYOUT",

@@ -25,6 +25,15 @@
   showcase programs have been replaced by reusable scene builders and
   declarative workbench catalog scripts; automation gates remain standalone.
 - Ordered non-blocking `RenderJob` submissions for headless/notebook/GUI use.
+- Runtime-checkable backend protocols with `render_frame()` as the canonical
+  entry point. Vulkan is isolated behind the optional `vulkan` extra, while
+  the core package and CPU reference backend remain independently usable.
+- Consumer-level wheel verification covering HDR arrays, named products,
+  asynchronous jobs, and glTF loading from a clean downstream environment.
+- A manifest-driven, deterministic shader inventory with checks for missing
+  sources, missing binaries, and unmanaged compiled outputs.
+- Focused examples for headless, asynchronous, video, custom-material, scene-
+  update, and workbench workflows, backed by a concise getting-started guide.
 
 ## Deferred, measured work
 

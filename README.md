@@ -26,7 +26,7 @@ scene API. Its current public surface includes:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e '.[vulkan]'
 ```
 
 Inspect Vulkan support:
@@ -44,6 +44,10 @@ Render the reference image:
 ```bash
 python -m examples.reference
 ```
+
+The core package can be installed without Vulkan for loaders, scene tooling,
+the reference backend, and headless API development. See
+[`docs/getting_started.md`](docs/getting_started.md) for supported examples.
 
 This writes `/tmp/ordinarylight_reference.ppm`, which most image viewers can
 open. Pass `--output PATH` to choose another location.

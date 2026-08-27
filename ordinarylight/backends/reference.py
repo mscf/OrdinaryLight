@@ -51,7 +51,7 @@ class ReferenceBackend:
             "device": self.device,
         }
 
-    def render_wavefront(
+    def render_frame(
         self, scene, camera, width, height, *, samples=None, frame_index=0,
     ):
         if self._closed:
@@ -63,6 +63,8 @@ class ReferenceBackend:
             max_bounces=self.config.max_bounces,
         )
 
+    # Retained as a low-level compatibility spelling during the 0.x series.
+    render_wavefront = render_frame
+
     def close(self):
         self._closed = True
-

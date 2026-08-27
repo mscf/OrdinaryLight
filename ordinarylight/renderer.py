@@ -13,9 +13,25 @@ from typing import Any
 import numpy as np
 
 from .capabilities import capabilities_from_backend
+from .backends.base import RenderBackend
 from .cameras import CAMERA_TYPES, Camera
 from .scene import Scene
-from .vulkan import RendererConfig, VulkanRayTracingBackend
+
+
+def _default_backend(config, config_options):
+    """Construct the optional Vulkan backend without importing it at module load."""
+    try:
+        from .backends.vulkan import RendererConfig, VulkanRayTracingBackend
+    except ImportError as error:
+        if error.name == "vulkan":
+            raise RuntimeError(
+                "The default renderer requires the Vulkan extra; install "
+                "ordinarylight[vulkan], or pass an explicit backend"
+            ) from error
+        raise
+    return VulkanRayTracingBackend(
+        config=config or RendererConfig(**config_options)
+    )
 
 
 class RenderStatistics(Mapping):
@@ -199,9 +215,8 @@ def _size(value):
 class Renderer:
     """Render scenes to HDR NumPy arrays without exposing backend mechanics.
 
-    By default this class owns a :class:`VulkanRayTracingBackend`.  A compatible
-    backend may be supplied for testing or future implementations; it must
-    provide ``render_wavefront(...)`` and ``close()``.
+    By default this class owns the optional Vulkan backend. A compatible
+    :class:`ordinarylight.backends.RenderBackend` may be supplied explicitly.
 
     ``render()`` returns a ``float32`` array with shape ``(height, width, 4)``.
     The first three channels contain linear HDR radiance.  The fourth channel
@@ -211,19 +226,20 @@ class Renderer:
     def __init__(
         self,
         *,
-        config: RendererConfig | None = None,
-        backend: Any | None = None,
+        config: Any | None = None,
+        backend: RenderBackend | None = None,
         **config_options,
     ):
         if config is not None and config_options:
             raise TypeError("pass config or renderer options, not both")
         if backend is not None and (config is not None or config_options):
             raise TypeError("a supplied backend owns its configuration")
-        self._backend = backend if backend is not None else VulkanRayTracingBackend(
-            config=config or RendererConfig(**config_options)
+        self._backend = (
+            backend if backend is not None
+            else _default_backend(config, config_options)
         )
-        if not callable(getattr(self._backend, "render_wavefront", None)):
-            raise TypeError("backend must provide render_wavefront()")
+        if not callable(getattr(self._backend, "render_frame", None)):
+            raise TypeError("backend must implement RenderBackend.render_frame()")
         if not callable(getattr(self._backend, "close", None)):
             raise TypeError("backend must provide close()")
         self._frame_index = 0
@@ -406,15 +422,13 @@ class Renderer:
             if out.dtype != np.float32:
                 raise TypeError("out must use float32 components")
 
-        if named and callable(getattr(
-            self._backend, "render_wavefront_outputs", None
-        )):
-            products = self._backend.render_wavefront_outputs(
+        if named and callable(getattr(self._backend, "render_products", None)):
+            products = self._backend.render_products(
                 scene, camera, width, height, outputs=requested,
                 samples=samples, frame_index=current_frame,
             )
         else:
-            products = {"color": self._backend.render_wavefront(
+            products = {"color": self._backend.render_frame(
                 scene, camera, width, height,
                 samples=samples, frame_index=current_frame,
             )}

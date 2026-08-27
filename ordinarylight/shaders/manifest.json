@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "target_environment": "vulkan1.2",
+  "families": {
+    "ser": [
+      "ser_probe",
+      "wavefront_megakernel"
+    ],
+    "volume_matrix": [
+      "wavefront_primary",
+      "wavefront_hybrid",
+      "wavefront_megakernel",
+      "wavefront_persistent",
+      "wavefront_persistent_coarse",
+      "wavefront_persistent_continuation",
+      "wavefront_shade"
+    ],
+    "native": [
+      "wavefront_primary",
+      "wavefront_hybrid",
+      "wavefront_megakernel",
+      "wavefront_persistent",
+      "wavefront_persistent_coarse",
+      "wavefront_persistent_continuation",
+      "wavefront_shade"
+    ],
+    "profile": [
+      "wavefront_primary",
+      "wavefront_hybrid",
+      "wavefront_megakernel",
+      "wavefront_persistent",
+      "wavefront_persistent_coarse",
+      "wavefront_persistent_continuation",
+      "wavefront_shade"
+    ],
+    "production": [
+      "wavefront_hybrid",
+      "wavefront_persistent_continuation"
+    ],
+    "opaque": [
+      "wavefront_hybrid",
+      "wavefront_persistent_continuation",
+      "wavefront_megakernel"
+    ],
+    "opaque_untextured_production": [
+      "wavefront_hybrid",
+      "wavefront_megakernel"
+    ],
+    "megakernel": [
+      "wavefront_megakernel"
+    ],
+    "bgra": [
+      "wavefront_reconstruct"
+    ]
+  }
+}

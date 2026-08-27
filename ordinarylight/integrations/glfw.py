@@ -6,7 +6,7 @@ import time
 
 from ..renderer import RenderStatistics
 from ..scene import PerspectiveCamera, Scene
-from ..vulkan import RendererConfig, VulkanGlfwPresenter
+from ..backends.vulkan import RendererConfig, VulkanGlfwPresenter
 from .glfw_platform import load_glfw
 from .resize import ResizeRecreationGate
 

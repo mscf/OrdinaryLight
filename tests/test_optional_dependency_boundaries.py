@@ -11,7 +11,7 @@ class OptionalDependencyBoundaryTests(unittest.TestCase):
             import importlib.abc
             import sys
 
-            blocked = {"glfw", "PySide6", "dearpygui"}
+            blocked = {"glfw", "PySide6", "dearpygui", "vulkan"}
 
             class BlockOptionalGuiPackages(importlib.abc.MetaPathFinder):
                 def find_spec(self, fullname, path=None, target=None):
@@ -27,6 +27,8 @@ class OptionalDependencyBoundaryTests(unittest.TestCase):
             import ordinarylight.integrations.dearpygui
             import ordinarylight.integrations.glfw
             import ordinarylight.integrations.qt_workbench
+            assert ordinarylight.backends.ReferenceBackend
+            assert ordinarylight.RenderBackend
             from ordinarylight.validation import performance_gate_result
 
             result = performance_gate_result(

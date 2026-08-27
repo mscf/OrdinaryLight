@@ -47,6 +47,11 @@ jobs:
         run: python -m twine check dist/*
       - name: Verify wheel contents
         run: python scripts/verify_wheel.py dist/*.whl
+      - name: Test wheel as a core-only consumer
+        run: |
+          python -m venv /tmp/ordinarylight-consumer
+          /tmp/ordinarylight-consumer/bin/python -m pip install dist/*.whl
+          /tmp/ordinarylight-consumer/bin/python scripts/test_wheel_consumer.py
       - uses: actions/upload-artifact@v4
         with:
           name: ordinarylight-distributions

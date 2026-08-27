@@ -37,6 +37,21 @@ runner registered.
   changing package data or build configuration.
 - Do not commit local captures, caches, or generated benchmark output.
 
+## Shader inventory
+
+`ordinarylight/shaders/manifest.json` owns the compiled shader families and
+target environment. Validate the checked-in SPIR-V inventory without requiring
+a compiler:
+
+```bash
+python scripts/compile_shaders.py --check
+```
+
+Use `--list` to inspect the expanded plan, `--only GLOB` for a focused rebuild,
+or run without either flag to rebuild the complete inventory with
+`glslangValidator`. New specializations must be added to the manifest and must
+not leave unmanaged `.spv` files behind.
+
 ## Releases
 
 1. Update `version` in `pyproject.toml` and `CHANGELOG.md`.

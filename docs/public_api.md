@@ -106,6 +106,12 @@ use **Reload scripts** in the workbench. Each script defines `SHOWCASE` or
 
 ## Backend portability
 
+Backends implement the structural `ordinarylight.backends.RenderBackend`
+contract: `render_frame(...)`, `close()`, and semantic capability metadata.
+Backends with named products additionally implement `render_products(...)`.
+The contract deliberately contains no wavefront, Vulkan, queue, or swapchain
+terminology.
+
 Applications can use the same high-level renderer with the Vulkan backend or
 the deterministic CPU reference backend:
 
@@ -118,3 +124,11 @@ print(renderer.capabilities.as_dict())
 The reference backend prioritizes correctness and portability over throughput.
 Use `renderer.capabilities.supports(...)` to select optional behavior rather
 than testing backend class names.
+
+Vulkan-specific construction is canonical under `ordinarylight.backends.vulkan`:
+
+```python
+config = ol.backends.vulkan.RendererConfig(max_bounces=8)
+backend = ol.backends.vulkan.VulkanRayTracingBackend(config=config)
+renderer = ol.Renderer(backend=backend)
+```
