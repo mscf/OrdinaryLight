@@ -73,12 +73,16 @@ from .primitives import (
     GlyphBatch, LineBatch, PointBatch, add_glyphs, add_lines, add_points,
 )
 from .volume import volume_empty_space_statistics
-from .selection import PickResult, camera_ray, pick
+from .selection import (
+    PickOptions, PickResult, ViewportMapping, camera_ray, pick, pick_ray,
+)
 from . import effects
 from . import outputs
 from . import backends
 from .backends import (
     ObjectEffectBackend,
+    MultiObjectEffectBackend,
+    PickBackend,
     ProductRenderBackend,
     GpuRenderBackend,
     ReferenceBackend,
@@ -123,8 +127,11 @@ __all__ = [
     "VolumeMaterial",
     "volume_empty_space_statistics",
     "PickResult",
+    "PickOptions",
+    "ViewportMapping",
     "camera_ray",
     "pick",
+    "pick_ray",
     "effects",
     "outputs",
     "backends",
@@ -134,6 +141,8 @@ __all__ = [
     "ProductRenderBackend",
     "GpuRenderBackend",
     "ObjectEffectBackend",
+    "MultiObjectEffectBackend",
+    "PickBackend",
     "ResidentSceneBackend",
     "Transform",
     "VertexAttributeLayout",

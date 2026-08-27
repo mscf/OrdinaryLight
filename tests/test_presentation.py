@@ -22,9 +22,9 @@ class FakePresenter:
         self.thread_ids.append(get_ident())
         self.reset_count += 1
 
-    def set_object_effect(self, triangle_range, effect):
+    def set_object_effects(self, bindings):
         self.thread_ids.append(get_ident())
-        self.object_effect = (triangle_range, effect)
+        self.object_effect = tuple(bindings)
 
     def close(self):
         self.thread_ids.append(get_ident())
@@ -65,7 +65,11 @@ class AsyncPresenterTests(unittest.TestCase):
         worker.set_object_effect((3, 7), effect)
         self.assertTrue(worker.request_frame(object(), object(), (32, 16)))
         wait_event(worker, "frame")
-        self.assertEqual(created[0].object_effect, ((3, 7), effect))
+        self.assertEqual(created[0].object_effect, (((3, 7), effect),))
+        worker.set_object_effects((((8, 10), effect), ((12, 14), effect)))
+        self.assertTrue(worker.request_frame(object(), object(), (32, 16)))
+        wait_event(worker, "frame")
+        self.assertEqual(len(created[0].object_effect), 2)
         worker.reset()
         generation = worker.restart("second")
         self.assertEqual(wait_event(worker, "ready").generation, generation)

@@ -7,6 +7,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Lock
+import time
 from types import MappingProxyType
 from typing import Any
 
@@ -16,6 +17,7 @@ from .capabilities import capabilities_from_backend
 from .backends.base import RenderBackend
 from .cameras import CAMERA_TYPES, Camera
 from .effects import ObjectEffect
+from .selection import PickOptions, ViewportMapping, pick as cpu_pick
 from .scene import Scene
 from .state import AccumulationState
 
@@ -405,32 +407,119 @@ class Renderer:
         if not isinstance(effect, ObjectEffect):
             raise TypeError("effect must be an ordinarylight.effects object")
         scene.object_triangle_range(reference)
-        return self._submit_object_effect(scene, reference, effect)
+        return self.set_object_effects(scene, ((reference, effect),))
+
+    def set_object_effects(self, scene: Scene, bindings):
+        """Replace the ordered collection of transient object effects."""
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        normalized = []
+        for reference, effect in bindings:
+            if not isinstance(effect, ObjectEffect):
+                raise TypeError("effect must be an ordinarylight.effects object")
+            scene.object_triangle_range(reference)
+            normalized.append((reference, effect))
+        return self._submit_object_effects(scene, tuple(normalized))
 
     def clear_object_effect(self):
         """Remove the active transient object effect, if supported."""
-        return self._submit_object_effect(None, None, None)
+        return self._submit_object_effects(None, ())
 
-    def _submit_object_effect(self, scene, reference, effect):
+    clear_object_effects = clear_object_effect
+
+    def pick_async(
+        self, scene, camera, viewport_size, pixel, *, options=None, mapping=None,
+    ):
+        """Submit a nonblocking pick ordered with renderer operations.
+
+        Accelerated backends use their resident scene acceleration structure;
+        other backends transparently use the portable CPU picker.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        if not isinstance(camera, Camera):
+            raise TypeError("camera must be an Ordinary Light camera")
+        options = PickOptions() if options is None else options
+        if not isinstance(options, PickOptions):
+            raise TypeError("options must be PickOptions")
+        if mapping is not None and not isinstance(mapping, ViewportMapping):
+            raise TypeError("mapping must be ViewportMapping")
+        size = _size(viewport_size)
+        pixel = tuple(float(value) for value in pixel)
+        if len(pixel) != 2 or not np.isfinite(pixel).all():
+            raise ValueError("pixel must contain two finite coordinates")
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._backend is None:
+                    raise RuntimeError("renderer is closed")
+                frame_index = self._frame_index
+            future = self._executor.submit(
+                self._pick_serialized, scene, camera, size, pixel,
+                options, mapping, frame_index,
+            )
+        return RenderJob(
+            future, frame_index=frame_index, scene=scene, camera=camera,
+        )
+
+    def pick(self, scene, camera, viewport_size, pixel, **kwargs):
+        """Return a pick result, blocking until an accelerated pick completes."""
+        return self.pick_async(
+            scene, camera, viewport_size, pixel, **kwargs
+        ).result()
+
+    def _pick_serialized(
+        self, scene, camera, size, pixel, options, mapping, frame_index,
+    ):
+        started = time.perf_counter()
+        with self._backend_lock:
+            operation = getattr(self._backend, "pick", None)
+            result = (
+                operation(
+                    scene, camera, size, pixel,
+                    options=options, mapping=mapping,
+                )
+                if callable(operation) else
+                cpu_pick(
+                    scene, camera, size, pixel,
+                    options=options, mapping=mapping,
+                )
+            )
+        elapsed = (time.perf_counter() - started) * 1000.0
+        statistics = RenderStatistics(
+            frame_index=frame_index, size=size, samples=0,
+            timings={"total_ms": elapsed, "pick_ms": elapsed},
+        )
+        with self._state_lock:
+            self._last_statistics = statistics
+        return _CompletedRender(result, statistics)
+
+    def _submit_object_effects(self, scene, bindings):
         with self._submission_lock:
             with self._state_lock:
                 if not self._accepting_jobs or self._backend is None:
                     raise RuntimeError("renderer is closed")
             return self._executor.submit(
-                self._object_effect_serialized, scene, reference, effect
+                self._object_effects_serialized, scene, bindings
             ).result()
 
-    def _object_effect_serialized(self, scene, reference, effect):
+    def _object_effects_serialized(self, scene, bindings):
         with self._backend_lock:
-            name = "clear_object_effect" if effect is None else "apply_object_effect"
-            operation = getattr(self._backend, name, None)
+            if not bindings:
+                operation = getattr(self._backend, "clear_object_effect", None)
+                if callable(operation):
+                    return operation()
+            operation = getattr(self._backend, "set_object_effects", None)
+            if callable(operation):
+                return operation(scene, bindings)
+            if len(bindings) == 1:
+                operation = getattr(self._backend, "apply_object_effect", None)
+                if callable(operation):
+                    reference, effect = bindings[0]
+                    return operation(scene, reference, effect)
             if not callable(operation):
                 raise RuntimeError(
                     "the active backend does not support renderer-side object effects"
                 )
-            if effect is None:
-                return operation()
-            return operation(scene, reference, effect)
 
     def render(
         self,

@@ -95,7 +95,26 @@ class ObjectEffectBackend(RenderBackend, Protocol):
         ...
 
 
+@runtime_checkable
+class MultiObjectEffectBackend(ObjectEffectBackend, Protocol):
+    """Optional extension for multiple simultaneous renderer-side effects."""
+
+    def set_object_effects(self, scene, bindings) -> None:
+        """Replace the ordered collection of active object effects."""
+        ...
+
+
+@runtime_checkable
+class PickBackend(RenderBackend, Protocol):
+    """Optional extension for accelerated asynchronous scene picking."""
+
+    def pick(self, scene, camera, viewport_size, pixel, *, options, mapping=None):
+        """Return the closest policy-compatible pick result, if any."""
+        ...
+
+
 __all__ = [
-    "GpuRenderBackend", "ObjectEffectBackend", "ProductRenderBackend",
+    "GpuRenderBackend", "MultiObjectEffectBackend", "ObjectEffectBackend",
+    "PickBackend", "ProductRenderBackend",
     "RenderBackend", "ResidentSceneBackend",
 ]

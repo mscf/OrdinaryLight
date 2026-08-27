@@ -97,14 +97,20 @@ class AsyncPresenter:
 
     def set_object_effect(self, triangle_range=None, effect=None):
         """Queue an object effect for a packed-triangle range, or clear it."""
+        bindings = () if triangle_range is None else ((triangle_range, effect),)
+        return self.set_object_effects(bindings)
+
+    def set_object_effects(self, bindings=()):
+        """Queue replacement of the ordered packed-range effect collection."""
         with self._lock:
             if self._closed:
                 return False
             generation = self._generation
-        value = None if triangle_range is None else tuple(
-            int(item) for item in triangle_range
+        value = tuple(
+            (tuple(int(item) for item in triangle_range), effect)
+            for triangle_range, effect in bindings
         )
-        self._commands.put(("object_effect", generation, value, effect))
+        self._commands.put(("object_effects", generation, value))
         return True
 
     def poll(self):
@@ -164,11 +170,11 @@ class AsyncPresenter:
                         except BaseException as error:
                             self._event("error", generation, error=error)
                     continue
-                if kind == "object_effect":
-                    _kind, generation, triangle_range, effect = command
+                if kind == "object_effects":
+                    _kind, generation, bindings = command
                     if presenter is not None and generation == self.generation:
                         try:
-                            presenter.set_object_effect(triangle_range, effect)
+                            presenter.set_object_effects(bindings)
                         except BaseException as error:
                             self._event("error", generation, error=error)
                     continue

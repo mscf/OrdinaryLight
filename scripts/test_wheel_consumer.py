@@ -73,6 +73,13 @@ class _ProductsBackend:
     def apply_object_effect(self, scene, reference, effect):
         self.object_effect = (scene.object_triangle_range(reference), effect)
 
+    def set_object_effects(self, scene, bindings):
+        self.object_effect = tuple(
+            (scene.object_triangle_range(reference), effect)
+            for reference, effect in bindings
+        )
+        return self.object_effect
+
     def clear_object_effect(self):
         self.object_effect = None
 
@@ -152,13 +159,22 @@ def main():
         assert products_backend.resident_scene is scene
         assert products_backend.settings == {"samples_per_pixel": 2}
         effect = ol.effects.Outline(color=(0.2, 0.4, 0.8), width=3)
-        renderer.apply_object_effect(scene, scene.meshes[0], effect)
-        assert products_backend.object_effect == ((0, 1), effect)
+        tint = ol.effects.Tint(color=(0.8, 0.2, 0.1), strength=0.4)
+        renderer.set_object_effects(
+            scene, ((scene.meshes[0], effect), (scene.meshes[0], tint)),
+        )
+        assert products_backend.object_effect == (
+            ((0, 1), effect), ((0, 1), tint),
+        )
         renderer.clear_object_effect()
         assert products_backend.object_effect is None
 
     asynchronous = asyncio.run(_render_awaitable(scene, camera))
     assert asynchronous.shape == (6, 8, 4)
+    mapping = ol.ViewportMapping(
+        (16, 12), framebuffer_size=(8, 6), render_size=(8, 6),
+    )
+    assert mapping.map_pixel((8, 6)) == (4.0, 3.0)
 
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "consumer.gltf"

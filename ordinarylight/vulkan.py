@@ -6,6 +6,9 @@ import math
 import numpy as np
 
 from .materials import MaterialProgram
+from .selection import (
+    PickOptions, PickResult, ViewportMapping, pick as cpu_pick,
+)
 
 
 REQUIRED_RAY_QUERY_EXTENSIONS = frozenset(
@@ -734,9 +737,69 @@ class VulkanRayTracingBackend:
             scene.object_triangle_range(reference), effect
         )
 
+    def set_object_effects(self, scene, bindings):
+        """Replace all active effects without recreating output resources."""
+        return self._core.set_object_effects(
+            (scene.object_triangle_range(reference), effect)
+            for reference, effect in bindings
+        )
+
     def clear_object_effect(self):
         """Remove the active transient GPU effect."""
         return self._core.set_object_effect()
+
+    def pick(
+        self, scene, camera, viewport_size, pixel, *, options, mapping=None,
+    ):
+        """Pick one pixel through the resident TLAS with a tiny GPU dispatch.
+
+        Policies that require traversing through a rejected first hit use the
+        portable CPU implementation until the policy-aware ray-query shader is
+        available. The default, by far the common interactive path, performs
+        no full-frame render or image readback.
+        """
+        options = PickOptions() if options is None else options
+        if options != PickOptions():
+            return cpu_pick(
+                scene, camera, viewport_size, pixel,
+                options=options, mapping=mapping,
+            )
+        if mapping is not None:
+            if not isinstance(mapping, ViewportMapping):
+                raise TypeError("mapping must be ViewportMapping")
+            pixel = mapping.map_pixel(pixel)
+            if pixel is None:
+                return None
+            viewport_size = mapping.render_size
+        width, height = (int(value) for value in viewport_size)
+        x = min(max(int(math.floor(float(pixel[0]))), 0), width - 1)
+        y = min(max(int(math.floor(float(pixel[1]))), 0), height - 1)
+        self._core.upload_window_scene(scene)
+        result = self._core.trace_wavefront_tile(
+            camera, width, height, tile_origin=(x, y), tile_extent=(1, 1),
+            frame_index=0, sample_index=0, sample_count=1,
+            primary_hit_readback=True,
+        )
+        primitive = int(result["primitive_id"][0, 0])
+        if primitive == 0xffffffff:
+            return None
+        object_id = int(scene.triangle_instance_ids()[primitive])
+        try:
+            selected = scene.get_instance(object_id)
+        except KeyError:
+            selected = scene.get_volume(object_id)
+        start, _end = scene.object_triangle_range(object_id)
+        barycentric = result["primary_barycentric"][0, 0]
+        position = result["primary_position"][0, 0]
+        return PickResult(
+            selected, object_id, float(result["depth"][0, 0]),
+            tuple(float(value) for value in position), primitive,
+            primitive - start,
+            (
+                float(1.0 - barycentric[0] - barycentric[1]),
+                float(barycentric[0]), float(barycentric[1]),
+            ),
+        )
 
     _HOT_SETTINGS = frozenset({
         "samples_per_pixel", "max_bounces", "wavefront_exposure",
@@ -808,6 +871,7 @@ class VulkanRayTracingBackend:
                 "indirect_reuse", "volumes", "volume_scattering",
                 "volume_empty_space_skipping", "motion_vectors",
                 *({"object_effects"} if self.config.object_effects else set()),
+                "gpu_picking",
                 *({"gpu_resident_output", "gpu_nv12_output", "gpu_p010_output"}
                   if self.config.external_image_interop else set()),
             }),
@@ -817,6 +881,7 @@ class VulkanRayTracingBackend:
                 "max_visible_volumes": 16,
                 "max_point_lights": 64,
                 "max_analytic_lights": 64,
+                "max_object_effects": 4,
             },
             "device": self.device,
         }
@@ -1283,12 +1348,23 @@ class VulkanGlfwPresenter:
         """Apply ``effect`` to a half-open packed triangle range, or clear it."""
         return self._core.set_object_effect(triangle_range, effect)
 
+    def set_object_effects(self, bindings=()):
+        """Replace up to four packed-range object effects."""
+        return self._core.set_object_effects(bindings)
+
     def apply_object_effect(self, scene, reference, effect):
         """Apply a visual effect to one object using its stable scene handle."""
         if reference is None:
             raise ValueError("reference cannot be None; use clear_object_effect()")
         return self.set_object_effect(
             scene.object_triangle_range(reference), effect
+        )
+
+    def apply_object_effects(self, scene, bindings):
+        """Replace all visual effects using stable scene object references."""
+        return self.set_object_effects(
+            (scene.object_triangle_range(reference), effect)
+            for reference, effect in bindings
         )
 
     def clear_object_effect(self):

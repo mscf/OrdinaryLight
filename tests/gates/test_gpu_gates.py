@@ -39,6 +39,9 @@ class VulkanGateTests(unittest.TestCase):
     def test_resident_transition_latency(self):
         self._run("tests.gates.transition_latency")
 
+    def test_gpu_picking(self):
+        self._run("tests.gates.gpu_picking")
+
     def test_volume_compositing(self):
         self._run(
             "tests.gates.volume_compositing",

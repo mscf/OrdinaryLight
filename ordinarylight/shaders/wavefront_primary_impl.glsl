@@ -187,8 +187,7 @@ layout(push_constant) uniform PushConstants {
     uint stratified_primary_restir;
     uint indirect_secondary_capture;
     uint indirect_capture_stride;
-    uint object_effect_triangle_start;
-    uint object_effect_triangle_end;
+    uvec4 object_effect_ranges[2];
 } push;
 
 // The production specialization removes optional estimators that are disabled
@@ -769,11 +768,17 @@ void processPrimaryPixel(uvec2 local_pixel)
     reorderThreadNV(ser_hint, 7u);
 #endif
     uint material_signature = restirMaterialSignature(material);
-    if (push.object_effect_triangle_start < push.object_effect_triangle_end) {
-        material_signature &= 0x7fffffffu;
-        if (primitive >= push.object_effect_triangle_start
-                && primitive < push.object_effect_triangle_end)
-            material_signature |= 0x80000000u;
+    if (push.object_effect_ranges[0].x < push.object_effect_ranges[0].y) {
+        material_signature &= 0x1fffffffu;
+        for (uint effect_index = 0u; effect_index < 4u; ++effect_index) {
+            uvec4 ranges = push.object_effect_ranges[effect_index >> 1u];
+            uint start = ranges[(effect_index & 1u) * 2u];
+            uint end = ranges[(effect_index & 1u) * 2u + 1u];
+            if (start < end && primitive >= start && primitive < end) {
+                material_signature |= (effect_index + 1u) << 29u;
+                break;
+            }
+        }
     }
 #if WAVE_UNTEXTURED_PRIMARY
     const bool material_textured = false;

@@ -5,6 +5,14 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.5 - 2026-08-27
+
+- Added explicit picking policies, asynchronous GPU picking with a portable
+  CPU fallback, and DPI/letterbox/dynamic-resolution coordinate mapping.
+- Added up to four simultaneous object effects plus built-in outline, tint,
+  emissive, isolation, projected-bounds, and X-ray-bounds responses. Existing
+  singular v0.3.4 effect calls remain compatible.
+
 ## 0.3.4 - 2026-08-27
 
 - Added transport-independent scene picking with stable object identifiers,

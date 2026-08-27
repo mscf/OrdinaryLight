@@ -274,6 +274,9 @@ def main():
         def set_object_effect(self, triangle_range=None, effect=None):
             return self._worker.set_object_effect(triangle_range, effect)
 
+        def set_object_effects(self, bindings=()):
+            return self._worker.set_object_effects(bindings)
+
         def step(self):
             self.glfw.poll_events()
             completed = None
@@ -609,10 +612,27 @@ def main():
                     self.viewport.camera = self._camera()
                     self.viewport.reconfigure(self._config())
                 if self._smoke_frames and self.state.active.scene.render_meshes:
-                    selected = self.state.active.scene.render_meshes[0]
-                    self.viewport.set_object_effect(
-                        self.state.active.scene.object_triangle_range(selected),
+                    effect_types = (
                         ol.effects.Outline(),
+                        ol.effects.Tint(color=(0.2, 0.8, 1.0), strength=0.45),
+                        ol.effects.EmissiveHighlight(
+                            color=(1.0, 0.25, 0.05), strength=0.4,
+                        ),
+                        ol.effects.XRay(
+                            color=(0.2, 1.0, 0.8), strength=0.15, width=2,
+                        ),
+                    )
+                    self.viewport.set_object_effects(
+                        tuple(
+                            (
+                                self.state.active.scene.object_triangle_range(mesh),
+                                effect,
+                            )
+                            for mesh, effect in zip(
+                                self.state.active.scene.render_meshes,
+                                effect_types,
+                            )
+                        )
                     )
                 self._message(f"Started: {self.state.active.name}")
             except Exception as error:
@@ -736,11 +756,14 @@ def main():
             cursor = self.glfw.get_cursor_pos(self.glfw_window)
             if min(*framebuffer, *window_size) < 1:
                 return
-            pixel = (
-                cursor[0] * framebuffer[0] / window_size[0],
-                cursor[1] * framebuffer[1] / window_size[1],
+            mapping = ol.ViewportMapping(
+                window_size, framebuffer_size=framebuffer,
+                render_size=framebuffer,
             )
-            result = ol.pick(scene, self.viewport.camera, framebuffer, pixel)
+            result = ol.pick(
+                scene, self.viewport.camera, framebuffer, cursor,
+                mapping=mapping,
+            )
             if result is None:
                 self.viewport.set_object_effect()
                 self.selection_status.setText("Selection: none")

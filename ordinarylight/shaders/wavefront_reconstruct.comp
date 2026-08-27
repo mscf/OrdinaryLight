@@ -40,9 +40,10 @@ layout(push_constant) uniform PushConstants {
     uint reprojection_search_enabled;
     uint outlier_confidence_enabled;
     float outlier_confidence_strength;
-    uint object_effect_kind;
-    vec3 object_effect_color;
-    uint object_effect_width;
+    uint effect_padding;
+    uvec4 effect_header[4];
+    vec4 effect_color[4];
+    vec4 effect_rect[4];
 } push;
 
 vec3 acesApproximation(vec3 color)
@@ -96,10 +97,10 @@ ivec2 clampSource(ivec2 pixel)
 
 vec3 loadHdr(ivec2 pixel) { return imageLoad(hdr_image, clampSource(pixel)).rgb; }
 
-bool affectedAt(ivec2 pixel)
+uint effectSlotAt(ivec2 pixel)
 {
     uint signature = imageLoad(material_image, clampSource(pixel)).x;
-    return signature != 0xffffffffu && (signature & 0x80000000u) != 0u;
+    return signature == 0xffffffffu ? 0u : signature >> 29u;
 }
 
 vec3 worldPosition(
@@ -412,20 +413,56 @@ void main()
     imageStore(history_color, output_pixel, vec4(max(hdr, vec3(0.0)), 1.0));
     vec3 mapped = acesApproximation(max(hdr, vec3(0.0)) * push.exposure);
     vec4 encoded = vec4(linearToSrgb(mapped), 1.0);
-    if (push.object_effect_kind == 1u) {
-        int radius = int(push.object_effect_width);
-        bool center_affected = affectedAt(source_pixel);
+    uint effect_slot = effectSlotAt(source_pixel);
+    vec2 output_uv = (vec2(output_pixel) + 0.5) / vec2(output_size);
+    if (push.effect_header[0].x != 0u) {
+        for (uint index = 0u; index < 4u; ++index) {
+            uint kind = push.effect_header[index].x;
+            float strength = uintBitsToFloat(push.effect_header[index].z);
+            if (kind == 4u && effect_slot != index + 1u)
+                encoded.rgb *= 1.0 - strength;
+            if (kind == 5u || kind == 6u) {
+                vec4 rect = push.effect_rect[index];
+                vec2 thickness = vec2(push.effect_header[index].y) / vec2(output_size);
+                bool valid_rect = rect.z > rect.x && rect.w > rect.y;
+                bool inside = valid_rect && all(greaterThanEqual(output_uv, rect.xy))
+                    && all(lessThanEqual(output_uv, rect.zw));
+                bool border = inside && (
+                    output_uv.x <= rect.x + thickness.x
+                    || output_uv.x >= rect.z - thickness.x
+                    || output_uv.y <= rect.y + thickness.y
+                    || output_uv.y >= rect.w - thickness.y);
+                if (kind == 6u && inside)
+                    encoded.rgb = mix(encoded.rgb, push.effect_color[index].rgb,
+                                      strength);
+                if (border)
+                    encoded.rgb = push.effect_color[index].rgb;
+            }
+        }
+    }
+    if (effect_slot > 0u && effect_slot <= 4u) {
+        uint index = effect_slot - 1u;
+        uint kind = push.effect_header[index].x;
+        vec3 effect_color = push.effect_color[index].rgb;
+        float strength = uintBitsToFloat(push.effect_header[index].z);
+        if (kind == 2u)
+            encoded.rgb = mix(encoded.rgb, effect_color, strength);
+        else if (kind == 3u)
+            encoded.rgb = min(encoded.rgb + effect_color * strength, vec3(1.0));
+        else if (kind == 1u) {
+        int radius = int(push.effect_header[index].y);
         bool boundary =
-            affectedAt(source_pixel + ivec2(-radius, 0)) != center_affected
-            || affectedAt(source_pixel + ivec2(radius, 0)) != center_affected
-            || affectedAt(source_pixel + ivec2(0, -radius)) != center_affected
-            || affectedAt(source_pixel + ivec2(0, radius)) != center_affected
-            || affectedAt(source_pixel + ivec2(-radius, -radius)) != center_affected
-            || affectedAt(source_pixel + ivec2(radius, -radius)) != center_affected
-            || affectedAt(source_pixel + ivec2(-radius, radius)) != center_affected
-            || affectedAt(source_pixel + ivec2(radius, radius)) != center_affected;
+            effectSlotAt(source_pixel + ivec2(-radius, 0)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(radius, 0)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(0, -radius)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(0, radius)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(-radius, -radius)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(radius, -radius)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(-radius, radius)) != effect_slot
+            || effectSlotAt(source_pixel + ivec2(radius, radius)) != effect_slot;
         if (boundary)
-            encoded = vec4(push.object_effect_color, 1.0);
+            encoded = vec4(effect_color, 1.0);
+        }
     }
     imageStore(output_images[output_index], output_pixel, encoded);
 }

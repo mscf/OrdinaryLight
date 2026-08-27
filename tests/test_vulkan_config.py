@@ -11,13 +11,28 @@ from ordinarylight.vulkan_rt import (
     RECONSTRUCT_PUSH_SIZE,
     VulkanRayQueryCore,
     _camera_angular_motion_pixels,
+    _effect_screen_rect,
     _motion_adaptive_history_limit,
 )
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_projected_effect_bounds_track_object_and_aspect(self):
+        scene = ol.Scene()
+        mesh = scene.add_mesh(
+            ((-1, -1, 0), (1, -1, 0), (0, 1, 0)), ((0, 1, 2),),
+        )
+        rect = _effect_screen_rect(
+            scene, scene.object_triangle_range(mesh),
+            ol.PerspectiveCamera((0, 0, 3), (0, 0, 0)), (1600, 800),
+        )
+        self.assertLess(rect[0], 0.5)
+        self.assertGreater(rect[2], 0.5)
+        self.assertLess(rect[1], 0.5)
+        self.assertGreater(rect[3], 0.5)
+
     def test_reconstruct_push_constants_match_shader_layout(self):
-        self.assertEqual(RECONSTRUCT_PUSH_SIZE, 80)
+        self.assertEqual(RECONSTRUCT_PUSH_SIZE, 256)
 
     def test_object_effect_storage_is_boolean_and_opt_in(self):
         self.assertFalse(RendererConfig().object_effects)
@@ -28,21 +43,27 @@ class RendererConfigTests(unittest.TestCase):
     def test_object_effect_is_runtime_state_not_selection_state(self):
         core = object.__new__(VulkanRayQueryCore)
         core.config = RendererConfig(object_effects=True)
-        core.object_effect_triangle_range = None
-        core.object_effect = None
+        core.object_effect_bindings = ()
         core.window_frames = [{
             "wavefront_command_key": "cached",
             "wavefront_reservoir_valid": True,
         }]
         effect = ol.effects.Outline(color=(0.2, 0.4, 0.8), width=3)
         self.assertEqual(
-            core.set_object_effect((4, 9), effect), ((4, 9), effect)
+            core.set_object_effect((4, 9), effect), (((4, 9), effect),)
         )
         self.assertEqual(core.object_effect_triangle_range, (4, 9))
         self.assertIs(core.object_effect, effect)
         self.assertIsNone(core.window_frames[0]["wavefront_command_key"])
         self.assertFalse(core.window_frames[0]["wavefront_reservoir_valid"])
-        self.assertEqual(core.set_object_effect(), (None, None))
+        self.assertEqual(core.set_object_effect(), ())
+        second = ol.effects.Tint(color=(1, 0, 0), strength=0.25)
+        self.assertEqual(len(core.set_object_effects((
+            ((4, 9), effect), ((10, 12), second),
+        ))), 2)
+        with self.assertRaises(ValueError):
+            core.set_object_effects((((index, index + 1), effect)
+                                     for index in range(5)))
         with self.assertRaises(TypeError):
             core.set_object_effect((4, 9), object())
 

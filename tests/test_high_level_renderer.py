@@ -62,6 +62,11 @@ class FakeBackend:
         self.object_effect_changes.append((scene, reference, effect))
         return effect
 
+    def set_object_effects(self, scene, bindings):
+        bindings = tuple(bindings)
+        self.object_effect_changes.append((scene, bindings))
+        return bindings
+
     def clear_object_effect(self):
         self.object_effect_changes.append(None)
 
@@ -90,18 +95,41 @@ def fixture():
 
 
 class RendererTests(unittest.TestCase):
+    def test_pick_async_uses_portable_fallback_and_is_awaitable(self):
+        scene = ol.Scene()
+        mesh = scene.add_mesh(
+            ((-1, -1, 0), (1, -1, 0), (0, 1, 0)), ((0, 1, 2),),
+        )
+        camera = ol.PerspectiveCamera((0, 0, 3), (0, 0, 0))
+        with ol.Renderer(backend=FakeBackend()) as renderer:
+            job = renderer.pick_async(scene, camera, (101, 101), (50, 50))
+            hit = job.result()
+            self.assertIs(hit.object, mesh)
+            self.assertIsNotNone(job.statistics)
+            self.assertGreaterEqual(job.statistics.timings["pick_ms"], 0.0)
+
     def test_object_effect_response_is_ordered_and_backend_neutral(self):
         backend = FakeBackend()
         renderer = ol.Renderer(backend=backend)
         self.assertIsInstance(backend, ol.ObjectEffectBackend)
+        self.assertIsInstance(backend, ol.MultiObjectEffectBackend)
         scene, _camera = fixture()
         mesh = scene.meshes[0]
         effect = ol.effects.Outline(color=(1, 0, 0), width=3)
-        self.assertIs(renderer.apply_object_effect(scene, mesh.id, effect), effect)
+        self.assertEqual(
+            renderer.apply_object_effect(scene, mesh.id, effect),
+            ((mesh.id, effect),),
+        )
+        tint = ol.effects.Tint(color=(0, 1, 0), strength=0.4)
+        renderer.set_object_effects(scene, ((mesh, effect), (mesh.id, tint)))
         renderer.clear_object_effect()
         self.assertEqual(
             backend.object_effect_changes,
-            [(scene, mesh.id, effect), None],
+            [
+                (scene, ((mesh.id, effect),)),
+                (scene, ((mesh, effect), (mesh.id, tint))),
+                None,
+            ],
         )
         with self.assertRaises(TypeError):
             renderer.apply_object_effect(scene, mesh, object())

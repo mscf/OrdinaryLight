@@ -624,9 +624,9 @@ switching scenes reuses it. The public `VulkanSurfacePresenter` also accepts an
 externally owned `VkInstance` and `VkSurfaceKHR` for toolkits that expose those
 handles directly.
 
-Left-click a visible mesh or volume in the viewport to select it. The
-backend-neutral picker is independent from that demonstration and is available
-as `ordinarylight.pick(scene, camera, viewport_size, pixel)`. It returns a
+Left-click a visible mesh or volume in the viewport to select it. The portable
+picker is independent from that demonstration and is available as
+`ordinarylight.pick(scene, camera, viewport_size, pixel)`. It returns a
 `PickResult` with a stable object ID, object reference, world-space position,
 triangle, and barycentric coordinates. Application code decides what the hit
 means and can load metadata, modify the scene, update another UI, or apply a
@@ -644,15 +644,53 @@ else:
     presenter.clear_object_effect()
 ```
 
+Applications using the high-level renderer can submit a compact resident-TLAS
+query without blocking their event loop:
+
+```python
+job = renderer.pick_async(
+    scene, camera, framebuffer_size, ui_pixel,
+    mapping=ordinarylight.ViewportMapping(
+        ui_size,
+        framebuffer_size=framebuffer_size,
+        render_size=internal_render_size,
+        content_rect=displayed_content_rect,
+    ),
+    options=ordinarylight.PickOptions(
+        transmissive="surface", volumes="include",
+    ),
+)
+job.add_done_callback(lambda completed: handle_pick(completed.result()))
+```
+
+The Vulkan default policy dispatches a single pixel against the already
+resident TLAS and reads back only its compact hit record. Through-glass and
+volume-filtering policies currently use the portable CPU traversal because
+they may need to continue beyond a rejected first hit. `ViewportMapping`
+handles high-DPI framebuffer scaling, letterboxing, and dynamic internal
+resolution, and returns no hit for UI pixels outside displayed content.
+
 The optional object-effect layer is enabled with
-`RendererConfig(object_effects=True)`. `Outline` is the first built-in effect;
-it runs in Vulkan reconstruction without pixel readback and therefore appears
-in both window and encoded output. Picking never creates selection state or
-implicitly applies an effect. The high-level `Renderer.apply_object_effect()`
-and `Renderer.clear_object_effect()` methods serialize changes with render and
-GPU-video submissions, so remote applications do not need presenter or Vulkan
-access. No callback framework is imposed: ordinary Python code handling the
-`PickResult` is the arbitrary action API.
+`RendererConfig(object_effects=True)`. `Outline`, `Tint`,
+`EmissiveHighlight`, `Isolation`, `BoundingBox`, and `XRay` run in Vulkan
+reconstruction without pixel readback and therefore appear in both window and
+encoded output. `BoundingBox` and `XRay` use projected object bounds so they
+remain visible through occluders. Up to four effects can be active at once:
+
+```python
+renderer.set_object_effects(scene, (
+    (hovered_id, ordinarylight.effects.Outline(color=(1, 1, 1))),
+    (selected_id, ordinarylight.effects.Tint(color=(1, 0.3, 0.1))),
+    (tracked_id, ordinarylight.effects.XRay(color=(0.1, 0.8, 1))),
+))
+```
+
+The singular v0.3.4 `apply_object_effect()` and `clear_object_effect()` calls
+remain supported. Picking never creates selection state or implicitly applies
+an effect. Effect changes serialize with rendering and GPU-video submissions,
+so remote applications do not need presenter or Vulkan access. No callback
+framework is imposed: ordinary Python code handling `PickResult` is the
+arbitrary action API.
 
 The Qt event thread never performs rendering, swapchain recreation, Vulkan
 teardown, or scene parsing. A presentation worker owns the Vulkan presenter

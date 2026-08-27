@@ -1,7 +1,8 @@
 """Renderer backend contracts and implementations."""
 
 from .base import (
-    GpuRenderBackend, ObjectEffectBackend, ProductRenderBackend,
+    GpuRenderBackend, MultiObjectEffectBackend, ObjectEffectBackend,
+    PickBackend, ProductRenderBackend,
     RenderBackend, ResidentSceneBackend,
 )
 from .reference import ReferenceBackend, ReferenceConfig
@@ -19,7 +20,7 @@ def __getattr__(name):
 __all__ = [
     "ProductRenderBackend",
     "GpuRenderBackend",
-    "ObjectEffectBackend",
+    "MultiObjectEffectBackend", "ObjectEffectBackend", "PickBackend",
     "ReferenceBackend",
     "ReferenceConfig",
     "RenderBackend",
