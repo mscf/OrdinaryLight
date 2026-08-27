@@ -66,6 +66,7 @@ from .materials import (
     vec4,
 )
 from .renderer import RenderFrame, RenderJob, Renderer, RenderStatistics
+from .state import AccumulationState
 from .gpu import GpuFrame, VulkanBufferMetadata, VulkanImageMetadata
 from .capabilities import RendererCapabilities
 from .primitives import (
@@ -169,6 +170,7 @@ __all__ = [
     "RenderFrame",
     "RenderJob",
     "RenderStatistics",
+    "AccumulationState",
     "GpuFrame",
     "VulkanBufferMetadata",
     "VulkanImageMetadata",

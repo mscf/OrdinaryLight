@@ -10,6 +10,7 @@ import numpy as np
 
 from .cameras import OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from .integrations.indirect_reuse import IndirectReservoirPlan
+from .state import AccumulationState
 import vulkan as vk
 
 
@@ -1890,7 +1891,10 @@ class VulkanWavefrontExecutor:
         constants = bytearray(struct.pack(
             "f3If2IfIfIfIIf", self.core.config.wavefront_exposure,
             source_width, source_height,
-            int(self.core.config.wavefront_temporal_reconstruction),
+            int(
+                self.core.config.wavefront_temporal_reconstruction
+                or self.core.config.stationary_accumulation
+            ),
             self.core.config.wavefront_temporal_weight,
             int(history_valid),
             int(self.core.config.wavefront_diffuse_filter),
@@ -2531,6 +2535,7 @@ class VulkanWavefrontExecutor:
                     scene.emissive_light_weight,
                     int(
                         self.core.config.wavefront_temporal_reconstruction
+                        or self.core.config.stationary_accumulation
                         or self.core.config.wavefront_diffuse_filter
                         or restir_enabled
                         or self.core.config.wavefront_indirect_reuse_candidates
@@ -3443,6 +3448,8 @@ class VulkanRayQueryCore:
         self.accumulation_frame = 0
         self.accumulation_key = None
         self.accumulation_history_valid = False
+        self.accumulation_state = AccumulationState.DISABLED
+        self.accumulation_camera_signature = None
         self.previous_camera = None
         self.wavefront_previous_present_camera = None
         self.camera_change_time = time.perf_counter()
@@ -6244,6 +6251,7 @@ class VulkanRayQueryCore:
         )
         full_gbuffer = bool(
             self.config.wavefront_temporal_reconstruction
+            or self.config.stationary_accumulation
             or self.config.wavefront_diffuse_filter
             or self.config.wavefront_restir_di
             or self.config.wavefront_indirect_reuse_storage
@@ -6306,9 +6314,11 @@ class VulkanRayQueryCore:
             format=vk.VK_FORMAT_B10G11R11_UFLOAT_PACK32,
             extent=vk.VkExtent3D(
                 width=(extent.width if
-                    self.config.wavefront_temporal_reconstruction else 1),
+                    (self.config.wavefront_temporal_reconstruction
+                     or self.config.stationary_accumulation) else 1),
                 height=(extent.height if
-                    self.config.wavefront_temporal_reconstruction else 1),
+                    (self.config.wavefront_temporal_reconstruction
+                     or self.config.stationary_accumulation) else 1),
                 depth=1,
             ),
             mipLevels=1, arrayLayers=1,
@@ -7158,6 +7168,22 @@ class VulkanRayQueryCore:
         )
         render_width = max(1, int(round(width * render_scale)))
         render_height = max(1, int(round(height * render_scale)))
+        accumulation_key = (
+            id(scene), scene.revision, width, height,
+            render_width, render_height,
+        )
+        accumulation_camera_signature, accumulation_active = (
+            self._begin_accumulation_frame(accumulation_key, camera)
+        )
+        effective_samples = self.config.samples_per_pixel
+        if (
+            self.config.interactive_samples_per_pixel is not None
+            and self.accumulation_state in {
+                AccumulationState.MOVING, AccumulationState.SETTLING,
+            }
+        ):
+            effective_samples = self.config.interactive_samples_per_pixel
+        self.effective_samples_per_pixel = effective_samples
 
         acquire_start = time.perf_counter()
         if self._headless_surface:
@@ -7261,8 +7287,13 @@ class VulkanRayQueryCore:
                 self.wavefront_previous_present_camera, PerspectiveCamera
             )
         )
-        history_valid = bool(
+        wavefront_temporal_enabled = bool(
             self.config.wavefront_temporal_reconstruction
+            or self.config.stationary_accumulation
+        )
+        history_valid = bool(
+            wavefront_temporal_enabled
+            and accumulation_active
             and self.window_frames[1 - frame_slot]["wavefront_history_valid"]
             and temporal_motion_valid
             and perspective_history_compatible
@@ -7295,7 +7326,7 @@ class VulkanRayQueryCore:
         render_key = (
             width, height, render_width, render_height,
             capacity, self.config.max_bounces,
-            self.config.samples_per_pixel, history_valid, profiling,
+            effective_samples, history_valid, profiling,
             self.config.wavefront_fused_secondary,
             self.config.wavefront_subgroup_enqueue,
             self.resolved_execution_strategy,
@@ -7340,7 +7371,7 @@ class VulkanRayQueryCore:
                 )
                 frame["wavefront_indirect_reservoir_initialized"] = True
             tile_count = 0
-            sample_count = self.config.samples_per_pixel
+            sample_count = effective_samples
             for sample_index in range(sample_count):
                 y = 0
                 while y < render_height:
@@ -7684,7 +7715,7 @@ class VulkanRayQueryCore:
         frame["wavefront_query_count"] = len(query_labels) + 1 if profiling else 0
         frame["wavefront_query_labels"] = tuple(query_labels)
         frame["wavefront_history_valid"] = bool(
-            self.config.wavefront_temporal_reconstruction
+            wavefront_temporal_enabled and accumulation_active
         )
         frame["wavefront_reservoir_valid"] = bool(
             self.wavefront_restir_runtime_enabled
@@ -7693,6 +7724,9 @@ class VulkanRayQueryCore:
             self.wavefront_frame_sequence + 1
         ) & 0x00ffffff
         self.wavefront_previous_present_camera = camera
+        self._finish_accumulation_frame(
+            accumulation_camera_signature, accumulation_active,
+        )
         self.window_frame_index = (frame_slot + 1) % WINDOW_FRAMES_IN_FLIGHT
         # Scene upload, pipeline creation, and swapchain recreation are setup
         # events rather than animation cadence. Do not let one such interval
@@ -7733,7 +7767,9 @@ class VulkanRayQueryCore:
                 self.dynamic_resolution.filtered_gpu_ms
                 if self.dynamic_resolution is not None else 0.0
             ),
-            "wavefront_samples_per_pixel": self.config.samples_per_pixel,
+            "wavefront_samples_per_pixel": effective_samples,
+            "accumulation_state": self.accumulation_state.value,
+            "accumulated_frames": self.accumulation_frame,
             "present_mode": self.present_mode_name,
             "direct_swapchain_storage": self.swapchain_direct_storage,
             "wavefront_execution_strategy": (
@@ -7839,7 +7875,7 @@ class VulkanRayQueryCore:
                         or self.config.wavefront_indirect_reuse_storage) else 0)
                 )
                 if (
-                    self.config.wavefront_temporal_reconstruction
+                    wavefront_temporal_enabled
                     or self.config.wavefront_diffuse_filter
                     or self.config.wavefront_restir_di
                     or self.config.wavefront_indirect_reuse_storage
@@ -7986,6 +8022,8 @@ class VulkanRayQueryCore:
                 "components": pixel_format,
                 "bit_depth": 10 if p010 else 8,
                 "frame_slot": int(slot),
+                "accumulation_state": self.accumulation_state.value,
+                "accumulated_frames": int(self.accumulation_frame),
             }
         else:
             metadata = VulkanImageMetadata(
@@ -8015,6 +8053,8 @@ class VulkanRayQueryCore:
                 "color_space": "srgb-transfer",
                 "components": "rgba",
                 "frame_slot": int(slot),
+                "accumulation_state": self.accumulation_state.value,
+                "accumulated_frames": int(self.accumulation_frame),
             }
         return GpuFrame(
             api="vulkan",
@@ -8113,6 +8153,54 @@ class VulkanRayQueryCore:
         vk.vkUnmapMemory(self.device, capture.memory)
         return image
 
+    def _begin_accumulation_frame(self, scene_key, camera):
+        """Resolve motion policy before recording a conventional or wavefront frame."""
+        now = time.perf_counter()
+        camera_signature = _camera_signature(camera)
+        camera_changed = (
+            camera_signature != self.accumulation_camera_signature
+        )
+        scene_changed = scene_key != self.accumulation_key
+        content_changed = camera_changed or scene_changed
+        if content_changed:
+            self.camera_change_time = now
+
+        progressive = self.config.progressive_accumulation
+        stationary = progressive and self.config.stationary_accumulation
+        if not progressive:
+            state = AccumulationState.DISABLED
+        elif stationary and content_changed:
+            state = AccumulationState.MOVING
+        elif (
+            stationary
+            and now - self.camera_change_time
+            < self.config.stationary_delay_seconds
+        ):
+            state = AccumulationState.SETTLING
+        else:
+            state = AccumulationState.ACCUMULATING
+
+        reset_history = (
+            not progressive
+            or scene_changed
+            or (camera_changed and not self.config.temporal_history)
+            or (stationary and state is not AccumulationState.ACCUMULATING)
+        )
+        if reset_history:
+            self.accumulation_frame = 0
+            self.accumulation_history_valid = False
+        self.accumulation_key = scene_key
+        self.accumulation_state = state
+        return camera_signature, state is AccumulationState.ACCUMULATING
+
+    def _finish_accumulation_frame(
+        self, camera_signature, accumulation_active,
+    ):
+        self.accumulation_camera_signature = camera_signature
+        if self.config.progressive_accumulation and accumulation_active:
+            self.accumulation_frame += 1
+            self.accumulation_history_valid = True
+
     def present_window(
         self, scene, camera, width, height, overlay_fps=None, max_bounces=5,
         samples=1,
@@ -8126,22 +8214,9 @@ class VulkanRayQueryCore:
             self.create_window_swapchain(width, height)
         width, height = self.swapchain_extent
         scene_key = (id(scene), scene.revision, width, height)
-        camera_signature = _camera_signature(camera)
-        previous_signature = None if self.previous_camera is None else (
-            _camera_signature(self.previous_camera)
+        camera_signature, accumulation_active = (
+            self._begin_accumulation_frame(scene_key, camera)
         )
-        camera_changed = camera_signature != previous_signature
-        if camera_changed:
-            self.camera_change_time = time.perf_counter()
-        invalid_scene_history = scene_key != self.accumulation_key
-        if (
-            not self.config.progressive_accumulation
-            or invalid_scene_history
-            or (camera_changed and not self.config.temporal_history)
-        ):
-            self.accumulation_frame = 0
-            self.accumulation_history_valid = False
-        self.accumulation_key = scene_key
         effective_samples = samples
         interactive_samples = self.config.interactive_samples_per_pixel
         if (
@@ -8525,9 +8600,9 @@ class VulkanRayQueryCore:
             len(self.scene_resources.instances) - len(self.scene_resources.blases),
         )
         self.last_timings = timings
-        if self.config.progressive_accumulation:
-            self.accumulation_frame += 1
-            self.accumulation_history_valid = True
+        self._finish_accumulation_frame(
+            camera_signature, accumulation_active,
+        )
         self.previous_camera = camera
         frame["has_timestamps"] = True
         self.window_frame_index = (
@@ -8539,6 +8614,15 @@ class VulkanRayQueryCore:
         self.accumulation_frame = 0
         self.accumulation_key = None
         self.accumulation_history_valid = False
+        self.accumulation_camera_signature = None
+        self.accumulation_state = (
+            AccumulationState.SETTLING
+            if self.config.progressive_accumulation
+            and self.config.stationary_accumulation
+            else AccumulationState.ACCUMULATING
+            if self.config.progressive_accumulation
+            else AccumulationState.DISABLED
+        )
         self.previous_camera = None
         self.camera_change_time = time.perf_counter()
 

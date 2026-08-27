@@ -5,6 +5,14 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.1 - 2026-08-27
+
+- Added stationary-aware temporal accumulation for conventional and wavefront
+  rendering, including zero-copy NV12/P010 streaming. GPU frames now report
+  moving, settling, and accumulating state without readback; camera, scene,
+  extent, and hot-setting changes invalidate history without recreating the
+  Vulkan renderer or NVENC frame pool.
+
 ## 0.3.0 - 2026-08-27
 
 - Added transactional `Renderer.replace_scene()` and hot

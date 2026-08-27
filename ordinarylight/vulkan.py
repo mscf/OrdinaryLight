@@ -29,6 +29,7 @@ class RendererConfig:
     material_program: MaterialProgram | None = None
     samples_per_pixel: int = 1
     progressive_accumulation: bool = False
+    stationary_accumulation: bool = False
     interactive_samples_per_pixel: int | None = None
     stationary_delay_seconds: float = 0.15
     temporal_history: bool = False
@@ -145,6 +146,13 @@ class RendererConfig:
             raise ValueError("interactive_samples_per_pixel must be between 1 and 64")
         if self.stationary_delay_seconds < 0.0:
             raise ValueError("stationary_delay_seconds cannot be negative")
+        if not isinstance(self.stationary_accumulation, bool):
+            raise TypeError("stationary_accumulation must be a bool")
+        if self.stationary_accumulation and not self.progressive_accumulation:
+            raise ValueError(
+                "stationary_accumulation requires "
+                "progressive_accumulation=True"
+            )
         if self.temporal_history and not self.progressive_accumulation:
             raise ValueError(
                 "temporal_history requires progressive_accumulation=True"
@@ -620,6 +628,17 @@ class VulkanRayTracingBackend:
     def reset_output_history(self):
         """Discard prior-frame state used by opt-in motion output."""
         self._output_history = None
+        self._core.reset_accumulation()
+
+    @property
+    def accumulation_state(self):
+        """Motion state controlling temporal accumulation."""
+        return self._core.accumulation_state
+
+    @property
+    def accumulated_frames(self):
+        """Number of frames represented by current progressive history."""
+        return self._core.accumulation_frame
 
     def replace_scene(self, scene):
         """Upload ``scene`` while retaining the initialized Vulkan renderer."""
@@ -628,7 +647,7 @@ class VulkanRayTracingBackend:
 
     _HOT_SETTINGS = frozenset({
         "samples_per_pixel", "max_bounces", "wavefront_exposure",
-        "wavefront_render_scale",
+        "wavefront_render_scale", "stationary_delay_seconds",
     })
 
     def reconfigure(self, **changes):
@@ -657,6 +676,7 @@ class VulkanRayTracingBackend:
             "features": frozenset({
                 "hardware_ray_tracing", "offscreen_rendering", "instancing",
                 "textures", "custom_materials", "progressive_accumulation",
+                "stationary_accumulation",
                 "temporal_reconstruction", "denoising", "restir_di",
                 "indirect_reuse", "volumes", "volume_scattering",
                 "volume_empty_space_skipping", "motion_vectors",
@@ -1141,6 +1161,11 @@ class VulkanGlfwPresenter:
         if self._core is None:
             return 0
         return self._core.effective_samples_per_pixel
+
+    @property
+    def accumulation_state(self):
+        """Motion state controlling temporal accumulation."""
+        return self._core.accumulation_state
 
     @property
     def pipeline_stages(self):

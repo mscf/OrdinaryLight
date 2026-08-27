@@ -83,6 +83,78 @@ class RendererConfigTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             RendererConfig(external_image_interop=1)
 
+    def test_stationary_accumulation_is_explicit_and_progressive(self):
+        self.assertFalse(RendererConfig().stationary_accumulation)
+        config = RendererConfig(
+            progressive_accumulation=True,
+            stationary_accumulation=True,
+        )
+        self.assertTrue(config.stationary_accumulation)
+        with self.assertRaisesRegex(ValueError, "progressive_accumulation"):
+            RendererConfig(stationary_accumulation=True)
+        with self.assertRaises(TypeError):
+            RendererConfig(
+                progressive_accumulation=True,
+                stationary_accumulation=1,
+            )
+
+    def test_stationary_accumulation_motion_state_machine(self):
+        core = object.__new__(VulkanRayQueryCore)
+        core.config = RendererConfig(
+            progressive_accumulation=True,
+            stationary_accumulation=True,
+            stationary_delay_seconds=0.15,
+            temporal_history=True,
+        )
+        core.accumulation_frame = 0
+        core.accumulation_key = None
+        core.accumulation_history_valid = False
+        core.accumulation_camera_signature = None
+        core.accumulation_state = ol.AccumulationState.DISABLED
+        core.camera_change_time = 0.0
+        camera = ol.PerspectiveCamera((0, 0, -3), (0, 0, 0))
+        moved = ol.PerspectiveCamera((0.1, 0, -3), (0, 0, 0))
+
+        with patch(
+            "ordinarylight.vulkan_rt.time.perf_counter",
+            side_effect=(0.0, 0.05, 0.20, 0.21, 0.22),
+        ):
+            signature, active = core._begin_accumulation_frame(
+                (1, 0, 64, 64), camera
+            )
+            self.assertFalse(active)
+            self.assertEqual(core.accumulation_state, ol.AccumulationState.MOVING)
+            core._finish_accumulation_frame(signature, active)
+
+            signature, active = core._begin_accumulation_frame(
+                (1, 0, 64, 64), camera
+            )
+            self.assertFalse(active)
+            self.assertEqual(
+                core.accumulation_state, ol.AccumulationState.SETTLING
+            )
+            core._finish_accumulation_frame(signature, active)
+
+            signature, active = core._begin_accumulation_frame(
+                (1, 0, 64, 64), camera
+            )
+            self.assertTrue(active)
+            core._finish_accumulation_frame(signature, active)
+            self.assertEqual(core.accumulation_frame, 1)
+
+            signature, active = core._begin_accumulation_frame(
+                (1, 0, 64, 64), moved
+            )
+            self.assertFalse(active)
+            self.assertEqual(core.accumulation_frame, 0)
+            core._finish_accumulation_frame(signature, active)
+
+            _signature, active = core._begin_accumulation_frame(
+                (1, 1, 64, 64), moved
+            )
+            self.assertFalse(active)
+            self.assertEqual(core.accumulation_state, ol.AccumulationState.MOVING)
+
     def test_volume_empty_space_skipping_is_boolean_and_opt_in(self):
         self.assertFalse(RendererConfig().volume_empty_space_skipping)
         self.assertTrue(

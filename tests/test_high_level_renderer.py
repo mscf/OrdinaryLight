@@ -20,6 +20,8 @@ class FakeBackend:
         self.scene_replacements = []
         self.setting_changes = []
         self.closed = False
+        self.accumulation_state = ol.AccumulationState.ACCUMULATING
+        self.accumulated_frames = 7
 
     def render_frame(
         self, scene, camera, width, height, *, samples=None, frame_index=0,
@@ -79,6 +81,14 @@ def fixture():
 
 
 class RendererTests(unittest.TestCase):
+    def test_renderer_exposes_backend_accumulation_state(self):
+        renderer = ol.Renderer(backend=FakeBackend())
+        self.assertEqual(
+            renderer.accumulation_state, ol.AccumulationState.ACCUMULATING
+        )
+        self.assertEqual(renderer.accumulated_frames, 7)
+        renderer.close()
+
     def test_backend_contract_is_structural_and_backend_neutral(self):
         backend = FakeBackend()
         self.assertIsInstance(backend, ol.RenderBackend)

@@ -1082,6 +1082,30 @@ History resets automatically when the camera, scene object, or framebuffer
 size changes. `presenter.accumulated_frames` reports its current length. The
 workbench exposes pause and reset actions for inspecting convergence.
 
+For interactive presentation or zero-copy video streaming, accumulate only
+after the camera and scene have remained unchanged for a short settling
+interval:
+
+```python
+config = ol.RendererConfig(
+    external_image_interop=True,
+    progressive_accumulation=True,
+    stationary_accumulation=True,
+    stationary_delay_seconds=0.15,
+)
+renderer = ol.Renderer(config=config)
+frame = renderer.render_gpu(
+    scene, camera, (1920, 1080), pixel_format="nv12"
+)
+print(frame.attributes["accumulation_state"])
+```
+
+Camera motion, scene revisions, resolution changes, and explicit history
+resets produce `moving` or `settling` frames; stable frames report
+`accumulating`. The same exported NV12/P010 pool and NVENC session remain in
+use throughout. `renderer.accumulation_state` and
+`renderer.accumulated_frames` expose the state without reading pixels back.
+
 Use a smaller sample budget while the camera is moving and switch back after
 it settles:
 
@@ -1091,6 +1115,7 @@ config = ol.RendererConfig(
     interactive_samples_per_pixel=1,
     stationary_delay_seconds=0.15,
     progressive_accumulation=True,
+    stationary_accumulation=True,
 )
 ```
 

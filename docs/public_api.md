@@ -173,6 +173,37 @@ the image width for tightly packed output, and MSB-aligned 10-bit samples. Its
 conversion reads the linear HDR render target directly, avoiding an
 intermediate RGBA8 quantization step.
 
+### Stationary accumulation while streaming
+
+Stationary accumulation improves stable-camera quality without rebuilding the
+renderer or interrupting a zero-copy NVENC stream:
+
+```python
+config = ol.RendererConfig(
+    external_image_interop=True,
+    progressive_accumulation=True,
+    stationary_accumulation=True,
+    stationary_delay_seconds=0.15,
+    interactive_samples_per_pixel=1,
+)
+renderer = ol.Renderer(config=config)
+
+frame = renderer.render_gpu(
+    scene, camera, (1920, 1080), pixel_format="nv12"
+)
+state = frame.attributes["accumulation_state"]
+represented = frame.attributes["accumulated_frames"]
+video.write(frame)
+```
+
+The state is one of `moving`, `settling`, or `accumulating` (or `disabled`
+when progressive history is off), and is also available as
+`renderer.accumulation_state` using the public `ol.AccumulationState` enum.
+Camera changes, scene revisions, output/internal extent changes, hot setting
+changes, and explicit sequence resets invalidate history. This changes only
+the history policy: the Vulkan device, pipelines, external NV12/P010 frame
+pool, CUDA imports, and NVENC session stay resident.
+
 ### Resident scene and settings transitions
 
 Do not create a new `Renderer` when a stream changes scenes. Replace resident

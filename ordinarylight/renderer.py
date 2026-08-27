@@ -16,6 +16,7 @@ from .capabilities import capabilities_from_backend
 from .backends.base import RenderBackend
 from .cameras import CAMERA_TYPES, Camera
 from .scene import Scene
+from .state import AccumulationState
 
 
 def _default_backend(config, config_options):
@@ -290,6 +291,18 @@ class Renderer:
     def capabilities(self):
         """Immutable semantic features, products, limits, and device details."""
         return self._capabilities
+
+    @property
+    def accumulation_state(self):
+        """Current stationary-accumulation state reported by the backend."""
+        return getattr(
+            self._backend, "accumulation_state", AccumulationState.DISABLED
+        )
+
+    @property
+    def accumulated_frames(self):
+        """Frames represented by the current progressive history."""
+        return int(getattr(self._backend, "accumulated_frames", 0))
 
     def reset_sequence(self, frame_index=0):
         """Reset deterministic sampling for a new camera or data sequence."""
