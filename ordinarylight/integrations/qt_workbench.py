@@ -260,6 +260,7 @@ def main():
 
         def set_scene(self, scene):
             self.scene = scene
+            self._worker.set_object_effect()
             self.reset_sequence()
 
         def set_camera(self, camera):
@@ -269,6 +270,9 @@ def main():
         def reset_sequence(self):
             self.frame_index = 0
             self._worker.reset()
+
+        def set_object_effect(self, triangle_range=None, effect=None):
+            return self._worker.set_object_effect(triangle_range, effect)
 
         def step(self):
             self.glfw.poll_events()
@@ -327,6 +331,9 @@ def main():
             )))
             self._showcase_paths = _default_showcase_paths()
             self._build_ui()
+            self.glfw.set_mouse_button_callback(
+                self.glfw_window, self._mouse_button
+            )
             self.statusBar().showMessage("Renderer stopped")
             self._populate_builtins()
             self.timer = QtCore.QTimer(self)
@@ -440,6 +447,12 @@ def main():
             self.apply_button.clicked.connect(self._restart_viewport)
             form.addRow(self.apply_button)
             layout.addWidget(settings)
+
+            self.selection_status = QtWidgets.QLabel(
+                "Selection: none — left-click an object in the viewport"
+            )
+            self.selection_status.setWordWrap(True)
+            layout.addWidget(self.selection_status)
 
             controls = QtWidgets.QHBoxLayout()
             self.pause_button = QtWidgets.QPushButton("Pause")
@@ -565,6 +578,7 @@ def main():
                 wavefront_diffuse_filter_strength=max(
                     preset["diffuse_filter_strength"], 0.01
                 ),
+                object_effects=True,
                 wavefront_execution_strategy="auto",
                 wavefront_profiling=True,
             )
@@ -594,6 +608,12 @@ def main():
                     self.viewport.scene = self.state.active.scene
                     self.viewport.camera = self._camera()
                     self.viewport.reconfigure(self._config())
+                if self._smoke_frames and self.state.active.scene.render_meshes:
+                    selected = self.state.active.scene.render_meshes[0]
+                    self.viewport.set_object_effect(
+                        self.state.active.scene.object_triangle_range(selected),
+                        ol.effects.Outline(),
+                    )
                 self._message(f"Started: {self.state.active.name}")
             except Exception as error:
                 self.viewport = None
@@ -702,6 +722,37 @@ def main():
         def _reset(self):
             if self.viewport is not None:
                 self.viewport.reset_sequence()
+
+        def _mouse_button(self, _window, button, action, _mods):
+            if button != self.glfw.MOUSE_BUTTON_LEFT or action != self.glfw.PRESS:
+                return
+            if self.viewport is None or self.state.active is None:
+                return
+            scene = self.state.active.scene
+            if scene is None:
+                return
+            framebuffer = self.glfw.get_framebuffer_size(self.glfw_window)
+            window_size = self.glfw.get_window_size(self.glfw_window)
+            cursor = self.glfw.get_cursor_pos(self.glfw_window)
+            if min(*framebuffer, *window_size) < 1:
+                return
+            pixel = (
+                cursor[0] * framebuffer[0] / window_size[0],
+                cursor[1] * framebuffer[1] / window_size[1],
+            )
+            result = ol.pick(scene, self.viewport.camera, framebuffer, pixel)
+            if result is None:
+                self.viewport.set_object_effect()
+                self.selection_status.setText("Selection: none")
+                return
+            self.viewport.set_object_effect(
+                scene.object_triangle_range(result.object_id),
+                ol.effects.Outline(),
+            )
+            label = result.object.name or type(result.object).__name__
+            self.selection_status.setText(
+                f"Selection: {label} (id {result.object_id})"
+            )
 
         def _frame(self):
             self._poll_scene_load()

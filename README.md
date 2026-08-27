@@ -624,6 +624,36 @@ switching scenes reuses it. The public `VulkanSurfacePresenter` also accepts an
 externally owned `VkInstance` and `VkSurfaceKHR` for toolkits that expose those
 handles directly.
 
+Left-click a visible mesh or volume in the viewport to select it. The
+backend-neutral picker is independent from that demonstration and is available
+as `ordinarylight.pick(scene, camera, viewport_size, pixel)`. It returns a
+`PickResult` with a stable object ID, object reference, world-space position,
+triangle, and barycentric coordinates. Application code decides what the hit
+means and can load metadata, modify the scene, update another UI, or apply a
+visual effect:
+
+```python
+hit = ordinarylight.pick(scene, camera, viewport_size, pixel)
+if hit is not None:
+    metadata_panel.show(load_metadata(hit.object_id))
+    presenter.apply_object_effect(
+        scene, hit.object_id,
+        ordinarylight.effects.Outline(color=(1.0, 0.45, 0.05), width=2),
+    )
+else:
+    presenter.clear_object_effect()
+```
+
+The optional object-effect layer is enabled with
+`RendererConfig(object_effects=True)`. `Outline` is the first built-in effect;
+it runs in Vulkan reconstruction without pixel readback and therefore appears
+in both window and encoded output. Picking never creates selection state or
+implicitly applies an effect. The high-level `Renderer.apply_object_effect()`
+and `Renderer.clear_object_effect()` methods serialize changes with render and
+GPU-video submissions, so remote applications do not need presenter or Vulkan
+access. No callback framework is imposed: ordinary Python code handling the
+`PickResult` is the arbitrary action API.
+
 The Qt event thread never performs rendering, swapchain recreation, Vulkan
 teardown, or scene parsing. A presentation worker owns the Vulkan presenter
 for its entire lifetime and accepts at most one outstanding frame, while a

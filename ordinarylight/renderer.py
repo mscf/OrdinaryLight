@@ -15,6 +15,7 @@ import numpy as np
 from .capabilities import capabilities_from_backend
 from .backends.base import RenderBackend
 from .cameras import CAMERA_TYPES, Camera
+from .effects import ObjectEffect
 from .scene import Scene
 from .state import AccumulationState
 
@@ -392,6 +393,44 @@ class Renderer:
             reset_history = getattr(self._backend, "reset_output_history", None)
             if callable(reset_history):
                 reset_history()
+
+    def apply_object_effect(self, scene: Scene, reference, effect: ObjectEffect):
+        """Apply a transient visual effect to one scene object.
+
+        The operation is ordered after prior render submissions and before
+        later ones. Picking and application selection state remain independent.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        if not isinstance(effect, ObjectEffect):
+            raise TypeError("effect must be an ordinarylight.effects object")
+        scene.object_triangle_range(reference)
+        return self._submit_object_effect(scene, reference, effect)
+
+    def clear_object_effect(self):
+        """Remove the active transient object effect, if supported."""
+        return self._submit_object_effect(None, None, None)
+
+    def _submit_object_effect(self, scene, reference, effect):
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._backend is None:
+                    raise RuntimeError("renderer is closed")
+            return self._executor.submit(
+                self._object_effect_serialized, scene, reference, effect
+            ).result()
+
+    def _object_effect_serialized(self, scene, reference, effect):
+        with self._backend_lock:
+            name = "clear_object_effect" if effect is None else "apply_object_effect"
+            operation = getattr(self._backend, name, None)
+            if not callable(operation):
+                raise RuntimeError(
+                    "the active backend does not support renderer-side object effects"
+                )
+            if effect is None:
+                return operation()
+            return operation(scene, reference, effect)
 
     def render(
         self,

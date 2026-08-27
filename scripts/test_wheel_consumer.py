@@ -34,6 +34,7 @@ class _ProductsBackend:
     def __init__(self):
         self.resident_scene = None
         self.settings = {}
+        self.object_effect = None
 
     @property
     def capabilities(self):
@@ -68,6 +69,12 @@ class _ProductsBackend:
     def reconfigure(self, **changes):
         self.settings.update(changes)
         return dict(self.settings)
+
+    def apply_object_effect(self, scene, reference, effect):
+        self.object_effect = (scene.object_triangle_range(reference), effect)
+
+    def clear_object_effect(self):
+        self.object_effect = None
 
 
 def _write_minimal_gltf(path):
@@ -144,6 +151,11 @@ def main():
         assert renderer.capabilities.supports_output("depth")
         assert products_backend.resident_scene is scene
         assert products_backend.settings == {"samples_per_pixel": 2}
+        effect = ol.effects.Outline(color=(0.2, 0.4, 0.8), width=3)
+        renderer.apply_object_effect(scene, scene.meshes[0], effect)
+        assert products_backend.object_effect == ((0, 1), effect)
+        renderer.clear_object_effect()
+        assert products_backend.object_effect is None
 
     asynchronous = asyncio.run(_render_awaitable(scene, camera))
     assert asynchronous.shape == (6, 8, 4)
@@ -160,6 +172,7 @@ def main():
         "named_outputs": ["color", "depth", "object_id"],
         "async": True,
         "resident_transitions": True,
+        "object_effects": True,
         "gltf": True,
     }, indent=2))
 

@@ -12,6 +12,7 @@ class FakePresenter:
         self.effective_samples_per_pixel = 1
         self.closed = False
         self.reset_count = 0
+        self.object_effect = None
         self.thread_ids = []
 
     def present_wavefront(self, scene, camera, width, height):
@@ -20,6 +21,10 @@ class FakePresenter:
     def reset_accumulation(self):
         self.thread_ids.append(get_ident())
         self.reset_count += 1
+
+    def set_object_effect(self, triangle_range, effect):
+        self.thread_ids.append(get_ident())
+        self.object_effect = (triangle_range, effect)
 
     def close(self):
         self.thread_ids.append(get_ident())
@@ -56,6 +61,11 @@ class AsyncPresenterTests(unittest.TestCase):
             (frame.statistics.width, frame.statistics.height), (32, 16)
         )
         self.assertEqual(frame.statistics.gpu_ms, 3.0)
+        effect = object()
+        worker.set_object_effect((3, 7), effect)
+        self.assertTrue(worker.request_frame(object(), object(), (32, 16)))
+        wait_event(worker, "frame")
+        self.assertEqual(created[0].object_effect, ((3, 7), effect))
         worker.reset()
         generation = worker.restart("second")
         self.assertEqual(wait_event(worker, "ready").generation, generation)

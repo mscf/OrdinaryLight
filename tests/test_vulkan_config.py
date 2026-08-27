@@ -8,6 +8,7 @@ from ordinarylight.showcases.materials import diffuse, fresnel_glass
 from ordinarylight import RendererConfig, VulkanRayTracingBackend
 from ordinarylight.vulkan import _render_options, _resolve_execution_strategy
 from ordinarylight.vulkan_rt import (
+    RECONSTRUCT_PUSH_SIZE,
     VulkanRayQueryCore,
     _camera_angular_motion_pixels,
     _motion_adaptive_history_limit,
@@ -15,6 +16,36 @@ from ordinarylight.vulkan_rt import (
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_reconstruct_push_constants_match_shader_layout(self):
+        self.assertEqual(RECONSTRUCT_PUSH_SIZE, 80)
+
+    def test_object_effect_storage_is_boolean_and_opt_in(self):
+        self.assertFalse(RendererConfig().object_effects)
+        self.assertTrue(RendererConfig(object_effects=True).object_effects)
+        with self.assertRaises(TypeError):
+            RendererConfig(object_effects=1)
+
+    def test_object_effect_is_runtime_state_not_selection_state(self):
+        core = object.__new__(VulkanRayQueryCore)
+        core.config = RendererConfig(object_effects=True)
+        core.object_effect_triangle_range = None
+        core.object_effect = None
+        core.window_frames = [{
+            "wavefront_command_key": "cached",
+            "wavefront_reservoir_valid": True,
+        }]
+        effect = ol.effects.Outline(color=(0.2, 0.4, 0.8), width=3)
+        self.assertEqual(
+            core.set_object_effect((4, 9), effect), ((4, 9), effect)
+        )
+        self.assertEqual(core.object_effect_triangle_range, (4, 9))
+        self.assertIs(core.object_effect, effect)
+        self.assertIsNone(core.window_frames[0]["wavefront_command_key"])
+        self.assertFalse(core.window_frames[0]["wavefront_reservoir_valid"])
+        self.assertEqual(core.set_object_effect(), (None, None))
+        with self.assertRaises(TypeError):
+            core.set_object_effect((4, 9), object())
+
     def test_scene_replacement_preserves_output_resources(self):
         core = object.__new__(VulkanRayQueryCore)
         core.device = object()

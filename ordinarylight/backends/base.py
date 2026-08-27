@@ -82,7 +82,20 @@ class ResidentSceneBackend(RenderBackend, Protocol):
         ...
 
 
+@runtime_checkable
+class ObjectEffectBackend(RenderBackend, Protocol):
+    """Optional extension for transient renderer-side object effects."""
+
+    def apply_object_effect(self, scene, reference, effect) -> None:
+        """Apply ``effect`` to one object identified within ``scene``."""
+        ...
+
+    def clear_object_effect(self) -> None:
+        """Remove the active transient object effect."""
+        ...
+
+
 __all__ = [
-    "GpuRenderBackend", "ProductRenderBackend", "RenderBackend",
-    "ResidentSceneBackend",
+    "GpuRenderBackend", "ObjectEffectBackend", "ProductRenderBackend",
+    "RenderBackend", "ResidentSceneBackend",
 ]

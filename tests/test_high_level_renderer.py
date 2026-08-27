@@ -19,6 +19,7 @@ class FakeBackend:
         self.calls = []
         self.scene_replacements = []
         self.setting_changes = []
+        self.object_effect_changes = []
         self.closed = False
         self.accumulation_state = ol.AccumulationState.ACCUMULATING
         self.accumulated_frames = 7
@@ -57,6 +58,13 @@ class FakeBackend:
         self.setting_changes.append(changes)
         return changes
 
+    def apply_object_effect(self, scene, reference, effect):
+        self.object_effect_changes.append((scene, reference, effect))
+        return effect
+
+    def clear_object_effect(self):
+        self.object_effect_changes.append(None)
+
 
 class BlockingBackend(FakeBackend):
     def __init__(self):
@@ -82,6 +90,23 @@ def fixture():
 
 
 class RendererTests(unittest.TestCase):
+    def test_object_effect_response_is_ordered_and_backend_neutral(self):
+        backend = FakeBackend()
+        renderer = ol.Renderer(backend=backend)
+        self.assertIsInstance(backend, ol.ObjectEffectBackend)
+        scene, _camera = fixture()
+        mesh = scene.meshes[0]
+        effect = ol.effects.Outline(color=(1, 0, 0), width=3)
+        self.assertIs(renderer.apply_object_effect(scene, mesh.id, effect), effect)
+        renderer.clear_object_effect()
+        self.assertEqual(
+            backend.object_effect_changes,
+            [(scene, mesh.id, effect), None],
+        )
+        with self.assertRaises(TypeError):
+            renderer.apply_object_effect(scene, mesh, object())
+        renderer.close()
+
     def test_renderer_exposes_backend_accumulation_state(self):
         renderer = ol.Renderer(backend=FakeBackend())
         self.assertEqual(

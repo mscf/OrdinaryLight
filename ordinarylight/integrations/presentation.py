@@ -95,6 +95,18 @@ class AsyncPresenter:
         self._commands.put(("reset", generation))
         return True
 
+    def set_object_effect(self, triangle_range=None, effect=None):
+        """Queue an object effect for a packed-triangle range, or clear it."""
+        with self._lock:
+            if self._closed:
+                return False
+            generation = self._generation
+        value = None if triangle_range is None else tuple(
+            int(item) for item in triangle_range
+        )
+        self._commands.put(("object_effect", generation, value, effect))
+        return True
+
     def poll(self):
         """Return all currently available worker events without blocking."""
         events = []
@@ -149,6 +161,14 @@ class AsyncPresenter:
                     if presenter is not None and generation == self.generation:
                         try:
                             presenter.reset_accumulation()
+                        except BaseException as error:
+                            self._event("error", generation, error=error)
+                    continue
+                if kind == "object_effect":
+                    _kind, generation, triangle_range, effect = command
+                    if presenter is not None and generation == self.generation:
+                        try:
+                            presenter.set_object_effect(triangle_range, effect)
                         except BaseException as error:
                             self._event("error", generation, error=error)
                     continue

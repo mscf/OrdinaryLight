@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from .cameras import OrthographicCamera, PanoramicCamera, PerspectiveCamera
+from .effects import ObjectEffect, Outline
 from .integrations.indirect_reuse import IndirectReservoirPlan
 from .state import AccumulationState
 import vulkan as vk
@@ -42,6 +43,8 @@ PIPELINE_BIND_POINT_RAY_TRACING_KHR = 1000165000
 WINDOW_FRAMES_IN_FLIGHT = 2
 MAX_NATIVE_TEXTURES = 64
 MAX_NATIVE_VOLUMES = 16
+RECONSTRUCT_PUSH_FORMAT = "f3If2IfIfIfIIfI3fI"
+RECONSTRUCT_PUSH_SIZE = struct.calcsize(RECONSTRUCT_PUSH_FORMAT)
 
 
 def _camera_projection(camera):
@@ -938,7 +941,7 @@ class VulkanWavefrontExecutor:
             descriptorCount=8, stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
         ))
         self.reconstruct_layout = self._layout(
-            reconstruct_bindings + [storage(8), storage(9)]
+            reconstruct_bindings + [storage(8), storage(9), storage_image(10)]
         )
         if self.core.config.wavefront_indirect_reuse_storage:
             self.indirect_reuse_clear_layout = self._layout([storage(0)])
@@ -967,7 +970,7 @@ class VulkanWavefrontExecutor:
                 storage(4), storage(5),
             ])
         self.generate_pipeline_layout = self._pipeline_layout(self.generate_layout, 32)
-        self.primary_pipeline_layout = self._pipeline_layout(self.primary_layout, 144)
+        self.primary_pipeline_layout = self._pipeline_layout(self.primary_layout, 152)
         self.intersect_pipeline_layout = self._pipeline_layout(self.intersect_layout)
         self.shade_pipeline_layout = self._pipeline_layout(self.shade_layout, 56)
         self.resolve_pipeline_layout = self._pipeline_layout(self.resolve_layout, 16)
@@ -979,7 +982,7 @@ class VulkanWavefrontExecutor:
             self.wavefront_image_layout, 32
         )
         self.reconstruct_pipeline_layout = self._pipeline_layout(
-            self.reconstruct_layout, 60
+            self.reconstruct_layout, 80
         )
         if self.indirect_reuse_clear_layout:
             self.indirect_reuse_clear_pipeline_layout = self._pipeline_layout(
@@ -1458,6 +1461,16 @@ class VulkanWavefrontExecutor:
             descriptorCount=1, descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             pBufferInfo=[info],
         ) for index, info in enumerate(camera_infos))
+        material_info = vk.VkDescriptorImageInfo(
+            imageView=material_view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
+        )
+        writes.append(vk.VkWriteDescriptorSet(
+            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            dstSet=self.reconstruct_sets[slot], dstBinding=10,
+            descriptorCount=1,
+            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            pImageInfo=[material_info],
+        ))
         vk.vkUpdateDescriptorSets(self.core.device, len(writes), writes, 0, None)
 
         primary_infos = [vk.VkDescriptorImageInfo(
@@ -1858,7 +1871,7 @@ class VulkanWavefrontExecutor:
             vk.VK_ACCESS_SHADER_READ_BIT,
         ) for name in (
             "wavefront_hdr_image", "wavefront_position_image",
-            "wavefront_normal_image",
+            "wavefront_normal_image", "wavefront_material_image",
         )]
         barriers.extend(self.core._image_barrier(
             frame[name], vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_IMAGE_LAYOUT_GENERAL,
@@ -1888,8 +1901,12 @@ class VulkanWavefrontExecutor:
             self.reconstruct_pipeline_layout, 0, 1,
             [self.reconstruct_sets[slot]], 0, None,
         )
+        effect = self.core.object_effect
+        effect_kind = 1 if isinstance(effect, Outline) else 0
+        effect_width = effect.width if isinstance(effect, Outline) else 1
+        effect_color = effect.color if isinstance(effect, Outline) else (0.0,) * 3
         constants = bytearray(struct.pack(
-            "f3If2IfIfIfIIf", self.core.config.wavefront_exposure,
+            RECONSTRUCT_PUSH_FORMAT, self.core.config.wavefront_exposure,
             source_width, source_height,
             int(
                 self.core.config.wavefront_temporal_reconstruction
@@ -1906,6 +1923,7 @@ class VulkanWavefrontExecutor:
             int(self.core.config.wavefront_temporal_reprojection_search),
             int(self.core.config.wavefront_temporal_outlier_confidence),
             self.core.config.wavefront_temporal_outlier_strength,
+            effect_kind, *effect_color, effect_width,
         ))
         vk.vkCmdPushConstants(
             command, self.reconstruct_pipeline_layout,
@@ -2526,8 +2544,9 @@ class VulkanWavefrontExecutor:
                     self.core.config.wavefront_secondary_area_light_samples
                     or self.core.config.area_light_samples
                 )
+                effect_range = self.core.object_effect_triangle_range or (0, 0)
                 primary_constants = constants + bytearray(struct.pack(
-                    "5If4I2f10If5I", self.core.config.max_bounces,
+                    "5If4I2f10If7I", self.core.config.max_bounces,
                     scene.analytic_light_count,
                     scene.emissive_triangle_count,
                     self.core.config.area_light_samples,
@@ -2539,6 +2558,7 @@ class VulkanWavefrontExecutor:
                         or self.core.config.wavefront_diffuse_filter
                         or restir_enabled
                         or self.core.config.wavefront_indirect_reuse_candidates
+                        or self.core.config.object_effects
                     ),
                     self.core.config.wavefront_environment_samples,
                     int(self.core.config.wavefront_subgroup_enqueue),
@@ -2562,6 +2582,7 @@ class VulkanWavefrontExecutor:
                     int(self.core.config.wavefront_stratified_primary_restir),
                     int(self.core.config.wavefront_indirect_reuse_candidates),
                     self._indirect_capture_stride(),
+                    *effect_range,
                 ))
                 vk.vkCmdPushConstants(
                     command, self.primary_pipeline_layout,
@@ -3480,6 +3501,8 @@ class VulkanRayQueryCore:
         self.wavefront_previous_present_camera = None
         self.camera_change_time = time.perf_counter()
         self.effective_samples_per_pixel = 1
+        self.object_effect_triangle_range = None
+        self.object_effect = None
         self.scene_tlas = None
         self.scene_material_buffer = None
         self.scene_vertex_buffer = None
@@ -6281,6 +6304,7 @@ class VulkanRayQueryCore:
             or self.config.wavefront_diffuse_filter
             or self.config.wavefront_restir_di
             or self.config.wavefront_indirect_reuse_storage
+            or self.config.object_effects
         )
         wavefront_position_info = vk.VkImageCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -6321,10 +6345,12 @@ class VulkanRayQueryCore:
             extent=vk.VkExtent3D(
                 width=(render_width if (
                     self.config.wavefront_restir_di
-                    or self.config.wavefront_indirect_reuse_storage) else 1),
+                    or self.config.wavefront_indirect_reuse_storage
+                    or self.config.object_effects) else 1),
                 height=(render_height if (
                     self.config.wavefront_restir_di
-                    or self.config.wavefront_indirect_reuse_storage) else 1),
+                    or self.config.wavefront_indirect_reuse_storage
+                    or self.config.object_effects) else 1),
                 depth=1,
             ),
             mipLevels=1, arrayLayers=1,
@@ -7400,6 +7426,8 @@ class VulkanRayQueryCore:
             indirect_history_valid,
             indirect_history_limit,
             restir_history_limit,
+            self.object_effect_triangle_range,
+            self.object_effect,
         )
         secondary = frame["wavefront_command"]
         command_cache_hit = frame["wavefront_command_key"] == render_key
@@ -8724,6 +8752,37 @@ class VulkanRayQueryCore:
         )
         self.previous_camera = None
         self.camera_change_time = time.perf_counter()
+
+    def set_object_effect(self, triangle_range=None, effect=None):
+        """Set a transient effect over a packed-triangle range."""
+        if triangle_range is None:
+            if effect is not None:
+                raise ValueError("effect requires a triangle_range")
+            value = (None, None)
+        else:
+            if not self.config.object_effects:
+                raise RuntimeError(
+                    "object effects require object_effects=True"
+                )
+            if not isinstance(effect, ObjectEffect):
+                raise TypeError("effect must be an ordinarylight.effects object")
+            if not isinstance(effect, Outline):
+                raise ValueError(
+                    f"unsupported Vulkan object effect: {type(effect).__name__}"
+                )
+            if len(triangle_range) != 2:
+                raise ValueError("triangle_range must contain start and end")
+            start, end = (int(item) for item in triangle_range)
+            if start < 0 or end <= start or end > (1 << 24):
+                raise ValueError("triangle_range must be a non-empty 24-bit range")
+            value = ((start, end), effect)
+        if value == (self.object_effect_triangle_range, self.object_effect):
+            return value
+        self.object_effect_triangle_range, self.object_effect = value
+        for frame in self.window_frames:
+            frame["wavefront_command_key"] = None
+            frame["wavefront_reservoir_valid"] = False
+        return value
 
     def set_wavefront_restir_enabled(self, enabled):
         """Select conventional or ReSTIR direct lighting between frames."""

@@ -99,6 +99,7 @@ class RendererConfig:
     wavefront_indirect_reuse_budget_mib: float = 128.0
     wavefront_diffuse_filter: bool = False
     wavefront_diffuse_filter_strength: float = 0.35
+    object_effects: bool = False
     wavefront_russian_roulette: bool = False
     wavefront_russian_roulette_start: int = 3
     wavefront_russian_roulette_min_survival: float = 0.1
@@ -128,6 +129,8 @@ class RendererConfig:
     external_image_interop: bool = False
 
     def __post_init__(self):
+        if not isinstance(self.object_effects, bool):
+            raise TypeError("object_effects must be a bool")
         if not isinstance(self.external_image_interop, bool):
             raise TypeError("external_image_interop must be a bool")
         if not isinstance(self.volume_empty_space_skipping, bool):
@@ -721,8 +724,19 @@ class VulkanRayTracingBackend:
 
     def replace_scene(self, scene):
         """Upload ``scene`` while retaining the initialized Vulkan renderer."""
+        self._core.set_object_effect()
         self._core.upload_window_scene(scene)
         self.reset_output_history()
+
+    def apply_object_effect(self, scene, reference, effect):
+        """Apply a transient GPU effect without recreating output resources."""
+        return self._core.set_object_effect(
+            scene.object_triangle_range(reference), effect
+        )
+
+    def clear_object_effect(self):
+        """Remove the active transient GPU effect."""
+        return self._core.set_object_effect()
 
     _HOT_SETTINGS = frozenset({
         "samples_per_pixel", "max_bounces", "wavefront_exposure",
@@ -793,6 +807,7 @@ class VulkanRayTracingBackend:
                 "temporal_reconstruction", "denoising", "restir_di",
                 "indirect_reuse", "volumes", "volume_scattering",
                 "volume_empty_space_skipping", "motion_vectors",
+                *({"object_effects"} if self.config.object_effects else set()),
                 *({"gpu_resident_output", "gpu_nv12_output", "gpu_p010_output"}
                   if self.config.external_image_interop else set()),
             }),
@@ -1257,11 +1272,28 @@ class VulkanGlfwPresenter:
 
     def upload_scene(self, scene):
         """Upload or replace the scene used for direct presentation."""
+        self._core.set_object_effect()
         self._core.upload_window_scene(scene)
 
     def reset_accumulation(self):
         """Discard progressive history before the next presented frame."""
         self._core.reset_accumulation()
+
+    def set_object_effect(self, triangle_range=None, effect=None):
+        """Apply ``effect`` to a half-open packed triangle range, or clear it."""
+        return self._core.set_object_effect(triangle_range, effect)
+
+    def apply_object_effect(self, scene, reference, effect):
+        """Apply a visual effect to one object using its stable scene handle."""
+        if reference is None:
+            raise ValueError("reference cannot be None; use clear_object_effect()")
+        return self.set_object_effect(
+            scene.object_triangle_range(reference), effect
+        )
+
+    def clear_object_effect(self):
+        """Remove the current transient object effect."""
+        return self.set_object_effect()
 
     @property
     def accumulated_frames(self):

@@ -15,6 +15,8 @@ REQUIRED_SUFFIXES = (
     "ordinarylight/loaders/gltf.py",
     "ordinarylight/outputs/image.py",
     "ordinarylight/outputs/nvenc.py",
+    "ordinarylight/effects.py",
+    "ordinarylight/selection.py",
     "ordinarylight/integrations/qt_workbench.py",
     "ordinarylight/showcases/catalog/volumes.py",
     "ordinarylight/shaders/wavefront_primary.comp",

@@ -5,6 +5,16 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.3.4 - 2026-08-27
+
+- Added transport-independent scene picking with stable object identifiers,
+  detailed mesh hit results, and camera-aware pixel-to-ray conversion.
+- Added a composable object-effect API, with a configurable GPU-rendered
+  `effects.Outline` for windowed and encoded output. Picking remains independent
+  from application selection state and visual response.
+- Added click selection and selection status to the Qt workbench as an
+  interactive demonstration of the public selection API.
+
 ## 0.3.3 - 2026-08-27
 
 - Added zero-recreation NVENC recovery controls: periodic IDRs, queued

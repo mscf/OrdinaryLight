@@ -2451,6 +2451,17 @@ class Scene:
         """Compatibility alias for :meth:`triangle_instance_ids`."""
         return self.triangle_instance_ids()
 
+    def object_triangle_range(self, reference):
+        """Return the half-open packed-triangle range for an object or volume."""
+        object_id = int(reference.id if hasattr(reference, "id") else reference)
+        offset = 0
+        for mesh in self.render_meshes:
+            count = len(mesh.indices)
+            if mesh.id == object_id:
+                return offset, offset + count
+            offset += count
+        raise KeyError(f"scene has no visible object with id {object_id}")
+
     def triangle_material_ids(self):
         """Stable scene-local material IDs in packed triangle order."""
         values = [
