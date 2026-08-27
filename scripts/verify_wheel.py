@@ -20,6 +20,7 @@ REQUIRED_SUFFIXES = (
     "ordinarylight/shaders/wavefront_primary.comp",
     "ordinarylight/shaders/wavefront_primary.comp.spv",
     "ordinarylight/shaders/rgba_to_nv12.comp.spv",
+    "ordinarylight/shaders/hdr_to_p010.comp.spv",
     "ordinarylight/shaders/manifest.json",
 )
 

@@ -5,6 +5,12 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-27
+
+- Added direct linear-HDR-to-P010 BT.709 limited-range output and zero-copy
+  10-bit HEVC/AV1 NVENC input, including explicit bit-depth metadata, an
+  example, and 4K hardware-gate coverage.
+
 ## 0.2.0 - 2026-08-27
 
 - Added two-frame GPU-resident Vulkan output with explicit external-memory and

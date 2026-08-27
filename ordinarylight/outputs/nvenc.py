@@ -73,36 +73,56 @@ class _CudaArrayPlane:
         self.__cuda_array_interface__ = interface
 
 
-class _Nv12CudaFrame:
-    """PyNvVideoCodec input object backed by imported Vulkan memory."""
+class _Yuv420CudaFrame:
+    """PyNvVideoCodec NV12/P010 input backed by imported Vulkan memory."""
 
     def __init__(self, pointer, metadata):
         self._pointer = _device_pointer(pointer)
         self._metadata = metadata
-        self.frameSize = int(metadata.width * metadata.height * 3 // 2)
+        bytes_per_sample = 2 if metadata.format == "P010" else 1
+        self.frameSize = int(
+            metadata.width * metadata.height * 3 // 2 * bytes_per_sample
+        )
 
     def cuda(self):
         metadata = self._metadata
+        p010 = metadata.format == "P010"
+        sample_size = 2 if p010 else 1
+        # PyNvVideoCodec accepts its native-endian 16-bit CUDA storage as
+        # ``|u2`` (alongside ``|u1``); NumPy's conventional ``<u2`` spelling
+        # is rejected by its CUDA Array Interface adapter.
+        typestr = "|u2" if p010 else "|u1"
         return [
             _CudaArrayPlane({
                 "shape": (metadata.height, metadata.width, 1),
-                "strides": (metadata.pitch, 1, 1),
-                "typestr": "|u1",
+                "strides": (metadata.pitch, sample_size, 1),
+                "typestr": typestr,
                 "data": (self._pointer + metadata.y_offset, False),
                 "version": 3,
             }),
             _CudaArrayPlane({
                 "shape": (metadata.height // 2, metadata.width // 2, 2),
-                "strides": (metadata.pitch, 2, 1),
-                "typestr": "|u1",
+                # PyNvVideoCodec validates both P010 planes with the same
+                # byte-oriented [pitch, 2, 1] descriptor and derives the
+                # interleaved 16-bit UV interpretation from the input format.
+                "strides": (
+                    metadata.pitch,
+                    sample_size if p010 else 2,
+                    1,
+                ),
+                "typestr": typestr,
                 "data": (self._pointer + metadata.uv_offset, False),
                 "version": 3,
             }),
         ]
 
 
+# Retain the private test/debug name used by the initial NV12 implementation.
+_Nv12CudaFrame = _Yuv420CudaFrame
+
+
 class NvencVideoWriter:
-    """Write GPU-resident Ordinary Light frames as H.264 elementary stream.
+    """Encode GPU-resident Ordinary Light NV12 or P010 frames.
 
     Rendering, tone mapping, NV12 conversion, and encoding remain on the GPU.
     Vulkan and CUDA coordinate through external binary semaphores; no NumPy
@@ -111,16 +131,25 @@ class NvencVideoWriter:
 
     def __init__(
         self, path, size, *, fps=30, bitrate=None, preset="P4", device=0,
-        codec="h264",
+        codec="h264", pixel_format="nv12",
     ):
-        self._cudart, self._nvc = _cuda_modules()
         self.width, self.height = map(int, size)
         if self.width <= 0 or self.height <= 0:
             raise ValueError("video size must be positive")
+        self.pixel_format = str(pixel_format).upper()
+        if self.pixel_format not in {"NV12", "P010"}:
+            raise ValueError("pixel_format must be 'nv12' or 'p010'")
         if self.width % 4 or self.height % 2:
             raise ValueError(
-                "NV12 video width must be divisible by 4 and height must be even"
+                f"{self.pixel_format} video width must be divisible by 4 and "
+                "height must be even"
             )
+        codec_name = str(codec).lower()
+        if self.pixel_format == "P010" and codec_name not in {
+            "hevc", "h265", "av1",
+        }:
+            raise ValueError("P010 output requires HEVC/H.265 or AV1")
+        self._cudart, self._nvc = _cuda_modules()
         self.destination = path
         self._owns_file = not hasattr(path, "write")
         self._file = Path(path).open("wb") if self._owns_file else path
@@ -144,7 +173,7 @@ class NvencVideoWriter:
         if bitrate is not None:
             options["bitrate"] = str(bitrate)
         self._encoder = self._nvc.CreateEncoder(
-            self.width, self.height, "NV12", False,
+            self.width, self.height, self.pixel_format, False,
             cudastream=_device_pointer(self._stream), **options,
         )
 
@@ -239,14 +268,19 @@ class NvencVideoWriter:
         return slot
 
     def write(self, frame: GpuFrame):
-        """Encode one ``pixel_format='nv12'`` GPU frame and return byte count."""
+        """Encode one matching NV12/P010 GPU frame and return byte count."""
         if self._closed:
             raise RuntimeError("video writer is closed")
         if not isinstance(frame, GpuFrame):
             raise TypeError("frame must be an ordinarylight.GpuFrame")
         metadata = frame.metadata
-        if not isinstance(metadata, VulkanBufferMetadata) or metadata.format != "NV12":
-            raise ValueError("NvencVideoWriter requires Vulkan NV12 output")
+        if (
+            not isinstance(metadata, VulkanBufferMetadata)
+            or metadata.format != self.pixel_format
+        ):
+            raise ValueError(
+                f"NvencVideoWriter requires Vulkan {self.pixel_format} output"
+            )
         if (metadata.width, metadata.height) != (self.width, self.height):
             raise ValueError("GPU frame dimensions do not match the encoder")
         if metadata.device_uuid.lower() != self._device_uuid:
@@ -267,7 +301,7 @@ class NvencVideoWriter:
         )
         try:
             packets = self._encoder.Encode(
-                _Nv12CudaFrame(slot.pointer, metadata)
+                _Yuv420CudaFrame(slot.pointer, metadata)
             )
         finally:
             signal_params = self._cudart.cudaExternalSemaphoreSignalParams()

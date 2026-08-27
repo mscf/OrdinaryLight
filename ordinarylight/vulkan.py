@@ -633,7 +633,7 @@ class VulkanRayTracingBackend:
                 "temporal_reconstruction", "denoising", "restir_di",
                 "indirect_reuse", "volumes", "volume_scattering",
                 "volume_empty_space_skipping", "motion_vectors",
-                *({"gpu_resident_output", "gpu_nv12_output"}
+                *({"gpu_resident_output", "gpu_nv12_output", "gpu_p010_output"}
                   if self.config.external_image_interop else set()),
             }),
             "limits": {
@@ -650,7 +650,7 @@ class VulkanRayTracingBackend:
         self, scene, camera, width, height, *, samples=None, frame_index=0,
         pixel_format="rgba8",
     ):
-        """Submit tone-mapped RGBA8 or NV12 without host pixel readback."""
+        """Submit tone-mapped RGBA8, NV12, or P010 without host readback."""
         if not self.config.external_image_interop:
             raise RuntimeError(
                 "GPU-resident output requires "
@@ -661,11 +661,12 @@ class VulkanRayTracingBackend:
                 "GPU-resident output currently uses config.samples_per_pixel"
             )
         pixel_format = str(pixel_format).lower()
-        if pixel_format not in {"rgba8", "nv12"}:
-            raise ValueError("pixel_format must be 'rgba8' or 'nv12'")
-        if pixel_format == "nv12" and (width % 4 or height % 2):
+        if pixel_format not in {"rgba8", "nv12", "p010"}:
+            raise ValueError("pixel_format must be 'rgba8', 'nv12', or 'p010'")
+        if pixel_format in {"nv12", "p010"} and (width % 4 or height % 2):
             raise ValueError(
-                "NV12 output requires width divisible by 4 and even height"
+                f"{pixel_format.upper()} output requires width divisible by 4 "
+                "and even height"
             )
         target_slot = self._core.window_frame_index
         if target_slot in self._gpu_frame_slots:

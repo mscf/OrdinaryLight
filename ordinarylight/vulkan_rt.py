@@ -3465,6 +3465,8 @@ class VulkanRayQueryCore:
         self.nv12_pipeline_layout = None
         self.nv12_pipeline = None
         self.nv12_shader_module = None
+        self.p010_pipeline = None
+        self.p010_shader_module = None
         self.denoiser_output_enabled = config.denoiser_enabled
         self.material_programs = ()
         from .pipeline import RenderPipeline, RenderStage
@@ -4142,7 +4144,7 @@ class VulkanRayQueryCore:
         )
 
     def _create_nv12_pipeline(self):
-        """Create the final RGBA8-to-pitch-linear-NV12 compute pass."""
+        """Create the final RGBA8-to-pitch-linear NV12/P010 compute pass."""
         bindings = [
             vk.VkDescriptorSetLayoutBinding(
                 binding=0,
@@ -4199,20 +4201,42 @@ class VulkanRayQueryCore:
                 stage=stage, layout=self.nv12_pipeline_layout,
             )], None,
         )[0]
+        p010_shader_bytes = files("ordinarylight").joinpath(
+            "shaders/hdr_to_p010.comp.spv"
+        ).read_bytes()
+        self.p010_shader_module = vk.vkCreateShaderModule(
+            self.device,
+            vk.VkShaderModuleCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                codeSize=len(p010_shader_bytes), pCode=p010_shader_bytes,
+            ), None,
+        )
+        p010_stage = vk.VkPipelineShaderStageCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            stage=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+            module=self.p010_shader_module, pName="main",
+        )
+        self.p010_pipeline = vk.vkCreateComputePipelines(
+            self.device, vk.VK_NULL_HANDLE, 1,
+            [vk.VkComputePipelineCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                stage=p010_stage, layout=self.nv12_pipeline_layout,
+            )], None,
+        )[0]
         self.nv12_descriptor_pool = vk.vkCreateDescriptorPool(
             self.device,
             vk.VkDescriptorPoolCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                maxSets=WINDOW_FRAMES_IN_FLIGHT,
+                maxSets=WINDOW_FRAMES_IN_FLIGHT * 2,
                 poolSizeCount=2,
                 pPoolSizes=[
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT,
+                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT * 2,
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT,
+                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT * 2,
                     ),
                 ],
             ), None,
@@ -6281,6 +6305,18 @@ class VulkanRayQueryCore:
                     ),
                 ) if self._headless_surface else [None] * WINDOW_FRAMES_IN_FLIGHT
             )
+            p010_descriptor_sets = (
+                vk.vkAllocateDescriptorSets(
+                    self.device,
+                    vk.VkDescriptorSetAllocateInfo(
+                        sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                        descriptorPool=self.nv12_descriptor_pool,
+                        descriptorSetCount=WINDOW_FRAMES_IN_FLIGHT,
+                        pSetLayouts=[self.nv12_descriptor_layout]
+                        * WINDOW_FRAMES_IN_FLIGHT,
+                    ),
+                ) if self._headless_surface else [None] * WINDOW_FRAMES_IN_FLIGHT
+            )
             commands = vk.vkAllocateCommandBuffers(
                 self.device,
                 vk.VkCommandBufferAllocateInfo(
@@ -6349,9 +6385,12 @@ class VulkanRayQueryCore:
                     "image_memory_size": 0,
                     "image_view": None,
                     "nv12_descriptor_set": nv12_descriptor_sets[index],
+                    "p010_descriptor_set": p010_descriptor_sets[index],
                     "nv12_buffer": None,
                     "nv12_pitch": 0,
                     "nv12_uv_offset": 0,
+                    "p010_pitch": 0,
+                    "p010_uv_offset": 0,
                     "wavefront_hdr_image": None,
                     "wavefront_hdr_memory": None,
                     "wavefront_hdr_view": None,
@@ -6630,16 +6669,22 @@ class VulkanRayQueryCore:
             if self._headless_surface:
                 # PyNvVideoCodec currently requires tightly packed input even
                 # when CUDA Array Interface strides describe a larger pitch.
-                pitch = int(extent.width)
-                uv_offset = pitch * int(extent.height)
-                nv12_size = uv_offset + pitch * ((int(extent.height) + 1) // 2)
+                nv12_pitch = int(extent.width)
+                nv12_uv_offset = nv12_pitch * int(extent.height)
+                p010_pitch = int(extent.width) * 2
+                p010_uv_offset = p010_pitch * int(extent.height)
+                video_size = p010_uv_offset + p010_pitch * (
+                    (int(extent.height) + 1) // 2
+                )
                 frame["nv12_buffer"] = self._create_exportable_buffer(
-                    nv12_size,
+                    video_size,
                     vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                     vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 )
-                frame["nv12_pitch"] = pitch
-                frame["nv12_uv_offset"] = uv_offset
+                frame["nv12_pitch"] = nv12_pitch
+                frame["nv12_uv_offset"] = nv12_uv_offset
+                frame["p010_pitch"] = p010_pitch
+                frame["p010_uv_offset"] = p010_uv_offset
                 vk.vkUpdateDescriptorSets(
                     self.device, 2,
                     [
@@ -6660,7 +6705,32 @@ class VulkanRayQueryCore:
                             descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                             pBufferInfo=[vk.VkDescriptorBufferInfo(
                                 buffer=frame["nv12_buffer"].buffer,
-                                offset=0, range=nv12_size,
+                                offset=0, range=video_size,
+                            )],
+                        ),
+                    ], 0, None,
+                )
+                vk.vkUpdateDescriptorSets(
+                    self.device, 2,
+                    [
+                        vk.VkWriteDescriptorSet(
+                            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            dstSet=frame["p010_descriptor_set"],
+                            dstBinding=0, descriptorCount=1,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                            pImageInfo=[vk.VkDescriptorImageInfo(
+                                imageView=frame["wavefront_hdr_view"],
+                                imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL,
+                            )],
+                        ),
+                        vk.VkWriteDescriptorSet(
+                            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            dstSet=frame["p010_descriptor_set"],
+                            dstBinding=1, descriptorCount=1,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                            pBufferInfo=[vk.VkDescriptorBufferInfo(
+                                buffer=frame["nv12_buffer"].buffer,
+                                offset=0, range=video_size,
                             )],
                         ),
                     ], 0, None,
@@ -7300,9 +7370,13 @@ class VulkanRayQueryCore:
                 0, None, 0, None, 1, [direct_ready],
             )
         vk.vkCmdExecuteCommands(command, 1, [secondary])
-        if self._headless_surface and pixel_format == "nv12":
-            rgba_ready = self._image_barrier(
-                frame["image"], vk.VK_IMAGE_LAYOUT_GENERAL,
+        if self._headless_surface and pixel_format in {"nv12", "p010"}:
+            p010 = pixel_format == "p010"
+            source_image = (
+                frame["wavefront_hdr_image"] if p010 else frame["image"]
+            )
+            source_ready = self._image_barrier(
+                source_image, vk.VK_IMAGE_LAYOUT_GENERAL,
                 vk.VK_IMAGE_LAYOUT_GENERAL,
                 vk.VK_ACCESS_SHADER_WRITE_BIT,
                 vk.VK_ACCESS_SHADER_READ_BIT,
@@ -7310,19 +7384,24 @@ class VulkanRayQueryCore:
             vk.vkCmdPipelineBarrier(
                 command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                0, None, 0, None, 1, [rgba_ready],
+                0, None, 0, None, 1, [source_ready],
             )
             vk.vkCmdBindPipeline(
                 command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
-                self.nv12_pipeline,
+                self.p010_pipeline if p010 else self.nv12_pipeline,
             )
             vk.vkCmdBindDescriptorSets(
                 command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
                 self.nv12_pipeline_layout, 0, 1,
-                [frame["nv12_descriptor_set"]], 0, None,
+                [
+                    frame["p010_descriptor_set"]
+                    if p010 else frame["nv12_descriptor_set"]
+                ], 0, None,
             )
+            pitch = frame["p010_pitch"] if p010 else frame["nv12_pitch"]
             constants = bytearray(struct.pack(
-                "4I", width, height, frame["nv12_pitch"], 0,
+                "3If", width, height, pitch,
+                self.config.wavefront_exposure if p010 else 0.0,
             ))
             vk.vkCmdPushConstants(
                 command, self.nv12_pipeline_layout,
@@ -7729,9 +7808,12 @@ class VulkanRayQueryCore:
             raise ValueError("frame slot is out of range")
         frame = self.window_frames[int(slot)]
         pixel_format = str(pixel_format).lower()
-        if pixel_format not in {"rgba8", "nv12"}:
-            raise ValueError("pixel_format must be 'rgba8' or 'nv12'")
-        export_buffer = frame["nv12_buffer"] if pixel_format == "nv12" else None
+        if pixel_format not in {"rgba8", "nv12", "p010"}:
+            raise ValueError("pixel_format must be 'rgba8', 'nv12', or 'p010'")
+        export_buffer = (
+            frame["nv12_buffer"]
+            if pixel_format in {"nv12", "p010"} else None
+        )
 
         def export_memory_fd():
             info = vk.VkMemoryGetFdInfoKHR(
@@ -7792,14 +7874,20 @@ class VulkanRayQueryCore:
                 return False
             return True
 
-        if pixel_format == "nv12":
+        if pixel_format in {"nv12", "p010"}:
+            p010 = pixel_format == "p010"
             metadata = VulkanBufferMetadata(
                 width=int(self.swapchain_extent[0]),
                 height=int(self.swapchain_extent[1]),
-                format="NV12",
-                pitch=int(frame["nv12_pitch"]),
+                format="P010" if p010 else "NV12",
+                pitch=int(
+                    frame["p010_pitch"] if p010 else frame["nv12_pitch"]
+                ),
                 y_offset=0,
-                uv_offset=int(frame["nv12_uv_offset"]),
+                uv_offset=int(
+                    frame["p010_uv_offset"]
+                    if p010 else frame["nv12_uv_offset"]
+                ),
                 memory_size=int(frame["nv12_buffer"].size),
                 memory_offset=0,
                 dedicated_allocation=True,
@@ -7818,11 +7906,14 @@ class VulkanRayQueryCore:
                     "uintptr_t", frame["fence"]
                 )),
                 queue_family_index=int(self.queue_family),
+                bit_depth=10 if p010 else 8,
+                storage_bits=16 if p010 else 8,
             )
             attributes = {
                 "color_space": "bt709",
                 "color_range": "limited",
-                "components": "nv12",
+                "components": pixel_format,
+                "bit_depth": 10 if p010 else 8,
                 "frame_slot": int(slot),
             }
         else:
@@ -8457,6 +8548,8 @@ class VulkanRayQueryCore:
                 vk.vkDestroyPipeline(self.device, self.denoise_pipeline, None)
             if self.nv12_pipeline:
                 vk.vkDestroyPipeline(self.device, self.nv12_pipeline, None)
+            if self.p010_pipeline:
+                vk.vkDestroyPipeline(self.device, self.p010_pipeline, None)
             if self.shader_module:
                 vk.vkDestroyShaderModule(self.device, self.shader_module, None)
             if self.tone_shader_module:
@@ -8466,6 +8559,10 @@ class VulkanRayQueryCore:
             if self.nv12_shader_module:
                 vk.vkDestroyShaderModule(
                     self.device, self.nv12_shader_module, None
+                )
+            if self.p010_shader_module:
+                vk.vkDestroyShaderModule(
+                    self.device, self.p010_shader_module, None
                 )
             if self.nv12_pipeline_layout:
                 vk.vkDestroyPipelineLayout(

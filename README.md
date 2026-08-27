@@ -141,6 +141,21 @@ without host readback or upload. A binary file-like destination can be used in
 place of the path for server streaming. See `examples/nvenc_zero_copy.py` and
 the ownership details in `docs/public_api.md`.
 
+For 10-bit HEVC, select P010 on both sides of the contract:
+
+```python
+with ol.outputs.NvencVideoWriter(
+    "render.h265", (width, height), codec="hevc", pixel_format="p010"
+) as video:
+    video.write(renderer.render_gpu(
+        scene, camera, (width, height), pixel_format="p010"
+    ))
+```
+
+P010 is tone-mapped directly from the linear HDR render target into BT.709
+limited-range 10-bit codes in the high bits of 16-bit samples. It remains
+GPU-resident through Vulkan conversion, CUDA import, and NVENC.
+
 Asset ingestion is organized under `ordinarylight.loaders`. Format modules own a
 uniform `load()` entry point, so glTF is available as
 `ol.loaders.gltf.load(path)`; the descriptive

@@ -39,6 +39,9 @@ jobs:
       - name: Install optional CUDA/NVENC integration
         if: ${{ inputs.nvenc }}
         run: python -m pip install -e '.[video-gpu]'
-      - name: Run Vulkan/CUDA/NVENC gate
+      - name: Run Vulkan/CUDA/NVENC NV12 gate
         if: ${{ inputs.nvenc }}
         run: python -m tests.gates.nvenc_zero_copy
+      - name: Run Vulkan/CUDA/NVENC P010 gate
+        if: ${{ inputs.nvenc }}
+        run: python -m tests.gates.nvenc_zero_copy --pixel-format p010

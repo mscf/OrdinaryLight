@@ -152,7 +152,26 @@ stable allocations and semaphore pairs once; steady-state frames use only GPU
 wait/signal operations and NVENC. There is no GPU-to-CPU readback, NumPy HDR
 array, CPU tone mapping, CPU YUV conversion, or CPU-to-GPU upload. The writer
 accepts either a path or a binary file-like stream and emits an H.264 elementary
-stream. P010 remains a future, distinct 10-bit product for HEVC/AV1.
+stream.
+
+For a 10-bit path, request the distinct P010 product and configure NVENC for
+HEVC or AV1:
+
+```python
+with ol.outputs.NvencVideoWriter(
+    "render.h265", (1920, 1080), fps=30,
+    codec="hevc", pixel_format="p010",
+) as video:
+    frame = renderer.render_gpu(
+        scene, camera, (1920, 1080), pixel_format="p010"
+    )
+    video.write(frame)
+```
+
+P010 metadata reports `bit_depth=10`, `storage_bits=16`, a byte pitch twice
+the image width for tightly packed output, and MSB-aligned 10-bit samples. Its
+conversion reads the linear HDR render target directly, avoiding an
+intermediate RGBA8 quantization step.
 
 ## Workbench showcases
 

@@ -66,11 +66,12 @@ the end-to-end 4K encoding gate.
 # GPU video output
 
 The optional NVENC gate validates the entire 4K path, including Vulkan tone
-mapping and NV12 conversion, CUDA external-memory/semaphore interop, and H.264
-encoding:
+mapping and YUV conversion, CUDA external-memory/semaphore interop, and NVENC
+encoding. It covers 8-bit NV12/H.264 and 10-bit P010/HEVC:
 
 ```bash
 python -m tests.gates.nvenc_zero_copy
+python -m tests.gates.nvenc_zero_copy --pixel-format p010
 ```
 
 It requires `ordinarylight[video-gpu]`, an NVIDIA GPU, and a driver exposing

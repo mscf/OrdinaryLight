@@ -384,8 +384,8 @@ class Renderer:
         :class:`ordinarylight.GpuFrame`. The call performs CPU command
         recording and submission but does not wait for pixel readback; use the
         frame's exported synchronization object from the consuming GPU API.
-        ``pixel_format`` is ``"rgba8"`` for general Vulkan image interop or
-        ``"nv12"`` for tightly packed, GPU-encoded video input.
+        ``pixel_format`` is ``"rgba8"`` for general Vulkan image interop,
+        ``"nv12"`` for 8-bit video, or ``"p010"`` for 10-bit video input.
         """
         if not isinstance(scene, Scene):
             raise TypeError("scene must be a Scene")

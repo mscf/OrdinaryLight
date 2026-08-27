@@ -121,6 +121,12 @@ class GpuFrameTests(unittest.TestCase):
             self.assertEqual(frame.attributes["pixel_format"], "nv12")
             frame.close()
 
+            frame = renderer.render_gpu(
+                scene, camera, (8, 4), pixel_format="p010"
+            )
+            self.assertEqual(frame.attributes["pixel_format"], "p010")
+            frame.close()
+
     def test_backend_without_gpu_output_reports_capability_error(self):
         class CpuBackend(GpuBackend):
             render_gpu_frame = None

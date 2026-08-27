@@ -56,6 +56,8 @@ class VulkanBufferMetadata:
     queue_family_index: int
     color_matrix: str = "bt709"
     color_range: str = "limited"
+    bit_depth: int = 8
+    storage_bits: int = 8
     handle_type: str = "opaque_fd"
 
 

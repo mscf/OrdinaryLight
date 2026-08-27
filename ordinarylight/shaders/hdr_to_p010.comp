@@ -1,0 +1,102 @@
+#version 460
+
+// Tone-map linear HDR directly into MSB-aligned, BT.709 limited-range P010.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform readonly image2D hdr_input;
+layout(set = 0, binding = 1, std430) writeonly buffer P010Output {
+    uint words[];
+} output_buffer;
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint pitch;
+    float exposure;
+} push;
+
+vec3 acesApproximation(vec3 color)
+{
+    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((color * (a * color + b)) /
+                 (color * (c * color + d) + e), 0.0, 1.0);
+}
+
+vec3 linearToSrgb(vec3 color)
+{
+    bvec3 low = lessThanEqual(color, vec3(0.0031308));
+    return mix(1.055 * pow(color, vec3(1.0 / 2.4)) - 0.055,
+               color * 12.92, low);
+}
+
+uint tenBitValue(float value)
+{
+    return uint(clamp(round(value), 0.0, 1023.0));
+}
+
+uint luma(vec3 rgb)
+{
+    return tenBitValue(64.0 + 876.0 * dot(
+        rgb, vec3(0.2126, 0.7152, 0.0722))) << 6u;
+}
+
+uvec2 chroma(vec3 rgb)
+{
+    float cb = dot(rgb, vec3(-0.114572, -0.385428, 0.5));
+    float cr = dot(rgb, vec3(0.5, -0.454153, -0.045847));
+    return uvec2(tenBitValue(512.0 + 896.0 * cb) << 6u,
+                 tenBitValue(512.0 + 896.0 * cr) << 6u);
+}
+
+vec3 loadRgb(ivec2 output_pixel)
+{
+    ivec2 source_size = imageSize(hdr_input);
+    ivec2 source_pixel = clamp(ivec2(
+        output_pixel.x * source_size.x / int(push.width),
+        output_pixel.y * source_size.y / int(push.height)
+    ), ivec2(0), source_size - 1);
+    vec3 linear = max(imageLoad(hdr_input, source_pixel).rgb, vec3(0.0));
+    return linearToSrgb(acesApproximation(linear * push.exposure));
+}
+
+uint pack2x16(uint a, uint b)
+{
+    return a | (b << 16u);
+}
+
+void main()
+{
+    uvec2 block = gl_GlobalInvocationID.xy;
+    uint x = block.x * 4u;
+    uint y = block.y * 2u;
+    if (x >= push.width || y >= push.height)
+        return;
+
+    vec3 top[4];
+    vec3 bottom[4];
+    for (uint column = 0u; column < 4u; ++column) {
+        top[column] = loadRgb(ivec2(x + column, y));
+        bottom[column] = loadRgb(ivec2(x + column, y + 1u));
+    }
+
+    uint words_per_row = push.pitch / 4u;
+    uint word = y * words_per_row + x / 2u;
+    output_buffer.words[word] = pack2x16(luma(top[0]), luma(top[1]));
+    output_buffer.words[word + 1u] = pack2x16(luma(top[2]), luma(top[3]));
+    if (y + 1u < push.height) {
+        word = (y + 1u) * words_per_row + x / 2u;
+        output_buffer.words[word] = pack2x16(
+            luma(bottom[0]), luma(bottom[1]));
+        output_buffer.words[word + 1u] = pack2x16(
+            luma(bottom[2]), luma(bottom[3]));
+    }
+
+    uvec2 uv0 = chroma(0.25 * (
+        top[0] + top[1] + bottom[0] + bottom[1]));
+    uvec2 uv1 = chroma(0.25 * (
+        top[2] + top[3] + bottom[2] + bottom[3]));
+    uint chroma_word = push.pitch * push.height / 4u
+        + (y / 2u) * words_per_row + x / 2u;
+    output_buffer.words[chroma_word] = pack2x16(uv0.x, uv0.y);
+    output_buffer.words[chroma_word + 1u] = pack2x16(uv1.x, uv1.y);
+}
