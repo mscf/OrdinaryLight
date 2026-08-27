@@ -5,6 +5,14 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-27
+
+- Added two-frame GPU-resident Vulkan output with explicit external-memory and
+  ready/release semaphore ownership, plus a zero-copy H.264 path that performs
+  tone mapping and NV12 conversion in Vulkan and feeds CUDA/NVENC without host
+  pixel readback. Added a 4K end-to-end NVENC gate and optional
+  `video-gpu` dependency group.
+
 - Added an accepted multi-scene HDR noise-quality gate covering diffuse,
   area-light, glossy/glass, fast-motion dense, and volume rendering, with
   explicit-review baseline replacement and firefly/detail-preservation metrics.

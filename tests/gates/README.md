@@ -60,4 +60,20 @@ Tests must not write generated captures into the source tree.
 
 GitHub-hosted runners execute the normal suite only. `.github/workflows/gpu-gates.yml`
 provides a manual hardware workflow for a self-hosted Linux runner carrying the
-`ordinarylight-gpu` label. Its `performance` input controls the 4K stage.
+`ordinarylight-gpu` label. Its `performance` input controls the renderer's 4K
+stage and its `nvenc` input installs the optional video dependencies and runs
+the end-to-end 4K encoding gate.
+# GPU video output
+
+The optional NVENC gate validates the entire 4K path, including Vulkan tone
+mapping and NV12 conversion, CUDA external-memory/semaphore interop, and H.264
+encoding:
+
+```bash
+python -m tests.gates.nvenc_zero_copy
+```
+
+It requires `ordinarylight[video-gpu]`, an NVIDIA GPU, and a driver exposing
+Vulkan ray tracing, CUDA external interop, and NVENC. The default median budget
+is 16.67 ms after four warm-up frames; pass `--maximum-median-ms` when recording
+an explicit hardware-specific exception.

@@ -66,6 +66,7 @@ from .materials import (
     vec4,
 )
 from .renderer import RenderFrame, RenderJob, Renderer, RenderStatistics
+from .gpu import GpuFrame, VulkanBufferMetadata, VulkanImageMetadata
 from .capabilities import RendererCapabilities
 from .primitives import (
     GlyphBatch, LineBatch, PointBatch, add_glyphs, add_lines, add_points,
@@ -75,6 +76,7 @@ from . import outputs
 from . import backends
 from .backends import (
     ProductRenderBackend,
+    GpuRenderBackend,
     ReferenceBackend,
     ReferenceConfig,
     RenderBackend,
@@ -121,6 +123,7 @@ __all__ = [
     "ReferenceConfig",
     "RenderBackend",
     "ProductRenderBackend",
+    "GpuRenderBackend",
     "Transform",
     "VertexAttributeLayout",
     "MATERIAL_PARAMETER_LAYOUT",
@@ -164,6 +167,9 @@ __all__ = [
     "RenderFrame",
     "RenderJob",
     "RenderStatistics",
+    "GpuFrame",
+    "VulkanBufferMetadata",
+    "VulkanImageMetadata",
     "RendererCapabilities",
     "RenderPipeline",
     "RenderStage",

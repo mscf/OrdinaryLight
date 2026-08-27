@@ -14,6 +14,14 @@ from ordinarylight.vulkan_rt import (
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_external_image_interop_is_boolean_and_opt_in(self):
+        self.assertFalse(RendererConfig().external_image_interop)
+        self.assertTrue(
+            RendererConfig(external_image_interop=True).external_image_interop
+        )
+        with self.assertRaises(TypeError):
+            RendererConfig(external_image_interop=1)
+
     def test_volume_empty_space_skipping_is_boolean_and_opt_in(self):
         self.assertFalse(RendererConfig().volume_empty_space_skipping)
         self.assertTrue(

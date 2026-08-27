@@ -14,10 +14,12 @@ REQUIRED_SUFFIXES = (
     "ordinarylight/backends/vulkan.py",
     "ordinarylight/loaders/gltf.py",
     "ordinarylight/outputs/image.py",
+    "ordinarylight/outputs/nvenc.py",
     "ordinarylight/integrations/qt_workbench.py",
     "ordinarylight/showcases/catalog/volumes.py",
     "ordinarylight/shaders/wavefront_primary.comp",
     "ordinarylight/shaders/wavefront_primary.comp.spv",
+    "ordinarylight/shaders/rgba_to_nv12.comp.spv",
     "ordinarylight/shaders/manifest.json",
 )
 

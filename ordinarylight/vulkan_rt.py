@@ -4,6 +4,7 @@ from importlib.resources import files
 import math
 import struct
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -16,6 +17,16 @@ DEVICE_EXTENSIONS = (
     "VK_KHR_acceleration_structure",
     "VK_KHR_deferred_host_operations",
     "VK_KHR_ray_query",
+)
+EXTERNAL_INTEROP_DEVICE_EXTENSIONS = (
+    "VK_KHR_external_memory",
+    "VK_KHR_external_memory_fd",
+    "VK_KHR_external_semaphore",
+    "VK_KHR_external_semaphore_fd",
+)
+EXTERNAL_INTEROP_INSTANCE_EXTENSIONS = (
+    "VK_KHR_external_memory_capabilities",
+    "VK_KHR_external_semaphore_capabilities",
 )
 
 # vulkan-python 1.3.275 exposes these promoted aliases as ``None`` and omits
@@ -3337,7 +3348,7 @@ class VulkanRayQueryCore:
 
     def __init__(
         self, device_name=None, glfw_window=None, config=None, *,
-        external_instance=None, external_surface=None,
+        external_instance=None, external_surface=None, headless_surface=False,
     ):
         if config is None:
             from .vulkan import RendererConfig
@@ -3360,12 +3371,19 @@ class VulkanRayQueryCore:
                 current_scale=config.wavefront_render_scale,
             )
         self.glfw_window = glfw_window
+        self._headless_surface = bool(headless_surface)
         if (external_instance is None) != (external_surface is None):
             raise ValueError(
                 "external_instance and external_surface must be supplied together"
             )
         if glfw_window is not None and external_instance is not None:
             raise ValueError("Pass a GLFW window or an external Vulkan surface, not both")
+        if self._headless_surface and (
+            glfw_window is not None or external_instance is not None
+        ):
+            raise ValueError(
+                "headless_surface cannot be combined with a window or external surface"
+            )
         self._external_instance = external_instance
         self._external_surface = external_surface
         self._owns_instance = external_instance is None
@@ -3442,6 +3460,11 @@ class VulkanRayQueryCore:
         self.tone_shader_module = None
         self.denoise_pipeline = None
         self.denoise_shader_module = None
+        self.nv12_descriptor_pool = None
+        self.nv12_descriptor_layout = None
+        self.nv12_pipeline_layout = None
+        self.nv12_pipeline = None
+        self.nv12_shader_module = None
         self.denoiser_output_enabled = config.denoiser_enabled
         self.material_programs = ()
         from .pipeline import RenderPipeline, RenderStage
@@ -3522,6 +3545,20 @@ class VulkanRayQueryCore:
         if self.glfw_window is not None:
             import glfw
             instance_extensions = glfw.get_required_instance_extensions()
+        elif self._headless_surface:
+            instance_extensions = [
+                *EXTERNAL_INTEROP_INSTANCE_EXTENSIONS,
+            ]
+            available = {
+                str(item.extensionName).split("\0", 1)[0]
+                for item in vk.vkEnumerateInstanceExtensionProperties(None)
+            }
+            missing = set(instance_extensions) - available
+            if missing:
+                raise RuntimeError(
+                    "Vulkan GPU interop requires unavailable instance "
+                    f"extensions: {sorted(missing)}"
+                )
         app = vk.VkApplicationInfo(
             sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             pApplicationName="Ordinary Light",
@@ -3568,6 +3605,8 @@ class VulkanRayQueryCore:
                 for item in vk.vkEnumerateDeviceExtensionProperties(physical, None)
             }
             required_extensions = set(DEVICE_EXTENSIONS)
+            if self._headless_surface:
+                required_extensions.update(EXTERNAL_INTEROP_DEVICE_EXTENSIONS)
             if self.surface is not None:
                 required_extensions.add("VK_KHR_swapchain")
             if not required_extensions.issubset(extensions):
@@ -3599,6 +3638,12 @@ class VulkanRayQueryCore:
             device_extensions,
         ) = candidates[0]
         selected_properties = vk.vkGetPhysicalDeviceProperties(self.physical_device)
+        id_properties = vk.VkPhysicalDeviceIDProperties()
+        vk.vkGetPhysicalDeviceProperties2(
+            self.physical_device,
+            vk.VkPhysicalDeviceProperties2(pNext=id_properties),
+        )
+        self.device_uuid = bytes(id_properties.deviceUUID).hex()
         self.timestamp_period = selected_properties.limits.timestampPeriod
         if self.surface is not None and selected_properties.limits.maxPushConstantsSize < 160:
             raise RuntimeError(
@@ -3761,6 +3806,8 @@ class VulkanRayQueryCore:
             bufferDeviceAddress=vk.VK_TRUE,
         )
         enabled_device_extensions = list(DEVICE_EXTENSIONS)
+        if self._headless_surface:
+            enabled_device_extensions.extend(EXTERNAL_INTEROP_DEVICE_EXTENSIONS)
         if self.ray_pipeline_enabled:
             enabled_device_extensions.append(ray_pipeline_extension)
         if self.ser_supported and self.config.wavefront_ser:
@@ -3806,6 +3853,17 @@ class VulkanRayQueryCore:
         self.get_as_sizes = vk.vkGetDeviceProcAddr(self.device, "vkGetAccelerationStructureBuildSizesKHR")
         self.get_pipeline_executables = None
         self.get_pipeline_statistics = None
+        self.get_memory_fd = None
+        self.get_semaphore_fd = None
+        if self._headless_surface:
+            self.get_memory_fd = vk.ffi.cast(
+                "PFN_vkGetMemoryFdKHR",
+                vk.lib.vkGetDeviceProcAddr(self.device, b"vkGetMemoryFdKHR"),
+            )
+            self.get_semaphore_fd = vk.ffi.cast(
+                "PFN_vkGetSemaphoreFdKHR",
+                vk.lib.vkGetDeviceProcAddr(self.device, b"vkGetSemaphoreFdKHR"),
+            )
         self.create_ray_tracing_pipelines = None
         self.cmd_trace_rays = None
         self.get_ray_tracing_shader_group_handles = None
@@ -3955,6 +4013,7 @@ class VulkanRayQueryCore:
         )
 
     def _create_pipeline(self):
+        image_output = self.surface is not None or self._headless_surface
         bindings = [
             vk.VkDescriptorSetLayoutBinding(
                 binding=0,
@@ -3966,7 +4025,7 @@ class VulkanRayQueryCore:
                 binding=1,
                 descriptorType=(
                     vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-                    if self.surface is not None
+                    if image_output
                     else vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                 ),
                 descriptorCount=1,
@@ -3985,7 +4044,7 @@ class VulkanRayQueryCore:
                 stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
             ),
         ]
-        if self.surface is not None:
+        if image_output:
             bindings.extend(
                 vk.VkDescriptorSetLayoutBinding(
                     binding=binding,
@@ -4025,7 +4084,7 @@ class VulkanRayQueryCore:
         push_range = vk.VkPushConstantRange(
             stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
             offset=0,
-            size=176 if self.surface is not None else 96,
+            size=176 if image_output else 96,
         )
         self.pipeline_layout = vk.vkCreatePipelineLayout(
             self.device,
@@ -4045,7 +4104,7 @@ class VulkanRayQueryCore:
             # placeholder until the first scene provides the declared channels.
             initial_program = builtin_material
         self._replace_compute_pipeline((initial_program,))
-        if self.surface is not None:
+        if image_output:
             self.tone_shader_module, self.tone_pipeline = self._create_fixed_pipeline(
                 "tone_map.comp"
             )
@@ -4053,7 +4112,9 @@ class VulkanRayQueryCore:
                 self.denoise_shader_module, self.denoise_pipeline = (
                     self._create_fixed_pipeline("denoise_atrous.comp")
                 )
-        descriptor_count = WINDOW_FRAMES_IN_FLIGHT if self.surface is not None else 1
+            if self._headless_surface:
+                self._create_nv12_pipeline()
+        descriptor_count = WINDOW_FRAMES_IN_FLIGHT if image_output else 1
         pool_sizes = [
             vk.VkDescriptorPoolSize(
                 type=vk.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
@@ -4061,10 +4122,10 @@ class VulkanRayQueryCore:
             ),
             vk.VkDescriptorPoolSize(
                 type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                descriptorCount=descriptor_count * (6 if self.surface is not None else 7),
+                descriptorCount=descriptor_count * (6 if image_output else 7),
             ),
         ]
-        if self.surface is not None:
+        if image_output:
             pool_sizes.append(vk.VkDescriptorPoolSize(
                 type=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 descriptorCount=descriptor_count * 9,
@@ -4080,6 +4141,83 @@ class VulkanRayQueryCore:
             None,
         )
 
+    def _create_nv12_pipeline(self):
+        """Create the final RGBA8-to-pitch-linear-NV12 compute pass."""
+        bindings = [
+            vk.VkDescriptorSetLayoutBinding(
+                binding=0,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                descriptorCount=1,
+                stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+            ),
+            vk.VkDescriptorSetLayoutBinding(
+                binding=1,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                descriptorCount=1,
+                stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+            ),
+        ]
+        self.nv12_descriptor_layout = vk.vkCreateDescriptorSetLayout(
+            self.device,
+            vk.VkDescriptorSetLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                bindingCount=len(bindings), pBindings=bindings,
+            ), None,
+        )
+        push_range = vk.VkPushConstantRange(
+            stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT, offset=0, size=16,
+        )
+        self.nv12_pipeline_layout = vk.vkCreatePipelineLayout(
+            self.device,
+            vk.VkPipelineLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                setLayoutCount=1,
+                pSetLayouts=[self.nv12_descriptor_layout],
+                pushConstantRangeCount=1,
+                pPushConstantRanges=[push_range],
+            ), None,
+        )
+        shader_bytes = files("ordinarylight").joinpath(
+            "shaders/rgba_to_nv12.comp.spv"
+        ).read_bytes()
+        self.nv12_shader_module = vk.vkCreateShaderModule(
+            self.device,
+            vk.VkShaderModuleCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                codeSize=len(shader_bytes), pCode=shader_bytes,
+            ), None,
+        )
+        stage = vk.VkPipelineShaderStageCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            stage=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+            module=self.nv12_shader_module, pName="main",
+        )
+        self.nv12_pipeline = vk.vkCreateComputePipelines(
+            self.device, vk.VK_NULL_HANDLE, 1,
+            [vk.VkComputePipelineCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                stage=stage, layout=self.nv12_pipeline_layout,
+            )], None,
+        )[0]
+        self.nv12_descriptor_pool = vk.vkCreateDescriptorPool(
+            self.device,
+            vk.VkDescriptorPoolCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                maxSets=WINDOW_FRAMES_IN_FLIGHT,
+                poolSizeCount=2,
+                pPoolSizes=[
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT,
+                    ),
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                        descriptorCount=WINDOW_FRAMES_IN_FLIGHT,
+                    ),
+                ],
+            ), None,
+        )
+
     def _replace_compute_pipeline(self, programs, *, attribute_layout=None):
         """Install a compute pipeline dispatching the supplied material programs."""
         programs = tuple(programs)
@@ -4087,7 +4225,9 @@ class VulkanRayQueryCore:
             return
         from .materials import builtin_material
         shader_source_name = (
-            "ray_query_image.comp" if self.surface is not None else "ray_query.comp"
+            "ray_query_image.comp"
+            if self.surface is not None or self._headless_surface
+            else "ray_query.comp"
         )
         if len(programs) == 1 and programs[0] is builtin_material:
             shader_bytes = files("ordinarylight").joinpath(
@@ -4254,6 +4394,47 @@ class VulkanRayQueryCore:
             mapped = vk.vkMapMemory(self.device, memory, 0, len(payload), 0)
             mapped[:] = payload
             vk.vkUnmapMemory(self.device, memory)
+        return result
+
+    def _create_exportable_buffer(self, size, usage, memory_flags):
+        """Create a dedicated opaque-FD exportable buffer allocation."""
+        external_info = vk.VkExternalMemoryBufferCreateInfo(
+            handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+        )
+        buffer = vk.vkCreateBuffer(
+            self.device,
+            vk.VkBufferCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                pNext=external_info,
+                size=size, usage=usage,
+                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+            ), None,
+        )
+        requirements = vk.vkGetBufferMemoryRequirements(self.device, buffer)
+        export_info = vk.VkExportMemoryAllocateInfo(
+            handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+        )
+        dedicated_info = vk.VkMemoryDedicatedAllocateInfo(
+            pNext=export_info, image=vk.VK_NULL_HANDLE, buffer=buffer,
+        )
+        try:
+            memory = vk.vkAllocateMemory(
+                self.device,
+                vk.VkMemoryAllocateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                    pNext=dedicated_info,
+                    allocationSize=requirements.size,
+                    memoryTypeIndex=self._memory_type(
+                        requirements.memoryTypeBits, memory_flags,
+                    ),
+                ), None,
+            )
+        except Exception:
+            vk.vkDestroyBuffer(self.device, buffer, None)
+            raise
+        vk.vkBindBufferMemory(self.device, buffer, memory, 0)
+        result = Buffer(buffer, memory, int(requirements.size))
+        self._buffers.append(result)
         return result
 
     def _create_uploaded_device_buffer(
@@ -5278,7 +5459,7 @@ class VulkanRayQueryCore:
 
     def prepare_window_scene(self, scene):
         """Build persistent acceleration structures for direct presentation."""
-        if self.surface is None:
+        if self.surface is None and not self._headless_surface:
             raise RuntimeError("This Vulkan core was not created with a GLFW window")
         if (
             self.scene_resources is None
@@ -5439,7 +5620,7 @@ class VulkanRayQueryCore:
         if self._try_update_window_scene(scene):
             return
         vk.vkDeviceWaitIdle(self.device)
-        if self.surface is not None:
+        if self.surface is not None or self._headless_surface:
             self._destroy_swapchain_resources()
         if self.scene_resources is not None:
             self.scene_resources.close()
@@ -5604,6 +5785,13 @@ class VulkanRayQueryCore:
         if self.device is None:
             return
         for frame in self.window_frames:
+            nv12_buffer = frame.get("nv12_buffer")
+            if nv12_buffer is not None:
+                vk.vkDestroyBuffer(self.device, nv12_buffer.buffer, None)
+                vk.vkFreeMemory(self.device, nv12_buffer.memory, None)
+                if nv12_buffer in self._buffers:
+                    self._buffers.remove(nv12_buffer)
+                frame["nv12_buffer"] = None
             capture = frame.get("wavefront_hdr_capture_buffer")
             if capture is not None:
                 vk.vkDestroyBuffer(self.device, capture.buffer, None)
@@ -5742,15 +5930,38 @@ class VulkanRayQueryCore:
         self, requested_width, requested_height, wavefront_only=False
     ):
         """Create or recreate the GLFW swapchain and GPU output image."""
-        if self.surface is None:
+        if self.surface is None and not self._headless_surface:
             raise RuntimeError("A GLFW window is required")
+        self._wait_external_releases()
         vk.vkDeviceWaitIdle(self.device)
         self._destroy_swapchain_resources()
-        capabilities = self.get_surface_capabilities(self.physical_device, self.surface)
-        formats = self.get_surface_formats(self.physical_device, self.surface)
-        present_modes = set(
-            self.get_surface_present_modes(self.physical_device, self.surface)
-        )
+        if self._headless_surface:
+            capabilities = SimpleNamespace(
+                currentExtent=vk.VkExtent2D(
+                    width=int(requested_width), height=int(requested_height)
+                ),
+                minImageExtent=vk.VkExtent2D(width=1, height=1),
+                maxImageExtent=vk.VkExtent2D(
+                    width=int(requested_width), height=int(requested_height)
+                ),
+                minImageCount=1,
+                maxImageCount=2,
+                supportedUsageFlags=vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                currentTransform=0,
+            )
+            formats = [SimpleNamespace(
+                format=vk.VK_FORMAT_R8G8B8A8_UNORM,
+                colorSpace=vk.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+            )]
+            present_modes = {vk.VK_PRESENT_MODE_IMMEDIATE_KHR}
+        else:
+            capabilities = self.get_surface_capabilities(
+                self.physical_device, self.surface
+            )
+            formats = self.get_surface_formats(self.physical_device, self.surface)
+            present_modes = set(
+                self.get_surface_present_modes(self.physical_device, self.surface)
+            )
         requested_mode = self.config.present_mode.lower()
         mode_options = {
             "mailbox": vk.VK_PRESENT_MODE_MAILBOX_KHR,
@@ -5819,9 +6030,10 @@ class VulkanRayQueryCore:
             image_count = capabilities.maxImageCount
         if not capabilities.supportedUsageFlags & vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT:
             raise RuntimeError("The GLFW Vulkan surface does not support transfer-destination swapchain images")
-        self.swapchain = self.create_swapchain(
-            self.device,
-            vk.VkSwapchainCreateInfoKHR(
+        self.swapchain = (
+            None if self._headless_surface else self.create_swapchain(
+                self.device,
+                vk.VkSwapchainCreateInfoKHR(
                 sType=vk.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
                 surface=self.surface,
                 minImageCount=image_count,
@@ -5838,9 +6050,13 @@ class VulkanRayQueryCore:
                 clipped=vk.VK_TRUE,
                 oldSwapchain=vk.VK_NULL_HANDLE,
             ),
-            None,
+                None,
+            )
         )
-        self.swapchain_images = list(self.get_swapchain_images(self.device, self.swapchain))
+        self.swapchain_images = (
+            [] if self._headless_surface else
+            list(self.get_swapchain_images(self.device, self.swapchain))
+        )
         if direct_storage and len(self.swapchain_images) > 8:
             direct_storage = False
         self.swapchain_direct_storage = direct_storage
@@ -5878,6 +6094,11 @@ class VulkanRayQueryCore:
 
         image_info = vk.VkImageCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            pNext=(
+                vk.VkExternalMemoryImageCreateInfo(
+                    handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+                ) if self._headless_surface else None
+            ),
             imageType=vk.VK_IMAGE_TYPE_2D,
             format=vk.VK_FORMAT_R8G8B8A8_UNORM,
             extent=vk.VkExtent3D(
@@ -6048,6 +6269,18 @@ class VulkanRayQueryCore:
                     pSetLayouts=[self.descriptor_layout] * WINDOW_FRAMES_IN_FLIGHT,
                 ),
             )
+            nv12_descriptor_sets = (
+                vk.vkAllocateDescriptorSets(
+                    self.device,
+                    vk.VkDescriptorSetAllocateInfo(
+                        sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                        descriptorPool=self.nv12_descriptor_pool,
+                        descriptorSetCount=WINDOW_FRAMES_IN_FLIGHT,
+                        pSetLayouts=[self.nv12_descriptor_layout]
+                        * WINDOW_FRAMES_IN_FLIGHT,
+                    ),
+                ) if self._headless_surface else [None] * WINDOW_FRAMES_IN_FLIGHT
+            )
             commands = vk.vkAllocateCommandBuffers(
                 self.device,
                 vk.VkCommandBufferAllocateInfo(
@@ -6069,6 +6302,14 @@ class VulkanRayQueryCore:
             semaphore_info = vk.VkSemaphoreCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
             )
+            export_semaphore_info = vk.VkSemaphoreCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                pNext=vk.VkExportSemaphoreCreateInfo(
+                    handleTypes=(
+                        vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+                    )
+                ),
+            )
             for index in range(WINDOW_FRAMES_IN_FLIGHT):
                 self.window_frames.append({
                     "descriptor_set": descriptor_sets[index],
@@ -6084,6 +6325,17 @@ class VulkanRayQueryCore:
                     "wavefront_render_extent": None,
                     "image_available": vk.vkCreateSemaphore(self.device, semaphore_info, None),
                     "render_finished": vk.vkCreateSemaphore(self.device, semaphore_info, None),
+                    "external_ready": (
+                        vk.vkCreateSemaphore(
+                            self.device, export_semaphore_info, None
+                        ) if self._headless_surface else None
+                    ),
+                    "external_release": (
+                        vk.vkCreateSemaphore(
+                            self.device, export_semaphore_info, None
+                        ) if self._headless_surface else None
+                    ),
+                    "external_release_wait": False,
                     "fence": vk.vkCreateFence(
                         self.device,
                         vk.VkFenceCreateInfo(
@@ -6094,7 +6346,12 @@ class VulkanRayQueryCore:
                     ),
                     "image": None,
                     "image_memory": None,
+                    "image_memory_size": 0,
                     "image_view": None,
+                    "nv12_descriptor_set": nv12_descriptor_sets[index],
+                    "nv12_buffer": None,
+                    "nv12_pitch": 0,
+                    "nv12_uv_offset": 0,
                     "wavefront_hdr_image": None,
                     "wavefront_hdr_memory": None,
                     "wavefront_hdr_view": None,
@@ -6314,11 +6571,25 @@ class VulkanRayQueryCore:
                 )
             frame["image"] = vk.vkCreateImage(self.device, image_info, None)
             requirements = vk.vkGetImageMemoryRequirements(self.device, frame["image"])
+            frame["image_memory_size"] = int(requirements.size)
             try:
+                export_allocation = (
+                    vk.VkExportMemoryAllocateInfo(
+                        handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+                    ) if self._headless_surface else None
+                )
+                allocation_chain = (
+                    vk.VkMemoryDedicatedAllocateInfo(
+                        pNext=export_allocation,
+                        image=frame["image"],
+                        buffer=vk.VK_NULL_HANDLE,
+                    ) if self._headless_surface else None
+                )
                 frame["image_memory"] = vk.vkAllocateMemory(
                     self.device,
                     vk.VkMemoryAllocateInfo(
                         sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                        pNext=allocation_chain,
                         allocationSize=requirements.size,
                         memoryTypeIndex=self._memory_type(
                             requirements.memoryTypeBits,
@@ -6356,6 +6627,44 @@ class VulkanRayQueryCore:
                 ),
                 None,
             )
+            if self._headless_surface:
+                # PyNvVideoCodec currently requires tightly packed input even
+                # when CUDA Array Interface strides describe a larger pitch.
+                pitch = int(extent.width)
+                uv_offset = pitch * int(extent.height)
+                nv12_size = uv_offset + pitch * ((int(extent.height) + 1) // 2)
+                frame["nv12_buffer"] = self._create_exportable_buffer(
+                    nv12_size,
+                    vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                    vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                )
+                frame["nv12_pitch"] = pitch
+                frame["nv12_uv_offset"] = uv_offset
+                vk.vkUpdateDescriptorSets(
+                    self.device, 2,
+                    [
+                        vk.VkWriteDescriptorSet(
+                            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            dstSet=frame["nv12_descriptor_set"],
+                            dstBinding=0, descriptorCount=1,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                            pImageInfo=[vk.VkDescriptorImageInfo(
+                                imageView=frame["image_view"],
+                                imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL,
+                            )],
+                        ),
+                        vk.VkWriteDescriptorSet(
+                            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            dstSet=frame["nv12_descriptor_set"],
+                            dstBinding=1, descriptorCount=1,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                            pBufferInfo=[vk.VkDescriptorBufferInfo(
+                                buffer=frame["nv12_buffer"].buffer,
+                                offset=0, range=nv12_size,
+                            )],
+                        ),
+                    ], 0, None,
+                )
             as_descriptor = vk.VkWriteDescriptorSetAccelerationStructureKHR(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
                 accelerationStructureCount=1,
@@ -6586,7 +6895,9 @@ class VulkanRayQueryCore:
                 )
         self.window_frame_index = 0
 
-    def present_wavefront_window(self, scene, camera, width, height):
+    def present_wavefront_window(
+        self, scene, camera, width, height, *, pixel_format="rgba8",
+    ):
         """Render tiled wavefront paths into a Vulkan image and present it."""
         frame_start = time.perf_counter()
         if self.wavefront_last_frame_start is not None:
@@ -6708,22 +7019,27 @@ class VulkanRayQueryCore:
         render_height = max(1, int(round(height * render_scale)))
 
         acquire_start = time.perf_counter()
-        try:
-            image_index = self.acquire_next_image(
-                self.device, self.swapchain, (1 << 64) - 1,
-                frame["image_available"], vk.VK_NULL_HANDLE,
-            )
-        except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
-            vk.vkDeviceWaitIdle(self.device)
-            vk.vkDestroySemaphore(self.device, frame["image_available"], None)
-            frame["image_available"] = vk.vkCreateSemaphore(
-                self.device,
-                vk.VkSemaphoreCreateInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
-                ), None,
-            )
-            self.create_window_swapchain(width, height, wavefront_only=True)
-            return self.present_wavefront_window(scene, camera, width, height)
+        if self._headless_surface:
+            image_index = 0
+        else:
+            try:
+                image_index = self.acquire_next_image(
+                    self.device, self.swapchain, (1 << 64) - 1,
+                    frame["image_available"], vk.VK_NULL_HANDLE,
+                )
+            except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
+                vk.vkDeviceWaitIdle(self.device)
+                vk.vkDestroySemaphore(
+                    self.device, frame["image_available"], None
+                )
+                frame["image_available"] = vk.vkCreateSemaphore(
+                    self.device,
+                    vk.VkSemaphoreCreateInfo(
+                        sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+                    ), None,
+                )
+                self.create_window_swapchain(width, height, wavefront_only=True)
+                return self.present_wavefront_window(scene, camera, width, height)
         acquire_ms = (time.perf_counter() - acquire_start) * 1000.0
         vk.vkResetFences(self.device, 1, [frame["fence"]])
 
@@ -6970,7 +7286,9 @@ class VulkanRayQueryCore:
             command, vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             self.timestamp_query_pool, frame["query_start"],
         )
-        if self.swapchain_direct_storage:
+        if self._headless_surface:
+            pass
+        elif self.swapchain_direct_storage:
             direct_ready = self._image_barrier(
                 self.swapchain_images[image_index],
                 vk.VK_IMAGE_LAYOUT_UNDEFINED, vk.VK_IMAGE_LAYOUT_GENERAL,
@@ -6982,6 +7300,52 @@ class VulkanRayQueryCore:
                 0, None, 0, None, 1, [direct_ready],
             )
         vk.vkCmdExecuteCommands(command, 1, [secondary])
+        if self._headless_surface and pixel_format == "nv12":
+            rgba_ready = self._image_barrier(
+                frame["image"], vk.VK_IMAGE_LAYOUT_GENERAL,
+                vk.VK_IMAGE_LAYOUT_GENERAL,
+                vk.VK_ACCESS_SHADER_WRITE_BIT,
+                vk.VK_ACCESS_SHADER_READ_BIT,
+            )
+            vk.vkCmdPipelineBarrier(
+                command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+                0, None, 0, None, 1, [rgba_ready],
+            )
+            vk.vkCmdBindPipeline(
+                command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+                self.nv12_pipeline,
+            )
+            vk.vkCmdBindDescriptorSets(
+                command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+                self.nv12_pipeline_layout, 0, 1,
+                [frame["nv12_descriptor_set"]], 0, None,
+            )
+            constants = bytearray(struct.pack(
+                "4I", width, height, frame["nv12_pitch"], 0,
+            ))
+            vk.vkCmdPushConstants(
+                command, self.nv12_pipeline_layout,
+                vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
+                vk.ffi.from_buffer(constants),
+            )
+            vk.vkCmdDispatch(
+                command, (width + 31) // 32, (height + 15) // 16, 1,
+            )
+            nv12_ready = vk.VkBufferMemoryBarrier(
+                sType=vk.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                srcAccessMask=vk.VK_ACCESS_SHADER_WRITE_BIT,
+                dstAccessMask=vk.VK_ACCESS_MEMORY_READ_BIT,
+                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                buffer=frame["nv12_buffer"].buffer,
+                offset=0, size=frame["nv12_buffer"].size,
+            )
+            vk.vkCmdPipelineBarrier(
+                command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+                0, None, 1, [nv12_ready], 0, None,
+            )
         capture_buffer = frame.get("wavefront_hdr_capture_buffer")
         if capture_buffer is not None:
             capture_ready = self._image_barrier(
@@ -7024,7 +7388,9 @@ class VulkanRayQueryCore:
                 vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
                 0, None, 0, None, 1, [capture_complete],
             )
-        if self.swapchain_direct_storage:
+        if self._headless_surface:
+            pass
+        elif self.swapchain_direct_storage:
             present_ready = self._image_barrier(
                 self.swapchain_images[image_index],
                 vk.VK_IMAGE_LAYOUT_GENERAL,
@@ -7110,41 +7476,57 @@ class VulkanRayQueryCore:
         vk.vkEndCommandBuffer(command)
         record_ms = (time.perf_counter() - record_start) * 1000.0
         submit_start = time.perf_counter()
+        signal_semaphores = (
+            [frame["external_ready"]] if self._headless_surface
+            else [frame["render_finished"]]
+        )
+        if self._headless_surface:
+            wait_semaphores = (
+                [frame["external_release"]]
+                if frame.get("external_release_wait") else []
+            )
+            wait_stage_masks = [
+                vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+            ] * len(wait_semaphores)
+        else:
+            wait_semaphores = [frame["image_available"]]
+            wait_stage_masks = [
+                # Direct presentation transitions the acquired image at the
+                # start of the command buffer. Waiting at compute was too late.
+                vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                if self.swapchain_direct_storage
+                else vk.VK_PIPELINE_STAGE_TRANSFER_BIT
+            ]
         vk.vkQueueSubmit(
             self.queue, 1,
             [vk.VkSubmitInfo(
                 sType=vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                waitSemaphoreCount=1,
-                pWaitSemaphores=[frame["image_available"]],
-                pWaitDstStageMask=[
-                    # Direct presentation transitions the acquired image at
-                    # the start of the command buffer. Waiting at compute was
-                    # too late for that layout transition and could expose an
-                    # older swapchain image on alternating acquisitions.
-                    vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-                    if self.swapchain_direct_storage
-                    else vk.VK_PIPELINE_STAGE_TRANSFER_BIT
-                ],
+                waitSemaphoreCount=len(wait_semaphores),
+                pWaitSemaphores=wait_semaphores,
+                pWaitDstStageMask=wait_stage_masks,
                 commandBufferCount=1, pCommandBuffers=[command],
-                signalSemaphoreCount=1,
-                pSignalSemaphores=[frame["render_finished"]],
+                signalSemaphoreCount=len(signal_semaphores),
+                pSignalSemaphores=signal_semaphores,
             )], frame["fence"],
         )
+        if self._headless_surface and wait_semaphores:
+            frame["external_release_wait"] = False
         submit_ms = (time.perf_counter() - submit_start) * 1000.0
         present_start = time.perf_counter()
-        try:
-            self.queue_present(
-                self.queue,
-                vk.VkPresentInfoKHR(
-                    sType=vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-                    waitSemaphoreCount=1,
-                    pWaitSemaphores=[frame["render_finished"]],
-                    swapchainCount=1, pSwapchains=[self.swapchain],
-                    pImageIndices=[image_index],
-                ),
-            )
-        except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
-            self.swapchain_extent = None
+        if not self._headless_surface:
+            try:
+                self.queue_present(
+                    self.queue,
+                    vk.VkPresentInfoKHR(
+                        sType=vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                        waitSemaphoreCount=1,
+                        pWaitSemaphores=[frame["render_finished"]],
+                        swapchainCount=1, pSwapchains=[self.swapchain],
+                        pImageIndices=[image_index],
+                    ),
+                )
+            except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
+                self.swapchain_extent = None
         present_ms = (time.perf_counter() - present_start) * 1000.0
         frame["has_timestamps"] = True
         frame["wavefront_render_scale"] = render_scale
@@ -7336,6 +7718,212 @@ class VulkanRayQueryCore:
             }[self.resolved_execution_strategy],
         }
         return (width, height)
+
+    def export_window_frame(self, slot, *, release, pixel_format="rgba8"):
+        """Wrap one submitted frame as externally importable Vulkan memory."""
+        from .gpu import GpuFrame, VulkanBufferMetadata, VulkanImageMetadata
+
+        if not self._headless_surface:
+            raise RuntimeError("external image interop is not enabled")
+        if not 0 <= int(slot) < len(self.window_frames):
+            raise ValueError("frame slot is out of range")
+        frame = self.window_frames[int(slot)]
+        pixel_format = str(pixel_format).lower()
+        if pixel_format not in {"rgba8", "nv12"}:
+            raise ValueError("pixel_format must be 'rgba8' or 'nv12'")
+        export_buffer = frame["nv12_buffer"] if pixel_format == "nv12" else None
+
+        def export_memory_fd():
+            info = vk.VkMemoryGetFdInfoKHR(
+                memory=(
+                    export_buffer.memory if export_buffer is not None
+                    else frame["image_memory"]
+                ),
+                handleType=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+            )
+            descriptor = vk.ffi.new("int *")
+            result = self.get_memory_fd(
+                self.device, vk.ffi.addressof(info), descriptor
+            )
+            if result != vk.VK_SUCCESS:
+                raise RuntimeError(f"Vulkan memory FD export failed: {result}")
+            return descriptor[0]
+
+        def export_release_semaphore_fd():
+            info = vk.VkSemaphoreGetFdInfoKHR(
+                semaphore=frame["external_release"],
+                handleType=vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT,
+            )
+            descriptor = vk.ffi.new("int *")
+            result = self.get_semaphore_fd(
+                self.device, vk.ffi.addressof(info), descriptor
+            )
+            if result != vk.VK_SUCCESS:
+                raise RuntimeError(
+                    f"Vulkan release-semaphore FD export failed: {result}"
+                )
+            return descriptor[0]
+
+        def export_semaphore_fd():
+            info = vk.VkSemaphoreGetFdInfoKHR(
+                semaphore=frame["external_ready"],
+                handleType=vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT,
+            )
+            descriptor = vk.ffi.new("int *")
+            result = self.get_semaphore_fd(
+                self.device, vk.ffi.addressof(info), descriptor
+            )
+            if result != vk.VK_SUCCESS:
+                raise RuntimeError(
+                    f"Vulkan semaphore FD export failed: {result}"
+                )
+            return descriptor[0]
+
+        def wait_for_frame(timeout):
+            timeout_ns = (
+                (1 << 64) - 1 if timeout is None
+                else max(0, int(float(timeout) * 1_000_000_000))
+            )
+            try:
+                vk.vkWaitForFences(
+                    self.device, 1, [frame["fence"]], vk.VK_TRUE, timeout_ns
+                )
+            except vk.VkTimeout:
+                return False
+            return True
+
+        if pixel_format == "nv12":
+            metadata = VulkanBufferMetadata(
+                width=int(self.swapchain_extent[0]),
+                height=int(self.swapchain_extent[1]),
+                format="NV12",
+                pitch=int(frame["nv12_pitch"]),
+                y_offset=0,
+                uv_offset=int(frame["nv12_uv_offset"]),
+                memory_size=int(frame["nv12_buffer"].size),
+                memory_offset=0,
+                dedicated_allocation=True,
+                device_uuid=self.device_uuid,
+                buffer_handle=int(vk.ffi.cast(
+                    "uintptr_t", frame["nv12_buffer"].buffer
+                )),
+                memory_handle=int(vk.ffi.cast(
+                    "uintptr_t", frame["nv12_buffer"].memory
+                )),
+                device_handle=int(vk.ffi.cast("uintptr_t", self.device)),
+                physical_device_handle=int(vk.ffi.cast(
+                    "uintptr_t", self.physical_device
+                )),
+                completion_fence_handle=int(vk.ffi.cast(
+                    "uintptr_t", frame["fence"]
+                )),
+                queue_family_index=int(self.queue_family),
+            )
+            attributes = {
+                "color_space": "bt709",
+                "color_range": "limited",
+                "components": "nv12",
+                "frame_slot": int(slot),
+            }
+        else:
+            metadata = VulkanImageMetadata(
+                width=int(self.swapchain_extent[0]),
+                height=int(self.swapchain_extent[1]),
+                format="VK_FORMAT_R8G8B8A8_UNORM",
+                format_value=int(vk.VK_FORMAT_R8G8B8A8_UNORM),
+                layout="VK_IMAGE_LAYOUT_GENERAL",
+                memory_size=int(frame["image_memory_size"]),
+                memory_offset=0,
+                dedicated_allocation=True,
+                device_uuid=self.device_uuid,
+                image_handle=int(vk.ffi.cast("uintptr_t", frame["image"])),
+                memory_handle=int(vk.ffi.cast(
+                    "uintptr_t", frame["image_memory"]
+                )),
+                device_handle=int(vk.ffi.cast("uintptr_t", self.device)),
+                physical_device_handle=int(vk.ffi.cast(
+                    "uintptr_t", self.physical_device
+                )),
+                completion_fence_handle=int(vk.ffi.cast(
+                    "uintptr_t", frame["fence"]
+                )),
+                queue_family_index=int(self.queue_family),
+            )
+            attributes = {
+                "color_space": "srgb-transfer",
+                "components": "rgba",
+                "frame_slot": int(slot),
+            }
+        return GpuFrame(
+            api="vulkan",
+            metadata=metadata,
+            export_memory_fd=export_memory_fd,
+            export_ready_semaphore_fd=export_semaphore_fd,
+            export_release_semaphore_fd=export_release_semaphore_fd,
+            wait=wait_for_frame,
+            close=release,
+            attributes=attributes,
+        )
+
+    def recycle_external_frame(self, slot, release_semaphore_exported=False):
+        """Reset one external binary semaphore after its consumer is done."""
+        frame = self.window_frames[int(slot)]
+        if release_semaphore_exported:
+            frame["external_release_wait"] = True
+            return
+        vk.vkWaitForFences(
+            self.device, 1, [frame["fence"]], vk.VK_TRUE, (1 << 64) - 1
+        )
+        vk.vkDestroySemaphore(self.device, frame["external_ready"], None)
+        frame["external_ready"] = vk.vkCreateSemaphore(
+            self.device,
+            vk.VkSemaphoreCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+                pNext=vk.VkExportSemaphoreCreateInfo(
+                    handleTypes=(
+                        vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT
+                    )
+                ),
+            ),
+            None,
+        )
+
+    def _wait_external_releases(self):
+        """Drain consumer release signals before destroying shared resources."""
+        if self.device is None:
+            return
+        frames = [
+            frame for frame in self.window_frames
+            if frame.get("external_release_wait")
+        ]
+        if not frames:
+            return
+        fence = vk.vkCreateFence(
+            self.device,
+            vk.VkFenceCreateInfo(sType=vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO),
+            None,
+        )
+        try:
+            semaphores = [frame["external_release"] for frame in frames]
+            stages = [vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT] * len(semaphores)
+            vk.vkQueueSubmit(
+                self.queue, 1,
+                [vk.VkSubmitInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                    waitSemaphoreCount=len(semaphores),
+                    pWaitSemaphores=semaphores,
+                    pWaitDstStageMask=stages,
+                    commandBufferCount=0, pCommandBuffers=None,
+                    signalSemaphoreCount=0, pSignalSemaphores=None,
+                )], fence,
+            )
+            vk.vkWaitForFences(
+                self.device, 1, [fence], vk.VK_TRUE, (1 << 64) - 1
+            )
+            for frame in frames:
+                frame["external_release_wait"] = False
+        finally:
+            vk.vkDestroyFence(self.device, fence, None)
 
     def capture_wavefront_hdr(self):
         """Synchronously read the most recently presented internal HDR image."""
@@ -7815,6 +8403,7 @@ class VulkanRayQueryCore:
             return
         self._closed = True
         if self.device:
+            self._wait_external_releases()
             vk.vkDeviceWaitIdle(self.device)
             self._destroy_swapchain_resources()
             commands = [
@@ -7830,6 +8419,14 @@ class VulkanRayQueryCore:
                 vk.vkDestroyFence(self.device, frame["fence"], None)
                 vk.vkDestroySemaphore(self.device, frame["image_available"], None)
                 vk.vkDestroySemaphore(self.device, frame["render_finished"], None)
+                if frame.get("external_ready") is not None:
+                    vk.vkDestroySemaphore(
+                        self.device, frame["external_ready"], None
+                    )
+                if frame.get("external_release") is not None:
+                    vk.vkDestroySemaphore(
+                        self.device, frame["external_release"], None
+                    )
             self.window_frames.clear()
             if self.timestamp_query_pool:
                 vk.vkDestroyQueryPool(self.device, self.timestamp_query_pool, None)
@@ -7848,18 +8445,36 @@ class VulkanRayQueryCore:
             self._release_frame_resources()
             if self.descriptor_pool:
                 vk.vkDestroyDescriptorPool(self.device, self.descriptor_pool, None)
+            if self.nv12_descriptor_pool:
+                vk.vkDestroyDescriptorPool(
+                    self.device, self.nv12_descriptor_pool, None
+                )
             if self.pipeline:
                 vk.vkDestroyPipeline(self.device, self.pipeline, None)
             if self.tone_pipeline:
                 vk.vkDestroyPipeline(self.device, self.tone_pipeline, None)
             if self.denoise_pipeline:
                 vk.vkDestroyPipeline(self.device, self.denoise_pipeline, None)
+            if self.nv12_pipeline:
+                vk.vkDestroyPipeline(self.device, self.nv12_pipeline, None)
             if self.shader_module:
                 vk.vkDestroyShaderModule(self.device, self.shader_module, None)
             if self.tone_shader_module:
                 vk.vkDestroyShaderModule(self.device, self.tone_shader_module, None)
             if self.denoise_shader_module:
                 vk.vkDestroyShaderModule(self.device, self.denoise_shader_module, None)
+            if self.nv12_shader_module:
+                vk.vkDestroyShaderModule(
+                    self.device, self.nv12_shader_module, None
+                )
+            if self.nv12_pipeline_layout:
+                vk.vkDestroyPipelineLayout(
+                    self.device, self.nv12_pipeline_layout, None
+                )
+            if self.nv12_descriptor_layout:
+                vk.vkDestroyDescriptorSetLayout(
+                    self.device, self.nv12_descriptor_layout, None
+                )
             if self.pipeline_layout:
                 vk.vkDestroyPipelineLayout(self.device, self.pipeline_layout, None)
             if self.descriptor_layout:

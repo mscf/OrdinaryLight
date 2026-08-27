@@ -60,4 +60,17 @@ class ProductRenderBackend(RenderBackend, Protocol):
         ...
 
 
-__all__ = ["ProductRenderBackend", "RenderBackend"]
+@runtime_checkable
+class GpuRenderBackend(RenderBackend, Protocol):
+    """Optional extension for zero-copy GPU-resident color output."""
+
+    def render_gpu_frame(
+        self, scene, camera, width: int, height: int, *,
+        samples: int | None = None, frame_index: int = 0,
+        pixel_format: str = "rgba8",
+    ):
+        """Submit a frame and return a managed GPU-resident product."""
+        ...
+
+
+__all__ = ["GpuRenderBackend", "ProductRenderBackend", "RenderBackend"]

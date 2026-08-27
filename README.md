@@ -120,6 +120,27 @@ with ol.outputs.FFmpegVideoWriter("render.mp4", (width, height), fps=30) as vide
 The video writer also accepts a binary file-like object for notebook or server
 streaming. FFmpeg is optional and checked only when a writer is created.
 
+NVIDIA systems can keep the complete H.264 path on the GPU. Install
+`ordinarylight[video-gpu]`, enable external interop, request NV12, and pass the
+managed frame directly to NVENC:
+
+```python
+config = ol.RendererConfig(external_image_interop=True)
+with ol.Renderer(config=config) as renderer, \
+     ol.outputs.NvencVideoWriter("render.h264", (width, height), fps=30) as video:
+    for index, camera in enumerate(cameras):
+        video.write(renderer.render_gpu(
+            scene, camera, (width, height), frame_index=index,
+            pixel_format="nv12",
+        ))
+```
+
+Vulkan performs tone mapping and NV12 conversion, CUDA imports the stable
+external buffers and semaphore pairs once, and NVENC consumes the two planes
+without host readback or upload. A binary file-like destination can be used in
+place of the path for server streaming. See `examples/nvenc_zero_copy.py` and
+the ownership details in `docs/public_api.md`.
+
 Asset ingestion is organized under `ordinarylight.loaders`. Format modules own a
 uniform `load()` entry point, so glTF is available as
 `ol.loaders.gltf.load(path)`; the descriptive

@@ -119,8 +119,11 @@ class RendererConfig:
     # The current brick traversal is an opt-in experiment: its correctness
     # gate passes, but the sparse showcase measured a small regression.
     volume_empty_space_skipping: bool = False
+    external_image_interop: bool = False
 
     def __post_init__(self):
+        if not isinstance(self.external_image_interop, bool):
+            raise TypeError("external_image_interop must be a bool")
         if not isinstance(self.volume_empty_space_skipping, bool):
             raise TypeError("volume_empty_space_skipping must be a bool")
         if not 1 <= self.max_bounces <= 16:
@@ -607,8 +610,12 @@ class VulkanRayTracingBackend:
         self.device = compatible[0]
         from .vulkan_rt import VulkanRayQueryCore
 
-        self._core = VulkanRayQueryCore(config=self.config)
+        self._core = VulkanRayQueryCore(
+            config=self.config,
+            headless_surface=self.config.external_image_interop,
+        )
         self._output_history = None
+        self._gpu_frame_slots = set()
 
     def reset_output_history(self):
         """Discard prior-frame state used by opt-in motion output."""
@@ -626,6 +633,8 @@ class VulkanRayTracingBackend:
                 "temporal_reconstruction", "denoising", "restir_di",
                 "indirect_reuse", "volumes", "volume_scattering",
                 "volume_empty_space_skipping", "motion_vectors",
+                *({"gpu_resident_output", "gpu_nv12_output"}
+                  if self.config.external_image_interop else set()),
             }),
             "limits": {
                 "max_bounces": 16,
@@ -636,6 +645,48 @@ class VulkanRayTracingBackend:
             },
             "device": self.device,
         }
+
+    def render_gpu_frame(
+        self, scene, camera, width, height, *, samples=None, frame_index=0,
+        pixel_format="rgba8",
+    ):
+        """Submit tone-mapped RGBA8 or NV12 without host pixel readback."""
+        if not self.config.external_image_interop:
+            raise RuntimeError(
+                "GPU-resident output requires "
+                "RendererConfig(external_image_interop=True)"
+            )
+        if samples not in (None, self.config.samples_per_pixel):
+            raise ValueError(
+                "GPU-resident output currently uses config.samples_per_pixel"
+            )
+        pixel_format = str(pixel_format).lower()
+        if pixel_format not in {"rgba8", "nv12"}:
+            raise ValueError("pixel_format must be 'rgba8' or 'nv12'")
+        if pixel_format == "nv12" and (width % 4 or height % 2):
+            raise ValueError(
+                "NV12 output requires width divisible by 4 and even height"
+            )
+        target_slot = self._core.window_frame_index
+        if target_slot in self._gpu_frame_slots:
+            raise RuntimeError(
+                "release the GPU frame occupying the next frame slot"
+            )
+        self._core.present_wavefront_window(
+            scene, camera, width, height, pixel_format=pixel_format,
+        )
+        slot = (self._core.window_frame_index - 1) % 2
+        self._gpu_frame_slots.add(slot)
+
+        def release(release_semaphore_exported=False):
+            self._core.recycle_external_frame(
+                slot, release_semaphore_exported=release_semaphore_exported,
+            )
+            self._gpu_frame_slots.discard(slot)
+
+        return self._core.export_window_frame(
+            slot, release=release, pixel_format=pixel_format,
+        )
 
     @staticmethod
     def _project_positions(positions, camera, width, height):

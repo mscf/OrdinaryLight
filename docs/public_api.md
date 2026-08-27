@@ -96,6 +96,64 @@ readback on the renderer worker. It removes caller-thread stalls, but it does
 not yet overlap several headless readbacks on the GPU. Native presentation uses
 frames in flight and avoids host pixel readback.
 
+## GPU-resident output
+
+Linux Vulkan applications can opt into externally shareable output and avoid
+NumPy readback entirely:
+
+```python
+config = ol.RendererConfig(external_image_interop=True)
+with ol.Renderer(config=config) as renderer:
+    frame = renderer.render_gpu(scene, camera, (1920, 1080),
+                                pixel_format="rgba8")
+    memory_fd = frame.export_memory_fd()
+    ready_fd = frame.export_ready_semaphore_fd()
+    # Import both opaque FDs into CUDA. Wait on ready_fd in the CUDA stream,
+    # consume the image, synchronize that consumer, then release the slot.
+    frame.close()
+```
+
+`render_gpu()` records and submits work but does not wait for a pixel copy. Its
+current Vulkan product is a dedicated, optimal-tiled, tone-mapped
+`VK_FORMAT_R8G8B8A8_UNORM` image in `VK_IMAGE_LAYOUT_GENERAL`. The frame
+metadata includes the Vulkan handles, allocation size, physical-device UUID,
+extent, format, layout, and completion fence. The opaque memory and binary
+semaphore FDs are exported on demand.
+
+FD ownership transfers to the caller. CUDA consumes an FD after a successful
+external-memory or external-semaphore import; close it explicitly if import
+fails. `GpuFrame.close()` returns the Ordinary Light frame slot and is
+idempotent, but the caller must first ensure that the consumer has stopped
+using the allocation. Two exported frames may be outstanding. Advanced
+consumers can export the release semaphore, queue its signal after consuming a
+frame, mark that signal with `frame.mark_external_release_scheduled()`, and
+close the frame immediately. Vulkan then waits on the GPU without a CPU stall.
+
+For H.264, request NV12 and use the optional NVENC sink:
+
+```python
+config = ol.RendererConfig(external_image_interop=True)
+with ol.Renderer(config=config) as renderer, \
+     ol.outputs.NvencVideoWriter(
+         "render.h264", (1920, 1080), fps=30
+     ) as video:
+    for index, camera in enumerate(cameras):
+        frame = renderer.render_gpu(
+            scene, camera, (1920, 1080), frame_index=index,
+            pixel_format="nv12",
+        )
+        video.write(frame)
+```
+
+Install this optional path with `pip install ordinarylight[video-gpu]`. The
+final Vulkan compute pass performs BT.709 limited-range RGBA-to-NV12 conversion
+into a dedicated pitch-linear external buffer. CUDA imports each of the two
+stable allocations and semaphore pairs once; steady-state frames use only GPU
+wait/signal operations and NVENC. There is no GPU-to-CPU readback, NumPy HDR
+array, CPU tone mapping, CPU YUV conversion, or CPU-to-GPU upload. The writer
+accepts either a path or a binary file-like stream and emits an H.264 elementary
+stream. P010 remains a future, distinct 10-bit product for HEVC/AV1.
+
 ## Workbench showcases
 
 `ordinarylight-workbench` is the sole interactive feature browser. Built-in

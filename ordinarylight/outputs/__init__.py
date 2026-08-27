@@ -3,4 +3,11 @@
 from .image import to_sdr
 from .video import FFmpegVideoWriter
 
-__all__ = ["FFmpegVideoWriter", "to_sdr"]
+
+def __getattr__(name):
+    if name == "NvencVideoWriter":
+        from .nvenc import NvencVideoWriter
+        return NvencVideoWriter
+    raise AttributeError(name)
+
+__all__ = ["FFmpegVideoWriter", "NvencVideoWriter", "to_sdr"]

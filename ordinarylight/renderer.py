@@ -374,6 +374,50 @@ class Renderer:
             future, frame_index=current_frame, scene=scene, camera=camera
         )
 
+    def render_gpu(
+        self, scene: Scene, camera: Camera, size, *, samples=None,
+        frame_index=None, pixel_format="rgba8",
+    ):
+        """Submit a frame whose color product remains GPU-resident.
+
+        This optional backend capability returns a
+        :class:`ordinarylight.GpuFrame`. The call performs CPU command
+        recording and submission but does not wait for pixel readback; use the
+        frame's exported synchronization object from the consuming GPU API.
+        ``pixel_format`` is ``"rgba8"`` for general Vulkan image interop or
+        ``"nv12"`` for tightly packed, GPU-encoded video input.
+        """
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        if not isinstance(camera, CAMERA_TYPES):
+            raise TypeError("camera must be a supported ordinarylight camera")
+        width, height = _size(size)
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._backend is None:
+                    raise RuntimeError("renderer is closed")
+                current_frame = (
+                    self._frame_index if frame_index is None else int(frame_index)
+                )
+                if current_frame < 0:
+                    raise ValueError("frame_index cannot be negative")
+                self._frame_index = current_frame + 1
+            render_gpu_frame = getattr(self._backend, "render_gpu_frame", None)
+            if not callable(render_gpu_frame):
+                raise RuntimeError(
+                    "the active backend does not support GPU-resident output"
+                )
+            with self._backend_lock:
+                frame = render_gpu_frame(
+                    scene, camera, width, height, samples=samples,
+                    frame_index=current_frame, pixel_format=pixel_format,
+                )
+                self._last_statistics = RenderStatistics(
+                    frame_index=current_frame, size=(width, height),
+                    samples=samples, timings=self.last_timings,
+                )
+                return frame
+
     def _render_serialized(
         self, scene, camera, width, height, samples, current_frame, out, outputs,
     ):
