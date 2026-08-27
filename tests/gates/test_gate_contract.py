@@ -8,6 +8,7 @@ import unittest
 PYTHON_GATES = (
     "execution_parity",
     "indirect_quality",
+    "noise_quality",
     "path_termination_quality",
     "restir_matrix",
     "restir_quality",
@@ -49,4 +50,3 @@ class GateContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

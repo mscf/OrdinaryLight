@@ -52,13 +52,54 @@ def temporal_quality_rows(reference, candidate):
         raise ValueError("reference and candidate sequences must have matching shapes")
     rows = []
     epsilon = 1e-8
+    luminance_weights = np.asarray((0.2126, 0.7152, 0.0722), np.float32)
     for index in range(len(reference)):
         error = candidate[index] - reference[index]
         rmse = float(np.sqrt(np.mean(error * error)))
         reference_rms = float(np.sqrt(np.mean(reference[index] ** 2)))
-        luminance_error = np.tensordot(
-            error, np.asarray((0.2126, 0.7152, 0.0722), np.float32), axes=1
+        reference_luminance = np.tensordot(
+            reference[index], luminance_weights, axes=1
         )
+        candidate_luminance = np.tensordot(
+            candidate[index], luminance_weights, axes=1
+        )
+        luminance_error = candidate_luminance - reference_luminance
+        luminance_scale = max(
+            float(np.sqrt(np.mean(reference_luminance ** 2))), epsilon
+        )
+        positive_error = np.maximum(luminance_error, 0.0)
+
+        reference_dx = np.diff(reference_luminance, axis=1)
+        reference_dy = np.diff(reference_luminance, axis=0)
+        candidate_dx = np.diff(candidate_luminance, axis=1)
+        candidate_dy = np.diff(candidate_luminance, axis=0)
+        reference_gradient = np.concatenate((
+            np.abs(reference_dx).ravel(), np.abs(reference_dy).ravel(),
+        ))
+        edge_threshold = (
+            float(np.percentile(reference_gradient, 90.0))
+            if reference_gradient.size else 0.0
+        )
+        edge_x = np.abs(reference_dx) > max(edge_threshold, epsilon)
+        edge_y = np.abs(reference_dy) > max(edge_threshold, epsilon)
+        edge_reference = np.concatenate((
+            reference_dx[edge_x], reference_dy[edge_y],
+        ))
+        edge_candidate = np.concatenate((
+            candidate_dx[edge_x], candidate_dy[edge_y],
+        ))
+        edge_denominator = float(np.dot(edge_reference, edge_reference))
+        if edge_reference.size:
+            edge_gradient_gain = (
+                float(np.dot(edge_reference, edge_candidate))
+                / max(edge_denominator, epsilon)
+            )
+            edge_gradient_error = float(np.sqrt(np.mean(
+                (edge_candidate - edge_reference) ** 2
+            ))) / luminance_scale
+        else:
+            edge_gradient_gain = 1.0
+            edge_gradient_error = 0.0
         centered = luminance_error - float(np.mean(luminance_error))
         row_bias = np.mean(centered, axis=1)
         column_bias = np.mean(centered, axis=0)
@@ -94,6 +135,16 @@ def temporal_quality_rows(reference, candidate):
             "vertical_band_rms": vertical_band_rms,
             "band_anisotropy": normalized_row / max(normalized_column, epsilon),
             "low_frequency_energy_ratio": low_frequency_energy_ratio,
+            # A normalized upper-tail error catches isolated hot paths without
+            # using a scene-dependent absolute HDR threshold.
+            "positive_outlier_p999": (
+                float(np.percentile(positive_error, 99.9)) / luminance_scale
+            ),
+            # Signed gradient regression at reference edges is approximately
+            # one when contrast is preserved and falls toward zero when a
+            # reconstruction filter erases detail.
+            "edge_gradient_gain": edge_gradient_gain,
+            "edge_gradient_error": edge_gradient_error,
         }
         if index:
             reference_delta = reference[index] - reference[index - 1]
@@ -134,7 +185,8 @@ def write_temporal_quality_csv(path, comparisons):
         "mode", "frame", "mae", "rmse", "relative_rmse", "bias",
         "temporal_residual_rmse", "history_lag_ratio",
         "horizontal_band_rms", "vertical_band_rms", "band_anisotropy",
-        "low_frequency_energy_ratio",
+        "low_frequency_energy_ratio", "positive_outlier_p999",
+        "edge_gradient_gain", "edge_gradient_error",
     )
     with Path(path).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)

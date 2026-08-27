@@ -35,6 +35,26 @@ python -m tests.gates.restir_matrix --help
 tests/gates/run_4k_performance.sh
 ```
 
+The accepted multi-scene noise baseline covers diffuse, area-light,
+glossy/glass, fast-motion dense geometry, and volume rendering:
+
+```bash
+python -m tests.gates.noise_quality
+```
+
+Replacing that baseline is intentionally reviewable and requires an explicit
+reason. This is appropriate when an understood quality tradeoff is accepted,
+or when a change materially improves the baseline:
+
+```bash
+ORDINARYLIGHT_NOISE_GATE_OVERRIDE_REASON="explain the accepted change" \
+python -m tests.gates.noise_quality --accept-baseline
+```
+
+The tracked baseline contains aggregate metrics and configuration, not large
+HDR captures. Per-frame HDR sequences, the complete CSV, and the run report
+remain under `/tmp/ordinarylight_noise_quality` for inspection.
+
 Gate reports default to `/tmp` or to an explicitly supplied output directory.
 Tests must not write generated captures into the source tree.
 

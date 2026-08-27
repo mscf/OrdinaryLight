@@ -33,6 +33,9 @@ class VulkanGateTests(unittest.TestCase):
             "--output", "/tmp/ordinarylight_validation_matrix",
         )
 
+    def test_accepted_noise_quality_baseline(self):
+        self._run("tests.gates.noise_quality")
+
     def test_volume_compositing(self):
         self._run(
             "tests.gates.volume_compositing",
@@ -46,4 +49,3 @@ class VulkanGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -46,7 +46,9 @@
 
 - Revisit interactive path-tracing noise and reconstruction quality. Current
   behavior is accepted for development, but quality remains equal in priority
-  to performance.
+  to performance. A tracked multi-scene HDR baseline now prevents silent
+  regressions in accuracy, temporal stability, structured noise, fireflies,
+  banding, and edge-detail preservation while this work proceeds.
 - Redesign volume empty-space skipping before enabling it by default. The
   current sparse-volume gate is image-exact but measured 0.93x rather than a
   speedup, so the feature remains opt-in and experimental.

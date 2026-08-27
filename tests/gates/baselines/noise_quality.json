@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "override_reason": "initial accepted renderer quality baseline",
+  "configuration": {
+    "width": 320,
+    "height": 180,
+    "frames": 8,
+    "reference_samples": 16,
+    "candidate_samples": 2,
+    "max_bounces": 8,
+    "area_light_samples": 2,
+    "temporal_weight": 0.93,
+    "diffuse_filter_strength": 0.35,
+    "scenarios": [
+      {
+        "name": "diffuse",
+        "scene_name": "diffuse",
+        "motion_radians": 0.0,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [0.0, 1.25, 0.0]
+      },
+      {
+        "name": "area_light",
+        "scene_name": "area_lights",
+        "motion_radians": 0.12,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [0.0, 1.25, 0.0]
+      },
+      {
+        "name": "glossy_glass",
+        "scene_name": "glossy_glass",
+        "motion_radians": 0.16,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [0.0, 1.25, 0.0]
+      },
+      {
+        "name": "dense_motion",
+        "scene_name": "dense",
+        "motion_radians": 0.4,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [0.0, 1.25, 0.0]
+      },
+      {
+        "name": "volume",
+        "scene_name": "volume",
+        "motion_radians": 0.12,
+        "orbit_radius": 8.8,
+        "camera_height": 3.5,
+        "target": [0.0, 1.5, 0.0]
+      }
+    ]
+  },
+  "policies": {
+    "maximum": {
+      "relative_rmse_mean": {"ratio": 1.05, "floor": 0.002},
+      "relative_rmse_p95": {"ratio": 1.08, "floor": 0.003},
+      "temporal_residual_rmse_mean": {"ratio": 1.08, "floor": 0.002},
+      "temporal_residual_rmse_p95": {"ratio": 1.1, "floor": 0.003},
+      "low_frequency_energy_ratio_mean": {"ratio": 1.1, "floor": 0.05},
+      "horizontal_band_rms_p95": {"ratio": 1.1, "floor": 0.001},
+      "vertical_band_rms_p95": {"ratio": 1.1, "floor": 0.001},
+      "positive_outlier_p999_p95": {"ratio": 1.15, "floor": 0.01},
+      "edge_gradient_error_mean": {"ratio": 1.08, "floor": 0.005}
+    },
+    "minimum": {
+      "edge_gradient_gain_mean": {"margin": 0.05}
+    },
+    "bias_margin": 0.002
+  },
+  "accepted": {
+    "diffuse": {
+      "bias_mean": 0.0008313073667522985,
+      "edge_gradient_error_mean": 0.36139115297914526,
+      "edge_gradient_gain_mean": 0.7228663361066296,
+      "horizontal_band_rms_p95": 0.0033395958598703146,
+      "low_frequency_energy_ratio_mean": 0.9891443897056609,
+      "positive_outlier_p999_p95": 0.8643630466658611,
+      "relative_rmse_mean": 0.23075081325745445,
+      "relative_rmse_p95": 0.2490623812810303,
+      "temporal_residual_rmse_mean": 0.035316575318574905,
+      "temporal_residual_rmse_p95": 0.06768947746604678,
+      "vertical_band_rms_p95": 0.004232960287481546
+    },
+    "area_light": {
+      "bias_mean": 0.0005299528602336068,
+      "edge_gradient_error_mean": 0.9192496629868283,
+      "edge_gradient_gain_mean": 1.0113147938094975,
+      "horizontal_band_rms_p95": 0.010976580763235688,
+      "low_frequency_energy_ratio_mean": 0.8839684311085596,
+      "positive_outlier_p999_p95": 3.049586993487748,
+      "relative_rmse_mean": 0.21961890846395196,
+      "relative_rmse_p95": 0.22939511692691436,
+      "temporal_residual_rmse_mean": 0.1824243888258934,
+      "temporal_residual_rmse_p95": 0.28328816965222353,
+      "vertical_band_rms_p95": 0.013549248268827795
+    },
+    "glossy_glass": {
+      "bias_mean": 0.00020940848571626702,
+      "edge_gradient_error_mean": 2.4318083572709117,
+      "edge_gradient_gain_mean": 0.9654987297577785,
+      "horizontal_band_rms_p95": 0.014010076783597468,
+      "low_frequency_energy_ratio_mean": 0.9858934111364831,
+      "positive_outlier_p999_p95": 7.628343048585859,
+      "relative_rmse_mean": 0.5479185691100406,
+      "relative_rmse_p95": 0.5951624033514603,
+      "temporal_residual_rmse_mean": 0.18785221502184868,
+      "temporal_residual_rmse_p95": 0.30223404169082635,
+      "vertical_band_rms_p95": 0.020922795869410038
+    },
+    "dense_motion": {
+      "bias_mean": 0.0009020545112434775,
+      "edge_gradient_error_mean": 0.6255819518161091,
+      "edge_gradient_gain_mean": 1.0087165463076524,
+      "horizontal_band_rms_p95": 0.004662409774027765,
+      "low_frequency_energy_ratio_mean": 0.9435103945165444,
+      "positive_outlier_p999_p95": 1.2618771780178588,
+      "relative_rmse_mean": 0.24142298735089918,
+      "relative_rmse_p95": 0.25791863336579374,
+      "temporal_residual_rmse_mean": 0.07813746016472578,
+      "temporal_residual_rmse_p95": 0.10367974638938902,
+      "vertical_band_rms_p95": 0.006623590015806258
+    },
+    "volume": {
+      "bias_mean": 0.0010960121253447141,
+      "edge_gradient_error_mean": 0.7786485406325395,
+      "edge_gradient_gain_mean": 1.0021504006336368,
+      "horizontal_band_rms_p95": 0.011015372397378088,
+      "low_frequency_energy_ratio_mean": 0.8256106790996944,
+      "positive_outlier_p999_p95": 1.3437326713702762,
+      "relative_rmse_mean": 0.17411068616045275,
+      "relative_rmse_p95": 0.18787493553488302,
+      "temporal_residual_rmse_mean": 0.14111212454736233,
+      "temporal_residual_rmse_p95": 0.22770644947886462,
+      "vertical_band_rms_p95": 0.014347317861393094
+    }
+  }
+}

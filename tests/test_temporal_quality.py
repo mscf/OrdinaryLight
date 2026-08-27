@@ -56,6 +56,30 @@ class TemporalQualityTests(unittest.TestCase):
         )["low_frequency_energy_ratio_mean"]
         self.assertGreater(score, 10.0)
 
+    def test_positive_outlier_metric_detects_firefly(self):
+        reference = np.ones((2, 32, 32, 3), np.float32)
+        candidate = reference.copy()
+        candidate[:, 8:10, 12:14, :] = 100.0
+        score = summarize_temporal_quality(
+            reference, candidate
+        )["positive_outlier_p999_max"]
+        self.assertGreater(score, 1.0)
+
+    def test_edge_gain_detects_lost_contrast(self):
+        reference = np.zeros((2, 16, 32, 3), np.float32)
+        reference[:, :, 16:, :] = 1.0
+        blurred = reference.copy()
+        blurred[:, :, 15, :] = 0.25
+        blurred[:, :, 16, :] = 0.75
+        sharp_gain = summarize_temporal_quality(
+            reference, reference
+        )["edge_gradient_gain_mean"]
+        blurred_gain = summarize_temporal_quality(
+            reference, blurred
+        )["edge_gradient_gain_mean"]
+        self.assertAlmostEqual(sharp_gain, 1.0)
+        self.assertLess(blurred_gain, sharp_gain)
+
     def test_round_trip_and_csv(self):
         frames = np.arange(48, dtype=np.float32).reshape(2, 2, 4, 3)
         with tempfile.TemporaryDirectory() as directory:
