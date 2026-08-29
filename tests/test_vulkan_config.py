@@ -17,6 +17,45 @@ from ordinarylight.vulkan_rt import (
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_pipeline_cache_configuration(self):
+        default = RendererConfig()
+        self.assertTrue(default.vulkan_pipeline_cache)
+        self.assertIsNone(default.vulkan_pipeline_cache_path)
+        configured = RendererConfig(
+            vulkan_pipeline_cache=True,
+            vulkan_pipeline_cache_path="/tmp/ordinarylight-cache.bin",
+        )
+        self.assertEqual(
+            configured.vulkan_pipeline_cache_path,
+            "/tmp/ordinarylight-cache.bin",
+        )
+        self.assertFalse(
+            RendererConfig(vulkan_pipeline_cache=False).vulkan_pipeline_cache
+        )
+        with self.assertRaises(TypeError):
+            RendererConfig(vulkan_pipeline_cache=1)
+        with self.assertRaises(TypeError):
+            RendererConfig(vulkan_pipeline_cache_path=object())
+
+    def test_ordinaryshade_shade_is_default_and_configurable(self):
+        self.assertTrue(RendererConfig().wavefront_ordinaryshade_shade)
+        self.assertTrue(RendererConfig(
+            wavefront_ordinaryshade_shade=True
+        ).wavefront_ordinaryshade_shade)
+        with self.assertRaises(TypeError):
+            RendererConfig(wavefront_ordinaryshade_shade=1)
+        self.assertTrue(RendererConfig(
+            wavefront_ordinaryshade_shade=True,
+            wavefront_execution_strategy="megakernel",
+        ).wavefront_ordinaryshade_shade)
+        self.assertIs(
+            RendererConfig(
+                wavefront_ordinaryshade_shade=True,
+                material_program=diffuse,
+            ).material_program,
+            diffuse,
+        )
+
     def test_projected_effect_bounds_track_object_and_aspect(self):
         scene = ol.Scene()
         mesh = scene.add_mesh(

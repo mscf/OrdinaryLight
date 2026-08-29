@@ -692,6 +692,278 @@ so remote applications do not need presenter or Vulkan access. No callback
 framework is imposed: ordinary Python code handling `PickResult` is the
 arbitrary action API.
 
+The display-space color functions used by the built-in effects and the shared
+ACES transform used by reconstruction, tone mapping, and P010 output are
+generated from typed Python helpers by the independent Ordinary Shade companion
+project. Generated GLSL is checked into Ordinary Light,
+so installing or running the renderer does not require the compiler. Ordinary
+Shade remains an optional development-time dependency and has no dependency on
+Ordinary Light.
+
+`wavefront_indirect_clear.comp`, `wavefront_prepare_indirect.comp`,
+`wavefront_resolve.comp`, `wavefront_tone_map.comp`, and
+`wavefront_tone_map_image.comp`, plus `rgba_to_nv12.comp`, `hdr_to_p010.comp`,
+`denoise_atrous.comp`, the final display `tone_map.comp`, and primary-ray
+`wavefront_generate.comp` and `wavefront_intersect.comp` are complete compute
+entry points authored in Ordinary Shade, together with the subgroup-compacted
+`wavefront_intersect_bucketed.comp` variant and the packed-reservoir
+`wavefront_indirect_reuse_probe.comp`. HDR path accumulation and production
+indirect-reservoir seeding in `wavefront_path_to_hdr.comp` are generated as
+well, as is temporal/spatial reservoir validation and merging in
+`wavefront_indirect_candidates.comp`. Their generated
+Vulkan GLSL retains the original descriptor bindings, storage layouts, access
+qualifiers, push-constant offset, and workgroup sizes. The second stage uses
+Ordinary Shade's fixed structured storage records for queue state and indirect
+dispatch arguments. The resolve stage adds typed structured runtime arrays,
+write-only output, vector swizzles, and integer-vector construction.
+The tone-map stage demonstrates composable typed helper functions: its entry
+point links the same Ordinary Shade ACES and sRGB helpers used to generate the
+shared color library, then lowers packed RGBA output per backend.
+The image-output variant adds portable storage-image dimensions and dynamically
+bounded nested loops while preserving arbitrary source-to-output scaling.
+The NV12 stage adds reusable helper graphs, signed constants, rounding, shifts,
+and bitwise packing while preserving the streaming backend's 4×2 conversion
+and pitched two-plane memory layout.
+The P010 stage reuses that layout model with shared HDR color helpers, scaled
+source sampling, 10-bit limited-range conversion, and MSB-aligned 16-bit pairs.
+The à-trous denoiser adds image ping-pong, variance gating, nested fixed-range
+sampling, loop continuation, and normal/depth/color bilateral weighting without
+changing its descriptor or push-constant ABI.
+The display stage adds short-circuit boolean expressions, conditional
+expressions, loop termination, and a composed FPS glyph overlay while retaining
+the native 8×8 output path.
+Primary-ray generation adds typed heterogeneous storage blocks with runtime
+structure arrays, nested queue records, uniform camera data, projection modes,
+and portable geometry/trigonometry helpers. Its medium-stack binding uses an
+equivalent flat scalar view of the existing 64-byte-per-path layout.
+The intersection stage adds a typed Vulkan acceleration-structure resource,
+ray-query lifecycle and committed-hit accessors, and structured hit-queue
+output. Ordinary Shade rejects this Vulkan-only feature for WGSL with an
+explicit diagnostic.
+The bucketed variant adds declared subgroup capabilities, ballot masks,
+elected-lane atomics, broadcast and exclusive-bit offsets, typed material
+records, and structured local values. Its Vulkan subgroup extensions are
+emitted only when the entry point declares that requirement.
+The indirect-reuse probe adds nested structure values, resource-sharing helper
+functions, `void` helpers, half/unorm packing, RGB9E5 conversion, and explicit
+storage-buffer barriers. It validates the production six-word reservoir ABI
+without retaining the former preprocessor-dependent probe wrapper.
+The path-to-HDR stage then applies those same typed reservoir structures and
+packing helpers in production, preserving its six descriptor bindings,
+representative-pixel downsampling, accumulation behavior, and finite-candidate
+rejection.
+The indirect-candidate stage adds typed unsigned storage images, reprojection
+result values in place of output parameters, ray-query visibility testing,
+bounded history merging, spatial-neighbor validation, and optional atomic
+profiling while preserving its thirteen descriptor bindings.
+`wavefront_indirect_debug.comp` completes the indirect-reuse group with typed
+acceptance/validity visualizations and the material-aware, bilinearly filtered
+reuse correction path. A structured correction result replaces the original
+GLSL output parameters while retaining all five display modes.
+`wavefront_reconstruct.comp` is also a complete generated stage. It composes
+reprojection, history validation, diffuse filtering, tone mapping, and the
+built-in object effects while preserving both the RGBA and formatless BGRA
+output variants. Ordinary Shade models the eight swapchain outputs as a typed
+storage-image descriptor array. The effect header is expressed as flattened
+typed fields with the same byte layout as the former `uvec4[4]` push-constant
+view, so the host ABI is unchanged.
+The buffer-output `ray_query.comp` baseline is generated too, including camera
+projection, multi-bounce reflection and transmission, medium tracking, custom
+material injection, ray-query traversal, and packed output. Its generated
+material insertion markers preserve runtime specialization by Ordinary Light's
+existing Python material API.
+Its accumulated `ray_query_image.comp` counterpart is generated as well. The
+typed stage preserves point/spot/directional and area-light visibility,
+multiple-importance sampling, primary-surface metadata, adaptive sampling,
+ping-pong accumulation and moments, temporal reprojection, and the original
+material-aware neighborhood history clamp.
+`scripts/generate_core_shaders.py --check` guards the
+checked-in sources while the shader manifest guards their compiled SPIR-V.
+
+The final generated wavefront shade entry is the production default. Use
+`RendererConfig(wavefront_ordinaryshade_shade=False)` or
+`WAVE_RENDER_ORDINARYSHADE_SHADE=0` for an explicit handwritten A/B fallback.
+The formal `shade_parity` matrix currently reports strict HDR numerical parity
+across opaque, textured, emissive, glass, dense, and volume workloads,
+including native textures and overlapping/scattering media. Steady-state shade
+dispatch medians are at parity. Ordinary Light persists the Vulkan pipeline
+cache by default, which removes most of the larger generated module's pipeline
+creation cost after its first successful renderer lifetime. The first-ever
+compile for a new GPU/driver combination remains cold. Deterministic Python
+`MaterialEvaluation` programs now specialize both the handwritten primary
+stage and the generated Ordinary Shade secondary stage, including interpolated
+custom vertex attributes, native textures, profiling, and active volume
+features. The formal `shade_material_parity` and `shade_attribute_parity` gates
+verify the runtime specializations against production HDR output.
+`SurfaceResponse` programs use the same staged ABI and may replace scattering
+from the primary hit onward with an absorb, diffuse, reflection, or transmission
+event plus a Python-authored direction, weight, PDF, and emission. Ordinary
+Light retains ownership of continuation queues, medium-stack transitions,
+Russian roulette, synchronization, and resource lifetime. The formal
+`shade_surface_parity` gate exercises diffuse, mirror, and stochastic nested
+Fresnel-glass programs against the handwritten fallback.
+
+The fused-primary migration has begun at its shared camera and path-state
+boundary. Perspective, orthographic, and panoramic ray construction, primary
+RNG seeding and jitter, initial path identity/flag packing, barycentric hit
+reconstruction, geometric and interpolated shading normals, face orientation,
+ray-cone spread, and surface classification are generated by
+`scripts/generate_primary_shaders.py` and consumed by wavefront, hybrid,
+megakernel, persistent, and SER entry points. Primary UV/tangent interpolation,
+UV-density footprints, generated triangle tangents, mapped-normal hemisphere
+correction, sampled base/emissive/transmission/metallic/roughness/occlusion
+application, and tangent-space normal transformation share that generated
+boundary. Thin GLSL resource wrappers retain packed/native texture sampling,
+profiling counters, and their descriptor ABI. Primary valid/invalid G-buffer
+payloads, one- and two-sided emission policy, maximum-bounce termination, and
+active-path flag clearing are generated as typed output-state helpers; image
+writes and queue storage remain explicit renderer resource operations. Initial
+glass handling is typed as well: opaque/transmissive classification, clamped
+target IOR, refraction with total-internal-reflection fallback, first medium
+entry/depth, medium-stack initialization, and transmission tint/weight.
+Post-sampling primary continuation state is generated too: BSDF throughput
+application, roughness-driven ray-cone growth, direction normalization,
+medium/capture/diffuse/unified-NEE flag packing, previous-PDF retention,
+secondary-capture eligibility, continuation-ray offsets, and queue payloads.
+The generated Vulkan orchestration boundary additionally owns secondary ray
+queries, descriptor reads, medium/path storage, volume and profiling callbacks,
+subgroup-compacted continuation queues, custom-material dispatch, group
+swizzling, and the persistent-coarse shared-memory scheduler. Those paths
+exercise Ordinary Shade's typed external ABI, ray-query capabilities,
+workgroup storage, atomics, barriers, and Vulkan invocation reordering; the
+handwritten equivalents remain compile-time diagnostic fallbacks.
+The enclosing secondary-transport loop is Python-authored as well. It owns the
+stop bound, iteration, termination signal, mutable path/medium/RNG/cone state,
+and final RNG persistence, while one typed callback supplies the renderer's
+per-bounce Vulkan adapter. This keeps portable control composition in Ordinary
+Shade without forcing descriptor and backend ownership into the companion
+compiler.
+The PBR sampler and direct-light estimators remain independent compositional
+modules rather than being folded into this state boundary. Point, directional,
+and spot lights now use a typed analytic-light module for direction, inverse-
+square/range and cone attenuation, surface cosine, shadow distance, incident
+radiance, and PBR contribution. Descriptor iteration, visibility ray queries,
+and volume-shadow lookup remain thin Vulkan orchestration, with transmittance
+passed explicitly into the generated calculation. The PBR sampling
+module is now typed too: cosine-hemisphere and GGX half-vector sampling,
+Schlick Fresnel, GGX distribution/Smith masking, mixed diffuse/specular PDFs,
+BRDF evaluation, reflection, occlusion weighting, and invalid-sample fallback.
+The GLSL wrapper owns only the inout RNG sequence and output assignment.
+The previous GLSL branches remain available at compile time through
+`WAVE_ORDINARYSHADE_PRIMARY_CAMERA=0`,
+`WAVE_ORDINARYSHADE_PRIMARY_STATE=0`, and
+`WAVE_ORDINARYSHADE_PRIMARY_SURFACE=0`, plus
+`WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE=0` and
+`WAVE_ORDINARYSHADE_TEXTURE_APPLICATION=0`, plus
+`WAVE_ORDINARYSHADE_PRIMARY_OUTPUT=0` and
+`WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION=0`, plus
+`WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION=0` and
+`WAVE_ORDINARYSHADE_PBR=0`, and
+`WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS=0`, plus
+`WAVE_ORDINARYSHADE_AREA_LIGHTS=0` and
+`WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS=0`, plus
+`WAVE_ORDINARYSHADE_UNIFIED_NEE=0` and
+`WAVE_ORDINARYSHADE_EMISSIVE_MIS=0`, plus
+`WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT=0` and
+`WAVE_ORDINARYSHADE_SECONDARY_TRANSMISSION=0`, plus
+`WAVE_ORDINARYSHADE_SECONDARY_SURFACE=0` and
+`WAVE_ORDINARYSHADE_SECONDARY_CONTROL=0`. Every boundary compiles independently, all-on,
+all-off, and in mixed generated/fallback configurations; custom material
+specialization remains at the same semantic boundary, and the generated branch
+is HDR-identical across the complete execution-strategy parity matrix on a
+textured real-geometry feature scene. Native-texture validation remains within
+`3.5e-8` relative HDR RMSE of the handwritten production shade path. Both the
+normal six-bounce matrix and the explicit one-bounce early-termination matrix
+remain exactly HDR-identical across execution strategies. The 16-bounce
+feature-parity and dedicated nested-glass matrices are exact across strategies
+as well.
+The analytic-light generated/fallback boundary preserves the same `4.9e-7`
+relative HDR RMSE, including the spot-cone polynomial.
+Triangle-area sampling and reservoir-candidate evaluation now share typed
+barycentric sampling, emitter cosine, solid-angle PDF, power-heuristic MIS, and
+radiometric contribution helpers. On the dedicated area-light scene this path
+agrees with the complete generated shade graph within `2.2e-8` relative HDR
+RMSE.
+Environment lighting now shares typed analytic-sky evaluation, spherical HDR
+mapping and decoding, cosine-domain PDFs, MIS, octahedral candidate encoding,
+and material-weighted contribution math. Texture fetch and visibility remain
+explicit renderer inputs. The feature-parity scene remains within `4.9e-7`
+relative HDR RMSE after this boundary moved.
+Unified area/environment selection is typed as well: primary domain weighting,
+secondary sample-budget weighting, digitally shifted secondary-NEE selection,
+and luminance target evaluation now share the Ordinary Shade graph. The hash
+and bit-reversed sequence remain exactly deterministic and do not consume BSDF
+RNG state.
+Reciprocal weighting is typed too. Environment misses reconstruct the selected
+environment PDF from path metadata, while emissive hits reconstruct triangle
+area, sidedness, selection density, and solid-angle density before applying
+the power heuristic. The small-emitter stress scene agrees within `2.3e-8`
+relative HDR RMSE.
+Secondary opaque transport now uses typed NEE compensation, BSDF-throughput
+application, roughness-driven ray-cone growth, continuation flags/PDFs, and
+Russian-roulette survival and renormalization. RNG advancement and queue writes
+remain explicit entry-point responsibilities. A 16-bounce diffuse scene agrees
+within `6.1e-8` relative HDR RMSE.
+Secondary transmission now shares typed target-IOR selection, relative-IOR
+refraction, total-internal-reflection fallback, medium push/pop decisions, and
+tinted throughput. Indexed stack storage remains renderer orchestration. The
+16-bounce nested-glass scene agrees within `2.4e-7` relative HDR RMSE.
+Secondary hit preparation now reuses typed ray-cone advancement, barycentric
+reconstruction, geometric and oriented shading normals, UV interpolation and
+footprints, tangent reconstruction, and mapped-normal correction. Descriptor
+loads and material-program dispatch remain explicit seams. Native-texture
+validation agrees within `6.1e-8` relative HDR RMSE.
+Secondary control flow now uses typed hybrid stop selection, low-throughput and
+maximum-bounce termination, miss accumulation, and indirect-capture eligibility.
+Volume integration and capture-buffer writes remain explicit resource work. A
+semantic material-application marker keeps Python material specialization
+stable across surrounding generated/fallback branches; custom-material HDR
+parity remains within `4.9e-7` relative RMSE.
+The final fused-loop policy seams are typed as well: SER material hints, NEE
+probability clamping, area/environment sample-count bounds, contribution
+averaging, emissive sidedness, and capture-position payload construction.
+The remaining handwritten fused loop is deliberately limited to Vulkan ray
+queries, descriptor/indexed storage, volume-pass invocation, profiling,
+reordering intrinsics, RNG/resource mutation, and queue/state writes. A
+structural test protects that boundary. The completed fused path remains
+bit-exact across wavefront, megakernel, SER, hybrid, persistent-continuation,
+persistent, and coarse-tile persistent execution strategies on the native
+feature-parity scene.
+The backend-orchestration migration is now active too. Ordinary Shade authors
+the fused TLAS query and complete intersection payload, SER reorder call,
+subgroup-compacted queue reservation, continuation queue validation/payload
+writes, overflow atomics, and workgroup dispatch swizzle. Renderer-owned
+descriptor blocks are consumed through typed external ABI values rather than
+raw source injection. These generated and fallback paths compile independently,
+and the generated default remains bit-exact across the complete execution
+strategy matrix.
+Typed external arrays now cover vertex, attribute, material, medium-stack,
+primary-path, and secondary-capture storage. Ordinary Shade's structure system
+supports fixed-size array fields for the nested-medium ABI, and generated
+functions own the corresponding reads and mutations without redeclaring the
+renderer descriptor blocks.
+The established generated secondary graph and the new shared PBR wrapper agree
+within `4.9e-7` relative HDR RMSE on the 16-bounce feature-parity scene.
+
+Pipeline caches default to
+`$XDG_CACHE_HOME/ordinarylight/vulkan/<device-uuid>.bin`, or the equivalent
+directory under `~/.cache`. Set `RendererConfig(vulkan_pipeline_cache=False)`
+to disable persistence or `vulkan_pipeline_cache_path=...` to select an
+application-managed location. The presentation tool exposes the same controls
+as `WAVE_RENDER_PIPELINE_CACHE=0` and `WAVE_RENDER_PIPELINE_CACHE_PATH=...`.
+Cache loading, invalidation, and saving are best-effort, so read-only containers
+continue to work without persistence.
+
+Automatic execution-strategy selection compiles only the pipeline family and
+scene specialization that the resident scene can dispatch. If a later scene
+resolves to a different strategy or specialization, Ordinary Light replaces
+the wavefront executor after synchronization while retaining the Vulkan device,
+swapchain/external images, and persistent pipeline cache. On the reference GPU,
+this reduced a genuine cold-cache auto first-frame record from 58.6 seconds to
+7.62 seconds; the following process uses the persistent cache. The formal
+`strategy_transition` gate exercises wavefront-to-megakernel transitions on one
+renderer.
+
 The Qt event thread never performs rendering, swapchain recreation, Vulkan
 teardown, or scene parsing. A presentation worker owns the Vulkan presenter
 for its entire lifetime and accepts at most one outstanding frame, while a
@@ -1034,6 +1306,31 @@ Use `WAVE_RENDER_TARGET_FPS=120` (or another display-appropriate rate) to pace
 submissions and avoid exhausting compositor-owned swapchain images.
 
 ## Vulkan scope
+
+### Experimental raster backends
+
+Ordinary Light now has a deliberately small backend-neutral raster contract as
+the foundation for a future scene rasterizer. `RasterProgram` links Ordinary
+Shade vertex and fragment functions, while `RasterMesh` carries the first
+portable vertex/index representation. Two offscreen implementations exercise
+the same program semantics:
+
+- `VulkanRasterBackend` consumes SPIR-V and records a native Vulkan graphics
+  pipeline, render pass, draw, and readback.
+- `WebGpuRasterBackend` consumes WGSL through the optional `wgpu` package.
+
+Install `ordinarylight[vulkan]` or `ordinarylight[webgpu]` for the respective
+runtime. Compiling Python shader functions additionally requires Ordinary
+Shade. These initial backends render clip-space `vec2` triangle meshes to RGBA8;
+scene cameras, material bindings, depth, textures, and presentation are the
+next layer rather than implicit behavior in this minimal milestone.
+
+```python
+program = ol.RasterProgram.compile(vertex_shader, fragment_shader, target="wgsl")
+backend = ol.WebGpuRasterBackend(program)
+rgba = backend.render(ol.triangle_mesh(), 640, 480)
+backend.close()
+```
 
 The current GPU slice builds BLAS/TLAS acceleration structures, reads
 per-triangle material records at ray-query intersections, and traces up to five

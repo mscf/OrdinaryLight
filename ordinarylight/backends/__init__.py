@@ -15,6 +15,14 @@ def __getattr__(name):
         module = import_module(f"{__name__}.vulkan")
         globals()[name] = module
         return module
+    if name in {"WebGpuRasterBackend"}:
+        from .webgpu_raster import WebGpuRasterBackend
+        globals()[name] = WebGpuRasterBackend
+        return WebGpuRasterBackend
+    if name == "VulkanRasterBackend":
+        from .vulkan_raster import VulkanRasterBackend
+        globals()[name] = VulkanRasterBackend
+        return VulkanRasterBackend
     raise AttributeError(name)
 
 __all__ = [
@@ -25,5 +33,5 @@ __all__ = [
     "ReferenceConfig",
     "RenderBackend",
     "ResidentSceneBackend",
-    "vulkan",
+    "vulkan", "VulkanRasterBackend", "WebGpuRasterBackend",
 ]

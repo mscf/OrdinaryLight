@@ -13,16 +13,24 @@ float randomFloat(inout uint state)
 
 uint secondaryNeeHash(uint value)
 {
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    return ordinarylight_secondary_nee_hash(value);
+#else
     value ^= value >> 16u;
     value *= 0x7feb352du;
     value ^= value >> 15u;
     value *= 0x846ca68bu;
     return value ^ (value >> 16u);
+#endif
 }
 
 bool selectSecondaryNee(
     float probability, uint pixel_index, uint frame_sample, uint bounce)
 {
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    return ordinarylight_secondary_nee_select(
+        probability, pixel_index, frame_sample, bounce);
+#else
     if (probability >= 0.999999)
         return true;
 
@@ -37,6 +45,7 @@ bool selectSecondaryNee(
     uint sequence = bitfieldReverse(frame_index) ^ scramble;
     float selector = (float(sequence) + 0.5) * (1.0 / 4294967296.0);
     return selector < probability;
+#endif
 }
 
 vec3 cosineHemisphere(vec3 normal, float random_u, float random_v)
@@ -148,6 +157,35 @@ void samplePbr(
     MaterialData material, vec3 normal, vec3 incoming, inout uint rng,
     out vec3 outgoing, out vec3 weight, out float pdf)
 {
+#if WAVE_ORDINARYSHADE_PBR
+    vec3 view = -incoming;
+    float probability = ordinarylight_pbr_specular_probability(
+        material.base_roughness.rgb, material.emission_metallic.a);
+    bool specular = randomFloat(rng) < probability;
+    float random_u = randomFloat(rng);
+    float random_v = randomFloat(rng);
+    outgoing = ordinarylight_pbr_cosine_hemisphere(
+        normal, random_u, random_v);
+    if (specular) {
+        vec3 half_vector = ordinarylight_pbr_sample_half_vector(
+            normal, material.base_roughness.a, random_u, random_v);
+        outgoing = ordinarylight_pbr_reflect(incoming, half_vector);
+    }
+    if (dot(normal, outgoing) <= 0.0) {
+        outgoing = ordinarylight_pbr_cosine_hemisphere(
+            normal, randomFloat(rng), randomFloat(rng));
+    }
+    outgoing = normalize(outgoing);
+    pdf = max(ordinarylight_pbr_pdf(
+        material.base_roughness.rgb, material.base_roughness.a,
+        material.emission_metallic.a, normal, view, outgoing), 0.000001);
+    vec3 evaluated = ordinarylight_pbr_evaluate(
+        material.base_roughness.rgb, material.base_roughness.a,
+        material.emission_metallic.a, normal, view, outgoing);
+    weight = ordinarylight_pbr_weight(
+        evaluated, material.emission_metallic.a,
+        material.texture_parameters.w, normal, view, outgoing, pdf);
+#else
     vec3 view = -incoming;
     float probability = pbrSpecularProbability(material);
     bool specular = randomFloat(rng) < probability;
@@ -171,6 +209,7 @@ void samplePbr(
     weight *= mix(
         material.texture_parameters.w, 1.0,
         material.emission_metallic.a);
+#endif
 }
 
 vec3 samplePointLights(
@@ -181,6 +220,22 @@ vec3 samplePointLights(
         PointLightData light = point_lights[index];
         int light_type = int(light.position_type.w + 0.5);
         if (light_type == 3) continue;
+#if WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS
+        float distance_squared = ordinarylight_analytic_light_distance_squared(
+            light_type, light.position_type.xyz, hit);
+        float distance_to_light = light_type == 1
+            ? 10000.0 : sqrt(distance_squared);
+        vec3 direction = ordinarylight_analytic_light_direction(
+            light_type, light.position_type.xyz,
+            light.direction_range.xyz, hit);
+        if (light_type != 1 && light.direction_range.w > 0.0 &&
+                distance_to_light > light.direction_range.w) continue;
+        float attenuation = ordinarylight_analytic_light_attenuation(
+            light_type, distance_squared, direction,
+            light.direction_range.xyz, light.spot_parameters.x,
+            light.spot_parameters.y);
+        if (attenuation <= 0.0) continue;
+#else
         vec3 direction;
         float distance_squared = 1.0;
         float distance_to_light = 10000.0;
@@ -203,11 +258,22 @@ vec3 samplePointLights(
                 attenuation *= spot;
             }
         }
+#endif
+#if WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS
+        float cosine = ordinarylight_analytic_light_cosine(
+            normal, direction);
+#else
         float cosine = max(dot(normal, direction), 0.0);
+#endif
         if (cosine <= 0.0) continue;
         vec3 shadow_origin = hit + normal * 0.002;
+#if WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS
+        float shadow_distance = ordinarylight_analytic_light_shadow_distance(
+            light_type, distance_to_light);
+#else
         float shadow_distance = light_type == 1
             ? 10000.0 : max(distance_to_light - 0.004, 0.001);
+#endif
         rayQueryEXT shadow;
 #if WAVE_WORK_COUNTERS
         profileWork(1u, 1u);
@@ -219,12 +285,22 @@ vec3 samplePointLights(
         while (rayQueryProceedEXT(shadow)) {}
         if (rayQueryGetIntersectionTypeEXT(shadow, true) !=
                 gl_RayQueryCommittedIntersectionNoneEXT) continue;
+#if WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS
+        vec3 incident = ordinarylight_analytic_light_incident(
+            light.color_intensity.rgb, light.color_intensity.a, attenuation,
+            volumeShadowTransmittance(
+                shadow_origin, direction, shadow_distance));
+        direct += ordinarylight_analytic_light_contribution(
+            evaluatePbr(material, normal, -incoming, direction),
+            incident, cosine);
+#else
         vec3 incident = light.color_intensity.rgb * light.color_intensity.a
             * attenuation;
         incident *= volumeShadowTransmittance(
             shadow_origin, direction, shadow_distance);
         direct += evaluatePbr(material, normal, -incoming, direction)
             * incident * cosine;
+#endif
     }
     return direct;
 }
@@ -245,18 +321,29 @@ vec3 sampleAreaLightTechnique(
     AreaLightData light = area_lights[lower];
     float root_u = sqrt(randomFloat(rng));
     float v = randomFloat(rng);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    vec3 light_position = ordinarylight_area_light_position(
+        light.a.xyz, light.b.xyz, light.c.xyz, root_u, v);
+#else
     vec3 light_position = (1.0 - root_u) * light.a.xyz
         + root_u * (1.0 - v) * light.b.xyz + root_u * v * light.c.xyz;
+#endif
     vec3 offset = light_position - hit;
     float distance_squared = dot(offset, offset);
     float distance_to_light = sqrt(distance_squared);
     vec3 direction = offset / max(distance_to_light, 0.000001);
     float surface_cosine = max(dot(normal, direction), 0.0);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    float light_cosine = ordinarylight_area_light_cosine(
+        light.a.xyz, light.b.xyz, light.c.xyz, direction,
+        light.distribution.z > 0.5);
+#else
     vec3 light_normal = normalize(cross(
         light.b.xyz - light.a.xyz, light.c.xyz - light.a.xyz));
     float raw_light_cosine = dot(light_normal, -direction);
     float light_cosine = light.distribution.z > 0.5
         ? abs(raw_light_cosine) : max(raw_light_cosine, 0.0);
+#endif
     if (surface_cosine <= 0.0 || light_cosine <= 0.000001)
         return vec3(0.0);
     vec3 shadow_origin = hit + normal * 0.002;
@@ -272,17 +359,33 @@ vec3 sampleAreaLightTechnique(
     while (rayQueryProceedEXT(shadow)) {}
     if (rayQueryGetIntersectionTypeEXT(shadow, true) !=
             gl_RayQueryCommittedIntersectionNoneEXT) return vec3(0.0);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    float effective_pdf = ordinarylight_area_light_pdf(
+        light.distribution.y, distance_squared, light_cosine,
+        light.emission_area.a, technique_probability);
+    float bsdf_pdf = pbrPdf(material, normal, -incoming, direction);
+    float mis = ordinarylight_area_light_mis(
+        effective_pdf, float(sample_count), bsdf_pdf);
+#else
     float light_pdf = light.distribution.y * distance_squared /
         max(light_cosine * light.emission_area.a, 0.000001);
     float bsdf_pdf = pbrPdf(material, normal, -incoming, direction);
     float effective_pdf = light_pdf * max(technique_probability, 0.000001);
     float mis = powerHeuristic(
         effective_pdf * float(sample_count), bsdf_pdf);
+#endif
     float transmittance = volumeShadowTransmittance(
         shadow_origin, direction, shadow_distance);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    return ordinarylight_area_light_contribution(
+        evaluatePbr(material, normal, -incoming, direction),
+        light.emission_area.rgb, surface_cosine, mis, transmittance,
+        effective_pdf);
+#else
     return evaluatePbr(material, normal, -incoming, direction)
         * light.emission_area.rgb * surface_cosine * mis
         * transmittance / max(effective_pdf, 0.000001);
+#endif
 }
 
 vec3 sampleAreaLight(
@@ -304,12 +407,18 @@ const uint ENVIRONMENT_LIGHT_CANDIDATE_INDEX = 0x01fffffeu;
 
 float unifiedAreaDomainProbability()
 {
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    return ordinarylight_unified_area_probability(
+        push.area_light_count, push.environment_samples,
+        push.area_light_weight);
+#else
     if (push.area_light_count == 0u)
         return 0.0;
     if (push.environment_samples == 0u)
         return 1.0;
     float area_weight = sqrt(max(push.area_light_weight, 0.000001));
     return area_weight / (area_weight + 1.0);
+#endif
 }
 
 vec3 evaluateAreaLightCandidateTechnique(
@@ -323,23 +432,45 @@ vec3 evaluateAreaLightCandidateTechnique(
         return vec3(0.0);
     }
     AreaLightData light = area_lights[candidate.light_index];
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    vec3 light_position = ordinarylight_area_light_barycentric_position(
+        light.a.xyz, light.b.xyz, light.c.xyz, candidate.barycentrics);
+#else
     float a_weight = max(
         1.0 - candidate.barycentrics.x - candidate.barycentrics.y, 0.0);
     vec3 light_position = a_weight * light.a.xyz
         + candidate.barycentrics.x * light.b.xyz
         + candidate.barycentrics.y * light.c.xyz;
+#endif
     vec3 offset = light_position - hit;
     float distance_squared = dot(offset, offset);
     distance_to_light = sqrt(distance_squared);
     direction = offset / max(distance_to_light, 0.000001);
     float surface_cosine = max(dot(normal, direction), 0.0);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    float light_cosine = ordinarylight_area_light_cosine(
+        light.a.xyz, light.b.xyz, light.c.xyz, direction,
+        light.distribution.z > 0.5);
+#else
     vec3 light_normal = normalize(cross(
         light.b.xyz - light.a.xyz, light.c.xyz - light.a.xyz));
     float raw_light_cosine = dot(light_normal, -direction);
     float light_cosine = light.distribution.z > 0.5
         ? abs(raw_light_cosine) : max(raw_light_cosine, 0.0);
+#endif
     if (surface_cosine <= 0.0 || light_cosine <= 0.000001)
         return vec3(0.0);
+#if WAVE_ORDINARYSHADE_AREA_LIGHTS
+    float effective_pdf = ordinarylight_area_light_pdf(
+        light.distribution.y, distance_squared, light_cosine,
+        light.emission_area.a, technique_probability);
+    float bsdf_pdf = pbrPdf(material, normal, -incoming, direction);
+    float mis = ordinarylight_area_light_mis(
+        effective_pdf, float(sample_count), bsdf_pdf);
+    return ordinarylight_area_light_contribution(
+        evaluatePbr(material, normal, -incoming, direction),
+        light.emission_area.rgb, surface_cosine, mis, 1.0, effective_pdf);
+#else
     float light_pdf = light.distribution.y * distance_squared /
         max(light_cosine * light.emission_area.a, 0.000001);
     float bsdf_pdf = pbrPdf(material, normal, -incoming, direction);
@@ -349,6 +480,7 @@ vec3 evaluateAreaLightCandidateTechnique(
     return evaluatePbr(material, normal, -incoming, direction)
         * light.emission_area.rgb * surface_cosine * mis
         / max(effective_pdf, 0.000001);
+#endif
 }
 
 vec3 evaluateAreaLightCandidate(
@@ -388,8 +520,12 @@ AreaLightCandidate generateAreaLightCandidate(
     vec3 contribution = evaluateAreaLightCandidate(
         candidate, hit, normal, incoming, material, sample_count,
         unused_direction, unused_distance);
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    candidate.target = ordinarylight_light_candidate_target(contribution);
+#else
     candidate.target = max(dot(
         contribution, vec3(0.2126, 0.7152, 0.0722)), 0.0);
+#endif
     return candidate;
 }
 
@@ -425,28 +561,54 @@ vec3 environmentColor(vec3 direction)
         int texture_index = light.spot_parameters.x < 0.0
             ? -1 : int(light.spot_parameters.x + 0.5);
         if (texture_index >= 0) {
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+            vec2 uv = ordinarylight_environment_uv(
+                direction, light.spot_parameters.y);
+#else
             float longitude = atan(direction.z, direction.x)
                 + light.spot_parameters.y;
             vec2 uv = vec2(
                 fract(longitude * 0.15915494309189535 + 0.5),
                 acos(clamp(direction.y, -1.0, 1.0)) * 0.3183098861837907);
+#endif
             vec3 encoded = sampleSceneTexture(texture_index, uv).rgb;
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+            radiance = ordinarylight_environment_radiance(
+                encoded, light.spot_parameters.z, vec3(1.0), 1.0, true);
+#else
             radiance = exp2(encoded * light.spot_parameters.z) - 1.0;
+#endif
         }
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+        return ordinarylight_environment_radiance(
+            radiance, 0.0, light.color_intensity.rgb,
+            light.color_intensity.a, false);
+#else
         return radiance * light.color_intensity.rgb
             * light.color_intensity.a;
+#endif
     }
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    return ordinarylight_environment_analytic(direction);
+#else
     float sky = max(direction.y, 0.0);
     return mix(vec3(0.018, 0.022, 0.032), vec3(0.32, 0.46, 0.72), sky);
+#endif
 }
 
 vec3 sampleEnvironmentTechnique(
     vec3 hit, vec3 normal, vec3 incoming, MaterialData material,
     inout uint rng, uint sample_count, float technique_probability)
 {
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    vec3 direction = ordinarylight_pbr_cosine_hemisphere(
+        normal, randomFloat(rng), randomFloat(rng)
+    );
+#else
     vec3 direction = cosineHemisphere(
         normal, randomFloat(rng), randomFloat(rng)
     );
+#endif
     vec3 shadow_origin = hit + normal * 0.002;
     rayQueryEXT shadow;
 #if WAVE_WORK_COUNTERS
@@ -461,16 +623,33 @@ vec3 sampleEnvironmentTechnique(
     if (rayQueryGetIntersectionTypeEXT(shadow, true) !=
             gl_RayQueryCommittedIntersectionNoneEXT)
         return vec3(0.0);
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    float cosine = ordinarylight_analytic_light_cosine(normal, direction);
+    float pdf = cosine / 3.14159265359;
+    float effective_pdf = ordinarylight_environment_effective_pdf(
+        cosine, technique_probability);
+    float mis = ordinarylight_environment_mis(
+        cosine, effective_pdf, float(sample_count));
+#else
     float pdf = max(dot(normal, direction), 0.0) / 3.14159265359;
     float effective_pdf = pdf * max(technique_probability, 0.000001);
     float mis = powerHeuristic(effective_pdf * float(sample_count), pdf);
+#endif
     float transmittance = volumeShadowTransmittance(
         shadow_origin, direction, 1.0e30);
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    return ordinarylight_environment_contribution(
+        evaluatePbr(material, normal, -incoming, direction),
+        environmentColor(direction), cosine, mis, transmittance,
+        effective_pdf, material.texture_parameters.w,
+        material.emission_metallic.a);
+#else
     return evaluatePbr(material, normal, -incoming, direction)
         * environmentColor(direction) * max(dot(normal, direction), 0.0)
         * mis * transmittance / max(effective_pdf, 0.000001)
         * mix(material.texture_parameters.w, 1.0,
               material.emission_metallic.a);
+#endif
 }
 
 vec3 sampleEnvironment(
@@ -493,6 +672,11 @@ vec3 sampleUnifiedSecondaryLight(
     // domain power. Direct proportional allocation can starve a dim domain;
     // equal allocation wastes half the visibility budget when emissive
     // geometry dominates the environment, as it commonly does indoors.
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    float area_probability = ordinarylight_unified_secondary_area_probability(
+        area_enabled, environment_enabled, push.area_light_weight,
+        push.secondary_area_light_samples, push.environment_samples);
+#else
     float area_weight = area_enabled
         ? sqrt(max(push.area_light_weight, 0.000001))
             * float(max(push.secondary_area_light_samples, 1u)) : 0.0;
@@ -500,6 +684,7 @@ vec3 sampleUnifiedSecondaryLight(
         ? float(min(push.environment_samples, 4u)) : 0.0;
     float area_probability = area_weight /
         max(area_weight + environment_weight, 0.000001);
+#endif
     if (randomFloat(rng) < area_probability)
         return sampleAreaLightTechnique(
             hit, normal, incoming, material, rng, 0u, 1u,
@@ -511,20 +696,28 @@ vec3 sampleUnifiedSecondaryLight(
 
 vec2 encodeEnvironmentCandidateDirection(vec3 direction)
 {
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    return ordinarylight_environment_encode_direction(direction);
+#else
     direction /= abs(direction.x) + abs(direction.y) + abs(direction.z);
     vec2 encoded = direction.xy;
     if (direction.z < 0.0)
         encoded = (1.0 - abs(encoded.yx)) * sign(encoded.xy);
     return encoded * 0.5 + 0.5;
+#endif
 }
 
 vec3 decodeEnvironmentCandidateDirection(vec2 encoded)
 {
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    return ordinarylight_environment_decode_direction(encoded);
+#else
     vec2 value = encoded * 2.0 - 1.0;
     vec3 direction = vec3(value, 1.0 - abs(value.x) - abs(value.y));
     if (direction.z < 0.0)
         direction.xy = (1.0 - abs(direction.yx)) * sign(direction.xy);
     return normalize(direction);
+#endif
 }
 
 vec3 evaluateEnvironmentCandidate(
@@ -537,6 +730,17 @@ vec3 evaluateEnvironmentCandidate(
     float cosine = max(dot(normal, direction), 0.0);
     if (cosine <= 0.0)
         return vec3(0.0);
+#if WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+    float pdf = cosine / 3.14159265359;
+    float effective_pdf = ordinarylight_environment_effective_pdf(
+        cosine, technique_probability);
+    float mis = ordinarylight_environment_mis(
+        cosine, effective_pdf, float(sample_count));
+    return ordinarylight_environment_contribution(
+        evaluatePbr(material, normal, -incoming, direction),
+        environmentColor(direction), cosine, mis, 1.0, effective_pdf,
+        material.texture_parameters.w, material.emission_metallic.a);
+#else
     float pdf = cosine / 3.14159265359;
     float effective_pdf = pdf * max(technique_probability, 0.000001);
     float mis = powerHeuristic(
@@ -546,6 +750,7 @@ vec3 evaluateEnvironmentCandidate(
         / max(effective_pdf, 0.000001)
         * mix(material.texture_parameters.w, 1.0,
               material.emission_metallic.a);
+#endif
 }
 
 AreaLightCandidate generateUnifiedPrimaryCandidate(
@@ -562,8 +767,12 @@ AreaLightCandidate generateUnifiedPrimaryCandidate(
         vec3 contribution = evaluateAreaLightCandidateTechnique(
             candidate, hit, normal, incoming, material, sample_count,
             area_probability, unused_direction, unused_distance);
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+        candidate.target = ordinarylight_light_candidate_target(contribution);
+#else
         candidate.target = max(dot(
             contribution, vec3(0.2126, 0.7152, 0.0722)), 0.0);
+#endif
         return candidate;
     }
     AreaLightCandidate candidate;
@@ -575,8 +784,12 @@ AreaLightCandidate generateUnifiedPrimaryCandidate(
     vec3 contribution = evaluateEnvironmentCandidate(
         candidate.barycentrics, hit, normal, incoming, material, sample_count,
         1.0 - area_probability, direction, unused_distance);
+#if WAVE_ORDINARYSHADE_UNIFIED_NEE
+    candidate.target = ordinarylight_light_candidate_target(contribution);
+#else
     candidate.target = max(dot(
         contribution, vec3(0.2126, 0.7152, 0.0722)), 0.0);
+#endif
     return candidate;
 }
 

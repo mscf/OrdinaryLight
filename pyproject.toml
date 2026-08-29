@@ -29,6 +29,7 @@ dependencies = [
 vulkan = ["vulkan==1.3.275.1"]
 gui = ["dearpygui>=2.0"]
 window = ["vulkan==1.3.275.1", "glfw>=2.8", "PyOpenGL>=3.1"]
+webgpu = ["wgpu>=0.32"]
 qt = ["vulkan==1.3.275.1", "PySide6>=6.7", "glfw>=2.8"]
 video-gpu = [
     "vulkan==1.3.275.1",

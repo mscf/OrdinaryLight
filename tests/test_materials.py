@@ -114,6 +114,13 @@ class MaterialProgramTests(unittest.TestCase):
                 )
                 self.assertIn(f"binding = {binding}", source)
                 self.assertIn("waveApplyMaterialProgram(material", source)
+                if shader == "wavefront_primary.comp":
+                    self.assertIn(
+                        "#define WAVE_CUSTOM_MATERIAL_PROGRAM 1", source
+                    )
+                    self.assertIn(
+                        "ordinarylight_apply_material_program(", source
+                    )
                 self.assertNotIn("WAVE_ATTRIBUTE_color", source)
                 multiple_source = wavefront_material_shader_source(
                     shader, colored, attribute_layout=layout,
@@ -151,6 +158,38 @@ class MaterialProgramTests(unittest.TestCase):
                         volume_empty_space_skipping=True,
                     )
                     self.assertEqual(skipping_spirv[:4], b"\x03\x02#\x07")
+
+        candidate_source = wavefront_material_shader_source(
+            "wavefront_shade_candidate.glsl", colored,
+            attribute_layout=layout, attribute_binding=16,
+        )
+        self.assertIn("binding = 16", candidate_source)
+        self.assertIn(
+            "wave_attribute_primitive = loaded.hit.primitive_index",
+            candidate_source,
+        )
+        self.assertIn("wave_attribute_weights = surface.weights", candidate_source)
+        self.assertNotIn("WAVE_ATTRIBUTE_color", candidate_source)
+        self.assertEqual(
+            candidate_source.count(
+                "MaterialEvaluation evaluateMaterial(MaterialData"
+            ),
+            1,
+        )
+        if find_glsl_compiler():
+            candidate_spirv = compile_wavefront_material_shader(
+                "wavefront_shade_candidate.glsl", colored,
+                attribute_layout=layout, attribute_binding=16,
+            )
+            self.assertEqual(candidate_spirv[:4], b"\x03\x02#\x07")
+            candidate_native_profile = compile_wavefront_material_shader(
+                "wavefront_shade_candidate.glsl", colored,
+                attribute_layout=layout, attribute_binding=16,
+                native_textures=True, profiling=True,
+            )
+            self.assertEqual(
+                candidate_native_profile[:4], b"\x03\x02#\x07"
+            )
 
     def test_python_material_generates_typed_glsl(self):
         @ol.material
@@ -243,6 +282,34 @@ class MaterialProgramTests(unittest.TestCase):
         if find_glsl_compiler():
             spirv = compile_material_shader("ray_query.comp", mirror)
             self.assertEqual(spirv[:4], b"\x03\x02#\x07")
+
+            wavefront = compile_wavefront_material_shader(
+                "wavefront_shade_candidate.glsl", mirror,
+                attribute_layout=ol.VertexAttributeLayout(()),
+                attribute_binding=16,
+            )
+            self.assertEqual(wavefront[:4], b"\x03\x02#\x07")
+            primary = compile_wavefront_material_shader(
+                "wavefront_primary.comp", mirror,
+                attribute_layout=ol.VertexAttributeLayout(()),
+                attribute_binding=24,
+            )
+            self.assertEqual(primary[:4], b"\x03\x02#\x07")
+            handwritten = compile_wavefront_material_shader(
+                "wavefront_shade.comp", mirror,
+                attribute_layout=ol.VertexAttributeLayout(()),
+                attribute_binding=16,
+            )
+            self.assertEqual(handwritten[:4], b"\x03\x02#\x07")
+
+        staged = wavefront_material_shader_source(
+            "wavefront_shade_candidate.glsl", mirror,
+            attribute_layout=ol.VertexAttributeLayout(()),
+            attribute_binding=16,
+        )
+        self.assertIn("if ((evaluated.custom_scattering > 0.5))", staged)
+        self.assertIn("next_direction = normalize(evaluated.next_direction)", staged)
+        self.assertIn("path.throughput.rgb * evaluated.weight", staged)
 
     def test_stochastic_fresnel_program_compiles(self):
         @ol.material

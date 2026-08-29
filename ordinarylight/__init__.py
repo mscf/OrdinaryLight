@@ -20,6 +20,7 @@ from . import cameras, lights
 from .cameras import Camera, OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from .surface import ArraySurface, RenderSurface
+from .raster import RasterMesh, RasterProgram, triangle_mesh
 from . import loaders
 from .loaders import load_gltf
 from .pipeline import RenderPipeline, RenderStage
@@ -110,6 +111,14 @@ def __getattr__(name):
         value = getattr(vulkan, name)
         globals()[name] = value
         return value
+    if name == "WebGpuRasterBackend":
+        from .backends import WebGpuRasterBackend
+        globals()[name] = WebGpuRasterBackend
+        return WebGpuRasterBackend
+    if name == "VulkanRasterBackend":
+        from .backends import VulkanRasterBackend
+        globals()[name] = VulkanRasterBackend
+        return VulkanRasterBackend
     raise AttributeError(name)
 
 __all__ = [
@@ -182,6 +191,7 @@ __all__ = [
     "feature_parity_camera",
     "image_error_metrics",
     "RenderSurface",
+    "RasterMesh", "RasterProgram", "triangle_mesh", "VulkanRasterBackend", "WebGpuRasterBackend",
     "RendererConfig",
     "Renderer",
     "RenderFrame",
