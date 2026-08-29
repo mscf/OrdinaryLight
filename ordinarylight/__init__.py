@@ -21,8 +21,10 @@ from .cameras import Camera, OrthographicCamera, PanoramicCamera, PerspectiveCam
 from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from .surface import ArraySurface, RenderSurface
 from .raster import (
-    RasterMesh, RasterProgram, RasterState, RasterVertexAttribute,
-    RasterVertexLayout, camera_matrix, scene_mesh, triangle_mesh,
+    RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
+    RasterVertexAttribute, RasterVertexLayout, camera_matrix,
+    create_raster_pipeline, rasterize_geometry_products, scene_mesh,
+    triangle_mesh,
 )
 from . import loaders
 from .loaders import load_gltf
@@ -89,6 +91,7 @@ from .backends import (
     PickBackend,
     ProductRenderBackend,
     GpuRenderBackend,
+    HybridBackend,
     ReferenceBackend,
     ReferenceConfig,
     RenderBackend,
@@ -126,12 +129,17 @@ def __getattr__(name):
 
 __all__ = [
     "Material",
+    "HybridBackend",
     "RasterMesh",
+    "RasterConfig",
+    "RasterPostProcessor",
     "RasterProgram",
     "RasterState",
     "RasterVertexAttribute",
     "RasterVertexLayout",
     "camera_matrix",
+    "create_raster_pipeline",
+    "rasterize_geometry_products",
     "scene_mesh",
     "AnimationClip",
     "AnimationPlayer",

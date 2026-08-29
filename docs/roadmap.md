@@ -4,9 +4,13 @@
 
 - Backend-neutral vertex/fragment programs authored with Ordinary Shade,
   including location/builtin reflection and cross-stage validation.
-- Minimal verified offscreen raster paths for native Vulkan/SPIR-V and
-  WebGPU/WGSL. The current mesh contract is intentionally clip-space and will
-  grow into the general scene renderer rather than becoming a separate API.
+- Verified offscreen scene raster paths for native Vulkan/SPIR-V and
+  WebGPU/WGSL, sharing meshes, instances, transforms, cameras, base materials,
+  textures, analytic lights, shadows, depth state, and named geometry products.
+- A portable raster render graph, static temporal/post processing, volume
+  slicing, hybrid backend composition, and backend-neutral surface output.
+  Native MRT/shadow-map/volume compute paths and direct swapchain/external-image
+  output remain performance work rather than missing public semantics.
 
 - Semantic public namespaces for loaders, cameras, lights, animations,
   materials, outputs, integrations, capabilities, and backends.

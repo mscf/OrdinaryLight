@@ -76,9 +76,9 @@ class RasterBackendTests(unittest.TestCase):
         scene = ol.Scene([source])
         camera = ol.PerspectiveCamera((0, 0, 4), (0, 0, 0))
         mesh = ol.scene_mesh(scene, camera, 100, 100)
-        self.assertEqual(mesh.vertices.shape, (3, 7))
+        self.assertEqual(mesh.vertices.shape, (3, 12))
         np.testing.assert_allclose(
-            mesh.vertices[:, 4:], np.tile((0.2, 0.4, 0.8), (3, 1)),
+            mesh.vertices[:, 4:7], np.tile((0.2, 0.4, 0.8), (3, 1)),
         )
         self.assertGreater(mesh.vertices[:, 0].mean(), 0.0)
 
@@ -153,5 +153,11 @@ class RasterBackendTests(unittest.TestCase):
                     center = image[32, 48, :3]
                     self.assertGreater(center[0], 0.8)
                     self.assertLess(center[2], 0.2)
+                    products = renderer.render(
+                        scene, camera, (48, 32),
+                        outputs=("color", "depth", "normal", "object_id"),
+                    )
+                    self.assertEqual(products["depth"].shape, (32, 48))
+                    self.assertGreater(np.count_nonzero(products["object_id"]), 10)
                 finally:
                     renderer.close()

@@ -5,13 +5,16 @@ from __future__ import annotations
 import numpy as np
 
 from ..capabilities import RendererCapabilities
-from ..raster import RasterMesh, RasterState, scene_mesh
+from ..raster import (
+    RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
+    create_raster_pipeline, rasterize_geometry_products, scene_mesh,
+)
 
 
 class WebGpuRasterBackend:
     """Draw Ordinary Shade WGSL programs into an offscreen RGBA target."""
 
-    def __init__(self, program, *, state=None, power_preference="high-performance"):
+    def __init__(self, program, *, config=None, state=None, power_preference="high-performance"):
         try:
             import wgpu
         except ImportError as error:
@@ -22,8 +25,13 @@ class WebGpuRasterBackend:
             raise ValueError("WebGpuRasterBackend requires a WGSL RasterProgram")
         self._wgpu = wgpu
         self.program = program
-        self.config = self.state = state or RasterState()
-        self.available_outputs = ("color",)
+        if config is not None and state is not None:
+            raise TypeError("pass config or state, not both")
+        self.config = config or RasterConfig(state=state or RasterState())
+        self.state = self.config.state
+        self.pipeline_graph = create_raster_pipeline(self.config)
+        self._post = RasterPostProcessor(self.config)
+        self.available_outputs = ("color", "depth", "normal", "object_id")
         self.last_timings = {}
         self.adapter = wgpu.gpu.request_adapter_sync(
             power_preference=power_preference,
@@ -37,7 +45,7 @@ class WebGpuRasterBackend:
         info = self.adapter.info
         self.capabilities = RendererCapabilities(
             backend="webgpu-raster", features=frozenset({"raster", "offscreen", "depth"}),
-            outputs=("color",),
+            outputs=self.available_outputs,
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
 
@@ -77,6 +85,9 @@ class WebGpuRasterBackend:
         width, height = int(width), int(height)
         if width < 1 or height < 1:
             raise ValueError("raster target dimensions must be positive")
+        if not len(mesh.vertices):
+            clear = np.array((0.04, 0.06, 0.1, 1.0), np.float32)
+            return np.broadcast_to(np.rint(clear * 255).astype(np.uint8), (height, width, 4)).copy()
         texture = self.device.create_texture(
             size=(width, height, 1), format="rgba8unorm",
             usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC,
@@ -123,9 +134,24 @@ class WebGpuRasterBackend:
     def render_frame(self, scene, camera, width, height, *, samples=None, frame_index=0):
         import time
         started = time.perf_counter()
-        image = self.render(scene_mesh(scene, camera, width, height), width, height)
+        image = self.render(scene_mesh(scene, camera, width, height, self.config), width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
-        return image.astype(np.float32) / 255.0
+        return self._post.process(image.astype(np.float32) / 255.0, scene, camera)
+
+    def render_products(self, scene, camera, width, height, *, outputs, samples=None, frame_index=0):
+        mesh = scene_mesh(scene, camera, width, height, self.config)
+        products = rasterize_geometry_products(mesh, width, height)
+        if "color" in outputs:
+            image = self.render(mesh, width, height).astype(np.float32) / 255.0
+            products["color"] = self._post.process(image, scene, camera)
+        return {name: products[name] for name in outputs}
+
+    @property
+    def accumulated_frames(self):
+        return self._post.accumulated_frames
+
+    def reset_output_history(self):
+        self._post.reset()
 
     def close(self):
         self._pipelines.clear()

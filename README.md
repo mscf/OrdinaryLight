@@ -1326,6 +1326,17 @@ render existing `Scene` meshes, instances, materials, and object transforms
 through perspective and orthographic cameras. Panoramic cameras require a
 later non-linear projection pass.
 
+The portable scene layer evaluates shared `Material` base colors and textures,
+point/spot/directional lighting with optional hard shadows, and named depth,
+normal, and object-ID products. Its validated render graph composes geometry,
+shadow, lighting, temporal, and post stages. Static-scene accumulation,
+Reinhard/ACES tone mapping, transfer-function volume slicing, hybrid GI
+composition, and `Renderer.render_to()` surface presentation are opt-in.
+
+Auxiliary products and hard-shadow queries currently use correctness-oriented
+CPU implementations. Native MRT, shadow-map, and GPU volume passes remain
+optimization targets without changing these public semantics.
+
 ```python
 program = ol.RasterProgram.scene(target="wgsl")
 backend = ol.WebGpuRasterBackend(program, state=ol.RasterState(cull_mode="back"))

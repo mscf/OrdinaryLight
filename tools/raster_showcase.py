@@ -1,4 +1,4 @@
-"""Visually compare Ordinary Light's minimal Vulkan and WebGPU raster paths."""
+"""Visually compare Ordinary Light's Vulkan and WebGPU raster scene paths."""
 
 from __future__ import annotations
 
@@ -48,19 +48,44 @@ def fragment_shader(color: osh.location(osh.vec3, 0)) -> osh.location(osh.vec4, 
     return osh.vec4(color, 1.0)
 
 
-def _render(backend_name: str, width: int, height: int) -> np.ndarray:
+def _volume_scene():
+    z, y, x = np.mgrid[-1:1:48j, -1:1:48j, -1:1:48j]
+    density = np.exp(-6.0 * (x*x + y*y + z*z)).astype(np.float32)
+    transfer = ol.Texture1D(np.array(((0,0,0,0),(0.1,0.3,1,0.08),(1,0.2,0.05,0.35)), np.float32))
+    material = ol.VolumeMaterial(transfer_function=transfer, density_scale=10.0)
+    transform = ol.Transform.translation((-0.75, -0.75, -0.75)) @ ol.Transform.scale(1.5)
+    volume = ol.Volume(density, material, transform=transform)
+    return ol.Scene(volumes=[volume]), ol.PerspectiveCamera((1.8, 1.2, 2.4), (0, 0, 0))
+
+
+def _render(backend_name: str, width: int, height: int, mode: str) -> np.ndarray:
     target = "spirv" if backend_name == "vulkan" else "wgsl"
-    program = ol.RasterProgram.compile(
-        vertex_shader, fragment_shader, target=target,
-        validate=backend_name == "webgpu",
+    program = (
+        ol.RasterProgram.compile(vertex_shader, fragment_shader, target=target, validate=backend_name == "webgpu")
+        if mode == "triangle" else ol.RasterProgram.scene(target=target, validate=backend_name == "webgpu")
     )
     backend_type = (
         ol.VulkanRasterBackend
         if backend_name == "vulkan" else ol.WebGpuRasterBackend
     )
-    backend = backend_type(program)
+    config = (
+        ol.RasterConfig(
+            state=ol.RasterState(cull_mode="none", depth_write=False, blend_mode="alpha"),
+            direct_lighting=False, volume_slices=64,
+        ) if mode == "volume" else
+        ol.RasterConfig(state=ol.RasterState(cull_mode="none"))
+    )
+    backend = backend_type(program, config=config)
     try:
-        return backend.render(ol.triangle_mesh(), width, height)
+        if mode == "triangle":
+            return backend.render(ol.triangle_mesh(), width, height)
+        scene, camera = (
+            _volume_scene() if mode == "volume" else
+            (ol.build_feature_parity_scene(), ol.feature_parity_camera())
+        )
+        renderer = ol.Renderer(backend=backend)
+        hdr = renderer.render(scene, camera, (width, height))
+        return np.rint(np.clip(hdr, 0.0, 1.0) * 255.0).astype(np.uint8)
     finally:
         backend.close()
 
@@ -114,6 +139,7 @@ def main():
     )
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--mode", choices=("scene", "volume", "triangle"), default="scene")
     parser.add_argument(
         "--output", type=Path, default=Path("raster_showcase.png"),
     )
@@ -130,7 +156,7 @@ def main():
     images = []
     for backend in selected:
         print(f"Rendering {backend}...")
-        images.append((backend.upper(), _render(backend, args.width, args.height)))
+        images.append((backend.upper(), _render(backend, args.width, args.height, args.mode)))
     comparison = _comparison(images)
     comparison.save(args.output)
     print(f"Wrote {args.output.resolve()}")

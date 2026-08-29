@@ -5,6 +5,7 @@ from .base import (
     PickBackend, ProductRenderBackend,
     RenderBackend, ResidentSceneBackend,
 )
+from .hybrid import HybridBackend
 from .reference import ReferenceBackend, ReferenceConfig
 
 
@@ -28,6 +29,7 @@ def __getattr__(name):
 __all__ = [
     "ProductRenderBackend",
     "GpuRenderBackend",
+    "HybridBackend",
     "MultiObjectEffectBackend", "ObjectEffectBackend", "PickBackend",
     "ReferenceBackend",
     "ReferenceConfig",

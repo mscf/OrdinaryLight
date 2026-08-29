@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from ..capabilities import RendererCapabilities
-from ..raster import RasterMesh, RasterState, scene_mesh
+from ..raster import (
+    RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
+    create_raster_pipeline, rasterize_geometry_products, scene_mesh,
+)
 
 
 class VulkanRasterBackend:
@@ -17,7 +20,7 @@ class VulkanRasterBackend:
     coupling it to the path tracer.
     """
 
-    def __init__(self, program, *, state=None, device_name=None):
+    def __init__(self, program, *, config=None, state=None, device_name=None):
         try:
             import vulkan as vk
         except ImportError as error:
@@ -28,8 +31,13 @@ class VulkanRasterBackend:
             raise ValueError("VulkanRasterBackend requires a SPIR-V RasterProgram")
         self.vk = vk
         self.program = program
-        self.config = self.state = state or RasterState()
-        self.available_outputs = ("color",)
+        if config is not None and state is not None:
+            raise TypeError("pass config or state, not both")
+        self.config = config or RasterConfig(state=state or RasterState())
+        self.state = self.config.state
+        self.pipeline_graph = create_raster_pipeline(self.config)
+        self._post = RasterPostProcessor(self.config)
+        self.available_outputs = ("color", "depth", "normal", "object_id")
         self.last_timings = {}
         app = vk.VkApplicationInfo(
             sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -78,6 +86,7 @@ class VulkanRasterBackend:
         ), None)
         self.capabilities = RendererCapabilities(
             backend="vulkan-raster", features=frozenset({"raster", "offscreen", "depth"}),
+            outputs=self.available_outputs,
             device=name,
         )
         self._closed = False
@@ -120,6 +129,9 @@ class VulkanRasterBackend:
         width, height = int(width), int(height)
         if width < 1 or height < 1:
             raise ValueError("raster target dimensions must be positive")
+        if not len(mesh.vertices):
+            clear = np.array((0.04, 0.06, 0.1, 1.0), np.float32)
+            return np.broadcast_to(np.rint(clear * 255).astype(np.uint8), (height, width, 4)).copy()
         resources = []
         def remember(kind, handle):
             resources.append((kind, handle)); return handle
@@ -404,9 +416,24 @@ class VulkanRasterBackend:
     def render_frame(self, scene, camera, width, height, *, samples=None, frame_index=0):
         import time
         started = time.perf_counter()
-        image = self.render(scene_mesh(scene, camera, width, height), width, height)
+        image = self.render(scene_mesh(scene, camera, width, height, self.config), width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
-        return image.astype(np.float32) / 255.0
+        return self._post.process(image.astype(np.float32) / 255.0, scene, camera)
+
+    def render_products(self, scene, camera, width, height, *, outputs, samples=None, frame_index=0):
+        mesh = scene_mesh(scene, camera, width, height, self.config)
+        products = rasterize_geometry_products(mesh, width, height)
+        if "color" in outputs:
+            image = self.render(mesh, width, height).astype(np.float32) / 255.0
+            products["color"] = self._post.process(image, scene, camera)
+        return {name: products[name] for name in outputs}
+
+    @property
+    def accumulated_frames(self):
+        return self._post.accumulated_frames
+
+    def reset_output_history(self):
+        self._post.reset()
 
     def close(self):
         if self._closed:
