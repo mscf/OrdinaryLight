@@ -64,6 +64,15 @@ def _compute_variant(stem, suffix, definitions):
     )
 
 
+def _ordinaryshade_shade_variant(suffix, definitions):
+    return _build(
+        "wavefront_shade_candidate.glsl",
+        f"wavefront_shade_ordinaryshade{suffix}.comp.spv",
+        "comp",
+        *definitions,
+    )
+
+
 def build_plan(manifest=None):
     """Expand the compact manifest into a deterministic compiler plan."""
     manifest = manifest or load_manifest()
@@ -77,6 +86,16 @@ def build_plan(manifest=None):
         plan.append(_build(
             source.name, f"{source.name}.spv", stages[source.suffix]
         ))
+
+    # The generated production entry retains a .glsl source suffix to keep it
+    # out of the legacy automatic .comp inventory. Build its explicitly named
+    # production artifact here; the filename remains stable for cache and
+    # source-distribution compatibility.
+    plan.append(_build(
+        "wavefront_shade_candidate.glsl",
+        "wavefront_shade_ordinaryshade.comp.spv",
+        "comp",
+    ))
 
     for stem in families["ser"]:
         plan.append(_build(
@@ -122,11 +141,19 @@ def build_plan(manifest=None):
                     if profile:
                         definitions.append("WAVE_WORK_COUNTERS=1")
                     plan.append(_compute_variant(stem, suffix, definitions))
+                    if stem == "wavefront_shade":
+                        plan.append(_ordinaryshade_shade_variant(
+                            suffix, definitions
+                        ))
 
     for stem in families["native"]:
         plan.append(_compute_variant(
             stem, "_native", ("WAVE_NATIVE_TEXTURES=1",)
         ))
+        if stem == "wavefront_shade":
+            plan.append(_ordinaryshade_shade_variant(
+                "_native", ("WAVE_NATIVE_TEXTURES=1",)
+            ))
     for stem in families["profile"]:
         plan.append(_compute_variant(
             stem, "_profile", ("WAVE_WORK_COUNTERS=1",)
@@ -136,6 +163,14 @@ def build_plan(manifest=None):
             "_native_profile",
             ("WAVE_WORK_COUNTERS=1", "WAVE_NATIVE_TEXTURES=1"),
         ))
+        if stem == "wavefront_shade":
+            plan.append(_ordinaryshade_shade_variant(
+                "_profile", ("WAVE_WORK_COUNTERS=1",)
+            ))
+            plan.append(_ordinaryshade_shade_variant(
+                "_native_profile",
+                ("WAVE_WORK_COUNTERS=1", "WAVE_NATIVE_TEXTURES=1"),
+            ))
 
     for stem in families["production"]:
         for native in (False, True):

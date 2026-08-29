@@ -11,7 +11,12 @@ from pathlib import Path
 from ordinarylight.showcases.rooms import SCENES
 
 
-STAGES = ("indirect", "restir", "parity", "termination", "performance")
+STAGES = (
+    "indirect", "restir", "parity", "shade_parity",
+    "shade_material_parity", "shade_attribute_parity",
+    "shade_surface_parity", "termination",
+    "pipeline_cache", "strategy_transition", "performance",
+)
 
 
 def _run(command, *, env=None):
@@ -115,6 +120,97 @@ def _performance(args, scene, output):
     return _result(scene, "performance", code, elapsed, summary)
 
 
+def _shade_parity(args, scene, output):
+    directory = output / "shade_parity" / scene
+    summary = directory / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("ordinaryshade_shade_parity.py")),
+        "--gate", "--scene", scene,
+        "--width", str(args.width), "--height", str(args.height),
+        "--samples", str(args.parity_samples),
+        "--bounces", str(args.bounces), "--output", str(directory),
+    ]
+    if scene == "textured":
+        command.append("--native-textures")
+    code, elapsed = _run(command)
+    return _result(scene, "shade_parity", code, elapsed, summary)
+
+
+def _shade_material_parity(args, scene, output):
+    directory = output / "shade_material_parity" / scene
+    summary = directory / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("ordinaryshade_shade_parity.py")),
+        "--gate", "--custom-material", "--scene", scene,
+        "--width", str(args.width), "--height", str(args.height),
+        "--samples", str(args.parity_samples),
+        "--bounces", str(args.bounces), "--output", str(directory),
+    ]
+    if scene == "textured":
+        command.append("--native-textures")
+    code, elapsed = _run(command)
+    return _result(scene, "shade_material_parity", code, elapsed, summary)
+
+
+def _shade_attribute_parity(args, scene, output):
+    directory = output / "shade_attribute_parity" / scene
+    summary = directory / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("ordinaryshade_shade_parity.py")),
+        "--gate", "--custom-attributes", "--scene", scene,
+        "--width", str(args.width), "--height", str(args.height),
+        "--samples", str(args.parity_samples),
+        "--bounces", str(args.bounces), "--output", str(directory),
+    ]
+    code, elapsed = _run(command)
+    return _result(scene, "shade_attribute_parity", code, elapsed, summary)
+
+
+def _shade_surface_parity(args, scene, output):
+    directory = output / "shade_surface_parity"
+    summary = directory / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("ordinaryshade_shade_parity.py")),
+        "--gate", "--scene", "feature_parity",
+        "--width", str(args.width), "--height", str(args.height),
+        "--samples", str(args.parity_samples),
+        "--bounces", str(args.bounces), "--output", str(directory),
+    ]
+    code, elapsed = _run(command)
+    return _result(scene, "shade_surface_parity", code, elapsed, summary)
+
+
+def _pipeline_cache(args, scene, output):
+    directory = output / "pipeline_cache"
+    summary = directory / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("pipeline_cache_startup.py")),
+        "--gate", "--scene", scene,
+        "--width", str(args.width), "--height", str(args.height),
+        "--samples", "1", "--bounces", str(args.bounces),
+        "--output", str(directory),
+    ]
+    code, elapsed = _run(command)
+    return _result(scene, "pipeline_cache", code, elapsed, summary)
+
+
+def _strategy_transition(args, scene, output):
+    summary = output / "strategy_transition" / "report.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("strategy_transition.py")),
+        "--gate", "--width", str(args.width), "--height", str(args.height),
+        "--output", str(summary),
+    ]
+    code, elapsed = _run(command)
+    return _result(scene, "strategy_transition", code, elapsed, summary)
+
+
 def _termination(args, scene, output):
     directory = output / "termination" / scene
     summary = directory / "summary.json"
@@ -137,6 +233,12 @@ RUNNERS = {
     "indirect": _indirect,
     "restir": _restir,
     "parity": _parity,
+    "shade_parity": _shade_parity,
+    "shade_material_parity": _shade_material_parity,
+    "shade_attribute_parity": _shade_attribute_parity,
+    "shade_surface_parity": _shade_surface_parity,
+    "pipeline_cache": _pipeline_cache,
+    "strategy_transition": _strategy_transition,
     "termination": _termination,
     "performance": _performance,
 }
@@ -191,6 +293,15 @@ def main():
     results = []
     for scene in args.scenes:
         for stage in args.stages:
+            # The custom-attribute gate builds its own purpose-specific scene;
+            # run it once rather than once per room-scene label.
+            if stage in {"shade_attribute_parity", "shade_surface_parity"} \
+                    and scene != args.scenes[0]:
+                continue
+            if stage == "pipeline_cache" and scene != args.scenes[0]:
+                continue
+            if stage == "strategy_transition" and scene != args.scenes[0]:
+                continue
             print(f"\n=== {scene} / {stage} ===", flush=True)
             result = RUNNERS[stage](args, scene, args.output)
             results.append(result)

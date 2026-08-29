@@ -104,7 +104,8 @@ class WavefrontLayoutTests(unittest.TestCase):
         indirect = (
             shader_dir / "wavefront_prepare_indirect.comp"
         ).read_text()
-        self.assertIn("(active_count + 63u) / 64u", indirect)
+        self.assertIn("active_count + uint(63)", indirect)
+        self.assertIn("/ uint(64)", indirect)
         coarse = (
             shader_dir / "wavefront_persistent_coarse.comp"
         ).read_text()
@@ -125,13 +126,32 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn("bool selectSecondaryNee(", lighting)
         self.assertIn("bitfieldReverse(frame_index)", lighting)
         self.assertIn("uint sample_index = frame_sample & 255u", lighting)
-        identity = (
-            "(push.tile_frame.z << 8u) | (push.tile_frame.w & 255u)"
+        identity = "(push.tile_frame.z << 8u) | (push.tile_frame.w & 255u)"
+        generated_identity = (
+            "(push.tile_frame.z << uint(8)) | "
+            "(push.tile_frame.w & uint(255))"
         )
-        self.assertIn(identity, generate)
+        self.assertTrue(
+            identity in generate or generated_identity in generate,
+            "generated primary rays must preserve frame/sample path identity",
+        )
         self.assertIn(identity, primary_impl)
         self.assertIn("path.metadata.y, next_bounce", shade)
         self.assertIn("path.metadata.y,\n                next_bounce", primary_impl)
+
+    def test_generated_primary_camera_uses_storage_buffer_abi(self):
+        generate = (
+            Path(__file__).parents[1]
+            / "ordinarylight" / "shaders" / "wavefront_generate.comp"
+        ).read_text()
+        self.assertIn(
+            "layout(std430, set = 0, binding = 3) readonly buffer camera_Block",
+            generate,
+        )
+        self.assertNotIn(
+            "layout(std140, set = 0, binding = 3) uniform camera_Block",
+            generate,
+        )
 
     def test_hot_path_packs_rng_into_unused_vector_lanes(self):
         self.assertEqual(ol.HOT_PATH_STATE_DTYPE.itemsize, 48)

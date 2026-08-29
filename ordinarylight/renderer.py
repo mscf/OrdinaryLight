@@ -543,6 +543,19 @@ class Renderer:
             out=out, outputs=outputs,
         ).result()
 
+    def render_to(self, scene, camera, surface, *, samples=None, frame_index=None):
+        """Render and present to a backend-neutral :class:`RenderSurface`."""
+        from .surface import RenderSurface
+        if not isinstance(surface, RenderSurface):
+            raise TypeError("surface must be an ordinarylight.RenderSurface")
+        hdr = self.render(
+            scene, camera, (surface.width, surface.height),
+            samples=samples, frame_index=frame_index,
+        )
+        rgba = np.clip(hdr, 0.0, 1.0)
+        rgba = np.rint(rgba * 255.0).astype(np.uint8)
+        return surface.present(rgba)
+
     def render_async(
         self,
         scene: Scene,

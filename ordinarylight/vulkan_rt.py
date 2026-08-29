@@ -2,6 +2,8 @@
 
 from importlib.resources import files
 import math
+import os
+from pathlib import Path
 import struct
 import time
 from types import SimpleNamespace
@@ -245,6 +247,10 @@ class VulkanWavefrontExecutor:
         )
 
         self.core = core
+        # Auto mode compiles only the strategy selected for the resident scene.
+        # The core replaces this executor if a later scene resolves differently.
+        self.strategy = core.resolved_execution_strategy
+        self.scene_pipeline_signature = core._wavefront_pipeline_signature()
         self.capacity = capacity
         self.hit_dtype = HIT_DTYPE
         self.descriptor_pool = None
@@ -540,7 +546,9 @@ class VulkanWavefrontExecutor:
             if self.core.config.wavefront_pipeline_statistics else 0
         )
         pipeline = vk.vkCreateComputePipelines(
-            self.core.device, vk.VK_NULL_HANDLE, 1,
+            self.core.device,
+            self.core.pipeline_cache or vk.VK_NULL_HANDLE,
+            1,
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 flags=flags, stage=stage, layout=layout,
@@ -565,7 +573,9 @@ class VulkanWavefrontExecutor:
             stage=vk.VK_SHADER_STAGE_COMPUTE_BIT, module=module, pName="main",
         )
         pipeline = vk.vkCreateComputePipelines(
-            self.core.device, vk.VK_NULL_HANDLE, 1,
+            self.core.device,
+            self.core.pipeline_cache or vk.VK_NULL_HANDLE,
+            1,
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 stage=stage, layout=layout,
@@ -576,21 +586,11 @@ class VulkanWavefrontExecutor:
     def ensure_custom_material_pipelines(self):
         """Install staged evaluators for the resident scene's custom attributes."""
         scene = self.core.scene_resources.scene
-        from .materials import MaterialEvaluation, builtin_material
+        from .materials import builtin_material
         programs = scene.material_programs(
             self.core.config.material_program or builtin_material
         )
         layout = self.core.scene_custom_attribute_layout
-        # The staged wavefront specialization rewrites deterministic material
-        # parameters before path scattering. Legacy SurfaceResponse programs
-        # control the scattering event itself and continue to use the generic
-        # material path; attempting to feed them to the staged compiler would
-        # both be semantically wrong and fail at runtime.
-        if not all(
-            isinstance(program.evaluation, MaterialEvaluation)
-            for program in programs
-        ):
-            layout = None
         overlapping_volumes = len(scene.visible_volumes) > 1
         scattering_volumes = any(
             volume.material.scattering_scale > 0.0
@@ -607,6 +607,9 @@ class VulkanWavefrontExecutor:
         signature = (
             programs, layout, overlapping_volumes, scattering_volumes,
             multiple_scattering_volumes, volume_empty_space_skipping,
+            self.core.config.wavefront_ordinaryshade_shade,
+            self.core.native_textures_enabled,
+            self.core.config.wavefront_profiling,
         )
         if signature == self.custom_material_signature:
             return
@@ -630,14 +633,22 @@ class VulkanWavefrontExecutor:
                 scattering_volumes=scattering_volumes,
                 multiple_scattering_volumes=multiple_scattering_volumes,
                 volume_empty_space_skipping=volume_empty_space_skipping,
+                native_textures=self.core.native_textures_enabled,
+                profiling=self.core.config.wavefront_profiling,
             )
             shade = compile_wavefront_material_shader(
-                "wavefront_shade.comp", programs,
+                (
+                    "wavefront_shade_candidate.glsl"
+                    if self.core.config.wavefront_ordinaryshade_shade
+                    else "wavefront_shade.comp"
+                ), programs,
                 attribute_layout=layout, attribute_binding=16,
                 overlapping_volumes=overlapping_volumes,
                 scattering_volumes=scattering_volumes,
                 multiple_scattering_volumes=multiple_scattering_volumes,
                 volume_empty_space_skipping=volume_empty_space_skipping,
+                native_textures=self.core.native_textures_enabled,
+                profiling=self.core.config.wavefront_profiling,
             )
             self.custom_primary_module, self.custom_primary_pipeline = (
                 self._pipeline_bytes(primary, self.primary_pipeline_layout)
@@ -646,6 +657,14 @@ class VulkanWavefrontExecutor:
                 self._pipeline_bytes(shade, self.shade_pipeline_layout)
             )
         self.custom_material_signature = signature
+
+    def _wavefront_stage_shader(self, stem, suffix=""):
+        if (
+            stem == "wavefront_shade"
+            and self.core.config.wavefront_ordinaryshade_shade
+        ):
+            stem = "wavefront_shade_ordinaryshade"
+        return f"{stem}{suffix}.comp"
 
     def ensure_overlap_pipelines(self):
         """Lazily create the heavier kernels used by overlapping media."""
@@ -678,7 +697,9 @@ class VulkanWavefrontExecutor:
             if stem in self.overlap_pipelines:
                 continue
             module, pipeline = self._pipeline(
-                f"{stem}{native_suffix}{profile_suffix}_overlap.comp",
+                self._wavefront_stage_shader(
+                    stem, native_suffix + profile_suffix + "_overlap"
+                ),
                 (self.shade_pipeline_layout
                  if stem == "wavefront_shade"
                  else self.primary_pipeline_layout),
@@ -735,7 +756,9 @@ class VulkanWavefrontExecutor:
             suffix = ("_overlap" if overlap else "") + "_scatter" \
                 + ("_multi" if multiple else "")
             module, pipeline = self._pipeline(
-                f"{stem}{native_suffix}{profile_suffix}{suffix}.comp",
+                self._wavefront_stage_shader(
+                    stem, native_suffix + profile_suffix + suffix
+                ),
                 (self.shade_pipeline_layout
                  if stem == "wavefront_shade"
                  else self.primary_pipeline_layout),
@@ -789,7 +812,9 @@ class VulkanWavefrontExecutor:
                 + ("_scatter" if scattering else "") \
                 + ("_multi" if multiple else "") + "_skip"
             module, pipeline = self._pipeline(
-                f"{stem}{native_suffix}{profile_suffix}{suffix}.comp",
+                self._wavefront_stage_shader(
+                    stem, native_suffix + profile_suffix + suffix
+                ),
                 (self.shade_pipeline_layout
                  if stem == "wavefront_shade"
                  else self.primary_pipeline_layout),
@@ -798,6 +823,11 @@ class VulkanWavefrontExecutor:
             self.volume_skipping_pipelines[key] = pipeline
 
     def _volume_pipeline(self, stem, scene):
+        # Scene-dependent custom pipelines are compiled with the active volume
+        # feature definitions already applied. No parallel precompiled volume
+        # variant exists (or is needed) for that specialization.
+        if self.custom_primary_pipeline is not None:
+            return None
         overlap = len(scene.visible_volumes) > 1
         if self.core.scene_resources.volume_empty_space_skipping:
             scattering = self._scene_has_volume_scattering(scene)
@@ -1061,21 +1091,33 @@ class VulkanWavefrontExecutor:
             f"wavefront_primary{native_suffix}{profile_suffix}.comp",
             self.primary_pipeline_layout,
         )
-        strategy = self.core.resolved_execution_strategy
-        eager_strategies = (
-            self.core.config.wavefront_execution_strategy == "auto"
-        )
-        if eager_strategies or strategy == "hybrid":
+        strategy = self.strategy
+        eager_strategies = False
+        scene = self.core.scene_resources.scene
+        opaque_scene = self.core._use_opaque_scene_specialization(scene)
+        untextured_scene = not scene.textures
+        if strategy == "hybrid" and not opaque_scene:
             self.hybrid_module, self.hybrid_pipeline = self._pipeline(
                 f"wavefront_hybrid{native_suffix}{production_suffix}"
                 f"{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
+        if (
+            strategy == "hybrid" and opaque_scene
+            and not (
+                self.core.config.wavefront_untextured_specialization
+                and untextured_scene and production_restir
+            )
+        ):
             self.hybrid_opaque_module, self.hybrid_opaque_pipeline = self._pipeline(
                 f"wavefront_hybrid{native_suffix}_opaque{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
-        if (eager_strategies or strategy == "hybrid") and production_restir:
+        if (
+            strategy == "hybrid" and opaque_scene and untextured_scene
+            and self.core.config.wavefront_untextured_specialization
+            and production_restir
+        ):
             (
                 self.hybrid_opaque_untextured_production_module,
                 self.hybrid_opaque_untextured_production_pipeline,
@@ -1084,23 +1126,22 @@ class VulkanWavefrontExecutor:
                 "_opaque_untextured_production.comp",
                 self.primary_pipeline_layout,
             )
-        if (eager_strategies or strategy == "megakernel") and production_restir:
-            for swizzle_width in (8, 16, 32):
-                module, pipeline = self._pipeline(
-                    f"wavefront_megakernel{native_suffix}"
-                    "_opaque_untextured_production"
-                    f"_swizzle{swizzle_width}.comp",
-                    self.primary_pipeline_layout,
-                )
-                self.megakernel_swizzle_modules[swizzle_width] = module
-                self.megakernel_swizzle_pipelines[swizzle_width] = pipeline
-        if eager_strategies or strategy == "megakernel":
+        megakernel_untextured = bool(
+            strategy == "megakernel"
+            and self.core.config.wavefront_untextured_specialization
+            and untextured_scene
+            and (
+                opaque_scene
+                or (not native_suffix and not profile_suffix)
+            )
+        )
+        if strategy == "megakernel" and not opaque_scene and not megakernel_untextured:
             self.megakernel_module, self.megakernel_pipeline = self._pipeline(
                 f"wavefront_megakernel{native_suffix}{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
-        if (eager_strategies or strategy == "megakernel") \
-                and not native_suffix and not profile_suffix:
+        if (megakernel_untextured and not opaque_scene
+                and not native_suffix and not profile_suffix):
             (
                 self.megakernel_untextured_module,
                 self.megakernel_untextured_pipeline,
@@ -1108,7 +1149,8 @@ class VulkanWavefrontExecutor:
                 "wavefront_megakernel_untextured.comp",
                 self.primary_pipeline_layout,
             )
-            for swizzle_width in (8, 16, 32):
+            swizzle_width = self.core.config.wavefront_megakernel_group_swizzle
+            if swizzle_width:
                 module, pipeline = self._pipeline(
                     "wavefront_megakernel_untextured"
                     f"_swizzle{swizzle_width}.comp",
@@ -1120,7 +1162,7 @@ class VulkanWavefrontExecutor:
                 self.megakernel_untextured_swizzle_pipelines[
                     swizzle_width
                 ] = pipeline
-        if eager_strategies or strategy == "megakernel":
+        if strategy == "megakernel" and opaque_scene and not megakernel_untextured:
             (
                 self.megakernel_opaque_module,
                 self.megakernel_opaque_pipeline,
@@ -1129,6 +1171,11 @@ class VulkanWavefrontExecutor:
                 f"{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
+        if (
+            strategy == "megakernel" and opaque_scene
+            and megakernel_untextured
+            and self.core.config.wavefront_untextured_specialization_part == "full"
+        ):
             (
                 self.megakernel_opaque_untextured_module,
                 self.megakernel_opaque_untextured_pipeline,
@@ -1137,8 +1184,11 @@ class VulkanWavefrontExecutor:
                 f"{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
-        if (eager_strategies or strategy == "megakernel") \
-                and not native_suffix and not profile_suffix:
+        if (
+            strategy == "megakernel" and opaque_scene
+            and megakernel_untextured and not native_suffix and not profile_suffix
+            and self.core.config.wavefront_untextured_specialization_part == "primary"
+        ):
             (
                 self.megakernel_untextured_primary_module,
                 self.megakernel_untextured_primary_pipeline,
@@ -1146,30 +1196,16 @@ class VulkanWavefrontExecutor:
                 "wavefront_megakernel_opaque_untextured_primary.comp",
                 self.primary_pipeline_layout,
             )
+        if (
+            strategy == "megakernel" and opaque_scene
+            and megakernel_untextured and not native_suffix and not profile_suffix
+            and self.core.config.wavefront_untextured_specialization_part == "secondary"
+        ):
             (
                 self.megakernel_untextured_secondary_module,
                 self.megakernel_untextured_secondary_pipeline,
             ) = self._pipeline(
                 "wavefront_megakernel_opaque_untextured_secondary.comp",
-                self.primary_pipeline_layout,
-            )
-        if (eager_strategies or strategy == "megakernel") and production_restir:
-            (
-                self.megakernel_opaque_untextured_production_module,
-                self.megakernel_opaque_untextured_production_pipeline,
-            ) = self._pipeline(
-                f"wavefront_megakernel{native_suffix}"
-                "_opaque_untextured_production.comp",
-                self.primary_pipeline_layout,
-            )
-        if ((eager_strategies or strategy == "megakernel")
-                and self.core.config.wavefront_megakernel_single_warp):
-            (
-                self.megakernel_opaque_untextured_wg32_module,
-                self.megakernel_opaque_untextured_wg32_pipeline,
-            ) = self._pipeline(
-                f"wavefront_megakernel{native_suffix}_opaque_untextured_wg32"
-                f"{profile_suffix}.comp",
                 self.primary_pipeline_layout,
             )
         if eager_strategies or strategy == "persistent":
@@ -1207,8 +1243,11 @@ class VulkanWavefrontExecutor:
         self.intersect_module, self.intersect_pipeline = self._pipeline(
             "wavefront_intersect.comp", self.intersect_pipeline_layout
         )
+        shade_shader = self._wavefront_stage_shader(
+            "wavefront_shade", native_suffix + profile_suffix
+        )
         self.shade_module, self.shade_pipeline = self._pipeline(
-            f"wavefront_shade{native_suffix}{profile_suffix}.comp",
+            shade_shader,
             self.shade_pipeline_layout,
         )
         self.resolve_module, self.resolve_pipeline = self._pipeline(
@@ -3609,6 +3648,8 @@ class VulkanRayQueryCore:
         self.wavefront_executor = None
         self.instance = None
         self.device = None
+        self.pipeline_cache = None
+        self.pipeline_cache_path = None
         self.command_pool = None
         self.descriptor_pool = None
         self.descriptor_layout = None
@@ -3700,6 +3741,34 @@ class VulkanRayQueryCore:
             self.config.wavefront_native_textures
             and self.native_textures_supported
         )
+
+    def _wavefront_pipeline_signature(self):
+        if self.scene_resources is None:
+            return (self.resolved_execution_strategy, False, False)
+        scene = self.scene_resources.scene
+        return (
+            self.resolved_execution_strategy,
+            self._use_opaque_scene_specialization(scene),
+            bool(scene.textures),
+        )
+
+    def _replace_wavefront_executor_if_strategy_changed(self):
+        executor = self.wavefront_executor
+        if executor is None or (
+            executor.strategy == self.resolved_execution_strategy
+            and executor.scene_pipeline_signature
+            == self._wavefront_pipeline_signature()
+        ):
+            return False
+        # Submitted command buffers and external encoder consumers may still
+        # reference executor-owned descriptors and pipelines.
+        self._wait_external_releases()
+        vk.vkDeviceWaitIdle(self.device)
+        executor.close()
+        self.wavefront_executor = None
+        for frame in self.window_frames:
+            frame["wavefront_command_key"] = None
+        return True
 
     def _create_instance_and_device(self, requested_name):
         instance_extensions = []
@@ -4006,6 +4075,81 @@ class VulkanRayQueryCore:
         self.device = vk.vkCreateDevice(self.physical_device, device_info, None)
         self.queue = vk.vkGetDeviceQueue(self.device, self.queue_family, 0)
         self.memory_properties = vk.vkGetPhysicalDeviceMemoryProperties(self.physical_device)
+        self._create_pipeline_cache()
+
+    def _resolved_pipeline_cache_path(self):
+        configured = self.config.vulkan_pipeline_cache_path
+        if configured is not None:
+            return Path(configured).expanduser()
+        cache_root = os.environ.get("XDG_CACHE_HOME")
+        if cache_root:
+            root = Path(cache_root)
+        else:
+            root = Path.home() / ".cache"
+        return root / "ordinarylight" / "vulkan" / f"{self.device_uuid}.bin"
+
+    def _create_pipeline_cache(self):
+        if not self.config.vulkan_pipeline_cache:
+            return
+        path = self._resolved_pipeline_cache_path()
+        initial = b""
+        try:
+            initial = path.read_bytes()
+        except (FileNotFoundError, OSError):
+            pass
+        initial_buffer = (
+            vk.ffi.new("uint8_t[]", initial) if initial else None
+        )
+        create_info = vk.VkPipelineCacheCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+            initialDataSize=len(initial),
+            pInitialData=(
+                vk.ffi.cast("void *", initial_buffer)
+                if initial_buffer is not None else None
+            ),
+        )
+        try:
+            self.pipeline_cache = vk.vkCreatePipelineCache(
+                self.device, create_info, None
+            )
+        except Exception:
+            # Driver updates may invalidate opaque cache data. Rebuild from an
+            # empty cache rather than making renderer construction fail.
+            self.pipeline_cache = vk.vkCreatePipelineCache(
+                self.device,
+                vk.VkPipelineCacheCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+                ),
+                None,
+            )
+        self.pipeline_cache_path = path
+
+    def _save_pipeline_cache(self):
+        if self.pipeline_cache is None or self.pipeline_cache_path is None:
+            return
+        try:
+            size = vk.ffi.new("size_t *")
+            result = vk.lib.vkGetPipelineCacheData(
+                self.device, self.pipeline_cache, size, vk.ffi.NULL
+            )
+            if result != vk.VK_SUCCESS or size[0] == 0:
+                return
+            data = vk.ffi.new("uint8_t[]", size[0])
+            result = vk.lib.vkGetPipelineCacheData(
+                self.device, self.pipeline_cache, size, data
+            )
+            if result != vk.VK_SUCCESS:
+                return
+            path = self.pipeline_cache_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+            temporary.write_bytes(bytes(vk.ffi.buffer(data, size[0])))
+            os.replace(temporary, path)
+        except Exception:
+            # Caching is an optimization; read-only homes and containers must
+            # remain fully supported, and cache persistence must never make
+            # renderer shutdown fail.
+            return
 
     def _load_extension_functions(self):
         self.create_as = vk.vkGetDeviceProcAddr(self.device, "vkCreateAccelerationStructureKHR")
@@ -4354,7 +4498,7 @@ class VulkanRayQueryCore:
             module=self.nv12_shader_module, pName="main",
         )
         self.nv12_pipeline = vk.vkCreateComputePipelines(
-            self.device, vk.VK_NULL_HANDLE, 1,
+            self.device, self.pipeline_cache or vk.VK_NULL_HANDLE, 1,
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 stage=stage, layout=self.nv12_pipeline_layout,
@@ -4376,7 +4520,7 @@ class VulkanRayQueryCore:
             module=self.p010_shader_module, pName="main",
         )
         self.p010_pipeline = vk.vkCreateComputePipelines(
-            self.device, vk.VK_NULL_HANDLE, 1,
+            self.device, self.pipeline_cache or vk.VK_NULL_HANDLE, 1,
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 stage=p010_stage, layout=self.nv12_pipeline_layout,
@@ -4439,7 +4583,7 @@ class VulkanRayQueryCore:
         )
         try:
             replacement_pipeline = vk.vkCreateComputePipelines(
-                self.device, vk.VK_NULL_HANDLE, 1,
+                self.device, self.pipeline_cache or vk.VK_NULL_HANDLE, 1,
                 [vk.VkComputePipelineCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                     stage=stage, layout=self.pipeline_layout,
@@ -4476,7 +4620,7 @@ class VulkanRayQueryCore:
             module=module, pName="main",
         )
         pipeline = vk.vkCreateComputePipelines(
-            self.device, vk.VK_NULL_HANDLE, 1,
+            self.device, self.pipeline_cache or vk.VK_NULL_HANDLE, 1,
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 stage=stage, layout=self.pipeline_layout,
@@ -5680,6 +5824,7 @@ class VulkanRayQueryCore:
             raise ValueError("wavefront tile must fit inside the image")
         if tile_width * tile_height > self.config.wavefront_tile_capacity:
             raise ValueError("wavefront tile exceeds wavefront_tile_capacity")
+        self._replace_wavefront_executor_if_strategy_changed()
         if self.wavefront_executor is None:
             self.wavefront_executor = VulkanWavefrontExecutor(
                 self, self.config.wavefront_tile_capacity
@@ -7203,6 +7348,7 @@ class VulkanRayQueryCore:
         self.wavefront_last_frame_start = frame_start
         scene_start = time.perf_counter()
         self.prepare_window_scene(scene)
+        self._replace_wavefront_executor_if_strategy_changed()
         scene_ms = (time.perf_counter() - scene_start) * 1000.0
         swapchain_start = time.perf_counter()
         if (
@@ -8917,6 +9063,7 @@ class VulkanRayQueryCore:
         if self.device:
             self._wait_external_releases()
             vk.vkDeviceWaitIdle(self.device)
+            self._save_pipeline_cache()
             self._destroy_swapchain_resources()
             commands = [
                 command
@@ -8999,6 +9146,11 @@ class VulkanRayQueryCore:
                 vk.vkDestroyDescriptorSetLayout(self.device, self.descriptor_layout, None)
             if self.command_pool:
                 vk.vkDestroyCommandPool(self.device, self.command_pool, None)
+            if self.pipeline_cache:
+                vk.vkDestroyPipelineCache(
+                    self.device, self.pipeline_cache, None
+                )
+                self.pipeline_cache = None
             vk.vkDestroyDevice(self.device, None)
             self.device = None
         if self.instance:

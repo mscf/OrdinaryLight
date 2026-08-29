@@ -68,6 +68,8 @@ class RendererConfig:
     wavefront_exposure: float = 1.0
     wavefront_profiling: bool = False
     wavefront_pipeline_statistics: bool = False
+    vulkan_pipeline_cache: bool = True
+    vulkan_pipeline_cache_path: str | None = None
     wavefront_hdr_capture: bool = False
     wavefront_render_scale: float = 1.0
     wavefront_interactive_render_scale: float | None = None
@@ -120,6 +122,8 @@ class RendererConfig:
     wavefront_persistent_coarse_tiles: bool = False
     wavefront_persistent_continuations: bool = False
     wavefront_scene_specialization: bool = True
+    # Production Ordinary Shade stage. Set False for the handwritten fallback.
+    wavefront_ordinaryshade_shade: bool = True
     wavefront_untextured_specialization: bool = False
     wavefront_untextured_specialization_part: str = "full"
     wavefront_megakernel_single_warp: bool = False
@@ -516,6 +520,8 @@ class RendererConfig:
             )
         if not isinstance(self.wavefront_scene_specialization, bool):
             raise TypeError("wavefront_scene_specialization must be a bool")
+        if not isinstance(self.wavefront_ordinaryshade_shade, bool):
+            raise TypeError("wavefront_ordinaryshade_shade must be a bool")
         if not isinstance(self.wavefront_untextured_specialization, bool):
             raise TypeError("wavefront_untextured_specialization must be a bool")
         if self.wavefront_untextured_specialization_part not in {
@@ -541,6 +547,13 @@ class RendererConfig:
             raise TypeError("wavefront_hdr_capture must be a bool")
         if not isinstance(self.wavefront_pipeline_statistics, bool):
             raise TypeError("wavefront_pipeline_statistics must be a bool")
+        if not isinstance(self.vulkan_pipeline_cache, bool):
+            raise TypeError("vulkan_pipeline_cache must be a bool")
+        if (
+            self.vulkan_pipeline_cache_path is not None
+            and not isinstance(self.vulkan_pipeline_cache_path, str)
+        ):
+            raise TypeError("vulkan_pipeline_cache_path must be a string or None")
         if not isinstance(self.wavefront_restir_specialization, bool):
             raise TypeError("wavefront_restir_specialization must be a bool")
         if self.wavefront_material_bucketing and self.wavefront_execution_strategy in {

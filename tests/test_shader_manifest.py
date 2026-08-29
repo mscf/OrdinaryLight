@@ -16,6 +16,7 @@ class ShaderManifestTests(unittest.TestCase):
     def test_plan_contains_production_specializations(self):
         names = {build.name for build in build_plan()}
         self.assertIn("wavefront_primary.comp.spv", names)
+        self.assertIn("wavefront_shade_ordinaryshade.comp.spv", names)
         self.assertIn("wavefront_reconstruct_bgra.comp.spv", names)
         self.assertIn(
             "wavefront_megakernel_native_opaque_untextured_production.comp.spv",

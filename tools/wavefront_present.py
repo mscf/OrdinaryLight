@@ -293,6 +293,12 @@ def main():
         "1" if debug_acceptance else "0",
     ).lower() not in {"0", "false", "no", "off"}
     config = ol.RendererConfig(
+        vulkan_pipeline_cache=os.environ.get(
+            "WAVE_RENDER_PIPELINE_CACHE", "1"
+        ).lower() not in {"0", "false", "no", "off"},
+        vulkan_pipeline_cache_path=(
+            os.environ.get("WAVE_RENDER_PIPELINE_CACHE_PATH") or None
+        ),
         volume_empty_space_skipping=os.environ.get(
             "WAVE_RENDER_VOLUME_EMPTY_SPACE_SKIPPING", "1"
         ).lower() not in {"0", "false", "no", "off"},
@@ -481,6 +487,9 @@ def main():
         ).lower() not in {"0", "false", "no", "off"},
         wavefront_scene_specialization=os.environ.get(
             "WAVE_RENDER_SCENE_SPECIALIZATION", "1"
+        ).lower() not in {"0", "false", "no", "off"},
+        wavefront_ordinaryshade_shade=os.environ.get(
+            "WAVE_RENDER_ORDINARYSHADE_SHADE", "1"
         ).lower() not in {"0", "false", "no", "off"},
         wavefront_megakernel_single_warp=os.environ.get(
             "WAVE_RENDER_MEGAKERNEL_SINGLE_WARP", "0"

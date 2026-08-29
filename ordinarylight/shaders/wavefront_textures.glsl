@@ -1,5 +1,67 @@
 #include "wavefront_srgb.glsl"
 
+#ifndef WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+#define WAVE_ORDINARYSHADE_TEXTURE_APPLICATION 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PBR
+#define WAVE_ORDINARYSHADE_PBR 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS
+#define WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_AREA_LIGHTS
+#define WAVE_ORDINARYSHADE_AREA_LIGHTS 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS
+#define WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_UNIFIED_NEE
+#define WAVE_ORDINARYSHADE_UNIFIED_NEE 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_EMISSIVE_MIS
+#define WAVE_ORDINARYSHADE_EMISSIVE_MIS 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+#define WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_TRANSMISSION
+#define WAVE_ORDINARYSHADE_SECONDARY_TRANSMISSION 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+#define WAVE_ORDINARYSHADE_SECONDARY_SURFACE 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+#define WAVE_ORDINARYSHADE_SECONDARY_CONTROL 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION 1
+#endif
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION || WAVE_ORDINARYSHADE_PBR || \
+        WAVE_ORDINARYSHADE_ANALYTIC_LIGHTS || WAVE_ORDINARYSHADE_AREA_LIGHTS || \
+        WAVE_ORDINARYSHADE_ENVIRONMENT_LIGHTS || WAVE_ORDINARYSHADE_UNIFIED_NEE || \
+        WAVE_ORDINARYSHADE_EMISSIVE_MIS || WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT || \
+        WAVE_ORDINARYSHADE_SECONDARY_TRANSMISSION || \
+        WAVE_ORDINARYSHADE_SECONDARY_SURFACE || WAVE_ORDINARYSHADE_SECONDARY_CONTROL || \
+        WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define ordinarylight_output_queue_count output_queue.count
+#define ordinarylight_output_queue output_queue
+#define ordinarylight_vertices vertices
+#define ordinarylight_attributes attributes
+#define ordinarylight_materials materials
+#define ordinarylight_medium_stacks stacks
+#define ordinarylight_paths paths
+#define ordinarylight_secondary_paths secondary_paths
+#include "ordinaryshade_primary.glsl"
+#undef ordinarylight_secondary_paths
+#undef ordinarylight_paths
+#undef ordinarylight_medium_stacks
+#undef ordinarylight_materials
+#undef ordinarylight_attributes
+#undef ordinarylight_vertices
+#undef ordinarylight_output_queue
+#undef ordinarylight_output_queue_count
+#endif
+
 float wrapTextureCoordinate(float value, uint mode)
 {
     if (mode == 1u)
@@ -202,19 +264,36 @@ void applyMaterialTextures(
     float transmission = sampleMaterialTexture(
         material.texture_parameters.w, uv0, uv1, false,
         uv0_footprint, uv1_footprint).r;
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    material.attenuation_transmission.a = ordinarylight_texture_apply_scalar(
+        material.attenuation_transmission.a, transmission);
+#else
     material.attenuation_transmission.a *= transmission;
+#endif
 #if WAVE_WORK_COUNTERS
     if (material.texture_indices.x >= 0.0) profileWork(6u, 1u);
 #endif
-    material.base_roughness.rgb *= sampleMaterialTexture(
+    vec3 base_color_sample = sampleMaterialTexture(
         material.texture_indices.x, uv0, uv1, true,
         uv0_footprint, uv1_footprint).rgb;
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    material.base_roughness.rgb = ordinarylight_texture_apply_rgb(
+        material.base_roughness.rgb, base_color_sample);
+#else
+    material.base_roughness.rgb *= base_color_sample;
+#endif
 #if WAVE_WORK_COUNTERS
     if (material.texture_indices.z >= 0.0) profileWork(8u, 1u);
 #endif
-    material.emission_metallic.rgb *= sampleMaterialTexture(
+    vec3 emissive_sample = sampleMaterialTexture(
         material.texture_indices.z, uv0, uv1, true,
         uv0_footprint, uv1_footprint).rgb;
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    material.emission_metallic.rgb = ordinarylight_texture_apply_rgb(
+        material.emission_metallic.rgb, emissive_sample);
+#else
+    material.emission_metallic.rgb *= emissive_sample;
+#endif
     if (material.attenuation_transmission.a > 0.001)
         return;
 #if WAVE_WORK_COUNTERS
@@ -223,16 +302,28 @@ void applyMaterialTextures(
     vec4 metallic_roughness = sampleMaterialTexture(
         material.texture_indices.y, uv0, uv1, false,
         uv0_footprint, uv1_footprint);
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    material.base_roughness.a = ordinarylight_texture_apply_scalar(
+        material.base_roughness.a, metallic_roughness.g);
+    material.emission_metallic.a = ordinarylight_texture_apply_scalar(
+        material.emission_metallic.a, metallic_roughness.b);
+#else
     material.base_roughness.a *= metallic_roughness.g;
     material.emission_metallic.a *= metallic_roughness.b;
+#endif
 #if WAVE_WORK_COUNTERS
     if (material.texture_parameters.y >= 0.0) profileWork(9u, 1u);
 #endif
     float occlusion = sampleMaterialTexture(
         material.texture_parameters.y, uv0, uv1, false,
         uv0_footprint, uv1_footprint).r;
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    material.texture_parameters.w = ordinarylight_texture_apply_occlusion(
+        occlusion, material.texture_parameters.z);
+#else
     material.texture_parameters.w = mix(
         1.0, occlusion, material.texture_parameters.z);
+#endif
 #endif
 }
 
@@ -252,7 +343,15 @@ vec3 applyNormalTexture(
 #endif
     vec3 tangent_normal = sampleMaterialTexture(
         material.texture_indices.w, uv0, uv1, false,
-        uv0_footprint, uv1_footprint).xyz * 2.0 - 1.0;
+        uv0_footprint, uv1_footprint).xyz;
+#if WAVE_ORDINARYSHADE_TEXTURE_APPLICATION
+    TextureBindingData binding = texture_bindings[texture_index];
+    return ordinarylight_texture_apply_normal(
+        tangent_normal, material.texture_parameters.x,
+        shading_normal, tangent_data, binding.texture_rotation.yz,
+        binding.offset_scale.zw);
+#else
+    tangent_normal = tangent_normal * 2.0 - 1.0;
     tangent_normal.xy *= material.texture_parameters.x;
     tangent_normal = normalize(tangent_normal);
     vec3 tangent = normalize(tangent_data.xyz
@@ -273,6 +372,7 @@ vec3 applyNormalTexture(
     bitangent = transformed_bitangent;
     return normalize(tangent * tangent_normal.x
         + bitangent * tangent_normal.y + shading_normal * tangent_normal.z);
+#endif
 #endif
 }
 

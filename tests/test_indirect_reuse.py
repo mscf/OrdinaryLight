@@ -109,7 +109,7 @@ class IndirectReuseTests(unittest.TestCase):
             Path(__file__).parents[1]
             / "ordinarylight" / "shaders" / "wavefront_indirect_reuse.glsl"
         ).read_text()
-        self.assertIn("reservoir_index * 6u", shader)
+        self.assertRegex(shader, r"reservoir_index\s*\*\s*(?:6u|uint\(6\))")
         self.assertIn("packHalf2x16(relative_position.xy)", shader)
         self.assertIn("packUnorm2x16", shader)
         self.assertIn("indirectPackRgb9e5", shader)
@@ -138,7 +138,9 @@ class IndirectReuseTests(unittest.TestCase):
         self.assertIn("indirect_reuse_clear_layout", backend)
         self.assertIn("record_indirect_reuse_clear", backend)
         self.assertIn("wavefront_indirect_reservoir_initialized", backend)
-        self.assertIn("reservoir_index * 6u", shader)
+        self.assertRegex(
+            shader, r"reservoir_index\s*\*\s*(?:6u|uint\(6\))",
+        )
         self.assertIn("reservoir_count", shader)
 
     def test_candidate_generation_is_separate_and_screen_space_bounded(self):
@@ -155,35 +157,36 @@ class IndirectReuseTests(unittest.TestCase):
             backend,
         )
         self.assertIn("push.reservoir_width", shader)
-        self.assertIn("primaryWorldPosition", shader)
+        self.assertIn("candidatePrimaryWorldPosition", shader)
         self.assertIn("storeIndirectLightReservoir", shader)
-        self.assertIn("reprojectPrevious", shader)
+        self.assertIn("candidateReprojectPrevious", shader)
         self.assertIn("previous_material", shader)
         self.assertIn("reuse_weight", shader)
-        self.assertIn("spatiallyCompatiblePrevious", shader)
-        self.assertIn("ivec2 offsets[4]", shader)
-        self.assertIn("CandidateCounters", shader)
-        self.assertIn("instrumentedPixel", shader)
-        self.assertIn("boundReservoirHistory", shader)
+        self.assertIn("candidateSpatialCompatibility", shader)
+        self.assertIn("for (int neighbor = 0; neighbor < 4", shader)
+        self.assertIn("uint counters[]", shader)
+        self.assertIn("candidateInstrumentedPixel", shader)
+        self.assertIn("reservoir.sample_count > push.history_limit", shader)
         self.assertIn("read_indirect_reuse_counters", backend)
         debug_shader = (
             root / "ordinarylight" / "shaders"
             / "wavefront_indirect_debug.comp"
         ).read_text()
-        self.assertIn("acceptanceColor", debug_shader)
+        self.assertIn("indirectAcceptanceColor", debug_shader)
         self.assertIn("reservoir.debug_flags", debug_shader)
-        self.assertIn("rejectionDebugFlag", shader)
+        self.assertIn("candidateRejectionDebugFlag", shader)
         self.assertIn("0x007fff00u", (
             root / "ordinarylight" / "shaders"
             / "wavefront_indirect_reuse.glsl"
         ).read_text())
         self.assertIn("record_indirect_reuse_debug", backend)
         self.assertIn("wavefront_indirect_reuse_apply", backend)
-        self.assertIn("reservoir.weight_sum / max", debug_shader)
+        self.assertIn("float normalization", debug_shader)
+        self.assertIn("reservoir.selected.target", debug_shader)
         self.assertIn("indirectCorrection", debug_shader)
         self.assertIn("base + ivec2(x, y)", debug_shader)
-        self.assertIn("filtered_correction += correction * filter_weight",
-                      debug_shader)
+        self.assertIn("result.correction * filter_weight", debug_shader)
+        self.assertIn("result.confidence", debug_shader)
         self.assertNotIn("mix(current, reconstructed", debug_shader)
 
 

@@ -8,6 +8,12 @@
 #ifndef WAVE_RAYGEN
 #define WAVE_RAYGEN 0
 #endif
+#ifndef WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION 1
+#endif
+#ifndef WAVE_CUSTOM_MATERIAL_PROGRAM
+#define WAVE_CUSTOM_MATERIAL_PROGRAM 0
+#endif
 #ifndef WAVE_UNTEXTURED_PRIMARY
 #define WAVE_UNTEXTURED_PRIMARY WAVE_UNTEXTURED_SCENE
 #endif
@@ -336,8 +342,15 @@ bool restirHistorySurfaceMatches(
         material_signature, temporal_center, history_position, history_normal);
 }
 
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+uint ordinarylight_reserve_output_index(uint subgroup_enqueue);
+#endif
+
 uint reserveOutputIndex()
 {
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+    return ordinarylight_reserve_output_index(push.subgroup_enqueue);
+#else
     if (push.subgroup_enqueue == 0u)
         return atomicAdd(output_queue.count, 1u);
     uvec4 active_lanes = subgroupBallot(true);
@@ -347,6 +360,7 @@ uint reserveOutputIndex()
             output_queue.count, subgroupBallotBitCount(active_lanes));
     base = subgroupBroadcastFirst(base);
     return base + subgroupBallotExclusiveBitCount(active_lanes);
+#endif
 }
 
 uint hashValue(uint value)
@@ -364,20 +378,98 @@ uint hashValue(uint value)
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"
 
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define WAVE_MEDIUM_IOR(path_index, depth) \
+    ordinarylight_medium_ior(path_index, depth)
+#define WAVE_SET_MEDIUM_IOR(path_index, depth, value) \
+    ordinarylight_set_medium_ior(path_index, depth, value)
+#else
+#define WAVE_MEDIUM_IOR(path_index, depth) stacks[path_index].ior[depth]
+#define WAVE_SET_MEDIUM_IOR(path_index, depth, value) \
+    stacks[path_index].ior[depth] = value
+#endif
+
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define WAVE_STORE_PATH(path_index, path) \
+    ordinarylight_store_path(path_index, path)
+#define WAVE_DEACTIVATE_STORED_PATH(path_index) \
+    ordinarylight_deactivate_stored_path(path_index)
+#define WAVE_SECONDARY_PRIMARY_VALID(path_index) \
+    ordinarylight_secondary_primary_valid(path_index)
+#else
+#define WAVE_STORE_PATH(path_index, path) paths[path_index] = path
+#define WAVE_DEACTIVATE_STORED_PATH(path_index) \
+    paths[path_index].metadata.w &= ~PATH_ACTIVE_BIT
+#define WAVE_SECONDARY_PRIMARY_VALID(path_index) \
+    secondary_paths[path_index].primary_throughput.w
+#endif
+
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#define WAVE_PROFILE_WORK(counter, amount) \
+    ordinarylight_profile_work(counter, amount)
+#define WAVE_INTEGRATE_VOLUMES(origin, direction, distance, radiance, throughput) \
+    ordinarylight_integrate_secondary_volumes( \
+        origin, direction, distance, radiance, throughput)
+#else
+#define WAVE_PROFILE_WORK(counter, amount) profileWork(counter, amount)
+#define WAVE_INTEGRATE_VOLUMES(origin, direction, distance, radiance, throughput) \
+    integrateVolumesBeforeSurface( \
+        origin, direction, distance, radiance, throughput)
+#endif
+
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_CAMERA
+#define WAVE_ORDINARYSHADE_PRIMARY_CAMERA 1
+#endif
+#ifndef WAVE_GROUP_SWIZZLE_WIDTH
+#define WAVE_GROUP_SWIZZLE_WIDTH 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_STATE
+#define WAVE_ORDINARYSHADE_PRIMARY_STATE 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_SURFACE
+#define WAVE_ORDINARYSHADE_PRIMARY_SURFACE 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+#define WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+#define WAVE_ORDINARYSHADE_PRIMARY_OUTPUT 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
+#define WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION 1
+#endif
+#ifndef WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+#define WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION 1
+#endif
+#if WAVE_ORDINARYSHADE_PRIMARY_CAMERA || WAVE_ORDINARYSHADE_PRIMARY_STATE \
+        || WAVE_ORDINARYSHADE_PRIMARY_SURFACE \
+        || WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE \
+        || WAVE_ORDINARYSHADE_PRIMARY_OUTPUT \
+        || WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION \
+        || WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+#include "ordinaryshade_primary.glsl"
+#endif
+
 #if WAVE_MEGAKERNEL || WAVE_HYBRID
-void traceRemaining(
+bool ordinarylightSecondaryBounce(
     inout WavePathState path, inout vec3 origin, inout vec3 direction,
-    uint path_index, uint medium_depth, inout uint rng,
+    uint path_index, inout uint medium_depth, inout uint rng,
     inout float cone_width, inout float cone_spread)
 {
-    uint stop_bounce = WAVE_HYBRID != 0
-        ? min(push.inline_bounces, push.max_bounces) : push.max_bounces;
     uint bounce = pathBounce(path);
-    while (bounce < stop_bounce) {
 #if WAVE_WORK_COUNTERS
-        profile_bounce = bounce;
-        profileWork(0u, 1u);
+    profile_bounce = bounce;
+    WAVE_PROFILE_WORK(0u, 1u);
 #endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        bool surface_hit = false;
+        float distance = 1.0e30;
+        uint primitive = 0u;
+        vec2 barycentrics = vec2(0.0);
+        ordinarylight_secondary_trace_query(
+            origin, direction, surface_hit, distance, primitive,
+            barycentrics);
+#else
         rayQueryEXT query;
         rayQueryInitializeEXT(
             query, scene_tlas, gl_RayFlagsOpaqueEXT, 0x01,
@@ -388,18 +480,36 @@ void traceRemaining(
             == gl_RayQueryCommittedIntersectionTriangleEXT;
         float distance = surface_hit
             ? rayQueryGetIntersectionTEXT(query, true) : 1.0e30;
-        integrateVolumesBeforeSurface(
+#endif
+        WAVE_INTEGRATE_VOLUMES(
             origin, direction, distance,
             path.radiance.rgb, path.throughput.rgb);
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+        if (!ordinarylight_secondary_throughput_visible(
+                path.throughput.rgb)) {
+#else
         if (max(path.throughput.r,
                 max(path.throughput.g, path.throughput.b)) < 1e-4) {
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+            path.metadata.w = ordinarylight_primary_deactivate(
+                path.metadata.w);
+#else
             path.metadata.w &= ~PATH_ACTIVE_BIT;
-            break;
+#endif
+            return false;
         }
         if (!surface_hit) {
 #if WAVE_WORK_COUNTERS
-            profileWork(4u, 1u);
+            WAVE_PROFILE_WORK(4u, 1u);
 #endif
+#if WAVE_ORDINARYSHADE_EMISSIVE_MIS
+            float environment_mis = ordinarylight_environment_miss_mis(
+                (path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u,
+                push.environment_samples, pathPreviousPdf(path),
+                (path.metadata.w & PATH_PREVIOUS_UNIFIED_NEE_BIT) != 0u,
+                unifiedAreaDomainProbability());
+#else
             float environment_mis = 1.0;
             if ((path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u
                     && push.environment_samples > 0u) {
@@ -409,95 +519,226 @@ void traceRemaining(
                     light_pdf = pdf * (1.0 - unifiedAreaDomainProbability());
                 environment_mis = powerHeuristic(pdf, light_pdf);
             }
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+            path.radiance.rgb += ordinarylight_secondary_miss_contribution(
+                path.throughput.rgb, environmentColor(direction),
+                environment_mis);
+            path.metadata.w = ordinarylight_primary_deactivate(
+                path.metadata.w);
+#else
             path.radiance.rgb += path.throughput.rgb
                 * environmentColor(direction) * environment_mis;
             path.metadata.w &= ~PATH_ACTIVE_BIT;
-            break;
+#endif
+            return false;
         }
 #if WAVE_WORK_COUNTERS
-        profileWork(3u, 1u);
+        WAVE_PROFILE_WORK(3u, 1u);
 #endif
 
+#if !WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
         uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
             + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
         vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        cone_width = ordinarylight_secondary_cone_width(
+            cone_width, distance, cone_spread);
+#else
         cone_width += distance * cone_spread;
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        vec3 a = ordinarylight_secondary_vertex_position(primitive, 0u);
+        vec3 b = ordinarylight_secondary_vertex_position(primitive, 1u);
+        vec3 c = ordinarylight_secondary_vertex_position(primitive, 2u);
+        VertexAttributeData attribute_a =
+            ordinarylight_secondary_vertex_attribute(primitive, 0u);
+        VertexAttributeData attribute_b =
+            ordinarylight_secondary_vertex_attribute(primitive, 1u);
+        VertexAttributeData attribute_c =
+            ordinarylight_secondary_vertex_attribute(primitive, 2u);
+#else
         vec3 a = vertices[primitive * 3u + 0u].xyz;
         vec3 b = vertices[primitive * 3u + 1u].xyz;
         vec3 c = vertices[primitive * 3u + 2u].xyz;
+        VertexAttributeData attribute_a = attributes[primitive * 3u + 0u];
+        VertexAttributeData attribute_b = attributes[primitive * 3u + 1u];
+        VertexAttributeData attribute_c = attributes[primitive * 3u + 2u];
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        vec3 hit = ordinarylight_primary_hit_position(
+            origin, direction, distance);
+        vec3 geometric_normal = ordinarylight_primary_geometric_normal(a, b, c);
+        vec3 weights = ordinarylight_primary_barycentric_weights(barycentrics);
+        vec3 shading_normal = ordinarylight_primary_shading_normal(
+            attribute_a.normal.xyz,
+            attribute_b.normal.xyz,
+            attribute_c.normal.xyz,
+            weights, geometric_normal);
+        bool entering = ordinarylight_primary_is_entering(
+            direction, geometric_normal);
+        vec3 normal = ordinarylight_primary_oriented_normal(
+            shading_normal, entering);
+#else
         vec3 hit = origin + distance * direction;
         vec3 geometric_normal = normalize(cross(b - a, c - a));
         vec3 weights = vec3(
             1.0 - barycentrics.x - barycentrics.y,
             barycentrics.x, barycentrics.y);
         vec3 shading_normal = normalize(
-            attributes[primitive * 3u + 0u].normal.xyz * weights.x
-            + attributes[primitive * 3u + 1u].normal.xyz * weights.y
-            + attributes[primitive * 3u + 2u].normal.xyz * weights.z);
+            attribute_a.normal.xyz * weights.x
+            + attribute_b.normal.xyz * weights.y
+            + attribute_c.normal.xyz * weights.z);
         if (dot(shading_normal, geometric_normal) < 0.0)
             shading_normal = -shading_normal;
         bool entering = dot(direction, geometric_normal) < 0.0;
         vec3 normal = entering ? shading_normal : -shading_normal;
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        MaterialData material = ordinarylight_secondary_material(primitive);
+#else
         MaterialData material = materials[primitive];
+#endif
 #if WAVE_SER
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+        uint ser_hint = ordinarylight_secondary_ser_hint(
+            material.attenuation_transmission.a,
+            material.emission_metallic.a, material.emission_metallic.w,
+            material.base_roughness.w, materialHasTextures(material));
+#else
         uint ser_hint = uint(material.attenuation_transmission.a > 0.001);
         ser_hint |= uint(material.emission_metallic.a > 0.5) << 1u;
         ser_hint |= uint(material.emission_metallic.w > 0.5) << 2u;
         ser_hint |= uint(clamp(
             material.base_roughness.w * 7.0, 0.0, 7.0)) << 3u;
         ser_hint |= uint(materialHasTextures(material)) << 6u;
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        ordinarylight_secondary_reorder(ser_hint);
+#else
         reorderThreadNV(ser_hint, 7u);
 #endif
+#endif
 #if !WAVE_UNTEXTURED_SECONDARY
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        vec2 uv0 = ordinarylight_primary_interpolate_vec4(
+            attribute_a.texcoord, attribute_b.texcoord,
+            attribute_c.texcoord, weights).xy;
+        vec2 uv1 = ordinarylight_primary_interpolate_vec4(
+            attribute_a.texcoord, attribute_b.texcoord,
+            attribute_c.texcoord, weights).zw;
+#else
         vec2 uv0 =
-            attributes[primitive * 3u + 0u].texcoord.xy * weights.x
-            + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
-            + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;
+            attribute_a.texcoord.xy * weights.x
+            + attribute_b.texcoord.xy * weights.y
+            + attribute_c.texcoord.xy * weights.z;
         vec2 uv1 =
-            attributes[primitive * 3u + 0u].texcoord.zw * weights.x
-            + attributes[primitive * 3u + 1u].texcoord.zw * weights.y
-            + attributes[primitive * 3u + 2u].texcoord.zw * weights.z;
+            attribute_a.texcoord.zw * weights.x
+            + attribute_b.texcoord.zw * weights.y
+            + attribute_c.texcoord.zw * weights.z;
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        bool textured_material = materialHasTextures(material);
+        float uv0_footprint = ordinarylight_secondary_texture_footprint(
+            cone_width, attribute_a.normal.w,
+            textured_material);
+        float uv1_density = ordinarylight_primary_uv_density(
+            a, b, c,
+            attribute_a.texcoord.zw, attribute_b.texcoord.zw,
+            attribute_c.texcoord.zw);
+        float uv1_footprint = ordinarylight_secondary_texture_footprint(
+            cone_width, uv1_density, textured_material);
+#else
         float uv0_footprint = 0.0;
         float uv1_footprint = 0.0;
         if (materialHasTextures(material)) {
             uv0_footprint = cone_width
-                * attributes[primitive * 3u + 0u].normal.w;
+                * attribute_a.normal.w;
             uv1_footprint = cone_width * triangleUvDensity(
                 a, b, c,
-                attributes[primitive * 3u + 0u].texcoord.zw,
-                attributes[primitive * 3u + 1u].texcoord.zw,
-                attributes[primitive * 3u + 2u].texcoord.zw);
+                attribute_a.texcoord.zw, attribute_b.texcoord.zw,
+                attribute_c.texcoord.zw);
         }
+#endif
         applyMaterialTextures(
             material, uv0, uv1, uv0_footprint, uv1_footprint);
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        vec4 tangent_data = ordinarylight_primary_interpolate_vec4(
+            attribute_a.tangent, attribute_b.tangent,
+            attribute_c.tangent, weights);
+#else
         vec4 tangent_data =
-            attributes[primitive * 3u + 0u].tangent * weights.x
-            + attributes[primitive * 3u + 1u].tangent * weights.y
-            + attributes[primitive * 3u + 2u].tangent * weights.z;
+            attribute_a.tangent * weights.x
+            + attribute_b.tangent * weights.y
+            + attribute_c.tangent * weights.z;
+#endif
         if (textureBindingUsesUv1(material.texture_indices.w))
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+            tangent_data = ordinarylight_primary_triangle_tangent(
+#else
             tangent_data = triangleTangent(
+#endif
                 a, b, c,
-                attributes[primitive * 3u + 0u].texcoord.zw,
-                attributes[primitive * 3u + 1u].texcoord.zw,
-                attributes[primitive * 3u + 2u].texcoord.zw,
+                attribute_a.texcoord.zw, attribute_b.texcoord.zw,
+                attribute_c.texcoord.zw,
                 shading_normal);
         shading_normal = applyNormalTexture(
             material, uv0, uv1, uv0_footprint, uv1_footprint,
             shading_normal, tangent_data);
+#if WAVE_ORDINARYSHADE_SECONDARY_SURFACE
+        shading_normal = ordinarylight_secondary_correct_shading_normal(
+            shading_normal, geometric_normal);
+        normal = ordinarylight_primary_oriented_normal(
+            shading_normal, entering);
+#else
         if (dot(shading_normal, geometric_normal) < 0.0)
             shading_normal = -shading_normal;
         normal = entering ? shading_normal : -shading_normal;
+#endif
 #else
         material.texture_parameters.w = 1.0;
 #endif
+        // WAVE_MATERIAL_APPLICATION_SECONDARY
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+        if (ordinarylight_secondary_capture_hit(
+                path.metadata.w, bounce,
+                WAVE_SECONDARY_PRIMARY_VALID(path_index))) {
+#else
         if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u && bounce == 1u
-                && secondary_paths[path_index].primary_throughput.w > 0.5) {
-            secondary_paths[path_index].position_valid = vec4(hit, 1.0);
+                && WAVE_SECONDARY_PRIMARY_VALID(path_index) > 0.5) {
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+            vec4 captured_position =
+                ordinarylight_secondary_capture_position(hit);
+#else
+            vec4 captured_position = vec4(hit, 1.0);
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+            ordinarylight_store_secondary_hit(
+                path_index, captured_position, normal);
+#else
+            secondary_paths[path_index].position_valid = captured_position;
             secondary_paths[path_index].normal_pdf.xyz = normal;
+#endif
         }
 
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+        bool emission_visible = ordinarylight_secondary_emission_visible(
+            entering, material.ior_distance.w);
+#else
         bool emission_visible = entering || material.ior_distance.w > 0.5;
+#endif
         if (emission_visible) {
+#if WAVE_ORDINARYSHADE_EMISSIVE_MIS
+            float emission_mis = ordinarylight_emissive_hit_mis(
+                (path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u,
+                material.emission_metallic.rgb, a, b, c, geometric_normal,
+                direction, distance, material.ior_distance.w > 0.5,
+                push.area_light_weight, push.secondary_area_light_samples,
+                (path.metadata.w & PATH_PREVIOUS_UNIFIED_NEE_BIT) != 0u,
+                unifiedAreaDomainProbability(), pathPreviousPdf(path));
+#else
             float emission_mis = 1.0;
             if ((path.metadata.w & PATH_PREVIOUS_DIFFUSE_BIT) != 0u
                     && dot(material.emission_metallic.rgb,
@@ -520,15 +761,33 @@ void traceRemaining(
                 emission_mis = powerHeuristic(
                     pathPreviousPdf(path), sampled_light_pdf);
             }
+#endif
+#if WAVE_ORDINARYSHADE_EMISSIVE_MIS
+            path.radiance.rgb += ordinarylight_emission_contribution(
+                path.throughput.rgb, material.emission_metallic.rgb,
+                emission_mis);
+#else
             path.radiance.rgb += path.throughput.rgb
                 * material.emission_metallic.rgb * emission_mis;
+#endif
         }
 
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+        uint next_bounce = ordinarylight_secondary_next_bounce(bounce);
+        if (ordinarylight_secondary_bounce_terminates(
+                next_bounce, push.max_bounces)) {
+#else
         uint next_bounce = bounce + 1u;
         if (next_bounce >= push.max_bounces) {
+#endif
             setPathBounce(path, next_bounce);
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+            path.metadata.w = ordinarylight_primary_deactivate(
+                path.metadata.w);
+#else
             path.metadata.w &= ~PATH_ACTIVE_BIT;
-            break;
+#endif
+            return false;
         }
 
         vec3 next_direction;
@@ -539,25 +798,56 @@ void traceRemaining(
         float transmission = material.attenuation_transmission.a;
 #endif
         if (transmission > 0.001) {
-            float current_ior = stacks[path_index].ior[medium_depth - 1u];
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSMISSION
+            float current_ior = WAVE_MEDIUM_IOR(
+                path_index, medium_depth - 1u);
+            float previous_medium_ior = medium_depth > 1u
+                ? WAVE_MEDIUM_IOR(path_index, medium_depth - 2u) : 1.0;
+            float target_ior = ordinarylight_secondary_target_ior(
+                entering, material.ior_distance.x, previous_medium_ior,
+                medium_depth);
+            vec3 refracted = ordinarylight_secondary_refracted_direction(
+                direction, normal, current_ior, target_ior);
+            next_direction = ordinarylight_primary_resolve_transmission_direction(
+                refracted, direction, normal);
+            if (ordinarylight_secondary_enters_medium(
+                    refracted, entering, medium_depth,
+                    WAVE_MAX_MEDIUM_STACK_DEPTH))
+                WAVE_SET_MEDIUM_IOR(path_index, medium_depth, target_ior);
+            medium_depth = ordinarylight_secondary_medium_depth(
+                refracted, entering, medium_depth,
+                WAVE_MAX_MEDIUM_STACK_DEPTH);
+            path.throughput.rgb =
+                ordinarylight_secondary_transmission_throughput(
+                    path.throughput.rgb, material.base_roughness.rgb,
+                    transmission);
+#else
+            float current_ior = WAVE_MEDIUM_IOR(
+                path_index, medium_depth - 1u);
             float target_ior = entering ? max(material.ior_distance.x, 1.0001)
                 : (medium_depth > 1u
-                    ? stacks[path_index].ior[medium_depth - 2u] : 1.0);
+                    ? WAVE_MEDIUM_IOR(path_index, medium_depth - 2u) : 1.0);
             next_direction = refract(
                 direction, normal, current_ior / target_ior);
             if (dot(next_direction, next_direction) < 0.01)
                 next_direction = reflect(direction, normal);
             else if (entering && medium_depth < WAVE_MAX_MEDIUM_STACK_DEPTH) {
-                stacks[path_index].ior[medium_depth] = target_ior;
+                WAVE_SET_MEDIUM_IOR(path_index, medium_depth, target_ior);
                 medium_depth++;
             } else if (!entering && medium_depth > 1u) {
                 medium_depth--;
             }
             path.throughput.rgb *= mix(
                 vec3(1.0), material.base_roughness.rgb, 0.2) * transmission;
+#endif
         } else {
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+            float nee_probability = ordinarylight_secondary_nee_probability(
+                push.secondary_nee_probability);
+#else
             float nee_probability = clamp(
                 push.secondary_nee_probability, 0.000001, 1.0);
+#endif
             bool sample_direct = selectSecondaryNee(
                 nee_probability, path.metadata.x, path.metadata.y,
                 next_bounce);
@@ -568,17 +858,31 @@ void traceRemaining(
                     direct += sampleUnifiedSecondaryLight(
                         hit, normal, direction, material, rng);
                 } else {
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+                    uint light_samples =
+                        ordinarylight_secondary_area_sample_count(
+                            push.secondary_area_light_samples);
+#else
                     uint light_samples = clamp(
                         push.secondary_area_light_samples, 1u, 16u);
+#endif
                     vec3 area_direct = vec3(0.0);
                     for (uint sample_index = 0u;
                             sample_index < light_samples; ++sample_index)
                         area_direct += sampleAreaLight(
                             hit, normal, direction, material, rng,
                             sample_index, light_samples);
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+                    direct += ordinarylight_secondary_average_contribution(
+                        area_direct, light_samples);
+                    uint environment_samples =
+                        ordinarylight_secondary_environment_sample_count(
+                            push.environment_samples);
+#else
                     direct += area_direct / float(light_samples);
                     uint environment_samples = min(
                         push.environment_samples, 4u);
+#endif
                     if (environment_samples > 0u) {
                         vec3 environment_direct = vec3(0.0);
                         for (uint sample_index = 0u;
@@ -587,20 +891,47 @@ void traceRemaining(
                             environment_direct += sampleEnvironment(
                                 hit, normal, direction, material, rng,
                                 environment_samples);
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+                        direct += ordinarylight_secondary_average_contribution(
+                            environment_direct, environment_samples);
+#else
                         direct += environment_direct /
                             float(environment_samples);
+#endif
                     }
                 }
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+                path.radiance.rgb += ordinarylight_secondary_direct_contribution(
+                    path.throughput.rgb, direct, nee_probability);
+#else
                 path.radiance.rgb += path.throughput.rgb
                     * direct / nee_probability;
+#endif
             }
             vec3 bsdf_weight;
             samplePbr(material, normal, direction, rng,
                 next_direction, bsdf_weight, bsdf_pdf);
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+            path.throughput.rgb = ordinarylight_secondary_scatter_throughput(
+                path.throughput.rgb, bsdf_weight);
+            cone_spread = ordinarylight_primary_scattered_cone_spread(
+                cone_spread, material.base_roughness.a);
+#else
             path.throughput.rgb *= bsdf_weight;
             cone_spread += material.base_roughness.a * 0.25;
+#endif
         }
 
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+        next_direction = ordinarylight_primary_continuation_direction(
+            next_direction);
+        setPathBounce(path, next_bounce);
+        path.metadata.w = ordinarylight_primary_continuation_flags(
+            path.metadata.w, medium_depth, transmission,
+            push.unified_secondary_nee != 0u);
+        setPathPreviousPdf(path, ordinarylight_primary_previous_pdf(
+            pathPreviousPdf(path), bsdf_pdf, transmission));
+#else
         next_direction = normalize(next_direction);
         setPathBounce(path, next_bounce);
         path.metadata.w = PATH_ACTIVE_BIT | (medium_depth << 8u)
@@ -611,6 +942,23 @@ void traceRemaining(
                 path.metadata.w |= PATH_PREVIOUS_UNIFIED_NEE_BIT;
             setPathPreviousPdf(path, bsdf_pdf);
         }
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+        if (ordinarylight_secondary_roulette_enabled(
+                push.russian_roulette_start, next_bounce, transmission)) {
+            float survival = ordinarylight_secondary_survival_probability(
+                path.throughput.rgb,
+                push.russian_roulette_min_survival);
+            if (!ordinarylight_secondary_survives(
+                    randomFloat(rng), survival)) {
+                path.metadata.w = ordinarylight_primary_deactivate(
+                    path.metadata.w);
+                return false;
+            }
+            path.throughput.rgb = ordinarylight_secondary_survival_throughput(
+                path.throughput.rgb, survival);
+        }
+#else
         if (push.russian_roulette_start > 0u
                 && next_bounce >= push.russian_roulette_start
                 && transmission <= 0.001) {
@@ -619,15 +967,46 @@ void traceRemaining(
                 push.russian_roulette_min_survival, 0.95);
             if (randomFloat(rng) >= survival) {
                 path.metadata.w &= ~PATH_ACTIVE_BIT;
-                break;
+                return false;
             }
             path.throughput.rgb /= survival;
         }
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
+        origin = ordinarylight_primary_continuation_origin(
+            hit, next_direction);
+#else
         origin = hit + next_direction * 0.002;
+#endif
         direction = next_direction;
-        bounce = next_bounce;
+        return true;
+}
+
+void traceRemaining(
+    inout WavePathState path, inout vec3 origin, inout vec3 direction,
+    uint path_index, uint medium_depth, inout uint rng,
+    inout float cone_width, inout float cone_spread)
+{
+#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
+    uint stop_bounce = ordinarylight_secondary_stop_bounce(
+        WAVE_HYBRID != 0, push.inline_bounces, push.max_bounces);
+#else
+    uint stop_bounce = WAVE_HYBRID != 0
+        ? min(push.inline_bounces, push.max_bounces) : push.max_bounces;
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+    ordinarylight_trace_remaining(
+        path, origin, direction, path_index, medium_depth, rng,
+        cone_width, cone_spread, stop_bounce);
+#else
+    while (pathBounce(path) < stop_bounce) {
+        if (!ordinarylightSecondaryBounce(
+                path, origin, direction, path_index, medium_depth, rng,
+                cone_width, cone_spread))
+            break;
     }
     setPathRng(path, rng);
+#endif
 }
 #endif
 
@@ -652,12 +1031,30 @@ void processPrimaryPixel(uvec2 local_pixel)
             pixel_index, emptyDirectLightReservoir());
     // camera.origin.w duplicates tile_frame.z. Including both XOR terms
     // cancels frame variation and leaves a fixed screen-space noise pattern.
+#if WAVE_ORDINARYSHADE_PRIMARY_STATE
+    uint rng = ordinarylight_primary_rng_seed(
+        pixel_index, push.tile_frame.z, push.tile_frame.w);
+    rng = ordinarylight_primary_rng_step(rng);
+    float jitter_x = ordinarylight_primary_rng_value(rng);
+    rng = ordinarylight_primary_rng_step(rng);
+    float jitter_y = ordinarylight_primary_rng_value(rng);
+    vec2 jitter = vec2(jitter_x, jitter_y);
+#else
     uint rng = hashValue(pixel_index ^ hashValue(push.tile_frame.z)
                          ^ hashValue(push.tile_frame.w + 1u));
     vec2 jitter = vec2(randomFloat(rng), randomFloat(rng));
+#endif
     vec2 ndc = ((vec2(pixel) + jitter) / vec2(push.image_tile.xy)) * 2.0 - 1.0;
     float aspect = float(push.image_tile.x) / float(push.image_tile.y);
     int camera_projection = int(camera.up.w + 0.5);
+#if WAVE_ORDINARYSHADE_PRIMARY_CAMERA
+    vec3 ray_origin = ordinarylight_primary_ray_origin(
+        camera.origin.xyz, camera.right.xyz, camera.up.xyz,
+        ndc, aspect, camera_projection);
+    vec3 incoming = ordinarylight_primary_ray_direction(
+        camera.forward.xyz, camera.right.xyz, camera.up.xyz,
+        ndc, aspect, camera_projection);
+#else
     vec3 ray_origin = camera.origin.xyz;
     vec3 incoming;
     if (camera_projection == 1) {
@@ -675,6 +1072,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         incoming = normalize(camera.forward.xyz
             + ndc.x * aspect * camera.right.xyz - ndc.y * camera.up.xyz);
     }
+#endif
 
     WavePathState path;
     path.throughput = vec4(1.0);
@@ -685,19 +1083,36 @@ void processPrimaryPixel(uvec2 local_pixel)
         indirect_capture_pixel = all(equal(
             pixel % push.indirect_capture_stride, capture_offset));
     }
+#if WAVE_ORDINARYSHADE_PRIMARY_STATE
+    path.metadata = uvec4(
+        pixel_index,
+        ordinarylight_primary_path_identity(
+            push.tile_frame.z, push.tile_frame.w),
+        rng, ordinarylight_primary_path_flags(indirect_capture_pixel));
+#else
     path.metadata = uvec4(
         pixel_index,
         (push.tile_frame.z << 8u) | (push.tile_frame.w & 255u),
         rng, 257u | (indirect_capture_pixel ? PATH_INDIRECT_CAPTURE_BIT : 0u));
+#endif
     setPathBounce(path, 0u);
 #if !WAVE_OPAQUE_SCENE
-    stacks[path_index].ior[0] = 1.0;
+#if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
+    WAVE_SET_MEDIUM_IOR(
+        path_index, 0u, ordinarylight_primary_initial_medium_ior());
+#else
+    WAVE_SET_MEDIUM_IOR(path_index, 0u, 1.0);
+#endif
 #endif
     if (indirect_capture_pixel) {
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        ordinarylight_clear_secondary_path(path_index);
+#else
         secondary_paths[path_index].position_valid = vec4(0.0);
         secondary_paths[path_index].normal_pdf = vec4(0.0);
         secondary_paths[path_index].primary_throughput = vec4(0.0);
         secondary_paths[path_index].primary_radiance = vec4(0.0);
+#endif
     }
 
     rayQueryEXT query;
@@ -722,15 +1137,28 @@ void processPrimaryPixel(uvec2 local_pixel)
         profileWork(4u, 1u);
 #endif
         if (push.gbuffer_enabled != 0u) {
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+            imageStore(position_image, ivec2(pixel),
+                ordinarylight_primary_invalid_position());
+            imageStore(normal_image, ivec2(pixel),
+                ordinarylight_primary_packed_payload(0u));
+            imageStore(material_image, ivec2(pixel),
+                ordinarylight_primary_invalid_material());
+#else
             imageStore(position_image, ivec2(pixel), vec4(-1.0));
             imageStore(normal_image, ivec2(pixel), uvec4(0u));
             imageStore(material_image, ivec2(pixel), uvec4(0xffffffffu));
+#endif
         }
         if (!surface_hit)
             path.radiance.rgb += path.throughput.rgb
                 * environmentColor(incoming);
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+        path.metadata.w = ordinarylight_primary_deactivate(path.metadata.w);
+#else
         path.metadata.w &= ~PATH_ACTIVE_BIT;
-        paths[path_index] = path;
+#endif
+        WAVE_STORE_PATH(path_index, path);
         return;
     }
 #if WAVE_WORK_COUNTERS
@@ -739,12 +1167,32 @@ void processPrimaryPixel(uvec2 local_pixel)
     uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
         + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
     vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE
+    float cone_spread = ordinarylight_primary_cone_spread(
+        camera.up.xyz, push.image_tile.y);
+#else
     float cone_spread = 2.0 * length(camera.up.xyz)
         / float(max(push.image_tile.y, 1u));
+#endif
     float cone_width = distance * cone_spread;
     vec3 a = vertices[primitive * 3u + 0u].xyz;
     vec3 b = vertices[primitive * 3u + 1u].xyz;
     vec3 c = vertices[primitive * 3u + 2u].xyz;
+#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE
+    vec3 position = ordinarylight_primary_hit_position(
+        ray_origin, incoming, distance);
+    vec3 geometric_normal = ordinarylight_primary_geometric_normal(a, b, c);
+    vec3 weights = ordinarylight_primary_barycentric_weights(barycentrics);
+    vec3 shading_normal = ordinarylight_primary_shading_normal(
+        attributes[primitive * 3u + 0u].normal.xyz,
+        attributes[primitive * 3u + 1u].normal.xyz,
+        attributes[primitive * 3u + 2u].normal.xyz,
+        weights, geometric_normal);
+    bool entering = ordinarylight_primary_is_entering(
+        incoming, geometric_normal);
+    vec3 normal = ordinarylight_primary_oriented_normal(
+        shading_normal, entering);
+#else
     vec3 position = ray_origin + distance * incoming;
     vec3 geometric_normal = normalize(cross(b - a, c - a));
     vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y,
@@ -757,6 +1205,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         shading_normal = -shading_normal;
     bool entering = dot(incoming, geometric_normal) < 0.0;
     vec3 normal = entering ? shading_normal : -shading_normal;
+#endif
     MaterialData material = materials[primitive];
 #if WAVE_SER
     uint ser_hint = uint(material.attenuation_transmission.a > 0.001);
@@ -765,7 +1214,11 @@ void processPrimaryPixel(uvec2 local_pixel)
     ser_hint |= uint(clamp(
         material.base_roughness.w * 7.0, 0.0, 7.0)) << 3u;
     ser_hint |= uint(materialHasTextures(material)) << 6u;
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+    ordinarylight_secondary_reorder(ser_hint);
+#else
     reorderThreadNV(ser_hint, 7u);
+#endif
 #endif
     uint material_signature = restirMaterialSignature(material);
     if (push.object_effect_ranges[0].x < push.object_effect_ranges[0].y) {
@@ -785,29 +1238,53 @@ void processPrimaryPixel(uvec2 local_pixel)
     material.texture_parameters.w = 1.0;
 #else
     bool material_textured = materialHasTextures(material);
+#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+    vec4 interpolated_uv = ordinarylight_primary_interpolate_vec4(
+        attributes[primitive * 3u + 0u].texcoord,
+        attributes[primitive * 3u + 1u].texcoord,
+        attributes[primitive * 3u + 2u].texcoord, weights);
+    vec2 uv0 = interpolated_uv.xy;
+    vec2 uv1 = interpolated_uv.zw;
+#else
     vec2 uv0 = attributes[primitive * 3u + 0u].texcoord.xy * weights.x
         + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
         + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;
     vec2 uv1 = attributes[primitive * 3u + 0u].texcoord.zw * weights.x
         + attributes[primitive * 3u + 1u].texcoord.zw * weights.y
         + attributes[primitive * 3u + 2u].texcoord.zw * weights.z;
+#endif
     float uv0_footprint = 0.0;
     float uv1_footprint = 0.0;
     if (material_textured) {
         uv0_footprint = cone_width
             * attributes[primitive * 3u + 0u].normal.w;
+#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+        uv1_footprint = cone_width * ordinarylight_primary_uv_density(
+#else
         uv1_footprint = cone_width * triangleUvDensity(
+#endif
             a, b, c,
             attributes[primitive * 3u + 0u].texcoord.zw,
             attributes[primitive * 3u + 1u].texcoord.zw,
             attributes[primitive * 3u + 2u].texcoord.zw);
     }
     applyMaterialTextures(material, uv0, uv1, uv0_footprint, uv1_footprint);
+#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+    vec4 tangent_data = ordinarylight_primary_interpolate_vec4(
+        attributes[primitive * 3u + 0u].tangent,
+        attributes[primitive * 3u + 1u].tangent,
+        attributes[primitive * 3u + 2u].tangent, weights);
+#else
     vec4 tangent_data = attributes[primitive * 3u + 0u].tangent * weights.x
         + attributes[primitive * 3u + 1u].tangent * weights.y
         + attributes[primitive * 3u + 2u].tangent * weights.z;
+#endif
     if (textureBindingUsesUv1(material.texture_indices.w))
+#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+        tangent_data = ordinarylight_primary_triangle_tangent(
+#else
         tangent_data = triangleTangent(
+#endif
             a, b, c,
             attributes[primitive * 3u + 0u].texcoord.zw,
             attributes[primitive * 3u + 1u].texcoord.zw,
@@ -816,52 +1293,115 @@ void processPrimaryPixel(uvec2 local_pixel)
     shading_normal = applyNormalTexture(
         material, uv0, uv1, uv0_footprint, uv1_footprint,
         shading_normal, tangent_data);
+#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE
+    shading_normal = ordinarylight_primary_correct_mapped_normal(
+        shading_normal, geometric_normal);
+#else
     if (dot(shading_normal, geometric_normal) < 0.0)
         shading_normal = -shading_normal;
+#endif
     normal = entering ? shading_normal : -shading_normal;
 #endif
 
+#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE
 #if WAVE_OPAQUE_SCENE
+    float surface_class = ordinarylight_primary_surface_class(
+        material.attenuation_transmission.a,
+        material.emission_metallic.a, true);
+#else
+    float surface_class = ordinarylight_primary_surface_class(
+        material.attenuation_transmission.a,
+        material.emission_metallic.a, false);
+#endif
+#elif WAVE_OPAQUE_SCENE
     float surface_class = material.emission_metallic.a > 0.5 ? 1.0 : 0.0;
 #else
     float surface_class = material.attenuation_transmission.a > 0.001 ? 2.0
         : (material.emission_metallic.a > 0.5 ? 1.0 : 0.0);
 #endif
     if (push.gbuffer_enabled != 0u) {
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+        imageStore(position_image, ivec2(pixel),
+            ordinarylight_primary_hit_position_payload(distance));
+        imageStore(normal_image, ivec2(pixel),
+            ordinarylight_primary_packed_payload(
+                restirPackNormalClass(shading_normal, surface_class)));
+        imageStore(material_image, ivec2(pixel),
+            ordinarylight_primary_packed_payload(material_signature));
+#else
         imageStore(position_image, ivec2(pixel), vec4(distance));
         imageStore(normal_image, ivec2(pixel), uvec4(
             restirPackNormalClass(shading_normal, surface_class)));
         imageStore(material_image, ivec2(pixel), uvec4(material_signature));
+#endif
     }
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+    path.radiance.rgb += ordinarylight_primary_emission(
+        material.emission_metallic.rgb, entering,
+        material.ior_distance.w > 0.5);
+#else
     if (entering || material.ior_distance.w > 0.5)
         path.radiance.rgb += material.emission_metallic.rgb;
+#endif
 
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+    if (ordinarylight_primary_should_terminate(push.max_bounces)) {
+#else
     if (push.max_bounces <= 1u) {
+#endif
         setPathBounce(path, 1u);
+#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT
+        path.metadata.w = ordinarylight_primary_deactivate(path.metadata.w);
+#else
         path.metadata.w &= ~PATH_ACTIVE_BIT;
-        paths[path_index] = path;
+#endif
+        WAVE_STORE_PATH(path_index, path);
         return;
     }
 
     vec3 next_direction;
     float bsdf_pdf = 0.0;
+#if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
 #if WAVE_OPAQUE_SCENE
+    float transmission = ordinarylight_primary_transmission(
+        material.attenuation_transmission.a, true);
+#else
+    float transmission = ordinarylight_primary_transmission(
+        material.attenuation_transmission.a, false);
+#endif
+#elif WAVE_OPAQUE_SCENE
     float transmission = 0.0;
 #else
     float transmission = material.attenuation_transmission.a;
 #endif
     uint medium_depth = 1u;
     if (transmission > 0.001) {
+#if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
+        float target_ior = ordinarylight_primary_target_ior(
+            material.ior_distance.x);
+        vec3 refracted_direction = ordinarylight_primary_refracted_direction(
+            incoming, normal, target_ior);
+        next_direction = ordinarylight_primary_resolve_transmission_direction(
+            refracted_direction, incoming, normal);
+        bool entered_medium = ordinarylight_primary_enters_medium(
+            refracted_direction, entering);
+        if (entered_medium)
+            WAVE_SET_MEDIUM_IOR(path_index, 1u, target_ior);
+        medium_depth = ordinarylight_primary_medium_depth(entered_medium);
+        path.throughput.rgb *= ordinarylight_primary_transmission_weight(
+            material.base_roughness.rgb, transmission);
+#else
         float target_ior = max(material.ior_distance.x, 1.0001);
         next_direction = refract(incoming, normal, 1.0 / target_ior);
         if (dot(next_direction, next_direction) < 0.01)
             next_direction = reflect(incoming, normal);
         else if (entering) {
-            stacks[path_index].ior[1] = target_ior;
+            WAVE_SET_MEDIUM_IOR(path_index, 1u, target_ior);
             medium_depth = 2u;
         }
         path.throughput.rgb *= mix(vec3(1.0), material.base_roughness.rgb, 0.2)
             * transmission;
+#endif
     } else {
         path.radiance.rgb += samplePointLights(
             position, normal, incoming, material);
@@ -1243,11 +1783,30 @@ void processPrimaryPixel(uvec2 local_pixel)
         vec3 bsdf_weight;
         samplePbr(material, normal, incoming, rng,
             next_direction, bsdf_weight, bsdf_pdf);
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+        path.throughput.rgb = ordinarylight_primary_apply_bsdf_weight(
+            path.throughput.rgb, bsdf_weight);
+        cone_spread = ordinarylight_primary_scattered_cone_spread(
+            cone_spread, material.base_roughness.a);
+#else
         path.throughput.rgb *= bsdf_weight;
         cone_spread += material.base_roughness.a * 0.25;
+#endif
     }
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    next_direction = ordinarylight_primary_continuation_direction(
+        next_direction);
+#else
     next_direction = normalize(next_direction);
+#endif
     setPathBounce(path, 1u);
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    path.metadata.w = ordinarylight_primary_continuation_flags(
+        path.metadata.w, medium_depth, transmission,
+        push.restir_di != 0u && WAVE_UNIFIED_PRIMARY_RESTIR != 0u);
+    setPathPreviousPdf(path, ordinarylight_primary_previous_pdf(
+        pathPreviousPdf(path), bsdf_pdf, transmission));
+#else
     path.metadata.w = PATH_ACTIVE_BIT | (medium_depth << 8u)
         | (path.metadata.w & PATH_INDIRECT_CAPTURE_BIT);
     if (transmission <= 0.001) {
@@ -1256,24 +1815,40 @@ void processPrimaryPixel(uvec2 local_pixel)
             path.metadata.w |= PATH_PREVIOUS_UNIFIED_NEE_BIT;
         setPathPreviousPdf(path, bsdf_pdf);
     }
+#endif
     setPathRng(path, rng);
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    if (ordinarylight_primary_capture_secondary(
+            path.metadata.w, transmission)) {
+#else
     if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u
             && transmission <= 0.001) {
+#endif
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+        ordinarylight_store_secondary_primary(
+            path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf);
+#else
         secondary_paths[path_index].primary_throughput =
             vec4(path.throughput.rgb, 1.0);
         secondary_paths[path_index].primary_radiance =
             vec4(path.radiance.rgb, 1.0);
         secondary_paths[path_index].normal_pdf.w = bsdf_pdf;
+#endif
     }
-    paths[path_index] = path;
+    WAVE_STORE_PATH(path_index, path);
 
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    vec3 continuation_origin = ordinarylight_primary_continuation_origin(
+        position, next_direction);
+#else
     vec3 continuation_origin = position + next_direction * 0.002;
+#endif
     vec3 continuation_direction = next_direction;
 #if WAVE_MEGAKERNEL || WAVE_HYBRID
     traceRemaining(
         path, continuation_origin, continuation_direction,
         path_index, medium_depth, rng, cone_width, cone_spread);
-    paths[path_index] = path;
+    WAVE_STORE_PATH(path_index, path);
 #if WAVE_MEGAKERNEL
     return;
 #endif
@@ -1282,25 +1857,50 @@ void processPrimaryPixel(uvec2 local_pixel)
     if ((path.metadata.w & PATH_ACTIVE_BIT) == 0u)
         return;
     uint output_index = reserveOutputIndex();
-    if (output_index >= output_queue.capacity) {
-        atomicAdd(output_queue.overflow, 1u);
-        paths[path_index].metadata.w &= ~PATH_ACTIVE_BIT;
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    vec4 queued_origin = ordinarylight_primary_ray_origin_payload(
+        continuation_origin);
+    vec4 queued_direction = ordinarylight_primary_ray_direction_payload(
+        continuation_direction);
+#else
+    vec4 queued_origin = vec4(continuation_origin, 0.001);
+    vec4 queued_direction = vec4(continuation_direction, 1.0e30);
+#endif
+    if (!ordinarylight_enqueue_continuation(
+            output_index, queued_origin, queued_direction, path_index,
+            cone_width, cone_spread)) {
+        WAVE_DEACTIVATE_STORED_PATH(path_index);
         return;
     }
+#else
+    if (output_index >= output_queue.capacity) {
+        atomicAdd(output_queue.overflow, 1u);
+        WAVE_DEACTIVATE_STORED_PATH(path_index);
+        return;
+    }
+#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+    output_queue.rays[output_index].origin_tmin =
+        ordinarylight_primary_ray_origin_payload(continuation_origin);
+    output_queue.rays[output_index].direction_tmax =
+        ordinarylight_primary_ray_direction_payload(continuation_direction);
+#else
     output_queue.rays[output_index].origin_tmin = vec4(
         continuation_origin, 0.001);
     output_queue.rays[output_index].direction_tmax = vec4(
         continuation_direction, 1.0e30);
+#endif
     output_queue.rays[output_index].path_index = path_index;
     output_queue.rays[output_index].padding_a = floatBitsToUint(cone_width);
     output_queue.rays[output_index].padding_b = floatBitsToUint(cone_spread);
     output_queue.rays[output_index].padding_c = 0u;
 #endif
+#endif
 }
 #endif
 
 #if !WAVE_CONTINUATION
-#if WAVE_PERSISTENT_COARSE
+#if WAVE_PERSISTENT_COARSE && !WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
 shared uint persistent_tile_index;
 #endif
 
@@ -1310,6 +1910,9 @@ void main()
     uvec2 pixel = gl_LaunchIDEXT.xy;
     processPrimaryPixel(pixel);
 #elif WAVE_PERSISTENT_COARSE
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+    ordinarylight_persistent_coarse_schedule(push.tile_frame.xy);
+#else
     uvec2 tile_count = (push.tile_frame.xy + uvec2(7u)) / 8u;
     uint total_tiles = tile_count.x * tile_count.y;
     for (;;) {
@@ -1324,6 +1927,12 @@ void main()
         processPrimaryPixel(tile * 8u + gl_LocalInvocationID.xy);
         barrier();
     }
+#endif
+#else
+#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+    uvec2 group_id = ordinarylight_primary_scheduled_group(
+        gl_WorkGroupID.xy, gl_NumWorkGroups.xy,
+        uint(WAVE_GROUP_SWIZZLE_WIDTH));
 #else
     uvec2 group_id = gl_WorkGroupID.xy;
 #if WAVE_GROUP_SWIZZLE_WIDTH > 1
@@ -1348,6 +1957,7 @@ void main()
             full_tiles * swizzle_width + local % tail_width,
             local / tail_width);
     }
+#endif
 #endif
     processPrimaryPixel(
         group_id * gl_WorkGroupSize.xy + gl_LocalInvocationID.xy);
