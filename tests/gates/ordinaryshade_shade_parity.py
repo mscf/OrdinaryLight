@@ -127,7 +127,7 @@ def _render(scene, camera, args, *, generated):
         ),
     )
     construction_started = time.perf_counter()
-    renderer = ol.VulkanRayTracingBackend(config=config)
+    renderer = ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config)
     construction_ms = (time.perf_counter() - construction_started) * 1000.0
     try:
         # Exclude lazy driver pipeline compilation and first-use allocation

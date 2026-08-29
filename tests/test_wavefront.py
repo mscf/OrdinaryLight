@@ -8,7 +8,7 @@ import ordinarylight as ol
 
 class WavefrontLayoutTests(unittest.TestCase):
     def test_custom_attribute_storage_is_opt_in_and_scene_owned(self):
-        backend = (Path(ol.__file__).parent / "vulkan_rt.py").read_text()
+        backend = (Path(ol.__file__).parent / "targets" / "vulkan" / "core.py").read_text()
         self.assertIn("self.scene_custom_attribute_buffer = None", backend)
         self.assertIn("if custom_attribute_layout is not None:", backend)
         self.assertIn("custom_attribute_layout.pack(scene)", backend)
@@ -23,7 +23,7 @@ class WavefrontLayoutTests(unittest.TestCase):
 
     def test_scene_blases_are_refittable_for_equal_topology_updates(self):
         backend = (
-            Path(ol.__file__).parent / "vulkan_rt.py"
+            Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
         ).read_text()
         self.assertIn("class SceneBlas:", backend)
         self.assertIn(
@@ -309,7 +309,7 @@ class WavefrontLayoutTests(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertGreater(path.stat().st_size, 16)
         backend = (Path(__file__).parents[1] / "ordinarylight"
-                   / "vulkan_rt.py").read_text()
+                   / "targets" / "vulkan" / "core.py").read_text()
         self.assertIn("self.megakernel_opaque_pipeline", backend)
         self.assertIn("self.megakernel_opaque_untextured_pipeline", backend)
         self.assertIn(

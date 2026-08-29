@@ -5,9 +5,10 @@ import numpy as np
 
 import ordinarylight as ol
 from ordinarylight.showcases.materials import diffuse, fresnel_glass
-from ordinarylight import RendererConfig, VulkanRayTracingBackend
-from ordinarylight.vulkan import _render_options, _resolve_execution_strategy
-from ordinarylight.vulkan_rt import (
+from ordinarylight import RendererConfig
+from ordinarylight.renderers.gi import VulkanGlobalIlluminationRenderer
+from ordinarylight.targets.vulkan.api import _render_options, _resolve_execution_strategy
+from ordinarylight.targets.vulkan.core import (
     RECONSTRUCT_PUSH_SIZE,
     VulkanRayQueryCore,
     _camera_angular_motion_pixels,
@@ -129,9 +130,9 @@ class RendererConfigTests(unittest.TestCase):
         )
         replacement = object()
         with patch(
-            "ordinarylight.vulkan_rt.vk.vkDeviceWaitIdle"
+            "ordinarylight.targets.vulkan.core.vk.vkDeviceWaitIdle"
         ), patch(
-            "ordinarylight.vulkan_rt.VulkanSceneResources",
+            "ordinarylight.targets.vulkan.core.VulkanSceneResources",
             return_value=replacement,
         ):
             core.upload_window_scene(object())
@@ -140,7 +141,7 @@ class RendererConfigTests(unittest.TestCase):
         self.assertTrue(old.closed)
 
     def test_hot_reconfigure_updates_core_without_recreation(self):
-        backend = object.__new__(VulkanRayTracingBackend)
+        backend = object.__new__(VulkanGlobalIlluminationRenderer)
         backend.config = RendererConfig()
         backend._output_history = object()
 
@@ -266,7 +267,7 @@ class RendererConfigTests(unittest.TestCase):
         moved = ol.PerspectiveCamera((0.1, 0, -3), (0, 0, 0))
 
         with patch(
-            "ordinarylight.vulkan_rt.time.perf_counter",
+            "ordinarylight.targets.vulkan.core.time.perf_counter",
             side_effect=(0.0, 0.05, 0.20, 0.21, 0.22),
         ):
             signature, active, interactive = core._begin_accumulation_frame(
@@ -321,7 +322,7 @@ class RendererConfigTests(unittest.TestCase):
         core.camera_change_time = 0.0
         camera = ol.PerspectiveCamera((0, 0, -3), (0, 0, 0))
         with patch(
-            "ordinarylight.vulkan_rt.time.perf_counter",
+            "ordinarylight.targets.vulkan.core.time.perf_counter",
             side_effect=(0.0, 0.2),
         ):
             signature, active, interactive = core._begin_accumulation_frame(

@@ -27,7 +27,7 @@ def main():
     )
     sequence = ("diffuse", "glossy_glass", "diffuse")
     observations = []
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         for frame_index, name in enumerate(sequence):
             spec = get_restir_scene(name)
             scene = spec.build()

@@ -39,7 +39,7 @@ class _ProductsBackend:
     @property
     def capabilities(self):
         return {
-            "backend": "consumer-contract",
+            "renderer": "consumer-contract",
             "outputs": self.available_outputs,
             "features": {"offscreen_rendering"},
         }
@@ -130,7 +130,7 @@ def _write_minimal_gltf(path):
 
 
 async def _render_awaitable(scene, camera):
-    with ol.Renderer(backend=_ProductsBackend()) as renderer:
+    with ol.Renderer(implementation=_ProductsBackend()) as renderer:
         return await renderer.render_async(scene, camera, (8, 6))
 
 
@@ -146,14 +146,16 @@ def main():
 
     output = np.empty((6, 8, 4), np.float32)
     with ol.Renderer(
-        backend=ol.backends.ReferenceBackend(samples_per_pixel=1, seed=7)
+        implementation=ol.renderers.reference.CpuReferenceRenderer(
+            samples_per_pixel=1, seed=7,
+        )
     ) as renderer:
         result = renderer.render(scene, camera, (8, 6), out=output)
         assert result is output
         assert result.shape == (6, 8, 4) and result.dtype == np.float32
 
     products_backend = _ProductsBackend()
-    with ol.Renderer(backend=products_backend) as renderer:
+    with ol.Renderer(implementation=products_backend) as renderer:
         renderer.replace_scene(scene)
         renderer.reconfigure(samples_per_pixel=2)
         frame = renderer.render(

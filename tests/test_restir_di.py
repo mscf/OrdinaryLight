@@ -149,7 +149,7 @@ class DirectLightReservoirTests(unittest.TestCase):
         self.assertIn("restirPackNormalClass", primary)
         self.assertIn("restirUnpackNormalClass", primary)
         backend = (
-            Path(__file__).parents[1] / "ordinarylight" / "vulkan_rt.py"
+            Path(__file__).parents[1] / "ordinarylight" / "targets" / "vulkan" / "core.py"
         ).read_text()
         self.assertIn("or self.config.wavefront_restir_di", backend)
         self.assertIn("vk.VK_FORMAT_R32_UINT", backend)

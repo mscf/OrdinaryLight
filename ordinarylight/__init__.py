@@ -1,6 +1,6 @@
 """Public API for ordinarylight."""
 
-from .reference import ReferencePathTracer
+from .renderers.reference import ReferencePathTracer
 from . import animations
 from .animations import (
     AnimationClip, AnimationPlayer, AnimationTrack, MorphTarget, Skin,
@@ -75,7 +75,7 @@ from .renderer import RenderFrame, RenderJob, Renderer, RenderStatistics
 from .state import AccumulationState
 from .gpu import GpuFrame, VulkanBufferMetadata, VulkanImageMetadata
 from .capabilities import RendererCapabilities
-from .backend_selection import BackendSelection, select_vulkan_backend
+from .renderers.selection import RendererSelection, select_vulkan_renderer
 from .primitives import (
     GlyphBatch, LineBatch, PointBatch, add_glyphs, add_lines, add_points,
 )
@@ -85,18 +85,18 @@ from .selection import (
 )
 from . import effects
 from . import outputs
-from . import backends
-from .backends import (
-    ObjectEffectBackend,
-    MultiObjectEffectBackend,
-    PickBackend,
-    ProductRenderBackend,
-    GpuRenderBackend,
-    HybridBackend,
-    ReferenceBackend,
-    ReferenceConfig,
-    RenderBackend,
-    ResidentSceneBackend,
+from . import renderers
+from . import targets
+from .renderers import (
+    ObjectEffectRendererProtocol,
+    MultiObjectEffectRendererProtocol,
+    PickRendererProtocol,
+    ProductRendererProtocol,
+    GpuRendererProtocol,
+    RendererProtocol,
+    ResidentSceneRendererProtocol,
+    RendererImplementation,
+    RendererImplementationInfo,
 )
 
 
@@ -105,7 +105,6 @@ _LAZY_VULKAN_EXPORTS = frozenset({
     "VulkanDeviceInfo",
     "VulkanGlfwPresenter",
     "VulkanSurfacePresenter",
-    "VulkanRayTracingBackend",
     "probe_vulkan_devices",
 })
 
@@ -113,24 +112,15 @@ _LAZY_VULKAN_EXPORTS = frozenset({
 def __getattr__(name):
     """Load optional Vulkan API names only when an application requests them."""
     if name in _LAZY_VULKAN_EXPORTS:
-        from .backends import vulkan
+        from .targets import vulkan
 
         value = getattr(vulkan, name)
         globals()[name] = value
         return value
-    if name == "WebGpuRasterBackend":
-        from .backends import WebGpuRasterBackend
-        globals()[name] = WebGpuRasterBackend
-        return WebGpuRasterBackend
-    if name == "VulkanRasterBackend":
-        from .backends import VulkanRasterBackend
-        globals()[name] = VulkanRasterBackend
-        return VulkanRasterBackend
     raise AttributeError(name)
 
 __all__ = [
     "Material",
-    "HybridBackend",
     "RasterMesh",
     "RasterConfig",
     "RasterPostProcessor",
@@ -162,18 +152,19 @@ __all__ = [
     "pick_ray",
     "effects",
     "outputs",
-    "backends",
-    "ReferenceBackend",
-    "ReferenceConfig",
-    "RenderBackend",
-    "BackendSelection",
-    "select_vulkan_backend",
-    "ProductRenderBackend",
-    "GpuRenderBackend",
-    "ObjectEffectBackend",
-    "MultiObjectEffectBackend",
-    "PickBackend",
-    "ResidentSceneBackend",
+    "renderers",
+    "targets",
+    "RendererProtocol",
+    "RendererImplementation",
+    "RendererImplementationInfo",
+    "RendererSelection",
+    "select_vulkan_renderer",
+    "ProductRendererProtocol",
+    "GpuRendererProtocol",
+    "ObjectEffectRendererProtocol",
+    "MultiObjectEffectRendererProtocol",
+    "PickRendererProtocol",
+    "ResidentSceneRendererProtocol",
     "Transform",
     "VertexAttributeLayout",
     "MATERIAL_PARAMETER_LAYOUT",
@@ -212,7 +203,7 @@ __all__ = [
     "feature_parity_camera",
     "image_error_metrics",
     "RenderSurface",
-    "RasterMesh", "RasterProgram", "triangle_mesh", "VulkanRasterBackend", "WebGpuRasterBackend",
+    "RasterMesh", "RasterProgram", "triangle_mesh",
     "RendererConfig",
     "Renderer",
     "RenderFrame",
@@ -241,7 +232,6 @@ __all__ = [
     "VulkanDeviceInfo",
     "VulkanGlfwPresenter",
     "VulkanSurfacePresenter",
-    "VulkanRayTracingBackend",
     "probe_vulkan_devices",
     "load_gltf",
     "loaders",

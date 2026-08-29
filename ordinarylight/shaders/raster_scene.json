@@ -10,7 +10,7 @@
     ]
   },
   "schema": 1,
-  "source": "ordinarylight/raster_shaders.py",
+  "source": "ordinarylight/shaders/raster_programs.py",
   "source_sha256": "85b51c1809502cfe1d730c62afee9edb5d6682c2d0941dd4215e6f74ce91f284",
   "targets": {
     "spirv": {

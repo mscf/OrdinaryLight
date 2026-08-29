@@ -101,18 +101,18 @@ class RendererTests(unittest.TestCase):
             ((-1, -1, 0), (1, -1, 0), (0, 1, 0)), ((0, 1, 2),),
         )
         camera = ol.PerspectiveCamera((0, 0, 3), (0, 0, 0))
-        with ol.Renderer(backend=FakeBackend()) as renderer:
+        with ol.Renderer(implementation=FakeBackend()) as renderer:
             job = renderer.pick_async(scene, camera, (101, 101), (50, 50))
             hit = job.result()
             self.assertIs(hit.object, mesh)
             self.assertIsNotNone(job.statistics)
             self.assertGreaterEqual(job.statistics.timings["pick_ms"], 0.0)
 
-    def test_object_effect_response_is_ordered_and_backend_neutral(self):
+    def test_object_effect_response_is_ordered_and_implementation_neutral(self):
         backend = FakeBackend()
-        renderer = ol.Renderer(backend=backend)
-        self.assertIsInstance(backend, ol.ObjectEffectBackend)
-        self.assertIsInstance(backend, ol.MultiObjectEffectBackend)
+        renderer = ol.Renderer(implementation=backend)
+        self.assertIsInstance(backend, ol.ObjectEffectRendererProtocol)
+        self.assertIsInstance(backend, ol.MultiObjectEffectRendererProtocol)
         scene, _camera = fixture()
         mesh = scene.meshes[0]
         effect = ol.effects.Outline(color=(1, 0, 0), width=3)
@@ -135,8 +135,8 @@ class RendererTests(unittest.TestCase):
             renderer.apply_object_effect(scene, mesh, object())
         renderer.close()
 
-    def test_renderer_exposes_backend_accumulation_state(self):
-        renderer = ol.Renderer(backend=FakeBackend())
+    def test_renderer_exposes_implementation_accumulation_state(self):
+        renderer = ol.Renderer(implementation=FakeBackend())
         self.assertEqual(
             renderer.accumulation_state, ol.AccumulationState.ACCUMULATING
         )
@@ -144,10 +144,10 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(renderer.effective_samples_per_pixel, 3)
         renderer.close()
 
-    def test_backend_contract_is_structural_and_backend_neutral(self):
+    def test_implementation_contract_is_structural_and_implementation_neutral(self):
         backend = FakeBackend()
-        self.assertIsInstance(backend, ol.RenderBackend)
-        self.assertIsInstance(backend, ol.ProductRenderBackend)
+        self.assertIsInstance(backend, ol.RendererProtocol)
+        self.assertIsInstance(backend, ol.ProductRendererProtocol)
 
         class WavefrontOnlyBackend:
             def render_wavefront(self, *args, **kwargs):
@@ -157,10 +157,10 @@ class RendererTests(unittest.TestCase):
                 pass
 
         with self.assertRaisesRegex(TypeError, "render_frame"):
-            ol.Renderer(backend=WavefrontOnlyBackend())
+            ol.Renderer(implementation=WavefrontOnlyBackend())
 
     def test_render_job_is_awaitable(self):
-        renderer = ol.Renderer(backend=FakeBackend())
+        renderer = ol.Renderer(implementation=FakeBackend())
         scene, camera = fixture()
 
         async def render_one():
@@ -172,7 +172,7 @@ class RendererTests(unittest.TestCase):
 
     def test_async_render_is_nonblocking_ordered_and_reports_statistics(self):
         backend = BlockingBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         scene, camera = fixture()
         caller_thread = get_ident()
         first = renderer.render_async(scene, camera, (5, 3), samples=2)
@@ -192,7 +192,7 @@ class RendererTests(unittest.TestCase):
 
     def test_high_level_renderer_accepts_all_public_camera_models(self):
         scene, _camera = fixture()
-        renderer = ol.Renderer(backend=FakeBackend())
+        renderer = ol.Renderer(implementation=FakeBackend())
         cameras = (
             ol.PerspectiveCamera((0, 0, -3), (0, 0, 0)),
             ol.OrthographicCamera((0, 0, -3), (0, 0, 0)),
@@ -202,8 +202,8 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(renderer.render(scene, camera, (4, 2)).shape, (2, 4, 4))
 
     def test_motion_product_tracks_rigid_object_transform(self):
-        backend = ol.VulkanRayTracingBackend.__new__(
-            ol.VulkanRayTracingBackend
+        backend = ol.renderers.gi.VulkanGlobalIlluminationRenderer.__new__(
+            ol.renderers.gi.VulkanGlobalIlluminationRenderer
         )
         scene, camera = fixture()
         backend._output_history = backend._capture_motion_state(
@@ -226,7 +226,7 @@ class RendererTests(unittest.TestCase):
         self.assertFalse(np.any(motion))
 
     def test_named_outputs_return_structured_frame(self):
-        renderer = ol.Renderer(backend=FakeBackend())
+        renderer = ol.Renderer(implementation=FakeBackend())
         scene, camera = fixture()
         color = np.empty((3, 5, 4), np.float32)
         frame = renderer.render(
@@ -265,11 +265,11 @@ class RendererTests(unittest.TestCase):
             frame["extra"] = color
 
     def test_named_output_validation_and_capabilities(self):
-        renderer = ol.Renderer(backend=FakeBackend())
+        renderer = ol.Renderer(implementation=FakeBackend())
         scene, camera = fixture()
         capabilities = renderer.capabilities
         self.assertIsInstance(capabilities, ol.RendererCapabilities)
-        self.assertEqual(capabilities.backend, "FakeBackend")
+        self.assertEqual(capabilities.renderer, "FakeBackend")
         self.assertEqual(capabilities.device, "test-device")
         self.assertTrue(capabilities.supports_output("motion"))
         self.assertFalse(capabilities.supports("hardware_ray_tracing"))
@@ -302,12 +302,12 @@ class RendererTests(unittest.TestCase):
     def test_explicit_capability_contract_is_normalized(self):
         backend = FakeBackend()
         backend.capabilities = {
-            "backend": "test",
+            "renderer": "test",
             "features": {"volumes", "offscreen_rendering"},
             "limits": {"max_bounces": 8},
         }
-        capabilities = ol.Renderer(backend=backend).capabilities
-        self.assertEqual(capabilities.backend, "test")
+        capabilities = ol.Renderer(implementation=backend).capabilities
+        self.assertEqual(capabilities.renderer, "test")
         self.assertTrue(capabilities.supports("volumes"))
         capabilities.require("volumes", "offscreen_rendering")
         self.assertEqual(capabilities.limits["max_bounces"], 8)
@@ -316,7 +316,7 @@ class RendererTests(unittest.TestCase):
 
     def test_returns_hdr_and_advances_deterministic_sequence(self):
         backend = FakeBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         scene, camera = fixture()
         first = renderer.render(scene, camera, (5, 3), samples=2)
         second = renderer.render(scene, camera, (5, 3))
@@ -337,9 +337,9 @@ class RendererTests(unittest.TestCase):
             "gpu_ms": 2.5,
         })
 
-    def test_replace_scene_reuses_backend_and_resets_sequence(self):
+    def test_replace_scene_reuses_implementation_and_resets_sequence(self):
         backend = FakeBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         first, camera = fixture()
         second, _camera = fixture()
         renderer.render(first, camera, (2, 2))
@@ -351,23 +351,23 @@ class RendererTests(unittest.TestCase):
         renderer.render(second, camera, (2, 2))
         self.assertEqual(backend.calls[-1][-1], 0)
 
-    def test_replace_scene_requires_backend_support(self):
+    def test_replace_scene_requires_implementation_support(self):
         backend = FakeBackend()
         backend.replace_scene = None
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         scene, _camera = fixture()
         with self.assertRaisesRegex(RuntimeError, "resident scene replacement"):
             renderer.replace_scene(scene)
 
-    def test_reconfigure_is_ordered_and_does_not_replace_backend(self):
+    def test_reconfigure_is_ordered_and_does_not_replace_implementation(self):
         backend = FakeBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         result = renderer.reconfigure(samples_per_pixel=2, max_bounces=8)
         self.assertEqual(result, {"samples_per_pixel": 2, "max_bounces": 8})
         self.assertEqual(backend.setting_changes, [result])
-        self.assertIs(renderer._backend, backend)
+        self.assertIs(renderer._implementation, backend)
 
-    def test_statistics_preserve_backend_timings_without_name_collisions(self):
+    def test_statistics_preserve_implementation_timings_without_name_collisions(self):
         statistics = ol.RenderStatistics(
             frame_index=8, size=(640, 480), samples=2,
             timings={"gpu_frame_ms": 3.25, "total_ms": 4.5, "width": 1},
@@ -380,7 +380,7 @@ class RendererTests(unittest.TestCase):
             statistics.timings["gpu_frame_ms"] = 0
 
     def test_explicit_frame_and_caller_owned_output(self):
-        renderer = ol.Renderer(backend=FakeBackend())
+        renderer = ol.Renderer(implementation=FakeBackend())
         scene, camera = fixture()
         output = np.empty((2, 4, 4), np.float32)
         result = renderer.render(
@@ -392,9 +392,9 @@ class RendererTests(unittest.TestCase):
         renderer.reset_sequence()
         self.assertEqual(renderer.frame_index, 0)
 
-    def test_validates_inputs_and_owns_backend_lifetime(self):
+    def test_validates_inputs_and_owns_implementation_lifetime(self):
         backend = FakeBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         scene, camera = fixture()
         with self.assertRaises(TypeError):
             renderer.render(object(), camera, (4, 2))

@@ -49,7 +49,7 @@ def _render(
             args.megakernel_single_warp and strategy == "megakernel"
         ),
     )
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         # The backend readback is a view over mapped Vulkan memory.  Keep the
         # pixels alive after the backend (and its allocation) is destroyed.
         return np.array(renderer.render_wavefront(

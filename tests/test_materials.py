@@ -1,7 +1,7 @@
 import unittest
 
 import ordinarylight as ol
-from ordinarylight.shader_compiler import (
+from ordinarylight.shaders.compiler import (
     compile_material_shader,
     compile_wavefront_material_shader,
     find_glsl_compiler,
@@ -70,7 +70,7 @@ class MaterialProgramTests(unittest.TestCase):
             ((0, 0, 0), (1, 0, 0), (0, 1, 0)), ((0, 1, 2),),
             attributes={"color": ((1, 0, 0),) * 3},
         )
-        from ordinarylight.vulkan_rt import VulkanRayQueryCore
+        from ordinarylight.targets.vulkan.core import VulkanRayQueryCore
         self.assertIsNone(VulkanRayQueryCore._material_attribute_layout(
             scene, (ol.builtin_material,)
         ))

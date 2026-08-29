@@ -81,7 +81,7 @@ def main():
     camera = ol.PerspectiveCamera((0.0, 0.0, -2.3), (0.0, 0.0, 0.6))
 
     def backend(strategy):
-        return ol.VulkanRayTracingBackend(config=ol.RendererConfig(
+        return ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=ol.RendererConfig(
             max_bounces=2, samples_per_pixel=1,
             wavefront_tile_capacity=args.width * args.height,
             wavefront_execution_strategy=strategy,

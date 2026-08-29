@@ -84,7 +84,7 @@ def _render(scene, camera, args, strategy):
         wavefront_subgroup_enqueue=True,
     )
     started = time.perf_counter()
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         initialized = time.perf_counter()
         result = np.array(renderer.render_wavefront(
             scene, camera, args.width, args.height,

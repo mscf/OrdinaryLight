@@ -31,8 +31,8 @@ class OptionalDependencyBoundaryTests(unittest.TestCase):
             import ordinarylight.integrations.dearpygui
             import ordinarylight.integrations.glfw
             import ordinarylight.integrations.qt_workbench
-            assert ordinarylight.backends.ReferenceBackend
-            assert ordinarylight.RenderBackend
+            assert ordinarylight.renderers.reference.CpuReferenceRenderer
+            assert ordinarylight.RendererProtocol
             from ordinarylight.validation import performance_gate_result
 
             result = performance_gate_result(

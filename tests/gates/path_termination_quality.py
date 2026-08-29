@@ -31,7 +31,7 @@ def _capture(scene, scene_spec, args, mode, samples, *, bounces=None):
         wavefront_tile_capacity=args.width * args.height,
     )
     frames = np.empty((args.frames, args.height, args.width, 4), np.float32)
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         for index in range(args.frames):
             angle = np.pi + args.motion * index / max(args.frames - 1, 1)
             camera = ol.PerspectiveCamera(

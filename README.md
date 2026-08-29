@@ -1,15 +1,15 @@
 # Ordinary Light
 
-`ordinarylight` is a general-purpose path tracer with a backend-neutral Python
+`ordinarylight` is a general-purpose path tracer with a renderer-neutral Python
 scene API. Its current public surface includes:
 
 - meshes, instances, materials, textures, lights, volumes, and hierarchical
   animation resources;
 - perspective, orthographic, and panoramic cameras;
-- semantic loader, camera, light, animation, output, backend, and integration
+- semantic loader, camera, light, animation, output, renderer, target, and integration
   namespaces;
-- a portable CPU reference backend; and
-- a Vulkan wavefront backend using hardware ray queries, BLAS/TLAS
+- a portable CPU reference renderer; and
+- a Vulkan wavefront GI renderer using hardware ray queries, BLAS/TLAS
   acceleration structures, native presentation, and headless HDR readback.
 
 ## Repository layout
@@ -20,6 +20,15 @@ scene API. Its current public surface includes:
 - `tests/`: unit tests and opt-in GPU gates
 - `artifacts/`: retained historical benchmark evidence; not runtime data
 - `assets/`, `shaders/`, and `scripts/`: fixtures and build tooling
+
+The installable package is organized by domain rather than as a collection of
+flat modules. Public models live in focused namespaces such as
+`ordinarylight.cameras`, `lights`, `materials`, `scene`, `volume`, and
+`effects`; renderer algorithms live in `ordinarylight.renderers`; execution
+APIs live in `ordinarylight.targets`; shader sources and compilation helpers
+live in `ordinarylight.shaders`. Each namespace re-exports its normal public
+API, and the top-level `ordinarylight` exports remain available for concise
+application code.
 
 ## Setup
 
@@ -81,24 +90,46 @@ automatically advances its deterministic sampling sequence. Use
 `reset_sequence()`, an explicit `frame_index=`, or a caller-owned `out=` array
 for reproducible capture and allocation control. `device`, `last_timings`, and
 the immutable `last_statistics` record provide introspection without exposing
-private backend objects. The existing
-`VulkanRayTracingBackend` and `VulkanGlfwPresenter` remain available for
+private renderer objects. The lower-level
+`renderers.gi.VulkanGlobalIlluminationRenderer` and `VulkanGlfwPresenter` remain available for
 specialized validation and direct-window applications.
 
-Vulkan backend selection is explicit and inspectable. The default `"auto"`
+### Renderer and target organization
+
+Concrete algorithms live exclusively beneath `ordinarylight.renderers`:
+
+- `renderers.gi.VulkanGlobalIlluminationRenderer`
+- `renderers.raster.VulkanRasterRenderer`
+- `renderers.raster.WebGpuRasterRenderer`
+- `renderers.hybrid.HybridRenderer`
+- `renderers.reference.CpuReferenceRenderer`
+
+Each derives from `RendererImplementation` and publishes immutable
+`implementation_info()` metadata describing its renderer family and execution
+API. Third-party renderers do not need to inherit this class: the public
+`RendererProtocol` protocol remains structural.
+
+Platform APIs are a separate concern exposed through `ordinarylight.targets`.
+For example, `targets.vulkan` owns Vulkan device discovery, configuration, and
+native presenters, while `targets.webgpu` and `targets.cpu` identify their
+shader format and execution properties. There is intentionally no
+`ordinarylight.backends` namespace: renderer algorithms and execution targets
+should not be conflated.
+
+Vulkan renderer selection is explicit and inspectable. The default `"auto"`
 preference chooses hardware ray-query global illumination when available and
 uses Vulkan rasterization as its compatibility fallback. An explicit request
 never silently changes renderer class:
 
 ```python
-with ol.Renderer(backend_preference="auto") as renderer:
-    print(renderer.backend_selection)
+with ol.Renderer(renderer_preference="auto") as renderer:
+    print(renderer.renderer_selection)
     # requested, selected, fallback, and a fallback reason when applicable
 
-with ol.Renderer(backend_preference="gi") as renderer:
+with ol.Renderer(renderer_preference="gi") as renderer:
     ...  # fail rather than fall back if GI is unavailable
 
-with ol.Renderer(backend_preference="raster") as renderer:
+with ol.Renderer(renderer_preference="raster") as renderer:
     ...
 ```
 
@@ -128,11 +159,13 @@ hdr = await renderer.render_async(scene, camera, (1280, 720))
 ```
 
 For correctness tests or systems without Vulkan ray tracing, select the
-portable CPU backend explicitly while retaining the same high-level contract:
+portable CPU renderer explicitly while retaining the same high-level contract:
 
 ```python
-backend = ol.backends.ReferenceBackend(samples_per_pixel=4, max_bounces=4)
-with ol.Renderer(backend=backend) as renderer:
+implementation = ol.renderers.reference.CpuReferenceRenderer(
+    samples_per_pixel=4, max_bounces=4,
+)
+with ol.Renderer(implementation=implementation) as renderer:
     hdr = renderer.render(scene, camera, (640, 360))
 ```
 
@@ -265,14 +298,14 @@ successive calls that request motion. The first compatible call, background,
 new objects, and topology changes produce zero motion. `reset_sequence()` also
 clears motion history.
 
-Use `renderer.capabilities` for backend-neutral feature and limit discovery:
+Use `renderer.capabilities` for renderer-neutral feature and limit discovery:
 
 ```python
 capabilities = renderer.capabilities
 capabilities.require("hardware_ray_tracing", "volumes")
 if capabilities.supports_output("motion"):
     outputs = ("color", "motion")
-print(capabilities.backend, capabilities.device, capabilities.limits)
+print(capabilities.renderer, capabilities.device, capabilities.limits)
 ```
 
 Capability names describe renderer behavior rather than Vulkan extensions, so
@@ -1335,21 +1368,21 @@ submissions and avoid exhausting compositor-owned swapchain images.
 
 ## Vulkan scope
 
-### Experimental raster backends
+### Experimental raster renderers
 
-Ordinary Light has a backend-neutral raster contract. `RasterProgram` links
+Ordinary Light has a renderer-neutral raster contract. `RasterProgram` links
 Ordinary Shade vertex and fragment functions, `RasterMesh` carries typed
 interleaved vertex/index data, and `RasterState` describes topology, culling,
 depth, and blending. Two offscreen implementations exercise the same program
 semantics:
 
-- `VulkanRasterBackend` consumes SPIR-V and records a native Vulkan graphics
+- `renderers.raster.VulkanRasterRenderer` consumes SPIR-V and records a native Vulkan graphics
   pipeline, color/depth render pass, draw, and readback.
-- `WebGpuRasterBackend` consumes WGSL through the optional `wgpu` package.
+- `renderers.raster.WebGpuRasterRenderer` consumes WGSL through the optional `wgpu` package.
 
 Install `ordinarylight[vulkan]` or `ordinarylight[webgpu]` for the respective
 runtime. Compiling Python shader functions additionally requires Ordinary
-Shade. Both backends implement the standard `RenderBackend` contract and can
+Shade. Both renderers implement the standard `RendererProtocol` contract and can
 render existing `Scene` meshes, instances, materials, and object transforms
 through perspective and orthographic cameras. Panoramic cameras require a
 later non-linear projection pass.
@@ -1367,8 +1400,10 @@ optimization targets without changing these public semantics.
 
 ```python
 program = ol.RasterProgram.scene(target="wgsl")
-backend = ol.WebGpuRasterBackend(program, state=ol.RasterState(cull_mode="back"))
-renderer = ol.Renderer(backend=backend)
+implementation = ol.renderers.raster.WebGpuRasterRenderer(
+    program, state=ol.RasterState(cull_mode="back"),
+)
+renderer = ol.Renderer(implementation=implementation)
 rgba = renderer.render(scene, camera, (640, 480))
 renderer.close()
 ```
@@ -1383,7 +1418,7 @@ remain future work.
 ## Python material programs
 
 Materials can be authored as restricted Python functions. The decorator runs
-the function once with symbolic values and produces a typed, backend-neutral
+the function once with symbolic values and produces a typed, renderer-neutral
 `MaterialProgram`; it does not execute Python for each ray:
 
 ```python
@@ -1686,7 +1721,7 @@ this targets indirect, reflection, and refraction noise as well.
 ### Wavefront execution foundation
 
 The monolithic path tracer remains the active execution strategy, while the
-first backend-neutral wavefront ABI is available in `ordinarylight.wavefront`.
+first renderer-neutral wavefront ABI is available in `ordinarylight.wavefront`.
 `RAY_DTYPE`, `HIT_DTYPE`, and `PATH_STATE_DTYPE` exactly describe the std430
 records that will connect ray generation, intersection, and shading dispatches.
 Rays and hits carry persistent path indices; path state retains throughput,

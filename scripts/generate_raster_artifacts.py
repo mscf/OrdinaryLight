@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ordinaryshade as osh
-from ordinarylight.raster_shaders import scene_fragment, scene_vertex
+from ordinarylight.shaders.raster_programs import scene_fragment, scene_vertex
 
 
 OUTPUT = ROOT / "ordinarylight" / "shaders"
@@ -28,7 +28,7 @@ def _digest(payload):
 def _compile(target):
     options = {"target": target, "validate": True}
     if target == "spirv":
-        from ordinarylight.shader_compiler import find_glsl_compiler
+        from ordinarylight.shaders.compiler import find_glsl_compiler
 
         compiler = find_glsl_compiler()
         if compiler is not None:
@@ -42,9 +42,9 @@ def _compile(target):
 def build_artifacts():
     manifest = {
         "schema": 1,
-        "source": "ordinarylight/raster_shaders.py",
+        "source": "ordinarylight/shaders/raster_programs.py",
         "source_sha256": _digest(
-            (ROOT / "ordinarylight" / "raster_shaders.py").read_bytes()
+            (ROOT / "ordinarylight" / "shaders" / "raster_programs.py").read_bytes()
         ),
         "targets": {},
     }

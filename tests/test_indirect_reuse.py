@@ -9,7 +9,7 @@ from ordinarylight.integrations.indirect_reuse import (
     pack_indirect_reservoir,
     unpack_indirect_reservoir,
 )
-from ordinarylight.vulkan_rt import _motion_adaptive_history_limit
+from ordinarylight.targets.vulkan.core import _motion_adaptive_history_limit
 
 
 class IndirectReuseTests(unittest.TestCase):
@@ -119,7 +119,7 @@ class IndirectReuseTests(unittest.TestCase):
 
     def test_vulkan_storage_is_budgeted_and_resize_owned(self):
         backend = (
-            Path(__file__).parents[1] / "ordinarylight" / "vulkan_rt.py"
+            Path(__file__).parents[1] / "ordinarylight" / "targets" / "vulkan" / "core.py"
         ).read_text()
         self.assertIn("IndirectReservoirPlan(", backend)
         self.assertIn('"wavefront_indirect_reservoir_buffer"', backend)
@@ -130,7 +130,7 @@ class IndirectReuseTests(unittest.TestCase):
 
     def test_vulkan_storage_has_isolated_one_time_clear_pass(self):
         root = Path(__file__).parents[1]
-        backend = (root / "ordinarylight" / "vulkan_rt.py").read_text()
+        backend = (root / "ordinarylight" / "targets" / "vulkan" / "core.py").read_text()
         shader = (
             root / "ordinarylight" / "shaders"
             / "wavefront_indirect_clear.comp"
@@ -145,7 +145,7 @@ class IndirectReuseTests(unittest.TestCase):
 
     def test_candidate_generation_is_separate_and_screen_space_bounded(self):
         root = Path(__file__).parents[1]
-        backend = (root / "ordinarylight" / "vulkan_rt.py").read_text()
+        backend = (root / "ordinarylight" / "targets" / "vulkan" / "core.py").read_text()
         shader = (
             root / "ordinarylight" / "shaders"
             / "wavefront_indirect_candidates.comp"

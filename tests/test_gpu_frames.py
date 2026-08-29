@@ -69,10 +69,10 @@ def fixture():
 class GpuFrameTests(unittest.TestCase):
     def test_renderer_returns_owned_gpu_frame_without_numpy_conversion(self):
         backend = GpuBackend()
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         scene, camera = fixture()
         frame = renderer.render_gpu(scene, camera, (64, 32))
-        self.assertIsInstance(backend, ol.GpuRenderBackend)
+        self.assertIsInstance(backend, ol.GpuRendererProtocol)
         self.assertIsInstance(frame, ol.GpuFrame)
         self.assertEqual((frame.metadata.width, frame.metadata.height), (64, 32))
         self.assertEqual(renderer.frame_index, 1)
@@ -94,7 +94,7 @@ class GpuFrameTests(unittest.TestCase):
     def test_frame_close_is_idempotent_and_prevents_export(self):
         backend = GpuBackend()
         scene, camera = fixture()
-        with ol.Renderer(backend=backend) as renderer:
+        with ol.Renderer(implementation=backend) as renderer:
             frame = renderer.render_gpu(scene, camera, (8, 4))
             frame.close()
             frame.close()
@@ -104,7 +104,7 @@ class GpuFrameTests(unittest.TestCase):
     def test_cached_release_semaphore_can_release_without_reexport(self):
         backend = GpuBackend()
         scene, camera = fixture()
-        with ol.Renderer(backend=backend) as renderer:
+        with ol.Renderer(implementation=backend) as renderer:
             frame = renderer.render_gpu(scene, camera, (8, 4))
             descriptor = frame.export_release_semaphore_fd()
             os.close(descriptor)
@@ -116,7 +116,7 @@ class GpuFrameTests(unittest.TestCase):
     def test_renderer_forwards_gpu_pixel_format(self):
         backend = GpuBackend()
         scene, camera = fixture()
-        with ol.Renderer(backend=backend) as renderer:
+        with ol.Renderer(implementation=backend) as renderer:
             frame = renderer.render_gpu(
                 scene, camera, (8, 4), pixel_format="nv12"
             )
@@ -129,12 +129,12 @@ class GpuFrameTests(unittest.TestCase):
             self.assertEqual(frame.attributes["pixel_format"], "p010")
             frame.close()
 
-    def test_backend_without_gpu_output_reports_capability_error(self):
+    def test_implementation_without_gpu_output_reports_capability_error(self):
         class CpuBackend(GpuBackend):
             render_gpu_frame = None
 
         scene, camera = fixture()
-        with ol.Renderer(backend=CpuBackend()) as renderer:
+        with ol.Renderer(implementation=CpuBackend()) as renderer:
             with self.assertRaisesRegex(RuntimeError, "GPU-resident"):
                 renderer.render_gpu(scene, camera, (8, 4))
 

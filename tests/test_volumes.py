@@ -7,7 +7,7 @@ import ordinarylight as ol
 from ordinarylight.showcases.volumes import build_volume_showcase
 from ordinarylight.showcases.multivolume import build_multivolume_showcase
 from ordinarylight.showcases.volume_scattering import build_volume_scattering_showcase
-from ordinarylight.vulkan_rt import SceneTlasInstance
+from ordinarylight.targets.vulkan.core import SceneTlasInstance
 from ordinarylight.volume import (
     VOLUME_HEADER_DTYPE, integrate_volume, integrate_volumes,
     intersect_unit_boxes, pack_volumes, phase_function, sample_trilinear,

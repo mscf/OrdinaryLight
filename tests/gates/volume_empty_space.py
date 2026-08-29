@@ -42,7 +42,7 @@ def _capture(scene, camera, args, enabled):
     )
     timings = []
     last = None
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         for frame in range(args.warmup + args.frames):
             start = time.perf_counter()
             last = np.array(renderer.render_wavefront(

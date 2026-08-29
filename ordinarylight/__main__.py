@@ -1,6 +1,6 @@
 """Print Vulkan renderer capability information."""
 
-from .backends.vulkan import probe_vulkan_devices
+from .targets.vulkan import probe_vulkan_devices
 
 
 def main():

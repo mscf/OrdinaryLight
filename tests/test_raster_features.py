@@ -94,9 +94,9 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertEqual(mesh.vertices.shape, (12, 12))
         self.assertGreater(float(mesh.vertices[:, 7].max()), 0.0)
 
-    def test_hybrid_backend_composes_child_renderers(self):
+    def test_hybrid_implementation_composes_child_renderers(self):
         raster, lighting = _Backend(0.25), _Backend(0.5)
-        renderer = ol.Renderer(backend=ol.HybridBackend(raster, lighting, weight=0.5))
+        renderer = ol.Renderer(implementation=ol.renderers.hybrid.HybridRenderer(raster, lighting, weight=0.5))
         try:
             result = renderer.render(ol.Scene(), _camera(), (3, 2))
             np.testing.assert_allclose(result[..., :3], 0.5)
@@ -106,7 +106,7 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertTrue(raster.closed and lighting.closed)
 
     def test_renderer_presents_to_array_surface(self):
-        renderer = ol.Renderer(backend=_Backend(0.5))
+        renderer = ol.Renderer(implementation=_Backend(0.5))
         surface = ol.ArraySurface(3, 2)
         try:
             result = renderer.render_to(ol.Scene(), _camera(), surface)

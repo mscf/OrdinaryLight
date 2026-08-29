@@ -18,7 +18,7 @@ def _render(scene, camera, args, capacity):
         wavefront_fused_secondary=True,
         wavefront_subgroup_enqueue=True,
     )
-    with ol.VulkanRayTracingBackend(config=config) as renderer:
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
         return renderer.render_wavefront(
             scene, camera, args.width, args.height,
             samples=args.samples, frame_index=args.seed,

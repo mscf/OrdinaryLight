@@ -148,18 +148,18 @@ class SceneTests(unittest.TestCase):
 
 
 class ReferenceRendererTests(unittest.TestCase):
-    def test_reference_backend_implements_high_level_hdr_contract(self):
+    def test_reference_implementation_implements_high_level_hdr_contract(self):
         scene = ol.Scene()
         camera = ol.PanoramicCamera((0, 0, -3), (0, 0, 0))
-        backend = ol.backends.ReferenceBackend(
+        backend = ol.renderers.reference.CpuReferenceRenderer(
             samples_per_pixel=1, max_bounces=2, seed=7
         )
-        with ol.Renderer(backend=backend) as renderer:
+        with ol.Renderer(implementation=backend) as renderer:
             image = renderer.render(scene, camera, (8, 4))
             self.assertEqual(image.shape, (4, 8, 4))
             self.assertEqual(image.dtype, np.float32)
             self.assertGreater(float(image[..., :3].max()), 0.0)
-            self.assertEqual(renderer.capabilities.backend, "cpu-reference")
+            self.assertEqual(renderer.capabilities.renderer, "cpu-reference")
             self.assertFalse(renderer.capabilities.supports("hardware_ray_tracing"))
         with self.assertRaises(RuntimeError):
             backend.render_wavefront(scene, camera, 8, 4)
