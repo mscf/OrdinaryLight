@@ -284,11 +284,14 @@ def build_plan(manifest=None):
 
 def validate_plan(plan=None):
     plan = plan or build_plan()
+    manifest = load_manifest()
     missing_sources = sorted({
         str(build.source.relative_to(ROOT))
         for build in plan if not build.source.is_file()
     })
-    expected = {build.name for build in plan}
+    expected = {
+        build.name for build in plan
+    } | set(manifest.get("managed_outputs", ()))
     actual = {path.name for path in SHADER_DIR.glob("*.spv")}
     return {
         "planned": len(expected),

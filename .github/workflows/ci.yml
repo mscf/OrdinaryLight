@@ -41,12 +41,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check out pinned Ordinary Shade compiler
+        uses: actions/checkout@v4
+        with:
+          repository: mscf/OrdinaryShade
+          ref: 0dd1b673b0663c834dfe049eea813badd7297349
+          path: compatibility/OrdinaryShade
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native shader validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes glslang-tools
+          cargo install naga-cli --version 30.0.0 --locked
       - name: Install build tools
-        run: python -m pip install --upgrade build twine
+        run: |
+          python -m pip install --upgrade build twine
+          python -m pip install -e compatibility/OrdinaryShade
+      - name: Compile packaged raster shaders from Python sources
+        run: |
+          python scripts/generate_raster_artifacts.py
+          python scripts/generate_raster_artifacts.py --check
+          git diff --exit-code -- ordinarylight/shaders/raster_scene.vert.spv ordinarylight/shaders/raster_scene.frag.spv ordinarylight/shaders/raster_scene.vert.wgsl ordinarylight/shaders/raster_scene.frag.wgsl ordinarylight/shaders/raster_scene.json
       - name: Build distributions
         run: python -m build
       - name: Check metadata

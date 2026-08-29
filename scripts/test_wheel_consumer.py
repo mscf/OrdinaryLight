@@ -137,6 +137,13 @@ async def _render_awaitable(scene, camera):
 def main():
     scene, camera = _scene_and_camera()
 
+    # Built-in raster programs are packaged artifacts. A downstream wheel
+    # consumer must not need Ordinary Shade or a shader compiler at runtime.
+    spirv_raster = ol.RasterProgram.scene(target="spirv")
+    wgsl_raster = ol.RasterProgram.scene(target="wgsl")
+    assert spirv_raster.vertex.binary
+    assert "@vertex\nfn main(" in wgsl_raster.vertex.source
+
     output = np.empty((6, 8, 4), np.float32)
     with ol.Renderer(
         backend=ol.backends.ReferenceBackend(samples_per_pixel=1, seed=7)
@@ -190,6 +197,7 @@ def main():
         "resident_transitions": True,
         "object_effects": True,
         "gltf": True,
+        "precompiled_raster_shaders": True,
     }, indent=2))
 
 

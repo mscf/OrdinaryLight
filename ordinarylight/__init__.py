@@ -75,6 +75,7 @@ from .renderer import RenderFrame, RenderJob, Renderer, RenderStatistics
 from .state import AccumulationState
 from .gpu import GpuFrame, VulkanBufferMetadata, VulkanImageMetadata
 from .capabilities import RendererCapabilities
+from .backend_selection import BackendSelection, select_vulkan_backend
 from .primitives import (
     GlyphBatch, LineBatch, PointBatch, add_glyphs, add_lines, add_points,
 )
@@ -165,6 +166,8 @@ __all__ = [
     "ReferenceBackend",
     "ReferenceConfig",
     "RenderBackend",
+    "BackendSelection",
+    "select_vulkan_backend",
     "ProductRenderBackend",
     "GpuRenderBackend",
     "ObjectEffectBackend",

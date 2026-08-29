@@ -1,5 +1,29 @@
 # Renderer roadmap status
 
+## Backend parity and fallback contract
+
+- Global illumination and rasterization consume the same public scene, camera,
+  material, lighting, animation, interaction, and output abstractions whenever
+  the rendering techniques can represent the same semantics.
+- Vulkan defaults to ``backend_preference="auto"``: hardware ray-query GI is
+  preferred, while native Vulkan rasterization is the compatibility fallback
+  when no matching ray-query adapter exists. Explicit ``"gi"`` and
+  ``"raster"`` requests never silently switch renderer classes.
+- Capability discovery records the requested backend, selected backend,
+  fallback status, and reason. Initialization or shader failures are not
+  disguised as compatibility fallbacks.
+- Cross-backend visual gates cover shared raster semantics. Expected physical
+  differences—indirect illumination, traced reflection/refraction, and
+  multiple scattering—remain GI capabilities rather than raster regressions.
+- Raster remains an independently supported renderer, not only a degraded GI
+  mode. Vulkan/WebGPU raster parity and raster/GI semantic parity are both
+  maintained as native execution paths evolve.
+- Python Ordinary Shade definitions are the authoritative built-in raster
+  source. Wheel CI compiles, validates, checksums, and packages SPIR-V/WGSL;
+  installed raster fallback therefore has no runtime compiler dependency.
+  Edited source checkouts deliberately recompile rather than loading artifacts
+  whose recorded source hash is stale.
+
 ## Implemented foundation
 
 - Backend-neutral vertex/fragment programs authored with Ordinary Shade,

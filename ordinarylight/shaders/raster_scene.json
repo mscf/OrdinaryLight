@@ -1,0 +1,169 @@
+{
+  "reflection": {
+    "varyings": [
+      {
+        "builtin": null,
+        "location": 0,
+        "name": "color",
+        "type": "vec4"
+      }
+    ]
+  },
+  "schema": 1,
+  "source": "ordinarylight/raster_shaders.py",
+  "source_sha256": "85b51c1809502cfe1d730c62afee9edb5d6682c2d0941dd4215e6f74ce91f284",
+  "targets": {
+    "spirv": {
+      "fragment": {
+        "cache_key": "dcad9b92f3d6c948701ae0c3b4591e7d8f408dd70668bac069223ef769d3b265",
+        "file": "raster_scene.frag.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "outputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "result",
+              "type": "vec4"
+            }
+          ],
+          "resources": [],
+          "stage": "fragment",
+          "workgroup_size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "sha256": "778f7e219d7d50d1b95b456772d27e2cc9a60fc1919c75bb5c4555cf15acd36b"
+      },
+      "vertex": {
+        "cache_key": "394a04ddbd706ab0fd66ecf4e71de744d3ab674c82a293c8799669c160e910a6",
+        "file": "raster_scene.vert.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "position",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "outputs": [
+            {
+              "builtin": "position",
+              "location": null,
+              "name": "position",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "resources": [],
+          "stage": "vertex",
+          "workgroup_size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "sha256": "dff995857f5333da5e5e4a7b7d4a47b88ef9360728603e553b34ba8c72b36baf"
+      }
+    },
+    "wgsl": {
+      "fragment": {
+        "cache_key": "883853d83bdc166b72be66b2b3f1d644ed18622e93dc419fad08599df816dfc8",
+        "file": "raster_scene.frag.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "outputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "result",
+              "type": "vec4"
+            }
+          ],
+          "resources": [],
+          "stage": "fragment",
+          "workgroup_size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "sha256": "e965acea2828b4b688575739b49bca075f50f692a09ba345fce38c2a7f7f4e94"
+      },
+      "vertex": {
+        "cache_key": "ba0a8bc1e3e3e6310cfc5e740dbb0932f6c2a975590285c38058188248b96a8d",
+        "file": "raster_scene.vert.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "position",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "outputs": [
+            {
+              "builtin": "position",
+              "location": null,
+              "name": "position",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 0,
+              "name": "color",
+              "type": "vec4"
+            }
+          ],
+          "resources": [],
+          "stage": "vertex",
+          "workgroup_size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "sha256": "75140a23805f8c751ee519365a3a7b9fa4fc47a357639d58f0f44e3faa848de8"
+      }
+    }
+  }
+}

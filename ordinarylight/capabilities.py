@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -21,6 +21,7 @@ class RendererCapabilities:
     features: frozenset[str] = frozenset()
     limits: Mapping[str, int | float] = field(default_factory=dict)
     device: Any | None = None
+    selection: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if not isinstance(self.backend, str) or not self.backend:
@@ -36,9 +37,13 @@ class RendererCapabilities:
             raise TypeError("limit names must be non-empty strings")
         if any(not isinstance(value, (int, float)) for value in limits.values()):
             raise TypeError("limit values must be numeric")
+        selection = dict(self.selection)
+        if any(not isinstance(name, str) or not name for name in selection):
+            raise TypeError("selection names must be non-empty strings")
         object.__setattr__(self, "outputs", outputs)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "limits", MappingProxyType(limits))
+        object.__setattr__(self, "selection", MappingProxyType(selection))
 
     def supports(self, feature: str) -> bool:
         """Return whether a semantic renderer feature is available."""
@@ -65,6 +70,7 @@ class RendererCapabilities:
             "features": tuple(sorted(self.features)),
             "limits": dict(self.limits),
             "device": device_name,
+            "selection": dict(self.selection),
         }
 
 
@@ -72,6 +78,9 @@ def capabilities_from_backend(backend) -> RendererCapabilities:
     """Normalize an optional backend capability declaration."""
     declared = getattr(backend, "capabilities", None)
     if isinstance(declared, RendererCapabilities):
+        selection = getattr(backend, "backend_selection", None)
+        if selection:
+            return replace(declared, selection=selection)
         return declared
     values = dict(declared or {})
     return RendererCapabilities(
@@ -82,6 +91,9 @@ def capabilities_from_backend(backend) -> RendererCapabilities:
         features=frozenset(values.pop("features", ())),
         limits=values.pop("limits", {}),
         device=values.pop("device", getattr(backend, "device", None)),
+        selection=values.pop(
+            "selection", getattr(backend, "backend_selection", {})
+        ),
     )
 
 

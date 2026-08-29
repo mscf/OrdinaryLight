@@ -22,10 +22,11 @@ from .scene import Scene
 from .state import AccumulationState
 
 
-def _default_backend(config, config_options):
-    """Construct the optional Vulkan backend without importing it at module load."""
+def _default_backend(config, config_options, preference="auto"):
+    """Construct the preferred Vulkan backend without eager Vulkan imports."""
     try:
-        from .backends.vulkan import RendererConfig, VulkanRayTracingBackend
+        from .backend_selection import select_vulkan_backend
+        from .backends.vulkan import RendererConfig
     except ImportError as error:
         if error.name == "vulkan":
             raise RuntimeError(
@@ -33,8 +34,9 @@ def _default_backend(config, config_options):
                 "ordinarylight[vulkan], or pass an explicit backend"
             ) from error
         raise
-    return VulkanRayTracingBackend(
-        config=config or RendererConfig(**config_options)
+    resolved_config = config or RendererConfig(**config_options)
+    return select_vulkan_backend(
+        preference, config=resolved_config,
     )
 
 
@@ -232,15 +234,20 @@ class Renderer:
         *,
         config: Any | None = None,
         backend: RenderBackend | None = None,
+        backend_preference: str = "auto",
         **config_options,
     ):
         if config is not None and config_options:
             raise TypeError("pass config or renderer options, not both")
         if backend is not None and (config is not None or config_options):
             raise TypeError("a supplied backend owns its configuration")
+        if backend is not None and backend_preference != "auto":
+            raise TypeError(
+                "backend_preference cannot be used with a supplied backend"
+            )
         self._backend = (
             backend if backend is not None
-            else _default_backend(config, config_options)
+            else _default_backend(config, config_options, backend_preference)
         )
         if not callable(getattr(self._backend, "render_frame", None)):
             raise TypeError("backend must implement RenderBackend.render_frame()")
@@ -294,6 +301,11 @@ class Renderer:
     def capabilities(self):
         """Immutable semantic features, products, limits, and device details."""
         return self._capabilities
+
+    @property
+    def backend_selection(self):
+        """Explain an automatic backend choice and any compatibility fallback."""
+        return self._capabilities.selection
 
     @property
     def accumulation_state(self):

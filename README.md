@@ -85,6 +85,34 @@ private backend objects. The existing
 `VulkanRayTracingBackend` and `VulkanGlfwPresenter` remain available for
 specialized validation and direct-window applications.
 
+Vulkan backend selection is explicit and inspectable. The default `"auto"`
+preference chooses hardware ray-query global illumination when available and
+uses Vulkan rasterization as its compatibility fallback. An explicit request
+never silently changes renderer class:
+
+```python
+with ol.Renderer(backend_preference="auto") as renderer:
+    print(renderer.backend_selection)
+    # requested, selected, fallback, and a fallback reason when applicable
+
+with ol.Renderer(backend_preference="gi") as renderer:
+    ...  # fail rather than fall back if GI is unavailable
+
+with ol.Renderer(backend_preference="raster") as renderer:
+    ...
+```
+
+Release wheels contain CI-compiled SPIR-V and WGSL for the built-in raster
+program, so raster fallback does not import Ordinary Shade at runtime. Python
+shader definitions remain authoritative: a source checkout whose definitions
+are newer than its artifacts recompiles them with the companion project rather
+than silently using stale output.
+
+Raster and GI share Ordinary Light's scene-level API and are kept semantically
+equivalent where the techniques overlap. Indirect illumination, physically
+traced reflection/refraction, and multiple scattering are intentionally
+GI-specific rather than raster parity requirements.
+
 For GUI event loops, notebooks, and output pipelines, submit without blocking
 the calling thread. Submissions made through one renderer remain ordered and a
 `RenderJob` can be polled, given a completion callback, waited on, or awaited:

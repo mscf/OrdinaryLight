@@ -23,6 +23,11 @@ REQUIRED_SUFFIXES = (
     "ordinarylight/shaders/wavefront_primary.comp.spv",
     "ordinarylight/shaders/rgba_to_nv12.comp.spv",
     "ordinarylight/shaders/hdr_to_p010.comp.spv",
+    "ordinarylight/shaders/raster_scene.vert.spv",
+    "ordinarylight/shaders/raster_scene.frag.spv",
+    "ordinarylight/shaders/raster_scene.vert.wgsl",
+    "ordinarylight/shaders/raster_scene.frag.wgsl",
+    "ordinarylight/shaders/raster_scene.json",
     "ordinarylight/shaders/manifest.json",
 )
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
@@ -101,6 +104,104 @@ class RasterConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class _ArtifactStage:
+    stage: str
+    entry_point: str
+    workgroup_size: tuple[int, int, int]
+    resources: tuple[Any, ...] = ()
+    inputs: tuple[Any, ...] = ()
+    outputs: tuple[Any, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactIO:
+    name: str
+    type: str
+    location: int | None = None
+    builtin: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactReflection:
+    vertex: _ArtifactStage
+    fragment: _ArtifactStage
+    varyings: tuple[_ArtifactIO, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ArtifactShader:
+    target: str
+    source: str
+    binary: bytes | None
+    reflection: _ArtifactStage
+    cache_key: str
+
+
+def _artifact_stage(record):
+    def io(item):
+        return _ArtifactIO(
+            item["name"], item["type"], item.get("location"),
+            item.get("builtin"),
+        )
+    return _ArtifactStage(
+        record["stage"], record.get("entry_point", "main"),
+        tuple(record.get("workgroup_size", (1, 1, 1))),
+        tuple(record.get("resources", ())),
+        tuple(io(item) for item in record.get("inputs", ())),
+        tuple(io(item) for item in record.get("outputs", ())),
+    )
+
+
+def _load_scene_artifact(target):
+    root = Path(__file__).with_name("shaders")
+    manifest_path = root / "raster_scene.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    source_path = Path(__file__).with_name("raster_shaders.py")
+    if (
+        source_path.is_file()
+        and hashlib.sha256(source_path.read_bytes()).hexdigest()
+        != manifest.get("source_sha256")
+    ):
+        # A source checkout with edited Python shaders should compile those
+        # sources instead of silently loading stale packaged output.
+        return None
+    target_record = manifest.get("targets", {}).get(target)
+    if target_record is None:
+        return None
+    stages = {}
+    for name in ("vertex", "fragment"):
+        record = target_record[name]
+        artifact_path = root / record["file"]
+        payload = artifact_path.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != record["sha256"]:
+            raise RuntimeError(
+                f"built-in raster artifact checksum mismatch: {artifact_path.name}"
+            )
+        reflection = _artifact_stage(record["reflection"])
+        stages[name] = _ArtifactShader(
+            target=target,
+            source=payload.decode("utf-8") if target == "wgsl" else "",
+            binary=payload if target == "spirv" else None,
+            reflection=reflection,
+            cache_key=record["cache_key"],
+        )
+    varyings = tuple(
+        _ArtifactIO(
+            item["name"], item["type"], item.get("location"),
+            item.get("builtin"),
+        )
+        for item in manifest["reflection"]["varyings"]
+    )
+    reflection = _ArtifactReflection(
+        stages["vertex"].reflection, stages["fragment"].reflection, varyings,
+    )
+    return RasterProgram(stages["vertex"], stages["fragment"], reflection)
+
+
+@dataclass(frozen=True, slots=True)
 class RasterProgram:
     """A linked vertex/fragment pair produced by Ordinary Shade."""
 
@@ -127,6 +228,9 @@ class RasterProgram:
     @classmethod
     def scene(cls, *, target: str, validate: bool = True):
         """Compile Ordinary Light's built-in unlit scene raster program."""
+        artifact = _load_scene_artifact(target)
+        if artifact is not None:
+            return artifact
         try:
             from .raster_shaders import scene_fragment, scene_vertex
         except ImportError as error:

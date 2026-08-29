@@ -35,6 +35,14 @@ python -m tests.gates.restir_matrix --help
 tests/gates/run_4k_performance.sh
 ```
 
+Vulkan and WebGPU raster backends have a shared visual-parity gate covering
+the feature scene, direct triangle path, and volume slicing. It writes paired
+captures, difference images, and a JSON report outside the source tree:
+
+```bash
+python -m tests.gates.raster_parity
+```
+
 Resident scene/settings transitions have a dedicated gate. It verifies that
 the Vulkan device and two-frame external P010 pool survive scene replacement,
 and separately budgets startup and transition latency:

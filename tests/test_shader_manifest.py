@@ -12,6 +12,8 @@ class ShaderManifestTests(unittest.TestCase):
         self.assertFalse(report["missing_sources"])
         self.assertFalse(report["missing_outputs"])
         self.assertFalse(report["unmanaged_outputs"])
+        self.assertIn("raster_scene.vert.spv", manifest["managed_outputs"])
+        self.assertIn("raster_scene.frag.spv", manifest["managed_outputs"])
 
     def test_plan_contains_production_specializations(self):
         names = {build.name for build in build_plan()}

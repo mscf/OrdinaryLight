@@ -703,8 +703,13 @@ class VulkanRayTracingBackend:
         if device_name is not None:
             compatible = [device for device in compatible if device_name.lower() in device.name.lower()]
         if not compatible:
+            def incompatibility(device):
+                if not device.is_hardware_adapter:
+                    return "software/CPU Vulkan adapter"
+                missing = sorted(device.missing_ray_tracing_extensions)
+                return f"missing {missing}" if missing else "ray queries unavailable"
             details = "; ".join(
-                f"{device.name}: missing {sorted(device.missing_ray_tracing_extensions)}"
+                f"{device.name}: {incompatibility(device)}"
                 for device in devices
             ) or "no Vulkan devices found"
             raise RuntimeError(f"No compatible Vulkan ray-tracing adapter: {details}")
