@@ -75,7 +75,10 @@ class RasterBackendTests(unittest.TestCase):
         )
         scene = ol.Scene([source])
         camera = ol.PerspectiveCamera((0, 0, 4), (0, 0, 0))
-        mesh = ol.scene_mesh(scene, camera, 100, 100)
+        mesh = ol.scene_mesh(
+            scene, camera, 100, 100,
+            ol.RasterConfig(direct_lighting=False),
+        )
         self.assertEqual(mesh.vertices.shape, (3, 12))
         np.testing.assert_allclose(
             mesh.vertices[:, 4:7], np.tile((0.2, 0.4, 0.8), (3, 1)),

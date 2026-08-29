@@ -45,6 +45,9 @@ class VulkanGateTests(unittest.TestCase):
     def test_raster_backend_parity(self):
         self._run("tests.gates.raster_parity")
 
+    def test_raster_gi_visual_parity(self):
+        self._run("tests.gates.renderer_visual_parity")
+
     def test_volume_compositing(self):
         self._run(
             "tests.gates.volume_compositing",

@@ -58,7 +58,7 @@ class RasterState:
     """Backend-neutral fixed-function raster state."""
 
     topology: str = "triangle-list"
-    cull_mode: str = "back"
+    cull_mode: str = "none"
     front_face: str = "ccw"
     depth_test: bool = True
     depth_write: bool = True
@@ -91,6 +91,7 @@ class RasterConfig:
     temporal_weight: float = 0.9
     tone_mapping: str = "none"
     volume_slices: int = 0
+    shading_model: str = "pbr"
 
     def __post_init__(self):
         if self.ambient_light < 0.0:
@@ -101,6 +102,8 @@ class RasterConfig:
             raise ValueError("tone_mapping must be none, reinhard, or aces")
         if not 0 <= int(self.volume_slices) <= 1024:
             raise ValueError("volume_slices must be between 0 and 1024")
+        if self.shading_model not in {"pbr", "diffuse"}:
+            raise ValueError("shading_model must be pbr or diffuse")
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,10 +351,15 @@ def _shadow_visibility(scene, owner, origins, directions, maximum_distance):
     return visible
 
 
-def _vertex_lighting(scene, mesh, config):
+def _vertex_lighting(scene, mesh, camera, config):
     color = _sample_base_color(mesh, config.textures)
     if not config.direct_lighting:
         return color
+    if config.shading_model == "pbr":
+        from .lighting import evaluate_vertex_lighting
+        return evaluate_vertex_lighting(
+            scene, mesh, camera, config, _shadow_visibility,
+        )
     from ..lights import DirectionalLight, PointLight, SpotLight
     positions, normals = mesh.world_vertices, mesh.world_normals
     radiance = np.full_like(color, config.ambient_light)
@@ -390,7 +398,7 @@ def scene_mesh(scene, camera, width: int, height: int, config=None) -> RasterMes
     for mesh in scene.visible_meshes:
         world = np.column_stack((mesh.world_vertices, np.ones(len(mesh.vertices), np.float32)))
         clip = world @ matrix.T
-        color = _vertex_lighting(scene, mesh, config)
+        color = _vertex_lighting(scene, mesh, camera, config)
         object_id = np.full(len(world), float(mesh.id or 0), np.float32)
         rows.append(np.column_stack((
             clip, color, np.ones(len(world), np.float32),

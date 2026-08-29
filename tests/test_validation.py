@@ -47,6 +47,26 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "matching shapes"):
             ol.image_error_metrics(np.zeros((2, 2, 3)), np.zeros((3, 2, 3)))
 
+    def test_cross_renderer_metrics_separate_exposure_and_structure(self):
+        reference = np.zeros((8, 8, 3), np.float32)
+        reference[2:6, 2:6] = (0.8, 0.4, 0.2)
+        metrics = ol.renderer_visual_metrics(reference, reference * 0.5)
+        self.assertAlmostEqual(metrics["exposure_scale"], 2.0, places=5)
+        self.assertLess(metrics["log_color_rmse"], 1e-6)
+        self.assertGreater(metrics["edge_correlation"], 0.999)
+        self.assertGreater(metrics["coverage_iou"], 0.999)
+        shifted = ol.renderer_visual_metrics(
+            reference, np.roll(reference * 0.5, 2, axis=1),
+        )
+        self.assertLess(shifted["edge_correlation"], metrics["edge_correlation"])
+        mask = np.zeros((8, 8), bool)
+        mask[2:6, 2:6] = True
+        masked = ol.renderer_visual_metrics(
+            reference, reference * 0.5,
+            reference_mask=mask, candidate_mask=mask,
+        )
+        self.assertEqual(masked["coverage_iou"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

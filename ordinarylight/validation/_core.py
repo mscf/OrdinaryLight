@@ -261,3 +261,76 @@ def image_error_metrics(reference, candidate):
         "relative_rmse": rmse / max(scale, 1e-8),
         "max_absolute": float(np.max(np.abs(difference))),
     }
+
+
+def renderer_visual_metrics(
+    reference, candidate, *, reference_mask=None, candidate_mask=None,
+):
+    """Compare rendering techniques without demanding path-identical HDR."""
+    reference = np.asarray(reference, np.float64)[..., :3]
+    candidate = np.asarray(candidate, np.float64)[..., :3]
+    if reference.shape != candidate.shape or reference.ndim != 3:
+        raise ValueError("images must be matching HxWxRGB(A) arrays")
+    if not np.all(np.isfinite(reference)) or not np.all(np.isfinite(candidate)):
+        raise ValueError("images must contain finite values")
+    weights = np.asarray((0.2126, 0.7152, 0.0722), np.float64)
+    reference_luminance = reference @ weights
+    candidate_luminance = candidate @ weights
+    denominator = float(np.sum(candidate_luminance * candidate_luminance))
+    exposure = (
+        float(np.sum(reference_luminance * candidate_luminance)) / denominator
+        if denominator > 1e-12 else 1.0
+    )
+    exposure = float(np.clip(exposure, 1e-4, 1e4))
+    matched = np.maximum(candidate * exposure, 0.0)
+    matched_luminance = matched @ weights
+    log_difference = np.log1p(matched_luminance) - np.log1p(
+        np.maximum(reference_luminance, 0.0)
+    )
+    reference_edges = np.hypot(
+        np.diff(reference_luminance, axis=1, append=reference_luminance[:, -1:]),
+        np.diff(reference_luminance, axis=0, append=reference_luminance[-1:, :]),
+    )
+    candidate_edges = np.hypot(
+        np.diff(matched_luminance, axis=1, append=matched_luminance[:, -1:]),
+        np.diff(matched_luminance, axis=0, append=matched_luminance[-1:, :]),
+    )
+    reference_centered = reference_edges - reference_edges.mean()
+    candidate_centered = candidate_edges - candidate_edges.mean()
+    edge_denominator = float(
+        np.linalg.norm(reference_centered) * np.linalg.norm(candidate_centered)
+    )
+    edge_correlation = (
+        float(np.sum(reference_centered * candidate_centered) / edge_denominator)
+        if edge_denominator > 1e-12 else 1.0
+    )
+    if reference_mask is None:
+        reference_mask = reference_luminance > max(
+            float(np.quantile(reference_luminance, 0.05)) * 1.25, 1e-5,
+        )
+    if candidate_mask is None:
+        candidate_mask = matched_luminance > max(
+            float(np.quantile(matched_luminance, 0.05)) * 1.25, 1e-5,
+        )
+    reference_mask = np.asarray(reference_mask, bool)
+    candidate_mask = np.asarray(candidate_mask, bool)
+    if (
+        reference_mask.shape != reference.shape[:2]
+        or candidate_mask.shape != candidate.shape[:2]
+    ):
+        raise ValueError("coverage masks must match image height and width")
+    union = np.count_nonzero(reference_mask | candidate_mask)
+    coverage_iou = (
+        float(np.count_nonzero(reference_mask & candidate_mask) / union)
+        if union else 1.0
+    )
+    color_difference = (
+        np.log1p(matched) - np.log1p(np.maximum(reference, 0.0))
+    )
+    return {
+        "exposure_scale": exposure,
+        "log_luminance_rmse": float(np.sqrt(np.mean(log_difference ** 2))),
+        "log_color_rmse": float(np.sqrt(np.mean(color_difference ** 2))),
+        "edge_correlation": edge_correlation,
+        "coverage_iou": coverage_iou,
+    }

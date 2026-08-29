@@ -54,6 +54,50 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertGreater(float(lit.vertices[:3, 4:7].mean()), 0.1)
         self.assertLess(float(shadowed.vertices[:3, 4:7].mean()), 1e-5)
 
+    def test_pbr_raster_material_distinguishes_metal_and_roughness(self):
+        vertices = [[-1, -1, 0], [1, -1, 0], [0, 1, 0]]
+        indices = [[0, 1, 2]]
+        diffuse = ol.Mesh(
+            vertices, indices,
+            ol.Material(base_color=(0.8, 0.2, 0.1), roughness=1.0),
+        )
+        metal = ol.Mesh(
+            vertices, indices,
+            ol.Material(
+                base_color=(0.8, 0.2, 0.1), metallic=1.0, roughness=0.15,
+            ),
+        )
+        config = ol.RasterConfig(ambient_light=0.0, shadows=False)
+        diffuse_color = ol.scene_mesh(
+            ol.Scene([diffuse], [ol.PointLight((0, 0, 2), intensity=12)]),
+            _camera(), 64, 64, config,
+        ).vertices[:, 4:7]
+        metal_color = ol.scene_mesh(
+            ol.Scene([metal], [ol.PointLight((0, 0, 2), intensity=12)]),
+            _camera(), 64, 64, config,
+        ).vertices[:, 4:7]
+        self.assertFalse(np.allclose(diffuse_color, metal_color))
+        self.assertLess(float(metal_color[:, 1].mean()), float(diffuse_color[:, 1].mean()))
+
+    def test_pbr_raster_reads_metallic_roughness_and_emissive_textures(self):
+        pixels = np.array([[[0, 128, 255, 255]]], np.uint8)
+        emissive = np.array([[[128, 64, 32, 255]]], np.uint8)
+        material = ol.Material(
+            base_color=(0.5, 0.5, 0.5), metallic=0.5, roughness=0.5,
+            emission=(1, 1, 1),
+            metallic_roughness_texture=ol.Texture(pixels),
+            emissive_texture=ol.Texture(emissive),
+        )
+        mesh = ol.Mesh(
+            [[-1, -1, 0], [1, -1, 0], [0, 1, 0]], [[0, 1, 2]], material,
+        )
+        channels = ol.raster.material_channels(mesh)
+        np.testing.assert_allclose(channels[1], 0.5, atol=1e-6)
+        np.testing.assert_allclose(channels[2], 0.5 * 128 / 255, atol=1e-6)
+        np.testing.assert_allclose(
+            channels[3][0], np.array((128, 64, 32)) / 255, atol=1e-6,
+        )
+
     def test_temporal_history_only_accumulates_compatible_frames(self):
         config = ol.RasterConfig(temporal_history=True, temporal_weight=0.5)
         post = ol.RasterPostProcessor(config)

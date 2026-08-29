@@ -43,6 +43,23 @@ captures, difference images, and a JSON report outside the source tree:
 python -m tests.gates.raster_parity
 ```
 
+Raster/GI approximate visual parity uses a path-traced reference while
+separately measuring exposure-normalized color, edge structure, and foreground
+coverage. This intentionally does not demand numerical identity for indirect
+illumination or traced transmission:
+
+```bash
+python -m tests.gates.renderer_visual_parity
+```
+
+For interactive inspection, render the same evidence into a side-by-side Qt
+viewer. The raster half is exposure-matched and the metric summary remains
+visible above both images:
+
+```bash
+python tools/renderer_parity_viewer.py
+```
+
 Resident scene/settings transitions have a dedicated gate. It verifies that
 the Vulkan device and two-frame external P010 pool survive scene replacement,
 and separately budgets startup and transition latency:

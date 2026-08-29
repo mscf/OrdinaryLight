@@ -9,6 +9,7 @@ from .validation import (
     build_feature_parity_scene,
     feature_parity_camera,
     image_error_metrics,
+    renderer_visual_metrics,
 )
 from .scene import (
     Instance, Material, Mesh, MeshResource, Node,
@@ -202,6 +203,7 @@ __all__ = [
     "build_feature_parity_scene",
     "feature_parity_camera",
     "image_error_metrics",
+    "renderer_visual_metrics",
     "RenderSurface",
     "RasterMesh", "RasterProgram", "triangle_mesh",
     "RendererConfig",
