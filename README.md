@@ -1309,27 +1309,29 @@ submissions and avoid exhausting compositor-owned swapchain images.
 
 ### Experimental raster backends
 
-Ordinary Light now has a deliberately small backend-neutral raster contract as
-the foundation for a future scene rasterizer. `RasterProgram` links Ordinary
-Shade vertex and fragment functions, while `RasterMesh` carries the first
-portable vertex/index representation. Two offscreen implementations exercise
-the same program semantics:
+Ordinary Light has a backend-neutral raster contract. `RasterProgram` links
+Ordinary Shade vertex and fragment functions, `RasterMesh` carries typed
+interleaved vertex/index data, and `RasterState` describes topology, culling,
+depth, and blending. Two offscreen implementations exercise the same program
+semantics:
 
 - `VulkanRasterBackend` consumes SPIR-V and records a native Vulkan graphics
-  pipeline, render pass, draw, and readback.
+  pipeline, color/depth render pass, draw, and readback.
 - `WebGpuRasterBackend` consumes WGSL through the optional `wgpu` package.
 
 Install `ordinarylight[vulkan]` or `ordinarylight[webgpu]` for the respective
 runtime. Compiling Python shader functions additionally requires Ordinary
-Shade. These initial backends render clip-space `vec2` triangle meshes to RGBA8;
-scene cameras, material bindings, depth, textures, and presentation are the
-next layer rather than implicit behavior in this minimal milestone.
+Shade. Both backends implement the standard `RenderBackend` contract and can
+render existing `Scene` meshes, instances, materials, and object transforms
+through perspective and orthographic cameras. Panoramic cameras require a
+later non-linear projection pass.
 
 ```python
-program = ol.RasterProgram.compile(vertex_shader, fragment_shader, target="wgsl")
-backend = ol.WebGpuRasterBackend(program)
-rgba = backend.render(ol.triangle_mesh(), 640, 480)
-backend.close()
+program = ol.RasterProgram.scene(target="wgsl")
+backend = ol.WebGpuRasterBackend(program, state=ol.RasterState(cull_mode="back"))
+renderer = ol.Renderer(backend=backend)
+rgba = renderer.render(scene, camera, (640, 480))
+renderer.close()
 ```
 
 The current GPU slice builds BLAS/TLAS acceleration structures, reads

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..capabilities import RendererCapabilities
-from ..raster import RasterMesh
+from ..raster import RasterMesh, RasterState, scene_mesh
 
 
 class VulkanRasterBackend:
@@ -17,7 +17,7 @@ class VulkanRasterBackend:
     coupling it to the path tracer.
     """
 
-    def __init__(self, program, *, device_name=None):
+    def __init__(self, program, *, state=None, device_name=None):
         try:
             import vulkan as vk
         except ImportError as error:
@@ -28,6 +28,9 @@ class VulkanRasterBackend:
             raise ValueError("VulkanRasterBackend requires a SPIR-V RasterProgram")
         self.vk = vk
         self.program = program
+        self.config = self.state = state or RasterState()
+        self.available_outputs = ("color",)
+        self.last_timings = {}
         app = vk.VkApplicationInfo(
             sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             pApplicationName="Ordinary Light Raster", applicationVersion=1,
@@ -74,7 +77,7 @@ class VulkanRasterBackend:
             queueFamilyIndex=self.queue_family,
         ), None)
         self.capabilities = RendererCapabilities(
-            backend="vulkan-raster", features=frozenset({"raster", "offscreen"}),
+            backend="vulkan-raster", features=frozenset({"raster", "offscreen", "depth"}),
             device=name,
         )
         self._closed = False
@@ -145,6 +148,42 @@ class VulkanRasterBackend:
                 baseArrayLayer=0, layerCount=1,
             ),
         ), None))
+        depth_view = None
+        if self.state.depth_test:
+            depth_image = remember("image", vk.vkCreateImage(self.device, vk.VkImageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                imageType=vk.VK_IMAGE_TYPE_2D, format=vk.VK_FORMAT_D32_SFLOAT,
+                extent=vk.VkExtent3D(width=width, height=height, depth=1),
+                mipLevels=1, arrayLayers=1, samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
+                usage=vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            ), None))
+            depth_req = vk.vkGetImageMemoryRequirements(self.device, depth_image)
+            depth_memory = remember("memory", vk.vkAllocateMemory(
+                self.device, vk.VkMemoryAllocateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                    allocationSize=depth_req.size,
+                    memoryTypeIndex=self._memory_type(
+                        depth_req.memoryTypeBits,
+                        vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    ),
+                ), None,
+            ))
+            vk.vkBindImageMemory(self.device, depth_image, depth_memory, 0)
+            depth_view = remember("image_view", vk.vkCreateImageView(
+                self.device, vk.VkImageViewCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                    image=depth_image, viewType=vk.VK_IMAGE_VIEW_TYPE_2D,
+                    format=vk.VK_FORMAT_D32_SFLOAT,
+                    subresourceRange=vk.VkImageSubresourceRange(
+                        aspectMask=vk.VK_IMAGE_ASPECT_DEPTH_BIT,
+                        baseMipLevel=0, levelCount=1,
+                        baseArrayLayer=0, layerCount=1,
+                    ),
+                ), None,
+            ))
         attachment = vk.VkAttachmentDescription(
             format=vk.VK_FORMAT_R8G8B8A8_UNORM, samples=vk.VK_SAMPLE_COUNT_1_BIT,
             loadOp=vk.VK_ATTACHMENT_LOAD_OP_CLEAR, storeOp=vk.VK_ATTACHMENT_STORE_OP_STORE,
@@ -154,12 +193,30 @@ class VulkanRasterBackend:
             finalLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         )
         color_ref = vk.VkAttachmentReference(attachment=0, layout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        attachments = [attachment]
+        depth_ref = None
+        if depth_view is not None:
+            attachments.append(vk.VkAttachmentDescription(
+                format=vk.VK_FORMAT_D32_SFLOAT,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                loadOp=vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                storeOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                stencilLoadOp=vk.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                stencilStoreOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+                finalLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ))
+            depth_ref = vk.VkAttachmentReference(
+                attachment=1,
+                layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            )
         render_pass = remember("render_pass", vk.vkCreateRenderPass(self.device, vk.VkRenderPassCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-            attachmentCount=1, pAttachments=[attachment], subpassCount=1,
+            attachmentCount=len(attachments), pAttachments=attachments, subpassCount=1,
             pSubpasses=[vk.VkSubpassDescription(
                 pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
                 colorAttachmentCount=1, pColorAttachments=[color_ref],
+                pDepthStencilAttachment=depth_ref,
             )],
             dependencyCount=1, pDependencies=[vk.VkSubpassDependency(
                 srcSubpass=0, dstSubpass=vk.VK_SUBPASS_EXTERNAL,
@@ -171,7 +228,9 @@ class VulkanRasterBackend:
         ), None))
         framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(self.device, vk.VkFramebufferCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            renderPass=render_pass, attachmentCount=1, pAttachments=[view],
+            renderPass=render_pass,
+            attachmentCount=2 if depth_view is not None else 1,
+            pAttachments=[view, depth_view] if depth_view is not None else [view],
             width=width, height=height, layers=1,
         ), None))
         vertex_module = remember("shader", self._shader(self.program.vertex.binary))
@@ -187,6 +246,16 @@ class VulkanRasterBackend:
                 sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT, module=fragment_module, pName="main"),
         ]
+        formats = {
+            "float32": vk.VK_FORMAT_R32_SFLOAT,
+            "float32x2": vk.VK_FORMAT_R32G32_SFLOAT,
+            "float32x3": vk.VK_FORMAT_R32G32B32_SFLOAT,
+            "float32x4": vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+        }
+        topologies = {"triangle-list": vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, "triangle-strip": vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, "line-list": vk.VK_PRIMITIVE_TOPOLOGY_LINE_LIST}
+        cull_modes = {"none": vk.VK_CULL_MODE_NONE, "front": vk.VK_CULL_MODE_FRONT_BIT, "back": vk.VK_CULL_MODE_BACK_BIT}
+        front_faces = {"cw": vk.VK_FRONT_FACE_CLOCKWISE, "ccw": vk.VK_FRONT_FACE_COUNTER_CLOCKWISE}
+        compares = {"never": vk.VK_COMPARE_OP_NEVER, "less": vk.VK_COMPARE_OP_LESS, "less-equal": vk.VK_COMPARE_OP_LESS_OR_EQUAL, "always": vk.VK_COMPARE_OP_ALWAYS}
         pipeline = remember("pipeline", vk.vkCreateGraphicsPipelines(
             self.device, vk.VK_NULL_HANDLE, 1, [vk.VkGraphicsPipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -194,13 +263,13 @@ class VulkanRasterBackend:
                 pVertexInputState=vk.VkPipelineVertexInputStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                     vertexBindingDescriptionCount=1,
-                    pVertexBindingDescriptions=[vk.VkVertexInputBindingDescription(binding=0, stride=8, inputRate=vk.VK_VERTEX_INPUT_RATE_VERTEX)],
-                    vertexAttributeDescriptionCount=1,
-                    pVertexAttributeDescriptions=[vk.VkVertexInputAttributeDescription(location=0, binding=0, format=vk.VK_FORMAT_R32G32_SFLOAT, offset=0)],
+                    pVertexBindingDescriptions=[vk.VkVertexInputBindingDescription(binding=0, stride=mesh.layout.stride, inputRate=vk.VK_VERTEX_INPUT_RATE_VERTEX)],
+                    vertexAttributeDescriptionCount=len(mesh.layout.attributes),
+                    pVertexAttributeDescriptions=[vk.VkVertexInputAttributeDescription(location=item.location, binding=0, format=formats[item.format], offset=item.offset) for item in mesh.layout.attributes],
                 ),
                 pInputAssemblyState=vk.VkPipelineInputAssemblyStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-                    topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
+                    topology=topologies[self.state.topology]),
                 pViewportState=vk.VkPipelineViewportStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
                     # Vulkan's framebuffer Y convention differs from WebGPU's.
@@ -210,15 +279,28 @@ class VulkanRasterBackend:
                     scissorCount=1, pScissors=[vk.VkRect2D(offset=vk.VkOffset2D(x=0, y=0), extent=vk.VkExtent2D(width=width, height=height))]),
                 pRasterizationState=vk.VkPipelineRasterizationStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-                    polygonMode=vk.VK_POLYGON_MODE_FILL, cullMode=vk.VK_CULL_MODE_NONE,
-                    frontFace=vk.VK_FRONT_FACE_COUNTER_CLOCKWISE, lineWidth=1.0),
+                    polygonMode=vk.VK_POLYGON_MODE_FILL, cullMode=cull_modes[self.state.cull_mode],
+                    frontFace=front_faces[self.state.front_face], lineWidth=1.0),
                 pMultisampleState=vk.VkPipelineMultisampleStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
                     rasterizationSamples=vk.VK_SAMPLE_COUNT_1_BIT),
+                pDepthStencilState=vk.VkPipelineDepthStencilStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                    depthTestEnable=vk.VK_TRUE if self.state.depth_test else vk.VK_FALSE,
+                    depthWriteEnable=vk.VK_TRUE if self.state.depth_write else vk.VK_FALSE,
+                    depthCompareOp=compares[self.state.depth_compare],
+                ),
                 pColorBlendState=vk.VkPipelineColorBlendStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
                     attachmentCount=1, pAttachments=[vk.VkPipelineColorBlendAttachmentState(
-                        blendEnable=vk.VK_FALSE, colorWriteMask=0xF)]),
+                        blendEnable=vk.VK_FALSE if self.state.blend_mode == "opaque" else vk.VK_TRUE,
+                        srcColorBlendFactor=(vk.VK_BLEND_FACTOR_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
+                        dstColorBlendFactor=(vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
+                        colorBlendOp=vk.VK_BLEND_OP_ADD,
+                        srcAlphaBlendFactor=vk.VK_BLEND_FACTOR_ONE,
+                        dstAlphaBlendFactor=(vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
+                        alphaBlendOp=vk.VK_BLEND_OP_ADD,
+                        colorWriteMask=0xF)]),
                 layout=layout, renderPass=render_pass, subpass=0,
             )], None)[0])
         host = vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -240,7 +322,13 @@ class VulkanRasterBackend:
             sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             renderPass=render_pass, framebuffer=framebuffer,
             renderArea=vk.VkRect2D(offset=vk.VkOffset2D(x=0, y=0), extent=vk.VkExtent2D(width=width, height=height)),
-            clearValueCount=1, pClearValues=[vk.VkClearValue(color=vk.VkClearColorValue(float32=[0.04, 0.06, 0.1, 1.0]))],
+            clearValueCount=2 if depth_view is not None else 1,
+            pClearValues=(
+                [vk.VkClearValue(color=vk.VkClearColorValue(float32=[0.04, 0.06, 0.1, 1.0])),
+                 vk.VkClearValue(depthStencil=vk.VkClearDepthStencilValue(depth=1.0, stencil=0))]
+                if depth_view is not None else
+                [vk.VkClearValue(color=vk.VkClearColorValue(float32=[0.04, 0.06, 0.1, 1.0]))]
+            ),
         ), vk.VK_SUBPASS_CONTENTS_INLINE)
         vk.vkCmdBindPipeline(command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
         vk.vkCmdBindVertexBuffers(command, 0, 1, [vertex_buffer], [0])
@@ -312,6 +400,13 @@ class VulkanRasterBackend:
         for kind, handle in reversed(resources):
             destroy[kind](self.device, handle, None)
         return result
+
+    def render_frame(self, scene, camera, width, height, *, samples=None, frame_index=0):
+        import time
+        started = time.perf_counter()
+        image = self.render(scene_mesh(scene, camera, width, height), width, height)
+        self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
+        return image.astype(np.float32) / 255.0
 
     def close(self):
         if self._closed:

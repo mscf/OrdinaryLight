@@ -20,7 +20,10 @@ from . import cameras, lights
 from .cameras import Camera, OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from .surface import ArraySurface, RenderSurface
-from .raster import RasterMesh, RasterProgram, triangle_mesh
+from .raster import (
+    RasterMesh, RasterProgram, RasterState, RasterVertexAttribute,
+    RasterVertexLayout, camera_matrix, scene_mesh, triangle_mesh,
+)
 from . import loaders
 from .loaders import load_gltf
 from .pipeline import RenderPipeline, RenderStage
@@ -123,6 +126,13 @@ def __getattr__(name):
 
 __all__ = [
     "Material",
+    "RasterMesh",
+    "RasterProgram",
+    "RasterState",
+    "RasterVertexAttribute",
+    "RasterVertexLayout",
+    "camera_matrix",
+    "scene_mesh",
     "AnimationClip",
     "AnimationPlayer",
     "AnimationTrack",
