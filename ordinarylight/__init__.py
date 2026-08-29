@@ -18,14 +18,18 @@ from .scene import (
     TextureTransform,
 )
 from . import cameras, lights
-from .cameras import Camera, OrthographicCamera, PanoramicCamera, PerspectiveCamera
+from .cameras import (
+    ArcballCameraController, Camera, OrthographicCamera, PanoramicCamera,
+    PerspectiveCamera,
+)
 from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from .surface import ArraySurface, RenderSurface
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
     RasterVertexAttribute, RasterVertexLayout, camera_matrix,
     create_raster_pipeline, rasterize_geometry_products, scene_mesh,
-    triangle_mesh,
+    triangle_mesh, CAMERA_DTYPE, DRAW_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE,
+    RasterGpuScene, pack_raster_gpu_scene, ShadowMapRequest, plan_shadow_maps,
 )
 from . import loaders
 from .loaders import load_gltf
@@ -189,6 +193,7 @@ __all__ = [
     "add_points",
     "add_lines",
     "PerspectiveCamera",
+    "ArcballCameraController",
     "Camera",
     "OrthographicCamera",
     "PanoramicCamera",
@@ -206,6 +211,8 @@ __all__ = [
     "renderer_visual_metrics",
     "RenderSurface",
     "RasterMesh", "RasterProgram", "triangle_mesh",
+    "CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
+    "RasterGpuScene", "pack_raster_gpu_scene", "ShadowMapRequest", "plan_shadow_maps",
     "RendererConfig",
     "Renderer",
     "RenderFrame",

@@ -15,7 +15,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import ordinaryshade as osh
-from ordinarylight.shaders.raster_programs import scene_fragment, scene_vertex
+from ordinarylight.shaders.raster_programs import (
+    scene_fragment, scene_vertex, shadow_fragment, shadow_vertex,
+)
 
 
 OUTPUT = ROOT / "ordinarylight" / "shaders"
@@ -25,7 +27,7 @@ def _digest(payload):
     return hashlib.sha256(payload).hexdigest()
 
 
-def _compile(target):
+def _compile(target, vertex_program, fragment_program):
     options = {"target": target, "validate": True}
     if target == "spirv":
         from ordinarylight.shaders.compiler import find_glsl_compiler
@@ -33,8 +35,8 @@ def _compile(target):
         compiler = find_glsl_compiler()
         if compiler is not None:
             options["spirv_compiler"] = compiler
-    vertex = osh.compile(scene_vertex, **options)
-    fragment = osh.compile(scene_fragment, **options)
+    vertex = osh.compile(vertex_program, **options)
+    fragment = osh.compile(fragment_program, **options)
     reflection = osh.link_graphics(vertex, fragment)
     return vertex, fragment, reflection
 
@@ -51,7 +53,9 @@ def build_artifacts():
     files = {}
     linked_reflection = None
     for target in ("spirv", "wgsl"):
-        vertex, fragment, reflection = _compile(target)
+        vertex, fragment, reflection = _compile(
+            target, scene_vertex, scene_fragment,
+        )
         linked_reflection = reflection
         records = {}
         for name, shader, suffix in (
@@ -73,6 +77,37 @@ def build_artifacts():
                 "reflection": asdict(shader.reflection),
             }
         manifest["targets"][target] = records
+        shadow_vertex_result, shadow_fragment_result, shadow_reflection = _compile(
+            target, shadow_vertex, shadow_fragment,
+        )
+        shadow_records = {}
+        for name, shader, suffix in (
+            ("vertex", shadow_vertex_result, "vert"),
+            ("fragment", shadow_fragment_result, "frag"),
+        ):
+            filename = (
+                f"raster_shadow.{suffix}.spv" if target == "spirv"
+                else f"raster_shadow.{suffix}.wgsl"
+            )
+            payload = (
+                bytes(shader.binary) if target == "spirv"
+                else shader.source.encode("utf-8")
+            )
+            files[filename] = payload
+            shadow_records[name] = {
+                "file": filename,
+                "sha256": _digest(payload),
+                "cache_key": shader.cache_key,
+                "reflection": asdict(shader.reflection),
+            }
+        manifest.setdefault("programs", {})[target] = {
+            "shadow": shadow_records,
+        }
+        manifest.setdefault("program_reflection", {})[target] = {
+            "shadow": {
+                "varyings": [asdict(item) for item in shadow_reflection.varyings],
+            },
+        }
     manifest["reflection"] = {
         "varyings": [asdict(item) for item in linked_reflection.varyings],
     }

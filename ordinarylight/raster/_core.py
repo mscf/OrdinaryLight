@@ -92,6 +92,9 @@ class RasterConfig:
     tone_mapping: str = "none"
     volume_slices: int = 0
     shading_model: str = "pbr"
+    shadow_map_size: int = 256
+    shadow_cull_mode: str = "none"
+    shadow_normal_bias: float = 1.5
 
     def __post_init__(self):
         if self.ambient_light < 0.0:
@@ -104,6 +107,12 @@ class RasterConfig:
             raise ValueError("volume_slices must be between 0 and 1024")
         if self.shading_model not in {"pbr", "diffuse"}:
             raise ValueError("shading_model must be pbr or diffuse")
+        if not 32 <= int(self.shadow_map_size) <= 8192:
+            raise ValueError("shadow_map_size must be between 32 and 8192")
+        if self.shadow_cull_mode not in {"none", "front", "back"}:
+            raise ValueError("shadow_cull_mode must be none, front, or back")
+        if not np.isfinite(self.shadow_normal_bias) or self.shadow_normal_bias < 0.0:
+            raise ValueError("shadow_normal_bias must be a finite non-negative texel count")
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +213,53 @@ def _load_scene_artifact(target):
     return RasterProgram(stages["vertex"], stages["fragment"], reflection)
 
 
+def _load_shadow_artifact(target):
+    root = Path(__file__).resolve().parents[1] / "shaders"
+    manifest_path = root / "raster_scene.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    source_path = root / "raster_programs.py"
+    if (
+        source_path.is_file()
+        and hashlib.sha256(source_path.read_bytes()).hexdigest()
+        != manifest.get("source_sha256")
+    ):
+        return None
+    records = manifest.get("programs", {}).get(target, {}).get("shadow")
+    if records is None:
+        return None
+    stages = {}
+    for name in ("vertex", "fragment"):
+        record = records[name]
+        artifact_path = root / record["file"]
+        payload = artifact_path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != record["sha256"]:
+            raise RuntimeError(
+                f"built-in raster artifact checksum mismatch: {artifact_path.name}"
+            )
+        stages[name] = _ArtifactShader(
+            target=target,
+            source=payload.decode("utf-8") if target == "wgsl" else "",
+            binary=payload if target == "spirv" else None,
+            reflection=_artifact_stage(record["reflection"]),
+            cache_key=record["cache_key"],
+        )
+    varying_records = manifest.get("program_reflection", {}).get(
+        target, {},
+    ).get("shadow", {}).get("varyings", ())
+    varyings = tuple(
+        _ArtifactIO(
+            item["name"], item["type"], item.get("location"),
+            item.get("builtin"),
+        ) for item in varying_records
+    )
+    reflection = _ArtifactReflection(
+        stages["vertex"].reflection, stages["fragment"].reflection, varyings,
+    )
+    return RasterProgram(stages["vertex"], stages["fragment"], reflection)
+
+
 @dataclass(frozen=True, slots=True)
 class RasterProgram:
     """A linked vertex/fragment pair produced by Ordinary Shade."""
@@ -242,6 +298,22 @@ class RasterProgram:
             ) from error
         return cls.compile(scene_vertex, scene_fragment, target=target, validate=validate)
 
+    @classmethod
+    def shadow(cls, *, target: str, validate: bool = True):
+        """Load the built-in depth-producing shadow raster program."""
+        artifact = _load_shadow_artifact(target)
+        if artifact is not None:
+            return artifact
+        try:
+            from ..shaders.raster_programs import shadow_fragment, shadow_vertex
+        except ImportError as error:
+            raise RuntimeError(
+                "built-in raster shaders require the ordinaryshade package"
+            ) from error
+        return cls.compile(
+            shadow_vertex, shadow_fragment, target=target, validate=validate,
+        )
+
     @property
     def cache_key(self) -> str:
         return f"{self.vertex.cache_key}:{self.fragment.cache_key}"
@@ -254,6 +326,7 @@ class RasterMesh:
     vertices: np.ndarray
     indices: np.ndarray | None = None
     layout: RasterVertexLayout | None = None
+    resources: dict[str, Any] | None = None
 
     def __post_init__(self):
         vertices = np.ascontiguousarray(self.vertices, dtype=np.float32)
@@ -271,6 +344,157 @@ class RasterMesh:
         object.__setattr__(self, "vertices", vertices)
         object.__setattr__(self, "indices", indices)
         object.__setattr__(self, "layout", layout)
+        object.__setattr__(self, "resources", dict(self.resources or {}))
+
+
+def _base_color_atlas(scene, enabled=True, shadow_depth=None):
+    """Pack base-color images into one portable RGBA8 atlas."""
+    textures = []
+    lookup = {}
+    for mesh in scene.visible_meshes:
+        texture = mesh.material.base_color_texture if enabled else None
+        if texture is not None and id(texture) not in lookup:
+            lookup[id(texture)] = len(textures)
+            textures.append(texture)
+    color_height = max((item.pixels.shape[0] for item in textures), default=1)
+    shadow_height = 0 if shadow_depth is None else shadow_depth.shape[0]
+    shadow_width = 0 if shadow_depth is None else shadow_depth.shape[1]
+    height = color_height + shadow_height
+    width = max(1 + sum(item.pixels.shape[1] for item in textures), shadow_width)
+    atlas = np.full((height, width, 4), 255, np.uint8)
+    rectangles = {}
+    x = 1
+    for texture in textures:
+        image = texture.pixels
+        h, w = image.shape[:2]
+        atlas[:h, x:x + w] = image
+        rectangles[id(texture)] = (x, 0, w, h, width, height)
+        x += w
+    shadow_rectangle = None
+    if shadow_depth is not None:
+        y = color_height
+        atlas[y:y + shadow_height, :shadow_width, :3] = 255
+        encoded_depth = np.power(
+            np.clip(1.0 - shadow_depth, 0.0, 1.0), 0.25,
+        )
+        atlas[y:y + shadow_height, :shadow_width, 3] = np.rint(
+            encoded_depth * 255.0
+        ).astype(np.uint8)
+        shadow_rectangle = (
+            0, y, shadow_width, shadow_height, width, height,
+        )
+    return atlas, rectangles, shadow_rectangle
+
+
+def _rasterize_shadow_depth(scene, matrix, size):
+    depth = np.ones((size, size), np.float32)
+    for mesh in scene.visible_meshes:
+        if not len(mesh.indices):
+            continue
+        world = np.column_stack((
+            mesh.world_vertices,
+            np.ones(len(mesh.world_vertices), np.float32),
+        ))
+        clip = world @ matrix.T
+        ndc = clip[:, :3] / np.maximum(np.abs(clip[:, 3:4]), 1e-8)
+        screen = np.column_stack((
+            (ndc[:, 0] * 0.5 + 0.5) * size,
+            (1.0 - (ndc[:, 1] * 0.5 + 0.5)) * size,
+        ))
+        for triangle in mesh.indices:
+            points = screen[triangle]
+            minimum = np.maximum(np.floor(points.min(axis=0)).astype(int), 0)
+            maximum = np.minimum(np.ceil(points.max(axis=0)).astype(int), size - 1)
+            if np.any(maximum < minimum):
+                continue
+            edge1, edge2 = points[1] - points[0], points[2] - points[0]
+            area = edge1[0] * edge2[1] - edge1[1] * edge2[0]
+            if abs(float(area)) < 1e-8:
+                continue
+            xs = np.arange(minimum[0], maximum[0] + 1, dtype=np.float32) + 0.5
+            ys = np.arange(minimum[1], maximum[1] + 1, dtype=np.float32) + 0.5
+            gx, gy = np.meshgrid(xs, ys)
+            px, py = gx - points[0, 0], gy - points[0, 1]
+            w1 = (px * edge2[1] - py * edge2[0]) / area
+            w2 = (edge1[0] * py - edge1[1] * px) / area
+            w0 = 1.0 - w1 - w2
+            inside = (w0 >= 0.0) & (w1 >= 0.0) & (w2 >= 0.0)
+            values = (
+                w0 * ndc[triangle[0], 2]
+                + w1 * ndc[triangle[1], 2]
+                + w2 * ndc[triangle[2], 2]
+            )
+            target = depth[minimum[1]:maximum[1] + 1, minimum[0]:maximum[0] + 1]
+            np.minimum(target, np.where(inside, values, 1.0), out=target)
+    return depth
+
+
+def _shadow_atlas_coordinates(world, matrix, rectangle):
+    clip = world @ matrix.T
+    x, y, width, height, atlas_width, atlas_height = rectangle
+    # Preserve homogeneous light-space coordinates through camera-space
+    # rasterization.  Dividing here would make the already-projected values
+    # undergo perspective interpolation a second time, producing view-dependent
+    # sawtooth self-shadowing along shared edges.
+    u_offset = (x + 0.5 + 0.5 * max(width - 1, 0)) / atlas_width
+    u_scale = 0.5 * max(width - 1, 0) / atlas_width
+    v_offset = (y + 0.5 + 0.5 * max(height - 1, 0)) / atlas_height
+    v_scale = 0.5 * max(height - 1, 0) / atlas_height
+    return np.column_stack((
+        u_offset * clip[:, 3] + u_scale * clip[:, 0],
+        v_offset * clip[:, 3] - v_scale * clip[:, 1],
+        clip[:, 2],
+        clip[:, 3],
+    )).astype(np.float32, copy=False)
+
+
+def _shadow_geometry(scene, matrix):
+    rows, indices, base = [], [], 0
+    for mesh in scene.visible_meshes:
+        world = np.column_stack((
+            mesh.world_vertices,
+            np.ones(len(mesh.world_vertices), np.float32),
+        ))
+        rows.append(world @ matrix.T)
+        indices.append(mesh.indices.reshape(-1) + base)
+        base += len(world)
+    vertices = (
+        np.ascontiguousarray(np.concatenate(rows), dtype=np.float32)
+        if rows else np.empty((0, 4), np.float32)
+    )
+    index_data = (
+        np.ascontiguousarray(np.concatenate(indices), dtype=np.uint32)
+        if indices else np.empty(0, np.uint32)
+    )
+    return vertices, index_data
+
+
+def _atlas_uv(mesh, rectangles, atlas_shape, enabled=True):
+    atlas_height, atlas_width = atlas_shape[:2]
+    texture = mesh.material.base_color_texture if enabled else None
+    if texture is None:
+        return np.broadcast_to(
+            (0.5 / atlas_width, 0.5 / atlas_height),
+            (len(mesh.vertices), 2),
+        ).copy()
+    transform = mesh.material.base_color_transform
+    uv = np.array(
+        mesh.texcoords if transform.texcoord_set == 0 else mesh.texcoords1,
+        np.float32, copy=True,
+    )
+    cosine, sine = np.cos(transform.rotation), np.sin(transform.rotation)
+    uv *= np.asarray(transform.scale, np.float32)
+    uv = uv @ np.array(((cosine, sine), (-sine, cosine)), np.float32)
+    uv += np.asarray(transform.offset, np.float32)
+    for axis, mode in enumerate((texture.wrap_s, texture.wrap_t)):
+        if mode == "repeat": uv[:, axis] %= 1.0
+        elif mode == "mirror": uv[:, axis] = 1.0 - np.abs((uv[:, axis] % 2.0) - 1.0)
+        else: uv[:, axis] = np.clip(uv[:, axis], 0.0, 1.0)
+    x, y, w, h, atlas_width, atlas_height = rectangles[id(texture)]
+    return np.column_stack((
+        (x + 0.5 + uv[:, 0] * max(w - 1, 0)) / atlas_width,
+        (y + 0.5 + (1.0 - uv[:, 1]) * max(h - 1, 0)) / atlas_height,
+    ))
 
 
 def camera_matrix(camera, width: int, height: int) -> np.ndarray:
@@ -390,19 +614,111 @@ def _vertex_lighting(scene, mesh, camera, config):
     return color * radiance + np.asarray(mesh.material.emission, np.float32)
 
 
-def scene_mesh(scene, camera, width: int, height: int, config=None) -> RasterMesh:
-    """Flatten visible scene meshes into position/color clip-space draw data."""
+def scene_mesh(
+    scene, camera, width: int, height: int, config=None, *,
+    native_shadow_maps=False, prepared_resources=None, gpu_camera=False,
+) -> RasterMesh:
+    """Flatten visible meshes into the shared per-fragment raster ABI."""
     config = config or RasterConfig()
     matrix = camera_matrix(camera, width, height)
     rows, indices, base = [], [], 0
+    from .lighting import material_channels
+    if prepared_resources is None:
+        prepared_resources = prepare_scene_mesh_resources(
+            scene, config, native_shadow_maps=native_shadow_maps,
+        )
+    shadow_request = prepared_resources["shadow_request"]
+    atlas = prepared_resources["base_color_atlas"]
+    atlas_rectangles = prepared_resources["atlas_rectangles"]
+    shadow_rectangle = prepared_resources["shadow_rectangle"]
+
+    light_position_type = np.zeros(4, np.float32)
+    light_color = np.zeros(3, np.float32)
+    from ..lights import DirectionalLight
+    if scene.lights:
+        light = scene.lights[0]
+        if isinstance(light, DirectionalLight):
+            light_position_type = np.asarray((*light.direction, 1.0), np.float32)
+        else:
+            light_position_type = np.asarray((*light.position, 0.0), np.float32)
+        light_color = np.asarray(light.color, np.float32) * float(light.intensity)
+    else:
+        for emitter in scene.visible_meshes:
+            if not np.any(emitter.material.emission) or not len(emitter.indices):
+                continue
+            triangles = emitter.world_vertices[emitter.indices]
+            cross = np.cross(
+                triangles[:, 1] - triangles[:, 0],
+                triangles[:, 2] - triangles[:, 0],
+            )
+            areas = np.linalg.norm(cross, axis=1) * 0.5
+            area = float(np.sum(areas))
+            if area > 1e-8:
+                center = np.average(
+                    triangles.mean(axis=1), axis=0, weights=areas,
+                )
+                light_position_type = np.asarray((*center, 0.0), np.float32)
+                light_color = (
+                    np.asarray(emitter.material.emission, np.float32) * area
+                )
+            break
+    camera_position = np.asarray(camera.position, np.float32)
+    light_color_ambient = np.asarray(
+        (*light_color, config.ambient_light), np.float32,
+    )
+    if not config.direct_lighting:
+        light_color_ambient[:3] = 0.0
     for mesh in scene.visible_meshes:
         world = np.column_stack((mesh.world_vertices, np.ones(len(mesh.vertices), np.float32)))
-        clip = world @ matrix.T
-        color = _vertex_lighting(scene, mesh, camera, config)
+        clip = world if gpu_camera else world @ matrix.T
+        (
+            color, metallic, roughness, emission, transmission, occlusion,
+        ) = material_channels(mesh, False)
+        atlas_uv = _atlas_uv(
+            mesh, atlas_rectangles, atlas.shape, config.textures,
+        )
+        if shadow_request is not None:
+            shadow_world = world.copy()
+            shadow_world[:, :3] += (
+                mesh.world_normals * float(shadow_request.normal_bias)
+            )
+            shadow_coordinate = _shadow_atlas_coordinates(
+                shadow_world, shadow_request.view_projection, shadow_rectangle,
+            )
+        else:
+            shadow_coordinate = np.zeros((len(world), 4), np.float32)
+        if config.shading_model == "diffuse":
+            color = _vertex_lighting(scene, mesh, camera, config)
+            metallic.fill(0.0); roughness.fill(1.0); transmission.fill(0.0)
+            emission.fill(0.0)
+        shadow_visibility = np.ones(len(world), np.float32)
+        if config.shadows and shadow_request is None and np.any(light_color):
+            if light_position_type[3] > 0.5:
+                direction = -light_position_type[:3]
+                direction /= max(float(np.linalg.norm(direction)), 1e-8)
+                incoming = np.broadcast_to(direction, (len(world), 3))
+                limit = np.full(len(world), np.inf, np.float32)
+            else:
+                delta = light_position_type[:3] - mesh.world_vertices
+                limit = np.linalg.norm(delta, axis=1)
+                incoming = delta / np.maximum(limit[:, None], 1e-8)
+            shadow_visibility = _shadow_visibility(
+                scene, mesh, mesh.world_vertices, incoming, limit,
+            )
         object_id = np.full(len(world), float(mesh.id or 0), np.float32)
         rows.append(np.column_stack((
-            clip, color, np.ones(len(world), np.float32),
-            mesh.world_normals, object_id,
+            clip, color, mesh.world_normals, mesh.world_vertices,
+            metallic, roughness, transmission, np.ones(len(world), np.float32), emission,
+            np.broadcast_to(
+                np.zeros(3, np.float32) if gpu_camera else camera_position,
+                (len(world), 3),
+            ),
+            np.broadcast_to(light_position_type, (len(world), 4)),
+            np.broadcast_to(light_color_ambient, (len(world), 4)),
+            atlas_uv,
+            shadow_coordinate,
+            shadow_visibility,
+            object_id,
         )))
         indices.append(mesh.indices.reshape(-1) + base)
         base += len(world)
@@ -442,18 +758,93 @@ def scene_mesh(scene, camera, width: int, height: int, config=None) -> RasterMes
                 clip = world @ matrix.T
                 normal = np.zeros((len(local), 3), np.float32)
                 object_id = np.full(len(local), float(volume.id or 0), np.float32)
-                rows.append(np.column_stack((clip, rgba, normal, object_id)))
+                rows.append(np.column_stack((
+                    clip, rgba[:, :3], normal, world[:, :3],
+                    np.zeros(len(local), np.float32),
+                    np.ones(len(local), np.float32),
+                    np.zeros(len(local), np.float32),
+                    rgba[:, 3], rgba[:, :3],
+                    np.broadcast_to(camera_position, (len(local), 3)),
+                    np.zeros((len(local), 4), np.float32),
+                    np.column_stack((
+                        np.zeros((len(local), 3), np.float32),
+                        np.ones(len(local), np.float32),
+                    )),
+                    np.zeros((len(local), 2), np.float32),
+                    np.zeros((len(local), 4), np.float32),
+                    np.ones(len(local), np.float32),
+                    object_id,
+                )))
                 indices.append(base_indices + base)
                 base += len(local)
-    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 12), np.float32)
+    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 39), np.float32)
     index_data = np.concatenate(indices).astype(np.uint32) if indices else np.empty(0, np.uint32)
-    layout = RasterVertexLayout(48, (
+    layout = RasterVertexLayout(156, (
         RasterVertexAttribute(0, "float32x4", 0, "position"),
-        RasterVertexAttribute(1, "float32x4", 16, "base_color"),
-        RasterVertexAttribute(2, "float32x3", 32, "normal"),
-        RasterVertexAttribute(3, "float32", 44, "object_id"),
+        RasterVertexAttribute(1, "float32x3", 16, "base_color"),
+        RasterVertexAttribute(2, "float32x3", 28, "normal"),
+        RasterVertexAttribute(3, "float32x3", 40, "world_position"),
+        RasterVertexAttribute(4, "float32x4", 52, "material"),
+        RasterVertexAttribute(5, "float32x3", 68, "emission"),
+        RasterVertexAttribute(6, "float32x3", 80, "camera_position"),
+        RasterVertexAttribute(7, "float32x4", 92, "light_position_type"),
+        RasterVertexAttribute(8, "float32x4", 108, "light_color_ambient"),
+        RasterVertexAttribute(9, "float32x2", 124, "base_color_uv"),
+        RasterVertexAttribute(10, "float32x4", 132, "shadow_coordinate"),
+        RasterVertexAttribute(11, "float32", 148, "shadow_visibility"),
+        RasterVertexAttribute(12, "float32", 152, "object_id"),
     ))
-    return RasterMesh(vertices, index_data, layout)
+    shadow_vertices = prepared_resources["shadow_vertices"]
+    shadow_indices = prepared_resources["shadow_indices"]
+    return RasterMesh(vertices, index_data, layout, {
+        "base_color_atlas": atlas,
+        "shadow_vertices": shadow_vertices,
+        "shadow_indices": shadow_indices,
+        "shadow_rectangle": shadow_rectangle,
+        "gpu_camera": bool(gpu_camera),
+    })
+
+
+def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False):
+    """Prepare scene-static atlas and light-space shadow data once.
+
+    Camera motion does not invalidate these resources.  Callers should retain
+    the result until scene geometry/materials/lights or ``config`` change.
+    """
+    config = config or RasterConfig()
+    from .shadows import plan_shadow_maps
+    shadow_requests = plan_shadow_maps(
+        scene, extent=(config.shadow_map_size, config.shadow_map_size),
+        max_maps=1, normal_bias_texels=config.shadow_normal_bias,
+    ) if config.shadows else ()
+    shadow_request = (
+        shadow_requests[0]
+        if shadow_requests and shadow_requests[0].light_index == 0 else None
+    )
+    shadow_depth = (
+        _rasterize_shadow_depth(
+            scene, shadow_request.view_projection, config.shadow_map_size,
+        ) if shadow_request is not None and not native_shadow_maps else None
+    )
+    atlas, rectangles, shadow_rectangle = _base_color_atlas(
+        scene, config.textures, shadow_depth,
+    )
+    if native_shadow_maps and shadow_request is not None:
+        size = int(config.shadow_map_size)
+        shadow_rectangle = (0, 0, size, size, size, size)
+    shadow_vertices, shadow_indices = (
+        _shadow_geometry(scene, shadow_request.view_projection)
+        if shadow_request is not None else
+        (np.empty((0, 4), np.float32), np.empty(0, np.uint32))
+    )
+    return {
+        "shadow_request": shadow_request,
+        "base_color_atlas": atlas,
+        "atlas_rectangles": rectangles,
+        "shadow_rectangle": shadow_rectangle,
+        "shadow_vertices": shadow_vertices,
+        "shadow_indices": shadow_indices,
+    }
 
 
 def rasterize_geometry_products(mesh: RasterMesh, width: int, height: int):
@@ -465,10 +856,18 @@ def rasterize_geometry_products(mesh: RasterMesh, width: int, height: int):
     depth = np.full((height, width), np.inf, np.float32)
     normal = np.zeros((height, width, 3), np.float32)
     object_id = np.zeros((height, width), np.uint32)
-    if mesh.indices is None or not mesh.indices.size or mesh.vertices.shape[1] < 12:
+    if mesh.indices is None or not mesh.indices.size:
         depth.fill(1.0)
         return {"depth": depth, "normal": normal, "object_id": object_id}
     vertices = mesh.vertices
+    semantics = {
+        item.semantic: item.offset // 4 for item in mesh.layout.attributes
+    }
+    normal_offset = semantics.get("normal")
+    object_offset = semantics.get("object_id")
+    if normal_offset is None or object_offset is None:
+        depth.fill(1.0)
+        return {"depth": depth, "normal": normal, "object_id": object_id}
     clip = vertices[:, :4]
     ndc = clip[:, :3] / np.where(np.abs(clip[:, 3:4]) > 1e-8, clip[:, 3:4], 1e-8)
     screen = np.column_stack(((ndc[:, 0] * 0.5 + 0.5) * width, (1.0 - (ndc[:, 1] * 0.5 + 0.5)) * height))
@@ -491,10 +890,13 @@ def rasterize_geometry_products(mesh: RasterMesh, width: int, height: int):
                 value = float(np.dot(ndc[triangle, 2] * 0.5 + 0.5, weights))
                 if value >= depth[y, x]: continue
                 depth[y, x] = value
-                direction = np.sum(vertices[triangle, 8:11] * weights[:, None], axis=0)
+                direction = np.sum(
+                    vertices[triangle, normal_offset:normal_offset + 3]
+                    * weights[:, None], axis=0,
+                )
                 length = np.linalg.norm(direction)
                 normal[y, x] = direction / length if length > 1e-8 else 0.0
-                object_id[y, x] = np.uint32(max(0, int(round(float(np.dot(vertices[triangle, 11], weights))))))
+                object_id[y, x] = np.uint32(max(0, int(round(float(np.dot(vertices[triangle, object_offset], weights))))))
     depth[~np.isfinite(depth)] = 1.0
     return {"depth": depth, "normal": normal, "object_id": object_id}
 
@@ -536,22 +938,32 @@ class RasterPostProcessor:
 
 
 def create_raster_pipeline(config=None):
-    """Describe the portable multipass raster resource graph."""
+    """Describe the portable native forward-rendering pass graph."""
     from ..pipeline import RenderPipeline, RenderStage
     config = config or RasterConfig()
-    stages = [
-        RenderStage("geometry", reads={"scene", "camera"}, writes={"color", "depth", "normal", "object_id"}),
-    ]
-    if config.shadows:
-        stages.append(RenderStage("shadows", reads={"scene", "depth"}, writes={"shadow"}))
+    stages = []
+    shadow_resource = ()
+    if config.shadows and config.direct_lighting:
+        stages.append(RenderStage(
+            "shadow_maps", reads={"scene"}, writes={"shadow_atlas"},
+        ))
+        shadow_resource = ("shadow_atlas",)
     if config.direct_lighting:
-        stages.append(RenderStage("lighting", reads={"color", "normal", *(('shadow',) if config.shadows else ())}, writes={"lit_color"}))
-        color = "lit_color"
+        stages.append(RenderStage(
+            "forward_lighting",
+            reads={"scene", "camera", *shadow_resource},
+            writes={"hdr_color", "depth", "normal", "object_id"},
+        ))
+        color = "hdr_color"
     else:
-        color = "color"
+        stages.append(RenderStage(
+            "geometry", reads={"scene", "camera"},
+            writes={"hdr_color", "depth", "normal", "object_id"},
+        ))
+        color = "hdr_color"
     if config.temporal_history:
         stages.append(RenderStage("temporal", reads={color}, writes={"history_color"})); color = "history_color"
-    stages.append(RenderStage("post", reads={color}, writes={"output"}))
+    stages.append(RenderStage("tone_map", reads={color}, writes={"output"}))
     return RenderPipeline(stages, initial_resources={"scene", "camera"})
 
 
@@ -559,4 +971,4 @@ def triangle_mesh() -> RasterMesh:
     return RasterMesh(np.array(((-0.7, -0.6), (0.7, -0.6), (0.0, 0.7)), np.float32))
 
 
-__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]
+__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "prepare_scene_mesh_resources", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]

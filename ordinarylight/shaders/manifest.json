@@ -3,7 +3,9 @@
   "target_environment": "vulkan1.2",
   "managed_outputs": [
     "raster_scene.frag.spv",
-    "raster_scene.vert.spv"
+    "raster_scene.vert.spv",
+    "raster_shadow.frag.spv",
+    "raster_shadow.vert.spv"
   ],
   "families": {
     "ser": [

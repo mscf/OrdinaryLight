@@ -1,21 +1,253 @@
 {
+  "program_reflection": {
+    "spirv": {
+      "shadow": {
+        "varyings": [
+          {
+            "builtin": null,
+            "location": 0,
+            "name": "clip_depth",
+            "type": "vec2"
+          }
+        ]
+      }
+    },
+    "wgsl": {
+      "shadow": {
+        "varyings": [
+          {
+            "builtin": null,
+            "location": 0,
+            "name": "clip_depth",
+            "type": "vec2"
+          }
+        ]
+      }
+    }
+  },
+  "programs": {
+    "spirv": {
+      "shadow": {
+        "fragment": {
+          "cache_key": "b658801e61e75122a2ad18b0a5c89e79ed7e21156fab4b74a93aae6339b59dec",
+          "file": "raster_shadow.frag.spv",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "clip_depth",
+                "type": "vec2"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "result",
+                "type": "vec4"
+              }
+            ],
+            "resources": [],
+            "stage": "fragment",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "f12a9ab598b4752b0a7bed9c9deda4e2d82322f7ac8905a326ad1c237ff4feb5"
+        },
+        "vertex": {
+          "cache_key": "63b4ee7b5f752b762a4def5d17175705f51170a858533052d8bf4b2596ee811d",
+          "file": "raster_shadow.vert.spv",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "position",
+                "type": "vec4"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": "position",
+                "location": null,
+                "name": "position",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "clip_depth",
+                "type": "vec2"
+              }
+            ],
+            "resources": [],
+            "stage": "vertex",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "46d79d3659716eae449355c4e083d265028b96359aa76443bfa1de8925f4c474"
+        }
+      }
+    },
+    "wgsl": {
+      "shadow": {
+        "fragment": {
+          "cache_key": "8dc0be500634d2d39596437f736eff75aad475213b93af5fea5243f1800fec27",
+          "file": "raster_shadow.frag.wgsl",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "clip_depth",
+                "type": "vec2"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "result",
+                "type": "vec4"
+              }
+            ],
+            "resources": [],
+            "stage": "fragment",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "1d795608fee9eed08845e1426c376fedf703f726739d6475893db0e44e44fd78"
+        },
+        "vertex": {
+          "cache_key": "87bfa3c3b8348d01d09788c6f339d38f588348eef0a2188fa66c18a3bdec9e44",
+          "file": "raster_shadow.vert.wgsl",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "position",
+                "type": "vec4"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": "position",
+                "location": null,
+                "name": "position",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "location": 0,
+                "name": "clip_depth",
+                "type": "vec2"
+              }
+            ],
+            "resources": [],
+            "stage": "vertex",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "7dc841738ea1fa47a8204359f8127fd8d3b47da88430b206170146a2d8e1fbe6"
+        }
+      }
+    }
+  },
   "reflection": {
     "varyings": [
       {
         "builtin": null,
         "location": 0,
-        "name": "color",
+        "name": "base_color",
+        "type": "vec3"
+      },
+      {
+        "builtin": null,
+        "location": 1,
+        "name": "world_normal",
+        "type": "vec3"
+      },
+      {
+        "builtin": null,
+        "location": 2,
+        "name": "world_position",
+        "type": "vec3"
+      },
+      {
+        "builtin": null,
+        "location": 3,
+        "name": "material",
         "type": "vec4"
+      },
+      {
+        "builtin": null,
+        "location": 4,
+        "name": "emission",
+        "type": "vec3"
+      },
+      {
+        "builtin": null,
+        "location": 5,
+        "name": "camera_position",
+        "type": "vec3"
+      },
+      {
+        "builtin": null,
+        "location": 6,
+        "name": "light_position_type",
+        "type": "vec4"
+      },
+      {
+        "builtin": null,
+        "location": 7,
+        "name": "light_color_ambient",
+        "type": "vec4"
+      },
+      {
+        "builtin": null,
+        "location": 8,
+        "name": "base_color_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 9,
+        "name": "shadow_coordinate",
+        "type": "vec4"
+      },
+      {
+        "builtin": null,
+        "location": 10,
+        "name": "shadow_visibility",
+        "type": "float"
       }
     ]
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "85b51c1809502cfe1d730c62afee9edb5d6682c2d0941dd4215e6f74ce91f284",
+  "source_sha256": "4ba5b100df22c0993937031f0bbabc2e45dc0da324212f75a1697a36265b143f",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "dcad9b92f3d6c948701ae0c3b4591e7d8f408dd70668bac069223ef769d3b265",
+        "cache_key": "7d580740cef7e9fb84d900e1f218d41b9909860844782fd549d715c25f913e2c",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -23,8 +255,68 @@
             {
               "builtin": null,
               "location": 0,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -35,7 +327,40 @@
               "type": "vec4"
             }
           ],
-          "resources": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba",
+              "kind": "sampled_texture_2d",
+              "name": "base_color_atlas",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "base_color_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "depth",
+              "kind": "sampled_depth_texture_2d",
+              "name": "shadow_map",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "sampler_comparison",
+              "kind": "comparison_sampler",
+              "name": "shadow_sampler",
+              "set": 0
+            }
+          ],
           "stage": "fragment",
           "workgroup_size": [
             1,
@@ -43,10 +368,10 @@
             1
           ]
         },
-        "sha256": "778f7e219d7d50d1b95b456772d27e2cc9a60fc1919c75bb5c4555cf15acd36b"
+        "sha256": "c9e00d8369d79c810cddbe4b666eb30a90a7a86e62760cc74787df2edeb7919c"
       },
       "vertex": {
-        "cache_key": "394a04ddbd706ab0fd66ecf4e71de744d3ab674c82a293c8799669c160e910a6",
+        "cache_key": "faebe337445d89895298aa541173458c4eecc392b30ffdf712dc16f1b3cf8793",
         "file": "raster_scene.vert.spv",
         "reflection": {
           "entry_point": "main",
@@ -60,8 +385,68 @@
             {
               "builtin": null,
               "location": 1,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -74,11 +459,80 @@
             {
               "builtin": null,
               "location": 0,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
-          "resources": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "RasterCamera",
+              "kind": "uniform_buffer",
+              "name": "camera",
+              "set": 0
+            }
+          ],
           "stage": "vertex",
           "workgroup_size": [
             1,
@@ -86,12 +540,12 @@
             1
           ]
         },
-        "sha256": "dff995857f5333da5e5e4a7b7d4a47b88ef9360728603e553b34ba8c72b36baf"
+        "sha256": "4c9cc7138bee1181fd2609a49d1eb810586de623431a549379decd47b0b46cbb"
       }
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "883853d83bdc166b72be66b2b3f1d644ed18622e93dc419fad08599df816dfc8",
+        "cache_key": "74cfcbb355ef63f74261652e622bddd6e15bee08d9fa7244869826d4dfac17b9",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -99,8 +553,68 @@
             {
               "builtin": null,
               "location": 0,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -111,7 +625,40 @@
               "type": "vec4"
             }
           ],
-          "resources": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba",
+              "kind": "sampled_texture_2d",
+              "name": "base_color_atlas",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "base_color_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "depth",
+              "kind": "sampled_depth_texture_2d",
+              "name": "shadow_map",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "sampler_comparison",
+              "kind": "comparison_sampler",
+              "name": "shadow_sampler",
+              "set": 0
+            }
+          ],
           "stage": "fragment",
           "workgroup_size": [
             1,
@@ -119,10 +666,10 @@
             1
           ]
         },
-        "sha256": "e965acea2828b4b688575739b49bca075f50f692a09ba345fce38c2a7f7f4e94"
+        "sha256": "ea96ef87b7dffb2f8feac3955e4382e80640a4128ca285003c5d8291da937298"
       },
       "vertex": {
-        "cache_key": "ba0a8bc1e3e3e6310cfc5e740dbb0932f6c2a975590285c38058188248b96a8d",
+        "cache_key": "df1bfacbc57e897f385bfeff2892b1998297bad5bdb9112c2d1c33a64715a378",
         "file": "raster_scene.vert.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -136,8 +683,68 @@
             {
               "builtin": null,
               "location": 1,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -150,11 +757,80 @@
             {
               "builtin": null,
               "location": 0,
-              "name": "color",
+              "name": "base_color",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 1,
+              "name": "world_normal",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 2,
+              "name": "world_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 3,
+              "name": "material",
               "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 4,
+              "name": "emission",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 5,
+              "name": "camera_position",
+              "type": "vec3"
+            },
+            {
+              "builtin": null,
+              "location": 6,
+              "name": "light_position_type",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 7,
+              "name": "light_color_ambient",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 8,
+              "name": "base_color_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 9,
+              "name": "shadow_coordinate",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 10,
+              "name": "shadow_visibility",
+              "type": "float"
             }
           ],
-          "resources": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "RasterCamera",
+              "kind": "uniform_buffer",
+              "name": "camera",
+              "set": 0
+            }
+          ],
           "stage": "vertex",
           "workgroup_size": [
             1,
@@ -162,7 +838,7 @@
             1
           ]
         },
-        "sha256": "75140a23805f8c751ee519365a3a7b9fa4fc47a357639d58f0f44e3faa848de8"
+        "sha256": "147c86e6411c174658903398533d9c6154014f6c8bd4abfdc7a9c182b9462a82"
       }
     }
   }

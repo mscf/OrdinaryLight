@@ -45,11 +45,31 @@ class RasterBackendTests(unittest.TestCase):
         self.assertTrue(webgpu.vertex.source.startswith("@vertex"))
         self.assertEqual(vulkan.reflection.vertex.stage, "vertex")
 
+    def test_vulkan_renderer_exposes_direct_surface_presentation(self):
+        renderer = ol.renderers.raster.VulkanRasterRenderer
+        self.assertTrue(callable(renderer.present_frame))
+        self.assertIsInstance(renderer.direct_presentation, property)
+
+    def test_present_cache_key_tracks_draw_shape_not_camera_payload(self):
+        renderer = ol.renderers.raster.VulkanRasterRenderer
+        first = ol.triangle_mesh()
+        second = ol.RasterMesh(
+            first.vertices + 0.5, first.indices, first.layout,
+            resources=first.resources,
+        )
+        key = renderer._present_cache_key(first, 1, 1920, 1080)
+        self.assertEqual(
+            key, renderer._present_cache_key(second, 1, 1920, 1080),
+        )
+        self.assertNotEqual(
+            key, renderer._present_cache_key(first, 2, 1920, 1080),
+        )
+
     def test_builtin_scene_program_compiles_for_both_implementations(self):
         target = "spirv" if shutil.which("glslangValidator") else "glsl"
         native = ol.RasterProgram.scene(target=target)
         web = ol.RasterProgram.scene(target="wgsl", validate=False)
-        self.assertEqual(len(native.reflection.varyings), 1)
+        self.assertEqual(len(native.reflection.varyings), 11)
         self.assertIn("@location(1)", web.vertex.source)
 
     def test_raster_mesh_owns_contiguous_typed_arrays(self):
@@ -79,7 +99,7 @@ class RasterBackendTests(unittest.TestCase):
             scene, camera, 100, 100,
             ol.RasterConfig(direct_lighting=False),
         )
-        self.assertEqual(mesh.vertices.shape, (3, 12))
+        self.assertEqual(mesh.vertices.shape, (3, 39))
         np.testing.assert_allclose(
             mesh.vertices[:, 4:7], np.tile((0.2, 0.4, 0.8), (3, 1)),
         )
@@ -105,7 +125,8 @@ class RasterBackendTests(unittest.TestCase):
         try:
             image = backend.render(ol.triangle_mesh(), 64, 48)
             self.assertEqual(image.shape, (48, 64, 4))
-            self.assertGreater(np.count_nonzero(image[..., 0] > 128), 100)
+            self.assertEqual(image.dtype, np.float32)
+            self.assertGreater(np.count_nonzero(image[..., 0] > 0.5), 100)
         finally:
             backend.close()
 
@@ -123,7 +144,8 @@ class RasterBackendTests(unittest.TestCase):
         try:
             image = backend.render(ol.triangle_mesh(), 64, 48)
             self.assertEqual(image.shape, (48, 64, 4))
-            self.assertGreater(np.count_nonzero(image[..., 0] > 128), 100)
+            self.assertEqual(image.dtype, np.float32)
+            self.assertGreater(np.count_nonzero(image[..., 0] > 0.5), 100)
         finally:
             backend.close()
 
@@ -164,3 +186,47 @@ class RasterBackendTests(unittest.TestCase):
                     self.assertGreater(np.count_nonzero(products["object_id"]), 10)
                 finally:
                     renderer.close()
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_scene_base_color_texture_is_sampled_on_both_targets(self):
+        texture = ol.Texture(np.array([[[255, 16, 8, 255]]], np.uint8))
+        mesh = ol.Mesh(
+            [[-0.8, -0.8, 0], [0.8, -0.8, 0], [0, 0.8, 0]],
+            [[0, 1, 2]],
+            ol.Material(base_color_texture=texture),
+        )
+        scene = ol.Scene([mesh])
+        camera = ol.PerspectiveCamera((0, 0, 4), (0, 0, 0))
+        choices = []
+        if importlib.util.find_spec("vulkan") is not None:
+            choices.append(ol.renderers.raster.VulkanRasterRenderer(
+                ol.RasterProgram.scene(target="spirv"),
+                config=ol.RasterConfig(
+                    direct_lighting=False, ambient_light=1.0,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            ))
+        if importlib.util.find_spec("wgpu") is not None:
+            choices.append(ol.renderers.raster.WebGpuRasterRenderer(
+                ol.RasterProgram.scene(target="wgsl", validate=False),
+                config=ol.RasterConfig(
+                    direct_lighting=False, ambient_light=1.0,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            ))
+        for backend in choices:
+            try:
+                image = backend.render_frame(scene, camera, 64, 48)
+                second = backend.render_frame(scene, camera, 64, 48)
+                center = image[24, 32, :3]
+                self.assertGreater(float(center[0]), 0.5)
+                self.assertLess(float(center[1]), 0.05)
+                self.assertLess(float(center[2]), 0.05)
+                np.testing.assert_allclose(second, image, atol=2e-3)
+                if hasattr(backend, "_pipelines"):
+                    self.assertEqual(len(backend._pipelines), 1)
+            finally:
+                backend.close()

@@ -65,8 +65,9 @@ def _render(backend_name: str, width: int, height: int, mode: str) -> np.ndarray
         if mode == "triangle" else ol.RasterProgram.scene(target=target, validate=backend_name == "webgpu")
     )
     backend_type = (
-        ol.VulkanRasterBackend
-        if backend_name == "vulkan" else ol.WebGpuRasterBackend
+        ol.renderers.raster.VulkanRasterRenderer
+        if backend_name == "vulkan" else
+        ol.renderers.raster.WebGpuRasterRenderer
     )
     config = (
         ol.RasterConfig(
@@ -78,12 +79,13 @@ def _render(backend_name: str, width: int, height: int, mode: str) -> np.ndarray
     backend = backend_type(program, config=config)
     try:
         if mode == "triangle":
-            return backend.render(ol.triangle_mesh(), width, height)
+            hdr = backend.render(ol.triangle_mesh(), width, height)
+            return np.rint(np.clip(hdr, 0.0, 1.0) * 255.0).astype(np.uint8)
         scene, camera = (
             _volume_scene() if mode == "volume" else
             (ol.build_feature_parity_scene(), ol.feature_parity_camera())
         )
-        renderer = ol.Renderer(backend=backend)
+        renderer = ol.Renderer(implementation=backend)
         hdr = renderer.render(scene, camera, (width, height))
         return np.rint(np.clip(hdr, 0.0, 1.0) * 255.0).astype(np.uint8)
     finally:

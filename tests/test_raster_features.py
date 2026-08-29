@@ -37,6 +37,15 @@ class RasterFeatureTests(unittest.TestCase):
         )
         self.assertGreater(packed.vertices[0, 4], 0.9)
         self.assertGreater(packed.vertices[1, 5], 0.9)
+        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 3, 4))
+        uv_offset = next(
+            item.offset // 4 for item in packed.layout.attributes
+            if item.semantic == "base_color_uv"
+        )
+        self.assertLess(
+            float(packed.vertices[0, uv_offset]),
+            float(packed.vertices[1, uv_offset]),
+        )
 
     def test_direct_light_and_hard_shadow_are_composable(self):
         receiver = ol.Mesh(
@@ -49,10 +58,146 @@ class RasterFeatureTests(unittest.TestCase):
         )
         light = ol.PointLight((0, 0, 2), intensity=8)
         scene = ol.Scene([receiver, blocker], [light])
-        lit = ol.scene_mesh(scene, _camera(), 64, 64, ol.RasterConfig(ambient_light=0, shadows=False))
-        shadowed = ol.scene_mesh(scene, _camera(), 64, 64, ol.RasterConfig(ambient_light=0, shadows=True))
+        lit = ol.scene_mesh(scene, _camera(), 64, 64, ol.RasterConfig(ambient_light=0, shadows=False, shading_model="diffuse"))
+        shadowed = ol.scene_mesh(scene, _camera(), 64, 64, ol.RasterConfig(ambient_light=0, shadows=True, shading_model="diffuse"))
         self.assertGreater(float(lit.vertices[:3, 4:7].mean()), 0.1)
         self.assertLess(float(shadowed.vertices[:3, 4:7].mean()), 1e-5)
+
+    def test_directional_shadow_depth_is_packed_and_addressed(self):
+        floor = ol.Mesh(
+            [[-2, -2, 0], [2, -2, 0], [2, 2, 0], [-2, 2, 0]],
+            [[0, 1, 2], [0, 2, 3]],
+        )
+        blocker = ol.Mesh(
+            [[-0.5, -0.5, 1], [0.5, -0.5, 1], [0, 0.5, 1]],
+            [[0, 1, 2]],
+        )
+        packed = ol.scene_mesh(
+            ol.Scene(
+                [floor, blocker],
+                [ol.DirectionalLight((0, 0, -1), intensity=3)],
+            ),
+            _camera(), 64, 64,
+            ol.RasterConfig(shadow_map_size=32),
+        )
+        atlas = packed.resources["base_color_atlas"]
+        self.assertEqual(atlas.shape, (33, 32, 4))
+        self.assertLess(int(atlas[1:, :, 3].min()), 255)
+        shadow_offset = next(
+            item.offset // 4 for item in packed.layout.attributes
+            if item.semantic == "shadow_coordinate"
+        )
+        coordinates = packed.vertices[:, shadow_offset:shadow_offset + 4]
+        projected = coordinates[:, :3] / np.maximum(
+            np.abs(coordinates[:, 3:4]), 1e-8,
+        )
+        self.assertTrue(np.all(projected[:, :2] >= 0.0))
+        self.assertTrue(np.all(projected[:, :2] <= 1.0))
+
+    def test_native_shadow_map_does_not_allocate_cpu_shadow_pixels(self):
+        mesh = ol.Mesh(
+            [[-1, -1, 0], [1, -1, 0], [0, 1, 0]], [[0, 1, 2]],
+        )
+        packed = ol.scene_mesh(
+            ol.Scene(
+                [mesh], [ol.DirectionalLight((0, 0, -1), intensity=3)],
+            ),
+            _camera(), 64, 64, ol.RasterConfig(shadow_map_size=2048),
+            native_shadow_maps=True,
+        )
+        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 1, 4))
+        self.assertEqual(
+            packed.resources["shadow_rectangle"],
+            (0, 0, 2048, 2048, 2048, 2048),
+        )
+
+    def test_gpu_camera_mesh_keeps_world_space_vertices_resident(self):
+        mesh = ol.Mesh(
+            [[-1, -1, 0], [1, -1, 0], [0, 1, 0]], [[0, 1, 2]],
+        )
+        packed = ol.scene_mesh(
+            ol.Scene([mesh]), _camera(), 1920, 1080,
+            ol.RasterConfig(shadows=False), gpu_camera=True,
+        )
+        np.testing.assert_allclose(
+            packed.vertices[:, :4],
+            np.column_stack((mesh.world_vertices, np.ones(3))),
+        )
+        self.assertTrue(packed.resources["gpu_camera"])
+
+    def test_native_directional_and_spot_shadow_depths_use_zero_to_one(self):
+        from ordinarylight.showcases.raster_features import (
+            build_directional_shadow_scene, build_spot_shadow_scene,
+        )
+        for factory in (build_directional_shadow_scene, build_spot_shadow_scene):
+            scene = factory()
+            packed = ol.scene_mesh(
+                scene, _camera(), 320, 180,
+                ol.RasterConfig(shadow_map_size=64),
+                native_shadow_maps=True,
+            )
+            offset = next(
+                item.offset // 4 for item in packed.layout.attributes
+                if item.semantic == "shadow_coordinate"
+            )
+            coordinates = packed.vertices[:, offset:offset + 4]
+            active = np.abs(coordinates[:, 3]) > 1e-5
+            self.assertTrue(np.any(active))
+            projected_depth = (
+                coordinates[active, 2] / np.abs(coordinates[active, 3])
+            )
+            self.assertGreaterEqual(float(projected_depth.min()), -1e-5)
+            self.assertLessEqual(float(projected_depth.max()), 1.0 + 1e-5)
+
+    def test_shadow_showcase_boxes_have_flat_face_normals(self):
+        from ordinarylight.showcases.raster_features import (
+            build_directional_shadow_scene,
+        )
+        scene = build_directional_shadow_scene()
+        for mesh in scene.visible_meshes[1:]:
+            absolute = np.abs(mesh.normals)
+            np.testing.assert_allclose(absolute.sum(axis=1), 1.0, atol=1e-6)
+            self.assertTrue(np.all(np.count_nonzero(absolute > 0.5, axis=1) == 1))
+            self.assertEqual(len(mesh.vertices), 24)
+
+    def test_shadow_cull_mode_validation(self):
+        self.assertEqual(ol.RasterConfig().shadow_cull_mode, "none")
+        self.assertEqual(
+            ol.RasterConfig(shadow_cull_mode="none").shadow_cull_mode, "none",
+        )
+        with self.assertRaises(ValueError):
+            ol.RasterConfig(shadow_cull_mode="sideways")
+        with self.assertRaises(ValueError):
+            ol.RasterConfig(shadow_normal_bias=-1.0)
+
+    def test_shadow_receivers_apply_planned_normal_bias(self):
+        from ordinarylight.raster.shadows import plan_shadow_maps
+        from ordinarylight.showcases.raster_features import (
+            build_directional_shadow_scene,
+        )
+        scene = build_directional_shadow_scene()
+        request = plan_shadow_maps(scene, extent=(64, 64), max_maps=1)[0]
+        self.assertGreater(request.normal_bias, 0.0)
+        packed = ol.scene_mesh(
+            scene, _camera(), 64, 64, ol.RasterConfig(shadow_map_size=64),
+            native_shadow_maps=True,
+        )
+        offset = next(
+            item.offset // 4 for item in packed.layout.attributes
+            if item.semantic == "shadow_coordinate"
+        )
+        coordinates = packed.vertices[:, offset:offset + 4]
+        self.assertTrue(np.all(np.isfinite(coordinates)))
+
+    def test_shadow_normal_bias_scales_with_map_resolution(self):
+        from ordinarylight.raster.shadows import plan_shadow_maps
+        from ordinarylight.showcases.raster_features import (
+            build_directional_shadow_scene,
+        )
+        scene = build_directional_shadow_scene()
+        low = plan_shadow_maps(scene, extent=(512, 512), max_maps=1)[0]
+        high = plan_shadow_maps(scene, extent=(4096, 4096), max_maps=1)[0]
+        self.assertAlmostEqual(low.normal_bias / high.normal_bias, 8.0)
 
     def test_pbr_raster_material_distinguishes_metal_and_roughness(self):
         vertices = [[-1, -1, 0], [1, -1, 0], [0, 1, 0]]
@@ -68,16 +213,19 @@ class RasterFeatureTests(unittest.TestCase):
             ),
         )
         config = ol.RasterConfig(ambient_light=0.0, shadows=False)
-        diffuse_color = ol.scene_mesh(
+        diffuse_data = ol.scene_mesh(
             ol.Scene([diffuse], [ol.PointLight((0, 0, 2), intensity=12)]),
             _camera(), 64, 64, config,
-        ).vertices[:, 4:7]
-        metal_color = ol.scene_mesh(
+        ).vertices
+        metal_data = ol.scene_mesh(
             ol.Scene([metal], [ol.PointLight((0, 0, 2), intensity=12)]),
             _camera(), 64, 64, config,
-        ).vertices[:, 4:7]
-        self.assertFalse(np.allclose(diffuse_color, metal_color))
-        self.assertLess(float(metal_color[:, 1].mean()), float(diffuse_color[:, 1].mean()))
+        ).vertices
+        np.testing.assert_allclose(diffuse_data[:, 4:7], metal_data[:, 4:7])
+        self.assertTrue(np.all(diffuse_data[:, 13] == 0.0))
+        self.assertTrue(np.all(metal_data[:, 13] == 1.0))
+        self.assertTrue(np.all(diffuse_data[:, 14] == 1.0))
+        self.assertTrue(np.all(metal_data[:, 14] == 0.15))
 
     def test_pbr_raster_reads_metallic_roughness_and_emissive_textures(self):
         pixels = np.array([[[0, 128, 255, 255]]], np.uint8)
@@ -113,7 +261,10 @@ class RasterFeatureTests(unittest.TestCase):
 
     def test_render_graph_declares_multipass_dependencies(self):
         pipeline = ol.create_raster_pipeline(ol.RasterConfig(temporal_history=True))
-        self.assertEqual(pipeline.stage_names, ("geometry", "shadows", "lighting", "temporal", "post"))
+        self.assertEqual(
+            pipeline.stage_names,
+            ("shadow_maps", "forward_lighting", "temporal", "tone_map"),
+        )
         self.assertIn("output", pipeline.output_resources)
 
     def test_geometry_products_preserve_depth_normal_and_object_id(self):
@@ -135,8 +286,8 @@ class RasterFeatureTests(unittest.TestCase):
             ol.Scene(volumes=[volume]), _camera(), 64, 64,
             ol.RasterConfig(volume_slices=3),
         )
-        self.assertEqual(mesh.vertices.shape, (12, 12))
-        self.assertGreater(float(mesh.vertices[:, 7].max()), 0.0)
+        self.assertEqual(mesh.vertices.shape, (12, 39))
+        self.assertGreater(float(mesh.vertices[:, 16].max()), 0.0)
 
     def test_hybrid_implementation_composes_child_renderers(self):
         raster, lighting = _Backend(0.25), _Backend(0.5)

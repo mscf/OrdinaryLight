@@ -13,8 +13,16 @@ from ordinarylight.integrations.qt_workbench import _default_showcase_paths
 class WorkbenchScriptTests(unittest.TestCase):
     def test_packaged_catalog_is_discoverable(self):
         catalog = discover_showcases(_default_showcase_paths())
-        self.assertGreaterEqual(len(catalog), 10)
+        self.assertGreaterEqual(len(catalog), 12)
         self.assertEqual(catalog["area-lights"].title, "Area lights")
+        directional = catalog["raster-directional-shadows"]
+        spot = catalog["raster-spot-shadows"]
+        self.assertIn("raster-feature", directional.tags)
+        self.assertEqual(directional.renderer["shadow_map_size"], 512)
+        self.assertIsInstance(
+            directional.create_scene().lights[0], ol.DirectionalLight,
+        )
+        self.assertIsInstance(spot.create_scene().lights[0], ol.SpotLight)
 
     def test_showcase_is_lazy_and_camera_is_fitted(self):
         calls = []

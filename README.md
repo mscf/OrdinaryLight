@@ -1388,15 +1388,28 @@ through perspective and orthographic cameras. Panoramic cameras require a
 later non-linear projection pass.
 
 The portable scene layer evaluates shared `Material` base colors and textures,
-point/spot/directional lighting with optional hard shadows, and named depth,
-normal, and object-ID products. Its validated render graph composes geometry,
-shadow, lighting, temporal, and post stages. Static-scene accumulation,
+point/spot/directional lighting, native directional/spot shadow maps, and named
+depth, normal, and object-ID products. Its validated render graph composes
+geometry, shadow, lighting, temporal, and post stages. Static-scene accumulation,
 Reinhard/ACES tone mapping, transfer-function volume slicing, hybrid GI
 composition, and `Renderer.render_to()` surface presentation are opt-in.
 
-Auxiliary products and hard-shadow queries currently use correctness-oriented
-CPU implementations. Native MRT, shadow-map, and GPU volume passes remain
-optimization targets without changing these public semantics.
+Auxiliary depth/normal/object-ID products currently use correctness-oriented
+CPU implementations. Native MRT and GPU volume passes remain optimization
+targets without changing these public semantics.
+
+Run `python tools/raster_feature_viewer.py` to open the extensible Qt raster
+feature catalog. Each catalog entry is a small `Showcase` script containing its
+scene builder, camera, renderer defaults, description, and tags. The viewer can
+live-render Vulkan, WebGPU, or both and currently includes directional and spot
+shadow demonstrations. Vulkan uses a Qt-owned native window and direct
+swapchain presentation by default, avoiding NumPy readback and `QImage`
+uploads. Its scene buffers, attachments, descriptor state, recorded command
+buffers, and frame synchronization remain resident after the swapchain warms.
+Pass `--readback` to compare Vulkan and WebGPU through the diagnostic image
+path. The viewer provides automatic camera animation, reusable
+`ArcballCameraController` orbit/pan/dolly interaction, and render-resolution
+presets from 720p through 4K.
 
 ```python
 program = ol.RasterProgram.scene(target="wgsl")
