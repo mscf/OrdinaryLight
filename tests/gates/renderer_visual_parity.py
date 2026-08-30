@@ -54,7 +54,10 @@ def main():
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument(
-        "--scene", choices=("feature", "materials", "modifier"), default="feature",
+        "--scene", choices=(
+            "feature", "materials", "modifier", "clearcoat", "sheen",
+            "anisotropy", "thin-transmission", "subsurface",
+        ), default="feature",
         help="shared scene semantics to compare",
     )
     parser.add_argument("--max-log-color-rmse", type=float, default=0.45)
@@ -72,8 +75,36 @@ def main():
     if args.width < 1 or args.height < 1 or args.samples < 1:
         parser.error("dimensions and samples must be positive")
     extent = (args.width, args.height)
+    advanced_baseline = Path(__file__).with_name("baselines").joinpath(
+        "advanced_material_parity.json"
+    )
+    if advanced_baseline.is_file():
+        accepted = json.loads(advanced_baseline.read_text())["scenes"].get(
+            args.scene
+        )
+        if accepted is not None:
+            args.max_log_color_rmse = accepted["max_log_color_rmse"]
+            args.min_edge_correlation = accepted["min_edge_correlation"]
+            args.min_coverage_iou = accepted["min_coverage_iou"]
     material_modifier = None
-    if args.scene in {"materials", "modifier"}:
+    advanced_builders = {}
+    if args.scene in {
+        "clearcoat", "sheen", "anisotropy", "thin-transmission", "subsurface",
+    }:
+        from ordinarylight.showcases.advanced_materials import (
+            build_anisotropy_scene, build_clearcoat_scene, build_sheen_scene,
+            build_subsurface_scene, build_thin_transmission_scene,
+        )
+        advanced_builders = {
+            "clearcoat": build_clearcoat_scene,
+            "sheen": build_sheen_scene,
+            "anisotropy": build_anisotropy_scene,
+            "thin-transmission": build_thin_transmission_scene,
+            "subsurface": build_subsurface_scene,
+        }
+        scene = advanced_builders[args.scene]()
+        camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+    elif args.scene in {"materials", "modifier"}:
         from ordinarylight.showcases.raster_features import (
             build_material_program_parity_scene,
         )

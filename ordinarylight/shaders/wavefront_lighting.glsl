@@ -111,14 +111,42 @@ vec3 evaluatePbr(
     float metallic = material.emission_metallic.a;
     vec3 f0 = mix(vec3(0.04), material.base_roughness.rgb, metallic);
     vec3 fresnel = pbrFresnel(f0, v_dot_h);
-    float distribution = ggxDistribution(n_dot_h, material.base_roughness.a);
+    float anisotropy = clamp(material.advanced0.w, -1.0, 1.0);
+    vec3 tangent = normalize(abs(normal.z) < 0.999
+        ? cross(normal, vec3(0.0, 0.0, 1.0))
+        : cross(normal, vec3(0.0, 1.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    float alpha = max(material.base_roughness.a * material.base_roughness.a, 0.02);
+    float alpha_x = max(alpha * (1.0 - 0.7 * anisotropy), 0.02);
+    float alpha_y = max(alpha * (1.0 + 0.7 * anisotropy), 0.02);
+    float anisotropic_denominator =
+        dot(half_vector, tangent) * dot(half_vector, tangent) / (alpha_x * alpha_x)
+        + dot(half_vector, bitangent) * dot(half_vector, bitangent) / (alpha_y * alpha_y)
+        + n_dot_h * n_dot_h;
+    float distribution = 1.0 / max(
+        3.14159265359 * alpha_x * alpha_y
+        * anisotropic_denominator * anisotropic_denominator, 0.000001);
     float geometry = ggxSmithComponent(n_dot_v, material.base_roughness.a)
         * ggxSmithComponent(n_dot_l, material.base_roughness.a);
     vec3 specular = fresnel * distribution * geometry /
         max(4.0 * n_dot_v * n_dot_l, 0.000001);
     vec3 diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic)
         * material.base_roughness.rgb / 3.14159265359;
-    return diffuse + specular;
+    float subsurface = clamp(material.advanced1.x, 0.0, 1.0);
+    diffuse = mix(diffuse, diffuse * material.subsurface_color.rgb, subsurface);
+    float sheen_weight = (1.0 - clamp(material.advanced0.z, 0.0, 1.0))
+        * pow(1.0 - v_dot_h, 5.0);
+    vec3 sheen = material.sheen_color.rgb * sheen_weight;
+    float clearcoat = clamp(material.advanced0.x, 0.0, 1.0);
+    float coat_roughness = clamp(material.advanced0.y, 0.02, 1.0);
+    float coat_distribution = ggxDistribution(n_dot_h, coat_roughness);
+    float coat_geometry = ggxSmithComponent(n_dot_v, coat_roughness)
+        * ggxSmithComponent(n_dot_l, coat_roughness);
+    float coat_fresnel = 0.04 + 0.96 * pow(1.0 - v_dot_h, 5.0);
+    vec3 coat = vec3(clearcoat * coat_distribution * coat_geometry
+        * coat_fresnel / max(4.0 * n_dot_v * n_dot_l, 0.000001));
+    float base_energy = 1.0 - clearcoat * coat_fresnel;
+    return (diffuse + specular + sheen) * base_energy + coat;
 }
 
 float pbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
@@ -132,7 +160,9 @@ float pbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
     float specular_pdf = ggxDistribution(
         n_dot_h, material.base_roughness.a) * n_dot_h / (4.0 * v_dot_h);
     float diffuse_pdf = n_dot_l / 3.14159265359;
-    float probability = pbrSpecularProbability(material);
+    float probability = clamp(
+        pbrSpecularProbability(material) + material.advanced0.x * 0.15,
+        0.1, 0.95);
     return mix(diffuse_pdf, specular_pdf, probability);
 }
 

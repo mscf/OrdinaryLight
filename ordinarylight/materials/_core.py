@@ -461,7 +461,7 @@ def material_dispatch_glsl(
     lines = [
         material_modifier_glsl(material_modifier),
         *functions,
-        "MaterialEvaluation evaluateMaterial(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
+        "MaterialEvaluation evaluateMaterial(inout MaterialData material, inout vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
         "{",
         "    int program_id = int(floor(material.ior_distance.z));",
         "    MaterialEvaluation evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);",
@@ -471,8 +471,13 @@ def material_dispatch_glsl(
             f"    if (program_id == {index}) evaluated = evaluateMaterial_{index}(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);"
         )
     lines.extend((
-        "    SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, 0.0, 0.1, vec3(0.0), 0.5, 0.0, 0.0, 0.0, evaluated.base_color, 0.5);",
+        "    SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, material.advanced0.x, material.advanced0.y, material.sheen_color.rgb, material.advanced0.z, material.advanced0.w, material.advanced1.z, material.advanced1.x, material.subsurface_color.rgb, material.advanced1.y);",
         "    surface = ordinarylight_material_modifier(surface, SurfaceContext(uv, normal, -direction, float(program_id)));",
+        "    normal = normalize(surface.normal);",
+        "    material.advanced0 = vec4(surface.clearcoat, surface.clearcoat_roughness, surface.sheen_roughness, surface.anisotropy);",
+        "    material.advanced1 = vec4(surface.subsurface, surface.subsurface_radius, surface.thin_walled, 0.0);",
+        "    material.sheen_color = vec4(surface.sheen_color, 0.0);",
+        "    material.subsurface_color = vec4(surface.subsurface_color, 0.0);",
         "    float subsurface = clamp(surface.subsurface, 0.0, 1.0);",
         "    evaluated.base_color = clamp(mix(surface.base_color, surface.subsurface_color, subsurface * 0.5) + surface.sheen_color * (1.0 - clamp(surface.sheen_roughness, 0.0, 1.0)) * 0.2, vec3(0.0), vec3(1.0));",
         "    evaluated.emission = max(surface.emission, vec3(0.0));",

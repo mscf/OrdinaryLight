@@ -49,6 +49,11 @@ class MaterialData:
         "ior_distance": osh.vec4,
         "texture_indices": osh.vec4,
         "texture_parameters": osh.vec4,
+        "advanced0": osh.vec4,
+        "advanced1": osh.vec4,
+        "sheen_color": osh.vec4,
+        "subsurface_color": osh.vec4,
+        "advanced_texture_indices": osh.vec4,
     }
 
 

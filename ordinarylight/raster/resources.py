@@ -21,6 +21,11 @@ MATERIAL_DTYPE = np.dtype([
     ("ior_distance_program_flags", np.float32, (4,)),
     ("texture_indices", np.float32, (4,)),
     ("normal_occlusion_transmission", np.float32, (4,)),
+    ("advanced0", np.float32, (4,)),
+    ("advanced1", np.float32, (4,)),
+    ("sheen_color", np.float32, (4,)),
+    ("subsurface_color", np.float32, (4,)),
+    ("advanced_texture_indices", np.float32, (4,)),
 ], align=True)
 
 LIGHT_DTYPE = np.dtype([
@@ -74,6 +79,10 @@ def _texture_table(scene):
             mesh.material.normal_texture,
             mesh.material.occlusion_texture,
             mesh.material.transmission_texture,
+            mesh.material.clearcoat_texture,
+            mesh.material.sheen_texture,
+            mesh.material.anisotropy_texture,
+            mesh.material.subsurface_texture,
         ):
             if texture is not None and id(texture) not in lookup:
                 lookup[id(texture)] = len(textures)
@@ -137,6 +146,25 @@ def pack_raster_gpu_scene(
         materials["normal_occlusion_transmission"][index] = (
             material.normal_scale, texture_values[4],
             material.occlusion_strength, texture_values[5],
+        )
+        materials["advanced0"][index] = (
+            material.clearcoat, material.clearcoat_roughness,
+            material.sheen_roughness, material.anisotropy,
+        )
+        materials["advanced1"][index] = (
+            material.subsurface, material.subsurface_radius,
+            float(material.thin_walled), 0.0,
+        )
+        materials["sheen_color"][index] = (*material.sheen_color, 0.0)
+        materials["subsurface_color"][index] = (
+            *material.subsurface_color, 0.0,
+        )
+        materials["advanced_texture_indices"][index] = tuple(
+            -1 if texture is None else texture_lookup[id(texture)]
+            for texture in (
+                material.clearcoat_texture, material.sheen_texture,
+                material.anisotropy_texture, material.subsurface_texture,
+            )
         )
         draws["model"][index] = mesh.transform.matrix
         normal = np.eye(4, dtype=np.float32)

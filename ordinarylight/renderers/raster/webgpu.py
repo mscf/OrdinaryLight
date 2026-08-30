@@ -7,7 +7,7 @@ import numpy as np
 from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
-    CAMERA_DTYPE, camera_matrix, create_raster_pipeline,
+    CAMERA_DTYPE, MATERIAL_DTYPE, camera_matrix, create_raster_pipeline,
     rasterize_geometry_products, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
@@ -245,7 +245,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             material_payload = mesh.resources.get("material_buffer")
             if material_payload is not None:
                 if not material_payload:
-                    material_payload = bytes(96)
+                    material_payload = bytes(MATERIAL_DTYPE.itemsize)
                 material_buffer = self.device.create_buffer_with_data(
                     data=material_payload,
                     usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,

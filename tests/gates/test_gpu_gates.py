@@ -32,7 +32,6 @@ class VulkanGateTests(unittest.TestCase):
             "--stages", *stages,
             "--output", "/tmp/ordinarylight_validation_matrix",
         )
-
     def test_accepted_noise_quality_baseline(self):
         self._run("tests.gates.noise_quality")
 
@@ -51,6 +50,14 @@ class VulkanGateTests(unittest.TestCase):
             "tests.gates.renderer_visual_parity", "--scene", "modifier",
             "--output", "/tmp/ordinarylight_surface_modifier_parity",
         )
+        for scene in (
+            "clearcoat", "sheen", "anisotropy", "thin-transmission",
+            "subsurface",
+        ):
+            self._run(
+                "tests.gates.renderer_visual_parity", "--scene", scene,
+                "--output", f"/tmp/ordinarylight_{scene}_parity",
+            )
 
     def test_volume_compositing(self):
         self._run(

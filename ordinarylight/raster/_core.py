@@ -444,6 +444,10 @@ _MATERIAL_TEXTURE_FIELDS = (
     ("normal_texture", "normal_transform", 2, True),
     ("occlusion_texture", "occlusion_transform", 0, True),
     ("transmission_texture", "transmission_transform", 0, True),
+    ("clearcoat_texture", "base_color_transform", 0, True),
+    ("sheen_texture", "base_color_transform", 0, False),
+    ("anisotropy_texture", "base_color_transform", 0, True),
+    ("subsurface_texture", "base_color_transform", 0, True),
 )
 
 
@@ -852,8 +856,9 @@ def scene_mesh(
             shadow_visibility,
             object_id,
             mesh.world_tangents,
-            *material_uvs[1:],
+            *material_uvs[1:6],
             np.full(len(world), float(material_index), np.float32),
+            *material_uvs[6:],
         )))
         indices.append(mesh.indices.reshape(-1) + base)
         base += len(world)
@@ -912,12 +917,13 @@ def scene_mesh(
                     np.zeros((len(local), 4), np.float32),
                     *[np.zeros((len(local), 2), np.float32) for _ in range(5)],
                     np.full(len(local), -1.0, np.float32),
+                    *[np.zeros((len(local), 2), np.float32) for _ in range(4)],
                 )))
                 indices.append(base_indices + base)
                 base += len(local)
-    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 54), np.float32)
+    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 62), np.float32)
     index_data = np.concatenate(indices).astype(np.uint32) if indices else np.empty(0, np.uint32)
-    layout = RasterVertexLayout(216, (
+    layout = RasterVertexLayout(248, (
         RasterVertexAttribute(0, "float32x4", 0, "position"),
         RasterVertexAttribute(1, "float32x3", 16, "base_color"),
         RasterVertexAttribute(2, "float32x3", 28, "normal"),
@@ -938,6 +944,10 @@ def scene_mesh(
         RasterVertexAttribute(17, "float32x2", 196, "occlusion_uv"),
         RasterVertexAttribute(18, "float32x2", 204, "transmission_uv"),
         RasterVertexAttribute(19, "float32", 212, "material_index"),
+        RasterVertexAttribute(20, "float32x2", 216, "clearcoat_uv"),
+        RasterVertexAttribute(21, "float32x2", 224, "sheen_uv"),
+        RasterVertexAttribute(22, "float32x2", 232, "anisotropy_uv"),
+        RasterVertexAttribute(23, "float32x2", 240, "subsurface_uv"),
     ))
     shadow_vertices = prepared_resources["shadow_vertices"]
     shadow_indices = prepared_resources["shadow_indices"]

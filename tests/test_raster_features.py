@@ -340,7 +340,7 @@ class RasterFeatureTests(unittest.TestCase):
             ol.Scene(volumes=[volume]), _camera(), 64, 64,
             ol.RasterConfig(volume_slices=3),
         )
-        self.assertEqual(mesh.vertices.shape, (12, 54))
+        self.assertEqual(mesh.vertices.shape, (12, 62))
         self.assertGreater(float(mesh.vertices[:, 16].max()), 0.0)
 
     def test_hybrid_implementation_composes_child_renderers(self):

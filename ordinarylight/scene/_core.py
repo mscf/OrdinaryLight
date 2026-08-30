@@ -335,6 +335,15 @@ class Material:
     metallic: float = 0.0
     roughness: float = 1.0
     transmission: float = 0.0
+    clearcoat: float = 0.0
+    clearcoat_roughness: float = 0.1
+    sheen_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    sheen_roughness: float = 0.5
+    anisotropy: float = 0.0
+    thin_walled: bool = False
+    subsurface: float = 0.0
+    subsurface_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    subsurface_radius: float = 0.5
     ior: float = 1.5
     attenuation_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
     attenuation_distance: float = float("inf")
@@ -347,6 +356,10 @@ class Material:
     occlusion_texture: Texture | None = field(default=None, compare=False)
     occlusion_strength: float = 1.0
     transmission_texture: Texture | None = field(default=None, compare=False)
+    clearcoat_texture: Texture | None = field(default=None, compare=False)
+    sheen_texture: Texture | None = field(default=None, compare=False)
+    anisotropy_texture: Texture | None = field(default=None, compare=False)
+    subsurface_texture: Texture | None = field(default=None, compare=False)
     base_color_transform: TextureTransform = field(default_factory=TextureTransform)
     metallic_roughness_transform: TextureTransform = field(default_factory=TextureTransform)
     emissive_transform: TextureTransform = field(default_factory=TextureTransform)
@@ -359,6 +372,8 @@ class Material:
         color = _vec3(self.base_color, "base_color")
         emission = _vec3(self.emission, "emission")
         attenuation = _vec3(self.attenuation_color, "attenuation_color")
+        sheen = _vec3(self.sheen_color, "sheen_color")
+        subsurface_color = _vec3(self.subsurface_color, "subsurface_color")
         if np.any(color < 0.0) or np.any(color > 1.0):
             raise ValueError("base_color components must be between zero and one")
         if np.any(emission < 0.0):
@@ -369,6 +384,22 @@ class Material:
             raise ValueError("roughness must be between zero and one")
         if not 0.0 <= self.transmission <= 1.0:
             raise ValueError("transmission must be between zero and one")
+        for name in (
+            "clearcoat", "clearcoat_roughness", "sheen_roughness",
+            "subsurface", "subsurface_radius",
+        ):
+            if not 0.0 <= getattr(self, name) <= 1.0:
+                raise ValueError(f"{name} must be between zero and one")
+        if not -1.0 <= self.anisotropy <= 1.0:
+            raise ValueError("anisotropy must be between minus one and one")
+        if np.any(sheen < 0.0) or np.any(sheen > 1.0):
+            raise ValueError("sheen_color components must be between zero and one")
+        if np.any(subsurface_color < 0.0) or np.any(subsurface_color > 1.0):
+            raise ValueError(
+                "subsurface_color components must be between zero and one"
+            )
+        if not isinstance(self.thin_walled, bool):
+            raise TypeError("thin_walled must be a bool")
         if self.ior <= 0.0:
             raise ValueError("ior must be positive")
         if np.any(attenuation < 0.0) or np.any(attenuation > 1.0):
@@ -382,6 +413,8 @@ class Material:
             "normal_texture",
             "occlusion_texture",
             "transmission_texture",
+            "clearcoat_texture", "sheen_texture", "anisotropy_texture",
+            "subsurface_texture",
         ):
             texture = getattr(self, name)
             if texture is not None and not isinstance(texture, Texture):
@@ -2508,6 +2541,10 @@ class Scene:
                     (material.occlusion_texture, material.occlusion_transform),
                     (material.transmission_texture,
                      material.transmission_transform),
+                    (material.clearcoat_texture, material.base_color_transform),
+                    (material.sheen_texture, material.base_color_transform),
+                    (material.anisotropy_texture, material.base_color_transform),
+                    (material.subsurface_texture, material.base_color_transform),
                 )
             )
             record = (
@@ -2547,9 +2584,37 @@ class Scene:
                         material.transmission_transform,
                     )),
                 ),
+                (
+                    material.clearcoat, material.clearcoat_roughness,
+                    material.sheen_roughness, material.anisotropy,
+                ),
+                (
+                    material.subsurface, material.subsurface_radius,
+                    float(material.thin_walled), 0.0,
+                ),
+                (*material.sheen_color, 0.0),
+                (*material.subsurface_color, 0.0),
+                (
+                    float(self._texture_binding_index(
+                        bindings, material.clearcoat_texture,
+                        material.base_color_transform,
+                    )),
+                    float(self._texture_binding_index(
+                        bindings, material.sheen_texture,
+                        material.base_color_transform,
+                    )),
+                    float(self._texture_binding_index(
+                        bindings, material.anisotropy_texture,
+                        material.base_color_transform,
+                    )),
+                    float(self._texture_binding_index(
+                        bindings, material.subsurface_texture,
+                        material.base_color_transform,
+                    )),
+                ),
             )
             records.extend([record] * len(mesh.indices))
-        return np.ascontiguousarray(records, dtype=np.float32).reshape((-1, 6, 4))
+        return np.ascontiguousarray(records, dtype=np.float32).reshape((-1, 11, 4))
 
     @property
     def textures(self):
@@ -2563,6 +2628,10 @@ class Scene:
                 mesh.material.normal_texture,
                 mesh.material.occlusion_texture,
                 mesh.material.transmission_texture,
+                mesh.material.clearcoat_texture,
+                mesh.material.sheen_texture,
+                mesh.material.anisotropy_texture,
+                mesh.material.subsurface_texture,
             ):
                 if texture is not None and all(texture is not item for item in result):
                     result.append(texture)
@@ -2584,6 +2653,10 @@ class Scene:
                 (material.normal_texture, material.normal_transform),
                 (material.occlusion_texture, material.occlusion_transform),
                 (material.transmission_texture, material.transmission_transform),
+                (material.clearcoat_texture, material.base_color_transform),
+                (material.sheen_texture, material.base_color_transform),
+                (material.anisotropy_texture, material.base_color_transform),
+                (material.subsurface_texture, material.base_color_transform),
             ):
                 if texture is None:
                     continue

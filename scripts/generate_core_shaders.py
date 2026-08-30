@@ -375,6 +375,11 @@ class MaterialData:
     ior_distance: osh.vec4
     texture_indices: osh.vec4
     texture_parameters: osh.vec4
+    advanced0: osh.vec4
+    advanced1: osh.vec4
+    sheen_color: osh.vec4
+    subsurface_color: osh.vec4
+    advanced_texture_indices: osh.vec4
 
 
 @osh.structure
@@ -2595,7 +2600,8 @@ def shadePbrSpecularProbability(material: MaterialData) -> osh.f32:
         material.emission_metallic.a,
     )
     return osh.clamp(
-        osh.maximum(f0.r, osh.maximum(f0.g, f0.b)), 0.1, 0.9
+        osh.maximum(f0.r, osh.maximum(f0.g, f0.b))
+        + material.advanced0.x * 0.15, 0.1, 0.95
     )
 
 
@@ -2614,12 +2620,13 @@ def shadeEvaluatePbr(
     metallic = material.emission_metallic.a
     f0 = osh.mix(osh.vec3(0.04), material.base_roughness.rgb, metallic)
     fresnel = shadePbrFresnel(f0, view_half)
-    distribution = shadeGgxDistribution(
-        normal_half, material.base_roughness.a
+    effective_roughness = material.base_roughness.a * (
+        1.0 - 0.25 * osh.absolute(osh.clamp(material.advanced0.w, -1.0, 1.0))
     )
+    distribution = shadeGgxDistribution(normal_half, effective_roughness)
     geometry = (
-        shadeGgxSmithComponent(normal_view, material.base_roughness.a)
-        * shadeGgxSmithComponent(normal_light, material.base_roughness.a)
+        shadeGgxSmithComponent(normal_view, effective_roughness)
+        * shadeGgxSmithComponent(normal_light, effective_roughness)
     )
     specular = fresnel * distribution * geometry / osh.maximum(
         4.0 * normal_view * normal_light, 0.000001
@@ -2628,7 +2635,29 @@ def shadeEvaluatePbr(
         (osh.vec3(1.0) - fresnel) * (1.0 - metallic)
         * material.base_roughness.rgb / 3.14159265359
     )
-    return diffuse + specular
+    subsurface = osh.clamp(material.advanced1.x, 0.0, 1.0)
+    diffuse = osh.mix(
+        diffuse, diffuse * material.subsurface_color.rgb, subsurface
+    )
+    sheen = material.sheen_color.rgb * (
+        (1.0 - osh.clamp(material.advanced0.z, 0.0, 1.0))
+        * osh.power(1.0 - view_half, 5.0)
+    )
+    clearcoat = osh.clamp(material.advanced0.x, 0.0, 1.0)
+    coat_roughness = osh.clamp(material.advanced0.y, 0.02, 1.0)
+    coat_distribution = shadeGgxDistribution(normal_half, coat_roughness)
+    coat_geometry = (
+        shadeGgxSmithComponent(normal_view, coat_roughness)
+        * shadeGgxSmithComponent(normal_light, coat_roughness)
+    )
+    coat_fresnel = 0.04 + 0.96 * osh.power(1.0 - view_half, 5.0)
+    coat = osh.vec3(
+        clearcoat * coat_distribution * coat_geometry * coat_fresnel
+        / osh.maximum(4.0 * normal_view * normal_light, 0.000001)
+    )
+    return (diffuse + specular + sheen) * (
+        1.0 - clearcoat * coat_fresnel
+    ) + coat
 
 
 @osh.function

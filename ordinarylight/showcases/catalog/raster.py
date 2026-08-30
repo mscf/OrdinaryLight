@@ -9,11 +9,33 @@ from ordinarylight.showcases.raster_features import (
 from ordinarylight.showcases.raster_material_hooks import (
     advanced_surface_showcase_modifier,
 )
+from ordinarylight.showcases.advanced_materials import (
+    build_anisotropy_scene, build_clearcoat_scene, build_sheen_scene,
+    build_subsurface_scene, build_thin_transmission_scene,
+)
 
 
 _CAMERA = OrbitCamera(target=(0.0, 0.9, 0.0), radius=8.5, height=4.2)
 
 SHOWCASES = (
+    *tuple(Showcase(
+        f"advanced-{slug}", f"Materials: {title}", builder,
+        description=description,
+        camera=OrbitCamera(target=(0.0, 1.0, 0.0), radius=9.5, height=3.3),
+        renderer={"shadows": True, "shadow_map_size": 1024},
+        tags=("raster-feature", "materials", "advanced", slug),
+    ) for slug, title, builder, description in (
+        ("clearcoat", "clearcoat", build_clearcoat_scene,
+         "Energy-conserving dielectric coat with independent roughness."),
+        ("sheen", "sheen", build_sheen_scene,
+         "Grazing-angle cloth sheen color and roughness."),
+        ("anisotropy", "anisotropy", build_anisotropy_scene,
+         "Directional microfacet roughness on metallic surfaces."),
+        ("thin-transmission", "thin transmission", build_thin_transmission_scene,
+         "Solid and thin-walled transmission compared side by side."),
+        ("subsurface", "subsurface", build_subsurface_scene,
+         "Portable subsurface diffusion approximation and radius."),
+    )),
     Showcase(
         "raster-directional-shadows", "Raster: directional shadows",
         build_directional_shadow_scene,

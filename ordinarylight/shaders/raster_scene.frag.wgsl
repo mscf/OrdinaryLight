@@ -5,6 +5,11 @@ struct RasterMaterial {
     ior_distance_program_flags: vec4<f32>,
     texture_indices: vec4<f32>,
     normal_occlusion_transmission: vec4<f32>,
+    advanced0: vec4<f32>,
+    advanced1: vec4<f32>,
+    sheen_color: vec4<f32>,
+    subsurface_color: vec4<f32>,
+    advanced_texture_indices: vec4<f32>,
 }
 
 struct SurfaceParameters {
@@ -67,7 +72,11 @@ fn main(
     @location(14) normal_uv: vec2<f32>,
     @location(15) occlusion_uv: vec2<f32>,
     @location(16) transmission_uv: vec2<f32>,
-    @location(17) material_index: f32
+    @location(17) material_index: f32,
+    @location(18) clearcoat_uv: vec2<f32>,
+    @location(19) sheen_uv: vec2<f32>,
+    @location(20) anisotropy_uv: vec2<f32>,
+    @location(21) subsurface_uv: vec2<f32>
 ) -> @location(0) vec4<f32> {
     if ((material_index < (-0.5))) {
         return vec4<f32>((base_color + emission), material.w);
@@ -78,12 +87,21 @@ fn main(
     let attenuation_transmission: vec4<f32> = materials[material_id].attenuation_transmission;
     let ior_distance_program_flags: vec4<f32> = materials[material_id].ior_distance_program_flags;
     let normal_occlusion_transmission: vec4<f32> = materials[material_id].normal_occlusion_transmission;
-    let sampled_base_color: vec3<f32> = (base_color_roughness.xyz * textureSample(base_color_atlas, base_color_sampler, base_color_uv).xyz);
+    let advanced0: vec4<f32> = materials[material_id].advanced0;
+    let advanced1: vec4<f32> = materials[material_id].advanced1;
+    let advanced_sheen_color: vec3<f32> = materials[material_id].sheen_color.xyz;
+    let advanced_subsurface_color: vec3<f32> = materials[material_id].subsurface_color.xyz;
+    let advanced_texture_indices: vec4<f32> = materials[material_id].advanced_texture_indices;
+    let sampled_base_color: vec3<f32> = (base_color_roughness.xyz * textureSample(base_color_atlas, base_color_sampler, clearcoat_uv).xyz);
     let metallic_roughness_sample: vec4<f32> = textureSample(base_color_atlas, base_color_sampler, metallic_roughness_uv);
     let sampled_emission: vec3<f32> = (emission_metallic.xyz * textureSample(base_color_atlas, base_color_sampler, emissive_uv).xyz);
     let normal_sample: vec3<f32> = ((textureSample(base_color_atlas, base_color_sampler, normal_uv).xyz * 2.0) - vec3<f32>(1.0));
     let occlusion_sample: f32 = textureSample(base_color_atlas, base_color_sampler, occlusion_uv).x;
     let transmission_sample: f32 = textureSample(base_color_atlas, base_color_sampler, transmission_uv).x;
+    let clearcoat_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, sheen_uv).x, (advanced_texture_indices.x >= 0.0));
+    let sheen_sample: vec3<f32> = select(vec3<f32>(1.0), textureSample(base_color_atlas, base_color_sampler, anisotropy_uv).xyz, (advanced_texture_indices.y >= 0.0));
+    let anisotropy_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, subsurface_uv).x, (advanced_texture_indices.z >= 0.0));
+    let subsurface_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, base_color_uv).x, (advanced_texture_indices.w >= 0.0));
     let shadow_w: f32 = max(abs(shadow_coordinate.w), 1e-06);
     let projected_shadow: vec3<f32> = (shadow_coordinate.xyz / shadow_w);
     let geometric_normal: vec3<f32> = (world_normal / max(length(world_normal), 1e-06));
@@ -104,7 +122,7 @@ fn main(
     let base_transmission: f32 = (attenuation_transmission.w * transmission_sample);
     let transmission: f32 = select(base_transmission, 1.0, glass_program);
     let occlusion: f32 = mix(1.0, occlusion_sample, normal_occlusion_transmission.z);
-    let hooked: SurfaceParameters = ordinarylight_material_modifier(SurfaceParameters(sampled_base_color, sampled_emission, normal, metallic, roughness, transmission, occlusion, 0.0, 0.1, vec3<f32>(0.0), 0.5, 0.0, 0.0, 0.0, sampled_base_color, 0.5), SurfaceContext(base_color_uv, normal, view, ior_distance_program_flags.z));
+    let hooked: SurfaceParameters = ordinarylight_material_modifier(SurfaceParameters(sampled_base_color, sampled_emission, normal, metallic, roughness, transmission, occlusion, (advanced0.x * clearcoat_sample), advanced0.y, (advanced_sheen_color * sheen_sample), advanced0.z, (advanced0.w * anisotropy_sample), advanced1.z, (advanced1.x * subsurface_sample), advanced_subsurface_color, advanced1.y), SurfaceContext(base_color_uv, normal, view, ior_distance_program_flags.z));
     let surface_base_color: vec3<f32> = hooked.base_color;
     let surface_emission: vec3<f32> = hooked.emission;
     let surface_normal: vec3<f32> = (hooked.normal / max(length(hooked.normal), 1e-06));

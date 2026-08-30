@@ -35,6 +35,10 @@ class SceneVertexOutput:
     occlusion_uv: osh.location(osh.vec2, 15)
     transmission_uv: osh.location(osh.vec2, 16)
     material_index: osh.location(osh.f32, 17)
+    clearcoat_uv: osh.location(osh.vec2, 18)
+    sheen_uv: osh.location(osh.vec2, 19)
+    anisotropy_uv: osh.location(osh.vec2, 20)
+    subsurface_uv: osh.location(osh.vec2, 21)
 
 
 @osh.structure
@@ -57,6 +61,11 @@ class RasterMaterial:
     ior_distance_program_flags: osh.vec4
     texture_indices: osh.vec4
     normal_occlusion_transmission: osh.vec4
+    advanced0: osh.vec4
+    advanced1: osh.vec4
+    sheen_color: osh.vec4
+    subsurface_color: osh.vec4
+    advanced_texture_indices: osh.vec4
 
 
 @osh.vertex
@@ -99,6 +108,10 @@ def scene_vertex(
     occlusion_uv: osh.location(osh.vec2, 17),
     transmission_uv: osh.location(osh.vec2, 18),
     material_index: osh.location(osh.f32, 19),
+    clearcoat_uv: osh.location(osh.vec2, 20),
+    sheen_uv: osh.location(osh.vec2, 21),
+    anisotropy_uv: osh.location(osh.vec2, 22),
+    subsurface_uv: osh.location(osh.vec2, 23),
     camera: osh.uniform_buffer(RasterCamera, binding=3),
 ) -> SceneVertexOutput:
     return SceneVertexOutput(
@@ -109,6 +122,7 @@ def scene_vertex(
         base_color_uv, shadow_coordinate, shadow_visibility,
         world_tangent, metallic_roughness_uv, emissive_uv, normal_uv,
         occlusion_uv, transmission_uv, material_index,
+        clearcoat_uv, sheen_uv, anisotropy_uv, subsurface_uv,
     )
 
 
@@ -132,6 +146,10 @@ def scene_fragment(
     occlusion_uv: osh.location(osh.vec2, 15),
     transmission_uv: osh.location(osh.vec2, 16),
     material_index: osh.location(osh.f32, 17),
+    clearcoat_uv: osh.location(osh.vec2, 18),
+    sheen_uv: osh.location(osh.vec2, 19),
+    anisotropy_uv: osh.location(osh.vec2, 20),
+    subsurface_uv: osh.location(osh.vec2, 21),
     base_color_atlas: osh.sampled_texture_2d(binding=0),
     base_color_sampler: osh.sampler(binding=1),
     shadow_map: osh.sampled_depth_texture_2d(binding=2),
@@ -153,8 +171,13 @@ def scene_fragment(
     attenuation_transmission = materials[material_id].attenuation_transmission
     ior_distance_program_flags = materials[material_id].ior_distance_program_flags
     normal_occlusion_transmission = materials[material_id].normal_occlusion_transmission
+    advanced0 = materials[material_id].advanced0
+    advanced1 = materials[material_id].advanced1
+    advanced_sheen_color = materials[material_id].sheen_color.xyz
+    advanced_subsurface_color = materials[material_id].subsurface_color.xyz
+    advanced_texture_indices = materials[material_id].advanced_texture_indices
     sampled_base_color = base_color_roughness.xyz * base_color_atlas.sample_with(
-        base_color_sampler, base_color_uv,
+        base_color_sampler, clearcoat_uv,
     ).xyz
     metallic_roughness_sample = base_color_atlas.sample_with(
         base_color_sampler, metallic_roughness_uv,
@@ -171,6 +194,18 @@ def scene_fragment(
     transmission_sample = base_color_atlas.sample_with(
         base_color_sampler, transmission_uv,
     ).x
+    clearcoat_sample = base_color_atlas.sample_with(
+        base_color_sampler, sheen_uv,
+    ).x if advanced_texture_indices.x >= 0.0 else 1.0
+    sheen_sample = base_color_atlas.sample_with(
+        base_color_sampler, anisotropy_uv,
+    ).xyz if advanced_texture_indices.y >= 0.0 else osh.vec3(1.0)
+    anisotropy_sample = base_color_atlas.sample_with(
+        base_color_sampler, subsurface_uv,
+    ).x if advanced_texture_indices.z >= 0.0 else 1.0
+    subsurface_sample = base_color_atlas.sample_with(
+        base_color_sampler, base_color_uv,
+    ).x if advanced_texture_indices.w >= 0.0 else 1.0
     shadow_w = osh.maximum(osh.absolute(shadow_coordinate.w), 0.000001)
     projected_shadow = shadow_coordinate.xyz / shadow_w
     geometric_normal = world_normal / osh.maximum(osh.length(world_normal), 0.000001)
@@ -214,8 +249,11 @@ def scene_fragment(
         SurfaceParameters(
             sampled_base_color, sampled_emission, normal, metallic,
             roughness, transmission, occlusion,
-            0.0, 0.1, osh.vec3(0.0), 0.5, 0.0, 0.0,
-            0.0, sampled_base_color, 0.5,
+            advanced0.x * clearcoat_sample, advanced0.y,
+            advanced_sheen_color * sheen_sample, advanced0.z,
+            advanced0.w * anisotropy_sample, advanced1.z,
+            advanced1.x * subsurface_sample, advanced_subsurface_color,
+            advanced1.y,
         ),
         SurfaceContext(
             base_color_uv, normal, view,
@@ -340,10 +378,22 @@ def scene_fragment(
         3.14159265 * coat_denominator * coat_denominator, 0.000001,
     )
     coat_fresnel = 0.04 + 0.96 * osh.power(1.0 - vdoth, 5.0)
+    coat_k = (
+        (surface_clearcoat_roughness + 1.0)
+        * (surface_clearcoat_roughness + 1.0) / 8.0
+    )
+    coat_geometry_v = ndotv / osh.maximum(
+        ndotv * (1.0 - coat_k) + coat_k, 0.000001,
+    )
+    coat_geometry_l = ndotl / osh.maximum(
+        ndotl * (1.0 - coat_k) + coat_k, 0.000001,
+    )
     clearcoat_specular = osh.vec3(
-        surface_clearcoat * coat_distribution * coat_fresnel
+        surface_clearcoat * coat_distribution * coat_geometry_v
+        * coat_geometry_l * coat_fresnel
         / osh.maximum(4.0 * ndotv * ndotl, 0.000001)
     )
+    base_energy = 1.0 - surface_clearcoat * coat_fresnel
     diffuse_weight = (1.0 - surface_metallic) * (1.0 - surface_transmission)
     diffuse_base = (
         (osh.vec3(1.0) - fresnel) * surface_base_color
@@ -361,9 +411,9 @@ def scene_fragment(
     attenuation = 1.0 / (distance * distance)
     visibility = attenuation * shadow_visibility * shadow_map_visibility
     direct = (
-        (diffuse + surface_sheen) * light_color_ambient.xyz
+        (diffuse + surface_sheen) * base_energy * light_color_ambient.xyz
         * (diffuse_ndotl * visibility)
-        + (specular + clearcoat_specular) * light_color_ambient.xyz
+        + (specular * base_energy + clearcoat_specular) * light_color_ambient.xyz
         * (ndotl * visibility)
     )
     transmission_tint = osh.mix(

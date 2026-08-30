@@ -280,16 +280,40 @@
         "location": 17,
         "name": "material_index",
         "type": "float"
+      },
+      {
+        "builtin": null,
+        "location": 18,
+        "name": "clearcoat_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 19,
+        "name": "sheen_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 20,
+        "name": "anisotropy_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 21,
+        "name": "subsurface_uv",
+        "type": "vec2"
       }
     ]
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "c9b6f08e879c84ccb1b870177447c1f25b72f33b1ab5c3f0b9cba3098b9ce2dc",
+  "source_sha256": "66be3cc1c5aa01d269bd08792825a1ccb143c17c0b8f7dabab47aa64b39c4fa2",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "c67a8546b54406e67166b13f86eb5574216f9164c9ab58eefee5480b3623f4f4",
+        "cache_key": "9a55916bf81456e2586d7065bdc5f379db91657b9a9538d6a8dc922a5b54a1cd",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -401,6 +425,30 @@
               "location": 17,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "outputs": [
@@ -460,10 +508,10 @@
             1
           ]
         },
-        "sha256": "df7216f6932f4ee4f6928721654e05a7e41d36a49bd82eca94df993e67be163e"
+        "sha256": "d22088b642024932124fef158947f9650a885ac1adc702f08dc4cf9e60aba3e8"
       },
       "vertex": {
-        "cache_key": "e7d1f2d28fd7219b16361d6faa5e7938b8f4e995e1a19172775d7480b6f7f2a1",
+        "cache_key": "4301f49978f39ab16cc90a756c949d143fb384d9b72041f09ec416dba1eae68e",
         "file": "raster_scene.vert.spv",
         "reflection": {
           "entry_point": "main",
@@ -581,6 +629,30 @@
               "location": 19,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 23,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "outputs": [
@@ -697,6 +769,30 @@
               "location": 17,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "resources": [
@@ -716,12 +812,12 @@
             1
           ]
         },
-        "sha256": "15f09e8003653b524cd4a09a6b36febe310525d4d818f1bad3e9d0e7dc62e58b"
+        "sha256": "9c6c7096c11a834b7f448a5d8069bed42ab4e04933bb85193b849c5fe3667b88"
       }
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "d4c09dfd6b8eb1b98c08c04772169c1f9efb8b2e5b02275d2545dbbaa70871e8",
+        "cache_key": "39806da6ed098054ddea07f69fa655b41f4567c9209c209032aeb2b66854e41f",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -833,6 +929,30 @@
               "location": 17,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "outputs": [
@@ -892,10 +1012,10 @@
             1
           ]
         },
-        "sha256": "3a80dfdbfa69488e9d95b5cd2fa533e8b957dda403e74019b13fc22353ce0555"
+        "sha256": "2c964e0c4ec67c00958ccc789834ed3acead5b9ae4f12657677ee0de7b5a4899"
       },
       "vertex": {
-        "cache_key": "e99335b3b0f1f8fbdeb16c24866f81384e02ff0bd60336c594dc971db7e4bb11",
+        "cache_key": "df0470236378e2593dddff4f1929e8e54a32eec7a31beb943458621a37ae526b",
         "file": "raster_scene.vert.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -1013,6 +1133,30 @@
               "location": 19,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 23,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "outputs": [
@@ -1129,6 +1273,30 @@
               "location": 17,
               "name": "material_index",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "clearcoat_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "sheen_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 20,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 21,
+              "name": "subsurface_uv",
+              "type": "vec2"
             }
           ],
           "resources": [
@@ -1148,7 +1316,7 @@
             1
           ]
         },
-        "sha256": "47c6356e3e35966a90ab3d9efb5f0d63251a5506e741e1764926b3ddce6e9cf4"
+        "sha256": "29e74d611987390345482745d96cd2606e5fa06ca597de5068c1639c2cd676f2"
       }
     }
   }

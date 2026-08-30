@@ -36,6 +36,9 @@ _SUPPORTED_EXTENSIONS = frozenset({
     "KHR_materials_emissive_strength",
     "KHR_materials_ior",
     "KHR_materials_transmission",
+    "KHR_materials_clearcoat",
+    "KHR_materials_sheen",
+    "KHR_materials_anisotropy",
     "KHR_materials_unlit",
     "KHR_materials_volume",
     "KHR_texture_transform",
@@ -190,6 +193,9 @@ def _material(gltf, index, textures):
     transmission = extensions.get("KHR_materials_transmission", {})
     volume = extensions.get("KHR_materials_volume", {})
     ior = extensions.get("KHR_materials_ior", {})
+    clearcoat = extensions.get("KHR_materials_clearcoat", {})
+    sheen = extensions.get("KHR_materials_sheen", {})
+    anisotropy = extensions.get("KHR_materials_anisotropy", {})
     attenuation_distance = volume.get("attenuationDistance", float("inf"))
     emissive_strength = extensions.get(
         "KHR_materials_emissive_strength", {}
@@ -214,6 +220,15 @@ def _material(gltf, index, textures):
     transmission_texture, transmission_transform = _texture_reference(
         transmission.get("transmissionTexture"), textures
     )
+    clearcoat_texture, _ = _texture_reference(
+        clearcoat.get("clearcoatTexture"), textures
+    )
+    sheen_texture, _ = _texture_reference(
+        sheen.get("sheenColorTexture"), textures
+    )
+    anisotropy_texture, _ = _texture_reference(
+        anisotropy.get("anisotropyTexture"), textures
+    )
     return Material(
         base_color=base,
         emission=emissive,
@@ -222,6 +237,11 @@ def _material(gltf, index, textures):
         roughness=(pbr.roughnessFactor if pbr is not None
                    and pbr.roughnessFactor is not None else 1.0),
         transmission=transmission.get("transmissionFactor", 0.0),
+        clearcoat=clearcoat.get("clearcoatFactor", 0.0),
+        clearcoat_roughness=clearcoat.get("clearcoatRoughnessFactor", 0.1),
+        sheen_color=tuple(sheen.get("sheenColorFactor", (0.0, 0.0, 0.0))),
+        sheen_roughness=sheen.get("sheenRoughnessFactor", 0.5),
+        anisotropy=anisotropy.get("anisotropyStrength", 0.0),
         ior=ior.get("ior", 1.5),
         attenuation_color=tuple(volume.get("attenuationColor", (1.0, 1.0, 1.0))),
         attenuation_distance=attenuation_distance,
@@ -248,6 +268,9 @@ def _material(gltf, index, textures):
         ),
         transmission_texture=transmission_texture,
         transmission_transform=transmission_transform,
+        clearcoat_texture=clearcoat_texture,
+        sheen_texture=sheen_texture,
+        anisotropy_texture=anisotropy_texture,
         program=(unlit_material if "KHR_materials_unlit" in extensions else None),
     )
 

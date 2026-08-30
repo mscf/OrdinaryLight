@@ -64,6 +64,11 @@ struct MaterialData
     vec4 ior_distance;
     vec4 texture_indices;
     vec4 texture_parameters;
+    vec4 advanced0;
+    vec4 advanced1;
+    vec4 sheen_color;
+    vec4 subsurface_color;
+    vec4 advanced_texture_indices;
 };
 
 struct VertexAttributeData
@@ -1330,7 +1335,7 @@ float shadeGgxSmithComponent(float normal_direction, float roughness)
 float shadePbrSpecularProbability(MaterialData material)
 {
     vec3 f0 = mix(vec3(0.04), material.base_roughness.rgb, material.emission_metallic.a);
-    return clamp(max(f0.r, max(f0.g, f0.b)), 0.1, 0.9);
+    return clamp((max(f0.r, max(f0.g, f0.b)) + (material.advanced0.x * 0.15)), 0.1, 0.95);
 }
 
 vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
@@ -1347,11 +1352,21 @@ vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoi
     float metallic = material.emission_metallic.a;
     vec3 f0 = mix(vec3(0.04), material.base_roughness.rgb, metallic);
     vec3 fresnel = shadePbrFresnel(f0, view_half);
-    float distribution = shadeGgxDistribution(normal_half, material.base_roughness.a);
-    float geometry = (shadeGgxSmithComponent(normal_view, material.base_roughness.a) * shadeGgxSmithComponent(normal_light, material.base_roughness.a));
+    float effective_roughness = (material.base_roughness.a * (1.0 - (0.25 * abs(clamp(material.advanced0.w, (-1.0), 1.0)))));
+    float distribution = shadeGgxDistribution(normal_half, effective_roughness);
+    float geometry = (shadeGgxSmithComponent(normal_view, effective_roughness) * shadeGgxSmithComponent(normal_light, effective_roughness));
     vec3 specular = (((fresnel * distribution) * geometry) / max(((4.0 * normal_view) * normal_light), 1e-06));
     vec3 diffuse = ((((vec3(1.0) - fresnel) * (1.0 - metallic)) * material.base_roughness.rgb) / 3.14159265359);
-    return (diffuse + specular);
+    float subsurface = clamp(material.advanced1.x, 0.0, 1.0);
+    diffuse = mix(diffuse, (diffuse * material.subsurface_color.rgb), subsurface);
+    vec3 sheen = (material.sheen_color.rgb * ((1.0 - clamp(material.advanced0.z, 0.0, 1.0)) * pow((1.0 - view_half), 5.0)));
+    float clearcoat = clamp(material.advanced0.x, 0.0, 1.0);
+    float coat_roughness = clamp(material.advanced0.y, 0.02, 1.0);
+    float coat_distribution = shadeGgxDistribution(normal_half, coat_roughness);
+    float coat_geometry = (shadeGgxSmithComponent(normal_view, coat_roughness) * shadeGgxSmithComponent(normal_light, coat_roughness));
+    float coat_fresnel = (0.04 + (0.96 * pow((1.0 - view_half), 5.0)));
+    vec3 coat = vec3(((((clearcoat * coat_distribution) * coat_geometry) * coat_fresnel) / max(((4.0 * normal_view) * normal_light), 1e-06)));
+    return ((((diffuse + specular) + sheen) * (1.0 - (clearcoat * coat_fresnel))) + coat);
 }
 
 float shadePbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)

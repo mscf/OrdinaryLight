@@ -25,6 +25,10 @@ struct SceneVertexOutput {
     @location(15) occlusion_uv: vec2<f32>,
     @location(16) transmission_uv: vec2<f32>,
     @location(17) material_index: f32,
+    @location(18) clearcoat_uv: vec2<f32>,
+    @location(19) sheen_uv: vec2<f32>,
+    @location(20) anisotropy_uv: vec2<f32>,
+    @location(21) subsurface_uv: vec2<f32>,
 }
 
 @vertex
@@ -47,7 +51,11 @@ fn main(
     @location(16) normal_uv: vec2<f32>,
     @location(17) occlusion_uv: vec2<f32>,
     @location(18) transmission_uv: vec2<f32>,
-    @location(19) material_index: f32
+    @location(19) material_index: f32,
+    @location(20) clearcoat_uv: vec2<f32>,
+    @location(21) sheen_uv: vec2<f32>,
+    @location(22) anisotropy_uv: vec2<f32>,
+    @location(23) subsurface_uv: vec2<f32>
 ) -> SceneVertexOutput {
-    return SceneVertexOutput((camera.view_projection * position), base_color, world_normal, world_position, material, emission, camera.position_exposure.xyz, light_position_type, light_color_ambient, base_color_uv, shadow_coordinate, shadow_visibility, world_tangent, metallic_roughness_uv, emissive_uv, normal_uv, occlusion_uv, transmission_uv, material_index);
+    return SceneVertexOutput((camera.view_projection * position), base_color, world_normal, world_position, material, emission, camera.position_exposure.xyz, light_position_type, light_color_ambient, base_color_uv, shadow_coordinate, shadow_visibility, world_tangent, metallic_roughness_uv, emissive_uv, normal_uv, occlusion_uv, transmission_uv, material_index, clearcoat_uv, sheen_uv, anisotropy_uv, subsurface_uv);
 }

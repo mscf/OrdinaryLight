@@ -7,7 +7,7 @@ import numpy as np
 from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
-    CAMERA_DTYPE, camera_matrix, create_raster_pipeline,
+    CAMERA_DTYPE, MATERIAL_DTYPE, camera_matrix, create_raster_pipeline,
     rasterize_geometry_products, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
@@ -710,7 +710,7 @@ class VulkanRasterRenderer(RendererImplementation):
         material_buffer = material_memory = None
         if material_payload is not None:
             if not material_payload:
-                material_payload = bytes(96)
+                material_payload = bytes(MATERIAL_DTYPE.itemsize)
             material_buffer, material_memory = self._buffer(
                 len(material_payload), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                 host_flags, material_payload,

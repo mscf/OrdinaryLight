@@ -132,6 +132,9 @@ class MaterialProgramTests(unittest.TestCase):
         self.assertIn("struct SurfaceParameters", source)
         self.assertIn("ordinarylight_material_modifier", source)
         self.assertIn("surface.clearcoat", source)
+        self.assertIn("inout vec3 normal", source)
+        self.assertIn("normal = normalize(surface.normal)", source)
+        self.assertIn("material.advanced0", source)
         layout = ol.VertexAttributeLayout(())
         for shader, binding in (
             ("wavefront_primary.comp", 24),
@@ -241,7 +244,7 @@ class MaterialProgramTests(unittest.TestCase):
         self.assertNotIn("WAVE_ATTRIBUTE_color", candidate_source)
         self.assertEqual(
             candidate_source.count(
-                "MaterialEvaluation evaluateMaterial(MaterialData"
+                "MaterialEvaluation evaluateMaterial(inout MaterialData"
             ),
             1,
         )
@@ -283,7 +286,7 @@ class MaterialProgramTests(unittest.TestCase):
         self.assertIn("MaterialEvaluation evaluateMaterial_0", complete)
         self.assertIn("result.base_color = mix(material.base_roughness.rgb", complete)
         self.assertEqual(
-            complete.count("MaterialEvaluation evaluateMaterial(MaterialData"), 1
+            complete.count("MaterialEvaluation evaluateMaterial(inout MaterialData"), 1
         )
         if find_glsl_compiler():
             spirv = compile_material_shader("ray_query.comp", tinted_glass)

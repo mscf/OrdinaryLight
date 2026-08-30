@@ -74,6 +74,11 @@ struct MaterialData {
     vec4 ior_distance;
     vec4 texture_indices;
     vec4 texture_parameters;
+    vec4 advanced0;
+    vec4 advanced1;
+    vec4 sheen_color;
+    vec4 subsurface_color;
+    vec4 advanced_texture_indices;
 };
 
 struct VertexAttributeData { vec4 normal; vec4 texcoord; vec4 tangent; };

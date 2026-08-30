@@ -311,7 +311,7 @@ class GltfLoaderTests(unittest.TestCase):
         self.assertTrue(any(mesh.material.transmission > 0.0 for mesh in scene.meshes))
         self.assertTrue(any(mesh.normals is not None for mesh in scene.meshes))
         self.assertTrue(any(mesh.texcoords is not None for mesh in scene.meshes))
-        self.assertEqual(scene.triangle_material_data().shape, (128775, 6, 4))
+        self.assertEqual(scene.triangle_material_data().shape, (128775, 11, 4))
         self.assertTrue(all(mesh.tangents.shape[1] == 4 for mesh in scene.meshes))
         self.assertTrue(any(
             mesh.material.metallic_roughness_texture is not None

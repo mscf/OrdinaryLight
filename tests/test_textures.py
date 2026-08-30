@@ -106,6 +106,34 @@ class TextureTests(unittest.TestCase):
         )
         self.assertIs(scene.textures[1], second)
 
+    def test_advanced_material_parameters_and_textures_pack_stably(self):
+        texture = ol.Texture(np.full((2, 2, 4), 192, dtype=np.uint8))
+        material = ol.Material(
+            clearcoat=0.8, clearcoat_roughness=0.12,
+            sheen_color=(0.2, 0.4, 0.8), sheen_roughness=0.35,
+            anisotropy=-0.6, thin_walled=True,
+            subsurface=0.55, subsurface_color=(1.0, 0.25, 0.1),
+            subsurface_radius=0.7, clearcoat_texture=texture,
+            sheen_texture=texture, anisotropy_texture=texture,
+            subsurface_texture=texture,
+        )
+        scene = ol.Scene()
+        scene.add_mesh(
+            ((0, 0, 0), (1, 0, 0), (0, 1, 0)), ((0, 1, 2),), material,
+            texcoords=((0, 0), (1, 0), (0, 1)),
+        )
+        packed = scene.triangle_material_data()[0]
+        self.assertEqual(packed.shape, (11, 4))
+        np.testing.assert_allclose(packed[6], (0.8, 0.12, 0.35, -0.6))
+        np.testing.assert_allclose(packed[7], (0.55, 0.7, 1.0, 0.0))
+        np.testing.assert_allclose(packed[8, :3], (0.2, 0.4, 0.8))
+        np.testing.assert_allclose(packed[9, :3], (1.0, 0.25, 0.1))
+        self.assertTrue(np.all(packed[10] >= 0.0))
+        with self.assertRaises(ValueError):
+            ol.Material(clearcoat=1.1)
+        with self.assertRaises(ValueError):
+            ol.Material(anisotropy=-1.1)
+
     def test_texture_bindings_deduplicate_resource_and_transform(self):
         texture = ol.Texture(np.full((1, 1, 4), 255, dtype=np.uint8))
         transform = ol.TextureTransform(

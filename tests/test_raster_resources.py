@@ -18,6 +18,10 @@ def test_raster_gpu_scene_packs_materials_lights_draws_and_textures():
         ol.Material(
             base_color=(0.2, 0.4, 0.8), metallic=0.75, roughness=0.25,
             transmission=0.5, base_color_texture=texture,
+            clearcoat=0.8, clearcoat_roughness=0.12,
+            sheen_color=(0.2, 0.4, 0.8), anisotropy=0.6,
+            subsurface=0.4, subsurface_color=(1.0, 0.2, 0.1),
+            thin_walled=True, clearcoat_texture=texture,
         ),
         transform=ol.Transform.translation((1, 2, 3)),
     )
@@ -34,6 +38,12 @@ def test_raster_gpu_scene_packs_materials_lights_draws_and_textures():
     )
     assert packed.materials["emission_metallic"][0, 3] == 0.75
     assert packed.materials["texture_indices"][0, 0] == 0
+    np.testing.assert_allclose(
+        packed.materials["advanced0"][0], (0.8, 0.12, 0.5, 0.6),
+    )
+    assert packed.materials["advanced1"][0, 0] == 0.4
+    assert packed.materials["advanced1"][0, 2] == 1.0
+    assert packed.materials["advanced_texture_indices"][0, 0] == 0
     np.testing.assert_allclose(packed.draws["model"][0, :3, 3], (1, 2, 3))
     assert packed.shadow_maps == ()
 

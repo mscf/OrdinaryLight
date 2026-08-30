@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "description": "Accepted raster/GI structural parity thresholds for first-class advanced material lobes.",
+  "scenes": {
+    "clearcoat": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.35, "min_coverage_iou": 0.65},
+    "sheen": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.35, "min_coverage_iou": 0.65},
+    "anisotropy": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.35, "min_coverage_iou": 0.65},
+    "thin-transmission": {"max_log_color_rmse": 0.55, "min_edge_correlation": 0.30, "min_coverage_iou": 0.65},
+    "subsurface": {"max_log_color_rmse": 0.50, "min_edge_correlation": 0.30, "min_coverage_iou": 0.65}
+  }
+}

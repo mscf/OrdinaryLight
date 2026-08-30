@@ -1440,6 +1440,16 @@ includes clearcoat, sheen, anisotropy, thin-walled transmission, and a compact
 subsurface approximation in addition to the standard PBR fields. The viewer
 entry **Raster/GI: portable surface modifier** is a live example.
 
+These channels are also first-class `Material` properties: `clearcoat`,
+`clearcoat_roughness`, `sheen_color`, `sheen_roughness`, `anisotropy`,
+`thin_walled`, `subsurface`, `subsurface_color`, and `subsurface_radius`.
+Clearcoat, sheen, anisotropy, and subsurface maps have corresponding texture
+fields. glTF loading recognizes the standard clearcoat, sheen, and anisotropy
+extensions. Raster and GI share the packed material ABI, while GI propagates
+modifier-authored normals back into path shading. Focused live scenes for each
+advanced lobe are available in `tools/raster_feature_viewer.py`; the same
+scenes are exercised by the raster/GI visual parity gate.
+
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization
 targets without changing these public semantics.

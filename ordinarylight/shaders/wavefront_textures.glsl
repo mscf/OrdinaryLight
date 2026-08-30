@@ -242,7 +242,8 @@ bool materialHasTextures(MaterialData material)
 #else
     return any(greaterThanEqual(material.texture_indices, vec4(0.0)))
         || material.texture_parameters.y >= 0.0
-        || material.texture_parameters.w >= 0.0;
+        || material.texture_parameters.w >= 0.0
+        || any(greaterThanEqual(material.advanced_texture_indices, vec4(0.0)));
 #endif
 }
 
@@ -294,6 +295,24 @@ void applyMaterialTextures(
 #else
     material.emission_metallic.rgb *= emissive_sample;
 #endif
+    vec4 clearcoat_sample = sampleMaterialTexture(
+        material.advanced_texture_indices.x, uv0, uv1, false,
+        uv0_footprint, uv1_footprint);
+    vec4 sheen_sample = sampleMaterialTexture(
+        material.advanced_texture_indices.y, uv0, uv1, true,
+        uv0_footprint, uv1_footprint);
+    vec4 anisotropy_sample = sampleMaterialTexture(
+        material.advanced_texture_indices.z, uv0, uv1, false,
+        uv0_footprint, uv1_footprint);
+    vec4 subsurface_sample = sampleMaterialTexture(
+        material.advanced_texture_indices.w, uv0, uv1, false,
+        uv0_footprint, uv1_footprint);
+    material.advanced0.x *= clearcoat_sample.r;
+    material.advanced0.y *= max(clearcoat_sample.g, clearcoat_sample.r);
+    material.sheen_color.rgb *= sheen_sample.rgb;
+    material.advanced0.z *= sheen_sample.a;
+    material.advanced0.w *= anisotropy_sample.r;
+    material.advanced1.x *= subsurface_sample.r;
     if (material.attenuation_transmission.a > 0.001)
         return;
 #if WAVE_WORK_COUNTERS
