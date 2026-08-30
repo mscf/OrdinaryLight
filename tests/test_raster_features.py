@@ -37,7 +37,7 @@ class RasterFeatureTests(unittest.TestCase):
         )
         self.assertGreater(packed.vertices[0, 4], 0.9)
         self.assertGreater(packed.vertices[1, 5], 0.9)
-        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 3, 4))
+        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 5, 4))
         uv_offset = next(
             item.offset // 4 for item in packed.layout.attributes
             if item.semantic == "base_color_uv"
@@ -105,7 +105,7 @@ class RasterFeatureTests(unittest.TestCase):
             _camera(), 64, 64, ol.RasterConfig(shadow_map_size=2048),
             native_shadow_maps=True,
         )
-        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 1, 4))
+        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 3, 4))
         self.assertEqual(
             packed.resources["shadow_rectangle"],
             (0, 0, 2048, 2048, 2048, 2048),
@@ -199,6 +199,60 @@ class RasterFeatureTests(unittest.TestCase):
         high = plan_shadow_maps(scene, extent=(4096, 4096), max_maps=1)[0]
         self.assertAlmostEqual(low.normal_bias / high.normal_bias, 8.0)
 
+    def test_complete_material_channels_use_gpu_record_and_atlas(self):
+        pixels = lambda rgba: ol.Texture(np.asarray([[rgba]], np.uint8))
+        material = ol.Material(
+            base_color=(0.2, 0.4, 0.8), roughness=0.7, metallic=0.6,
+            emission=(0.1, 0.2, 0.3), transmission=0.5,
+            base_color_texture=pixels((250, 20, 10, 255)),
+            metallic_roughness_texture=pixels((0, 80, 220, 255)),
+            emissive_texture=pixels((10, 240, 20, 255)),
+            normal_texture=pixels((180, 100, 240, 255)),
+            occlusion_texture=pixels((90, 90, 90, 255)),
+            transmission_texture=pixels((130, 130, 130, 255)),
+        )
+        mesh = ol.Mesh(
+            [[-1,-1,0],[1,-1,0],[0,1,0]], [[0,1,2]], material,
+            texcoords=[[0,0],[1,0],[0.5,1]],
+        )
+        packed = ol.scene_mesh(
+            ol.Scene([mesh]), _camera(), 64, 64, ol.RasterConfig(),
+        )
+        self.assertEqual(packed.resources["base_color_atlas"].shape, (1, 9, 4))
+        records = np.frombuffer(
+            packed.resources["material_buffer"], dtype=ol.MATERIAL_DTYPE,
+        )
+        self.assertEqual(len(records), 1)
+        np.testing.assert_allclose(
+            records["base_color_roughness"][0], (0.2,0.4,0.8,0.7),
+        )
+        semantics = {item.semantic for item in packed.layout.attributes}
+        self.assertTrue({
+            "tangent", "metallic_roughness_uv", "emissive_uv", "normal_uv",
+            "occlusion_uv", "transmission_uv", "material_index",
+        }.issubset(semantics))
+
+    def test_material_programs_select_portable_raster_models(self):
+        from ordinarylight.showcases.materials import (
+            diffuse, fresnel_glass, mirror,
+        )
+        programs = (diffuse, mirror, fresnel_glass, ol.unlit_material)
+        scene = ol.Scene([
+            ol.Mesh(
+                [[-1,-1,0],[1,-1,0],[0,1,0]], [[0,1,2]],
+                ol.Material(program=program),
+            ) for program in programs
+        ])
+        packed = ol.scene_mesh(scene, _camera(), 64, 64)
+        records = np.frombuffer(
+            packed.resources["material_buffer"], dtype=ol.MATERIAL_DTYPE,
+        )
+        np.testing.assert_array_equal(
+            np.floor(records["ior_distance_program_flags"][:, 3]),
+            (1, 2, 3, 4),
+        )
+        self.assertEqual(packed.resources["material_programs"], programs)
+
     def test_pbr_raster_material_distinguishes_metal_and_roughness(self):
         vertices = [[-1, -1, 0], [1, -1, 0], [0, 1, 0]]
         indices = [[0, 1, 2]]
@@ -286,7 +340,7 @@ class RasterFeatureTests(unittest.TestCase):
             ol.Scene(volumes=[volume]), _camera(), 64, 64,
             ol.RasterConfig(volume_slices=3),
         )
-        self.assertEqual(mesh.vertices.shape, (12, 39))
+        self.assertEqual(mesh.vertices.shape, (12, 54))
         self.assertGreater(float(mesh.vertices[:, 16].max()), 0.0)
 
     def test_hybrid_implementation_composes_child_renderers(self):

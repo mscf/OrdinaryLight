@@ -17,6 +17,13 @@ class SceneVertexOutput:
     base_color_uv: osh.location(osh.vec2, 8)
     shadow_coordinate: osh.location(osh.vec4, 9)
     shadow_visibility: osh.location(osh.f32, 10)
+    world_tangent: osh.location(osh.vec4, 11)
+    metallic_roughness_uv: osh.location(osh.vec2, 12)
+    emissive_uv: osh.location(osh.vec2, 13)
+    normal_uv: osh.location(osh.vec2, 14)
+    occlusion_uv: osh.location(osh.vec2, 15)
+    transmission_uv: osh.location(osh.vec2, 16)
+    material_index: osh.location(osh.f32, 17)
 
 
 @osh.structure
@@ -29,6 +36,16 @@ class ShadowVertexOutput:
 class RasterCamera:
     view_projection: osh.mat4
     position_exposure: osh.vec4
+
+
+@osh.structure
+class RasterMaterial:
+    base_color_roughness: osh.vec4
+    emission_metallic: osh.vec4
+    attenuation_transmission: osh.vec4
+    ior_distance_program_flags: osh.vec4
+    texture_indices: osh.vec4
+    normal_occlusion_transmission: osh.vec4
 
 
 @osh.vertex
@@ -64,6 +81,13 @@ def scene_vertex(
     base_color_uv: osh.location(osh.vec2, 9),
     shadow_coordinate: osh.location(osh.vec4, 10),
     shadow_visibility: osh.location(osh.f32, 11),
+    world_tangent: osh.location(osh.vec4, 13),
+    metallic_roughness_uv: osh.location(osh.vec2, 14),
+    emissive_uv: osh.location(osh.vec2, 15),
+    normal_uv: osh.location(osh.vec2, 16),
+    occlusion_uv: osh.location(osh.vec2, 17),
+    transmission_uv: osh.location(osh.vec2, 18),
+    material_index: osh.location(osh.f32, 19),
     camera: osh.uniform_buffer(RasterCamera, binding=3),
 ) -> SceneVertexOutput:
     return SceneVertexOutput(
@@ -72,6 +96,8 @@ def scene_vertex(
         emission, camera.position_exposure.xyz,
         light_position_type, light_color_ambient,
         base_color_uv, shadow_coordinate, shadow_visibility,
+        world_tangent, metallic_roughness_uv, emissive_uv, normal_uv,
+        occlusion_uv, transmission_uv, material_index,
     )
 
 
@@ -88,17 +114,70 @@ def scene_fragment(
     base_color_uv: osh.location(osh.vec2, 8),
     shadow_coordinate: osh.location(osh.vec4, 9),
     shadow_visibility: osh.location(osh.f32, 10),
+    world_tangent: osh.location(osh.vec4, 11),
+    metallic_roughness_uv: osh.location(osh.vec2, 12),
+    emissive_uv: osh.location(osh.vec2, 13),
+    normal_uv: osh.location(osh.vec2, 14),
+    occlusion_uv: osh.location(osh.vec2, 15),
+    transmission_uv: osh.location(osh.vec2, 16),
+    material_index: osh.location(osh.f32, 17),
     base_color_atlas: osh.sampled_texture_2d(binding=0),
     base_color_sampler: osh.sampler(binding=1),
     shadow_map: osh.sampled_depth_texture_2d(binding=2),
     shadow_sampler: osh.comparison_sampler(binding=4),
+    materials: osh.storage_buffer(RasterMaterial, access="read", binding=5),
 ) -> osh.location(osh.vec4, 0):
-    sampled_base_color = base_color * base_color_atlas.sample_with(
+    if material_index < -0.5:
+        return osh.vec4(base_color + emission, material.w)
+    # Material identity is constant across a draw, but portable graphics
+    # interfaces carry it through a floating-point varying.  Perspective
+    # interpolation can reconstruct an authored integer as the next smaller
+    # representable float (for example 0.99999994).  Truncating that value
+    # produces sporadic reads from the preceding material record.  Decode to
+    # the nearest integer so those harmless interpolation errors cannot change
+    # material identity.
+    material_id = osh.u32(material_index + 0.5)
+    base_color_roughness = materials[material_id].base_color_roughness
+    emission_metallic = materials[material_id].emission_metallic
+    attenuation_transmission = materials[material_id].attenuation_transmission
+    ior_distance_program_flags = materials[material_id].ior_distance_program_flags
+    normal_occlusion_transmission = materials[material_id].normal_occlusion_transmission
+    sampled_base_color = base_color_roughness.xyz * base_color_atlas.sample_with(
         base_color_sampler, base_color_uv,
     ).xyz
+    metallic_roughness_sample = base_color_atlas.sample_with(
+        base_color_sampler, metallic_roughness_uv,
+    )
+    sampled_emission = emission_metallic.xyz * base_color_atlas.sample_with(
+        base_color_sampler, emissive_uv,
+    ).xyz
+    normal_sample = base_color_atlas.sample_with(
+        base_color_sampler, normal_uv,
+    ).xyz * 2.0 - osh.vec3(1.0)
+    occlusion_sample = base_color_atlas.sample_with(
+        base_color_sampler, occlusion_uv,
+    ).x
+    transmission_sample = base_color_atlas.sample_with(
+        base_color_sampler, transmission_uv,
+    ).x
     shadow_w = osh.maximum(osh.absolute(shadow_coordinate.w), 0.000001)
     projected_shadow = shadow_coordinate.xyz / shadow_w
-    normal = world_normal / osh.maximum(osh.length(world_normal), 0.000001)
+    geometric_normal = world_normal / osh.maximum(osh.length(world_normal), 0.000001)
+    tangent = world_tangent.xyz / osh.maximum(
+        osh.length(world_tangent.xyz), 0.000001,
+    )
+    bitangent = osh.cross(geometric_normal, tangent) * world_tangent.w
+    scaled_normal_sample = osh.vec3(
+        normal_sample.x * normal_occlusion_transmission.x,
+        normal_sample.y * normal_occlusion_transmission.x,
+        normal_sample.z,
+    )
+    mapped_normal = (
+        tangent * scaled_normal_sample.x
+        + bitangent * scaled_normal_sample.y
+        + geometric_normal * scaled_normal_sample.z
+    )
+    normal = mapped_normal / osh.maximum(osh.length(mapped_normal), 0.000001)
     view_delta = camera_position - world_position
     view = view_delta / osh.maximum(osh.length(view_delta), 0.000001)
     light_delta = light_position_type.xyz - world_position
@@ -138,9 +217,23 @@ def scene_fragment(
         + view.z * half_vector.z,
         0.0,
     )
-    metallic = material.x
-    roughness = osh.maximum(material.y, 0.04)
-    transmission = material.z
+    program_kind = osh.floor(ior_distance_program_flags.w)
+    mirror_program = program_kind > 1.5 and program_kind < 2.5
+    glass_program = program_kind > 2.5 and program_kind < 3.5
+    unlit_program = program_kind > 3.5
+    metallic = (
+        1.0 if mirror_program else
+        emission_metallic.w * metallic_roughness_sample.z
+    )
+    base_roughness = osh.maximum(
+        base_color_roughness.w * metallic_roughness_sample.y,
+        0.04,
+    )
+    roughness = 0.04 if mirror_program or glass_program else base_roughness
+    base_transmission = (
+        attenuation_transmission.w * transmission_sample
+    )
+    transmission = 1.0 if glass_program else base_transmission
     surface_alpha = material.w
     f0 = osh.mix(osh.vec3(0.04), sampled_base_color, osh.vec3(metallic))
     fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
@@ -167,14 +260,19 @@ def scene_fragment(
         (diffuse + specular) * light_color_ambient.xyz
         * (ndotl * attenuation * shadow_visibility * shadow_map_visibility)
     )
+    occlusion = osh.mix(
+        1.0, occlusion_sample,
+        normal_occlusion_transmission.z,
+    )
     ambient = (
         sampled_base_color * diffuse_weight + f0 * (1.0 - 0.5 * roughness)
         + osh.vec3(transmission) * (osh.vec3(1.0) - f0)
-    ) * light_color_ambient.w
-    return osh.vec4(ambient + direct + emission, surface_alpha)
+    ) * light_color_ambient.w * occlusion
+    shaded = ambient + direct + sampled_emission
+    return osh.vec4(sampled_base_color if unlit_program else shaded, surface_alpha)
 
 
 __all__ = [
-    "RasterCamera", "SceneVertexOutput", "ShadowVertexOutput", "scene_fragment",
+    "RasterCamera", "RasterMaterial", "SceneVertexOutput", "ShadowVertexOutput", "scene_fragment",
     "scene_vertex", "shadow_fragment", "shadow_vertex",
 ]

@@ -1387,12 +1387,25 @@ render existing `Scene` meshes, instances, materials, and object transforms
 through perspective and orthographic cameras. Panoramic cameras require a
 later non-linear projection pass.
 
-The portable scene layer evaluates shared `Material` base colors and textures,
-point/spot/directional lighting, native directional/spot shadow maps, and named
-depth, normal, and object-ID products. Its validated render graph composes
-geometry, shadow, lighting, temporal, and post stages. Static-scene accumulation,
-Reinhard/ACES tone mapping, transfer-function volume slicing, hybrid GI
-composition, and `Renderer.render_to()` surface presentation are opt-in.
+The portable scene layer evaluates the same `Material` and `MaterialProgram`
+objects used by GI, point/spot/directional lighting, native directional/spot
+shadow maps, and named depth, normal, and object-ID products. Its validated
+render graph composes geometry, shadow, lighting, temporal, and post stages.
+Static-scene accumulation, Reinhard/ACES tone mapping, transfer-function volume
+slicing, hybrid GI composition, and `Renderer.render_to()` surface presentation
+are opt-in.
+
+Raster materials use a stable, vec4-aligned GPU record selected by material ID.
+It carries base color, emission, roughness, metallic, attenuation,
+transmission, IOR, normal scale, occlusion strength, program kind, feature
+flags, and indices for every supported texture channel. Base-color, emissive,
+metallic-roughness, normal, occlusion, and transmission textures share a
+portable GPU atlas; color channels are decoded as sRGB and material-data
+channels remain linear. Authored or generated tangents drive tangent-space
+normal mapping. Deterministic raster equivalents are provided for PBR,
+diffuse, mirror, glass, and unlit material programs, while GI retains the
+program's stochastic transport semantics. Program-set signatures select cached
+shader/pipeline variants without changing the scene API.
 
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization
@@ -1402,7 +1415,8 @@ Run `python tools/raster_feature_viewer.py` to open the extensible Qt raster
 feature catalog. Each catalog entry is a small `Showcase` script containing its
 scene builder, camera, renderer defaults, description, and tags. The viewer can
 live-render Vulkan, WebGPU, or both and currently includes directional and spot
-shadow demonstrations. Vulkan uses a Qt-owned native window and direct
+shadow demonstrations, a complete material-texture scene, and a shared
+raster/GI material-program scene. Vulkan uses a Qt-owned native window and direct
 swapchain presentation by default, avoiding NumPy readback and `QImage`
 uploads. Its scene buffers, attachments, descriptor state, recorded command
 buffers, and frame synchronization remain resident after the swapchain warms.

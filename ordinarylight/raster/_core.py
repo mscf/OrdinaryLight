@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +15,8 @@ _FORMATS = {
     "float32": (np.float32, 1), "float32x2": (np.float32, 2),
     "float32x3": (np.float32, 3), "float32x4": (np.float32, 4),
 }
+
+_SCENE_PROGRAM_CACHE = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,7 @@ class RasterConfig:
     shadow_map_size: int = 256
     shadow_cull_mode: str = "none"
     shadow_normal_bias: float = 1.5
+    material_program: object | None = None
 
     def __post_init__(self):
         if self.ambient_light < 0.0:
@@ -113,6 +116,10 @@ class RasterConfig:
             raise ValueError("shadow_cull_mode must be none, front, or back")
         if not np.isfinite(self.shadow_normal_bias) or self.shadow_normal_bias < 0.0:
             raise ValueError("shadow_normal_bias must be a finite non-negative texel count")
+        if self.material_program is not None:
+            from ..materials import MaterialProgram
+            if not isinstance(self.material_program, MaterialProgram):
+                raise TypeError("material_program must be created by @material")
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,10 +292,45 @@ class RasterProgram:
         return cls(vertex_result, fragment_result, osh.link_graphics(vertex_result, fragment_result))
 
     @classmethod
-    def scene(cls, *, target: str, validate: bool = True):
-        """Compile Ordinary Light's built-in unlit scene raster program."""
+    def scene(
+        cls, *, target: str, validate: bool = True, material_programs=(),
+    ):
+        """Compile/cache the scene program for one material-program set.
+
+        Material programs share one stable GPU record ABI.  Their ordered
+        identities select deterministic raster approximations in the fragment
+        stage, while the cache key keeps future specialized variants isolated.
+        """
+        material_programs = tuple(material_programs)
+        from ..materials import MaterialProgram
+        if any(not isinstance(item, MaterialProgram) for item in material_programs):
+            raise TypeError("material_programs must contain @material programs")
+        signature = tuple(
+            (item.name, item.raster_kind, item.glsl())
+            for item in material_programs
+        )
+        key = (target, bool(validate), signature)
+        cached = _SCENE_PROGRAM_CACHE.get(key)
+        if cached is not None:
+            return cached
         artifact = _load_scene_artifact(target)
         if artifact is not None:
+            if signature:
+                variant = hashlib.sha256(
+                    repr(signature).encode("utf-8")
+                ).hexdigest()[:16]
+                artifact = cls(
+                    replace(
+                        artifact.vertex,
+                        cache_key=f"{artifact.vertex.cache_key}:{variant}",
+                    ),
+                    replace(
+                        artifact.fragment,
+                        cache_key=f"{artifact.fragment.cache_key}:{variant}",
+                    ),
+                    artifact.reflection,
+                )
+            _SCENE_PROGRAM_CACHE[key] = artifact
             return artifact
         try:
             from ..shaders.raster_programs import scene_fragment, scene_vertex
@@ -296,7 +338,11 @@ class RasterProgram:
             raise RuntimeError(
                 "built-in raster shaders require the ordinaryshade package"
             ) from error
-        return cls.compile(scene_vertex, scene_fragment, target=target, validate=validate)
+        result = cls.compile(
+            scene_vertex, scene_fragment, target=target, validate=validate,
+        )
+        _SCENE_PROGRAM_CACHE[key] = result
+        return result
 
     @classmethod
     def shadow(cls, *, target: str, validate: bool = True):
@@ -347,28 +393,58 @@ class RasterMesh:
         object.__setattr__(self, "resources", dict(self.resources or {}))
 
 
-def _base_color_atlas(scene, enabled=True, shadow_depth=None):
-    """Pack base-color images into one portable RGBA8 atlas."""
+_MATERIAL_TEXTURE_FIELDS = (
+    ("base_color_texture", "base_color_transform", 0, False),
+    ("metallic_roughness_texture", "metallic_roughness_transform", 0, True),
+    ("emissive_texture", "emissive_transform", 1, False),
+    ("normal_texture", "normal_transform", 2, True),
+    ("occlusion_texture", "occlusion_transform", 0, True),
+    ("transmission_texture", "transmission_transform", 0, True),
+)
+
+
+def _material_atlas(scene, enabled=True, shadow_depth=None):
+    """Pack every material image into one portable RGBA8 atlas.
+
+    The first three texels are stable neutral samples: white, black, and a
+    tangent-space +Z normal.  This lets the fragment shader use one branch-free
+    sampling path for textured and untextured materials on every target.
+    """
     textures = []
     lookup = {}
-    for mesh in scene.visible_meshes:
-        texture = mesh.material.base_color_texture if enabled else None
-        if texture is not None and id(texture) not in lookup:
-            lookup[id(texture)] = len(textures)
-            textures.append(texture)
-    color_height = max((item.pixels.shape[0] for item in textures), default=1)
+    if enabled:
+        for mesh in scene.visible_meshes:
+            for texture_name, _transform_name, _neutral, linear in _MATERIAL_TEXTURE_FIELDS:
+                texture = getattr(mesh.material, texture_name)
+                key = (id(texture), linear)
+                if texture is not None and key not in lookup:
+                    lookup[key] = len(textures)
+                    textures.append((texture, linear))
+    color_height = max((item.pixels.shape[0] for item, _ in textures), default=1)
     shadow_height = 0 if shadow_depth is None else shadow_depth.shape[0]
     shadow_width = 0 if shadow_depth is None else shadow_depth.shape[1]
     height = color_height + shadow_height
-    width = max(1 + sum(item.pixels.shape[1] for item in textures), shadow_width)
+    width = max(3 + sum(item.pixels.shape[1] for item, _ in textures), shadow_width)
     atlas = np.full((height, width, 4), 255, np.uint8)
+    atlas[0, 0] = (255, 255, 255, 255)
+    atlas[0, 1] = (0, 0, 0, 255)
+    # Stored in an sRGB image, so encode the linear (0.5, 0.5, 1.0)
+    # tangent-space neutral before hardware sampling decodes it.
+    atlas[0, 2] = (188, 188, 255, 255)
     rectangles = {}
-    x = 1
-    for texture in textures:
-        image = texture.pixels
+    x = 3
+    for texture, linear in textures:
+        image = texture.pixels.copy()
+        if linear:
+            rgb = image[..., :3].astype(np.float32) / 255.0
+            encoded = np.where(
+                rgb <= 0.0031308, rgb * 12.92,
+                1.055 * np.power(rgb, 1.0 / 2.4) - 0.055,
+            )
+            image[..., :3] = np.rint(encoded * 255.0).astype(np.uint8)
         h, w = image.shape[:2]
         atlas[:h, x:x + w] = image
-        rectangles[id(texture)] = (x, 0, w, h, width, height)
+        rectangles[(id(texture), linear)] = (x, 0, w, h, width, height)
         x += w
     shadow_rectangle = None
     if shadow_depth is not None:
@@ -386,9 +462,14 @@ def _base_color_atlas(scene, enabled=True, shadow_depth=None):
     return atlas, rectangles, shadow_rectangle
 
 
+# Compatibility name retained for callers that only care about the resulting
+# packed image.  The contents are now the complete material atlas.
+_base_color_atlas = _material_atlas
+
+
 def _rasterize_shadow_depth(scene, matrix, size):
     depth = np.ones((size, size), np.float32)
-    for mesh in scene.visible_meshes:
+    for material_index, mesh in enumerate(scene.visible_meshes):
         if not len(mesh.indices):
             continue
         world = np.column_stack((
@@ -469,15 +550,17 @@ def _shadow_geometry(scene, matrix):
     return vertices, index_data
 
 
-def _atlas_uv(mesh, rectangles, atlas_shape, enabled=True):
+def _atlas_uv(
+    mesh, rectangles, atlas_shape, texture=None, transform=None,
+    *, enabled=True, neutral=0,
+    linear=False,
+):
     atlas_height, atlas_width = atlas_shape[:2]
-    texture = mesh.material.base_color_texture if enabled else None
-    if texture is None:
+    if not enabled or texture is None:
         return np.broadcast_to(
-            (0.5 / atlas_width, 0.5 / atlas_height),
+            ((neutral + 0.5) / atlas_width, 0.5 / atlas_height),
             (len(mesh.vertices), 2),
         ).copy()
-    transform = mesh.material.base_color_transform
     uv = np.array(
         mesh.texcoords if transform.texcoord_set == 0 else mesh.texcoords1,
         np.float32, copy=True,
@@ -490,7 +573,7 @@ def _atlas_uv(mesh, rectangles, atlas_shape, enabled=True):
         if mode == "repeat": uv[:, axis] %= 1.0
         elif mode == "mirror": uv[:, axis] = 1.0 - np.abs((uv[:, axis] % 2.0) - 1.0)
         else: uv[:, axis] = np.clip(uv[:, axis], 0.0, 1.0)
-    x, y, w, h, atlas_width, atlas_height = rectangles[id(texture)]
+    x, y, w, h, atlas_width, atlas_height = rectangles[(id(texture), linear)]
     return np.column_stack((
         (x + 0.5 + uv[:, 0] * max(w - 1, 0)) / atlas_width,
         (y + 0.5 + (1.0 - uv[:, 1]) * max(h - 1, 0)) / atlas_height,
@@ -668,15 +751,20 @@ def scene_mesh(
     )
     if not config.direct_lighting:
         light_color_ambient[:3] = 0.0
-    for mesh in scene.visible_meshes:
+    for material_index, mesh in enumerate(scene.visible_meshes):
         world = np.column_stack((mesh.world_vertices, np.ones(len(mesh.vertices), np.float32)))
         clip = world if gpu_camera else world @ matrix.T
         (
             color, metallic, roughness, emission, transmission, occlusion,
         ) = material_channels(mesh, False)
-        atlas_uv = _atlas_uv(
-            mesh, atlas_rectangles, atlas.shape, config.textures,
-        )
+        material_uvs = []
+        for texture_name, transform_name, neutral, linear in _MATERIAL_TEXTURE_FIELDS:
+            material_uvs.append(_atlas_uv(
+                mesh, atlas_rectangles, atlas.shape,
+                getattr(mesh.material, texture_name),
+                getattr(mesh.material, transform_name),
+                enabled=config.textures, neutral=neutral, linear=linear,
+            ))
         if shadow_request is not None:
             shadow_world = world.copy()
             shadow_world[:, :3] += (
@@ -715,10 +803,13 @@ def scene_mesh(
             ),
             np.broadcast_to(light_position_type, (len(world), 4)),
             np.broadcast_to(light_color_ambient, (len(world), 4)),
-            atlas_uv,
+            material_uvs[0],
             shadow_coordinate,
             shadow_visibility,
             object_id,
+            mesh.world_tangents,
+            *material_uvs[1:],
+            np.full(len(world), float(material_index), np.float32),
         )))
         indices.append(mesh.indices.reshape(-1) + base)
         base += len(world)
@@ -774,12 +865,15 @@ def scene_mesh(
                     np.zeros((len(local), 4), np.float32),
                     np.ones(len(local), np.float32),
                     object_id,
+                    np.zeros((len(local), 4), np.float32),
+                    *[np.zeros((len(local), 2), np.float32) for _ in range(5)],
+                    np.full(len(local), -1.0, np.float32),
                 )))
                 indices.append(base_indices + base)
                 base += len(local)
-    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 39), np.float32)
+    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 54), np.float32)
     index_data = np.concatenate(indices).astype(np.uint32) if indices else np.empty(0, np.uint32)
-    layout = RasterVertexLayout(156, (
+    layout = RasterVertexLayout(216, (
         RasterVertexAttribute(0, "float32x4", 0, "position"),
         RasterVertexAttribute(1, "float32x3", 16, "base_color"),
         RasterVertexAttribute(2, "float32x3", 28, "normal"),
@@ -793,15 +887,29 @@ def scene_mesh(
         RasterVertexAttribute(10, "float32x4", 132, "shadow_coordinate"),
         RasterVertexAttribute(11, "float32", 148, "shadow_visibility"),
         RasterVertexAttribute(12, "float32", 152, "object_id"),
+        RasterVertexAttribute(13, "float32x4", 156, "tangent"),
+        RasterVertexAttribute(14, "float32x2", 172, "metallic_roughness_uv"),
+        RasterVertexAttribute(15, "float32x2", 180, "emissive_uv"),
+        RasterVertexAttribute(16, "float32x2", 188, "normal_uv"),
+        RasterVertexAttribute(17, "float32x2", 196, "occlusion_uv"),
+        RasterVertexAttribute(18, "float32x2", 204, "transmission_uv"),
+        RasterVertexAttribute(19, "float32", 212, "material_index"),
     ))
     shadow_vertices = prepared_resources["shadow_vertices"]
     shadow_indices = prepared_resources["shadow_indices"]
+    from .resources import pack_raster_gpu_scene
+    gpu_scene = pack_raster_gpu_scene(
+        scene, camera, width, height,
+        default_program=config.material_program,
+    )
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
         "shadow_vertices": shadow_vertices,
         "shadow_indices": shadow_indices,
         "shadow_rectangle": shadow_rectangle,
         "gpu_camera": bool(gpu_camera),
+        "material_buffer": gpu_scene.materials.tobytes(),
+        "material_programs": gpu_scene.programs,
     })
 
 

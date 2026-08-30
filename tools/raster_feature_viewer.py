@@ -141,6 +141,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
             self.description.setText(item.description)
+            self.shadows.setChecked(bool(item.renderer.get("shadows", True)))
             value = int(item.renderer.get("shadow_map_size", 512))
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
@@ -161,8 +162,16 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.controller = ol.ArcballCameraController.from_camera(
                     item.camera.camera(self.scene_value, angle=-0.45),
                 )
-                target = ol.RasterProgram.scene(target="spirv", validate=False)
                 settings = dict(item.renderer)
+                default_material = settings.get("material_program")
+                if default_material is None:
+                    default_material = ol.builtin_material
+                target = ol.RasterProgram.scene(
+                    target="spirv", validate=False,
+                    material_programs=self.scene_value.material_programs(
+                        default_material,
+                    ),
+                )
                 settings.update(
                     shadows=self.shadows.isChecked(),
                     shadow_map_size=int(self.map_size.currentData()),

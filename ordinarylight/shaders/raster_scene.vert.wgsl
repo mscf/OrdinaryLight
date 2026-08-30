@@ -18,6 +18,13 @@ struct SceneVertexOutput {
     @location(8) base_color_uv: vec2<f32>,
     @location(9) shadow_coordinate: vec4<f32>,
     @location(10) shadow_visibility: f32,
+    @location(11) world_tangent: vec4<f32>,
+    @location(12) metallic_roughness_uv: vec2<f32>,
+    @location(13) emissive_uv: vec2<f32>,
+    @location(14) normal_uv: vec2<f32>,
+    @location(15) occlusion_uv: vec2<f32>,
+    @location(16) transmission_uv: vec2<f32>,
+    @location(17) material_index: f32,
 }
 
 @vertex
@@ -33,7 +40,14 @@ fn main(
     @location(8) light_color_ambient: vec4<f32>,
     @location(9) base_color_uv: vec2<f32>,
     @location(10) shadow_coordinate: vec4<f32>,
-    @location(11) shadow_visibility: f32
+    @location(11) shadow_visibility: f32,
+    @location(13) world_tangent: vec4<f32>,
+    @location(14) metallic_roughness_uv: vec2<f32>,
+    @location(15) emissive_uv: vec2<f32>,
+    @location(16) normal_uv: vec2<f32>,
+    @location(17) occlusion_uv: vec2<f32>,
+    @location(18) transmission_uv: vec2<f32>,
+    @location(19) material_index: f32
 ) -> SceneVertexOutput {
-    return SceneVertexOutput((camera.view_projection * position), base_color, world_normal, world_position, material, emission, camera.position_exposure.xyz, light_position_type, light_color_ambient, base_color_uv, shadow_coordinate, shadow_visibility);
+    return SceneVertexOutput((camera.view_projection * position), base_color, world_normal, world_position, material, emission, camera.position_exposure.xyz, light_position_type, light_color_ambient, base_color_uv, shadow_coordinate, shadow_visibility, world_tangent, metallic_roughness_uv, emissive_uv, normal_uv, occlusion_uv, transmission_uv, material_index);
 }

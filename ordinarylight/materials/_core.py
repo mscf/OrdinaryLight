@@ -281,6 +281,26 @@ class MaterialProgram:
     def parameter_layout(self):
         return MATERIAL_PARAMETER_LAYOUT
 
+    @property
+    def raster_kind(self):
+        """Portable real-time approximation selected by raster renderers.
+
+        Path-controlled programs cannot execute stochastic continuation in a
+        raster pipeline.  Their declared event is therefore mapped to the
+        closest deterministic surface model while parameter-evaluation
+        programs retain the standard PBR model.
+        """
+        if isinstance(self.evaluation, MaterialEvaluation):
+            return "unlit" if self.name == "unlit_material" else "pbr"
+        event = self.evaluation.event.code
+        if event == repr(float(SCATTER_DIFFUSE)):
+            return "diffuse"
+        if event == repr(float(SCATTER_REFLECTION)):
+            return "mirror"
+        if event == repr(float(SCATTER_TRANSMISSION)) or "3.0" in event:
+            return "glass"
+        return "pbr"
+
     def glsl(self, function_name="evaluateMaterial", *, attribute_slots=None):
         if not _IDENTIFIER.match(function_name):
             raise ValueError("function_name must be a valid shader identifier")

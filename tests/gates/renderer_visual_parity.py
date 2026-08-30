@@ -27,7 +27,10 @@ def _render_gi(scene, camera, extent, samples):
 
 
 def _render_raster(scene, camera, extent):
-    program = ol.RasterProgram.scene(target="spirv")
+    program = ol.RasterProgram.scene(
+        target="spirv",
+        material_programs=scene.material_programs(ol.builtin_material),
+    )
     implementation = ol.renderers.raster.VulkanRasterRenderer(
         program,
         config=ol.RasterConfig(
@@ -48,6 +51,10 @@ def main():
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--samples", type=int, default=16)
+    parser.add_argument(
+        "--scene", choices=("feature", "materials"), default="feature",
+        help="shared scene semantics to compare",
+    )
     parser.add_argument("--max-log-color-rmse", type=float, default=0.45)
     parser.add_argument("--min-edge-correlation", type=float, default=0.35)
     parser.add_argument("--min-coverage-iou", type=float, default=0.65)
@@ -63,8 +70,15 @@ def main():
     if args.width < 1 or args.height < 1 or args.samples < 1:
         parser.error("dimensions and samples must be positive")
     extent = (args.width, args.height)
-    scene = ol.build_feature_parity_scene()
-    camera = ol.feature_parity_camera()
+    if args.scene == "materials":
+        from ordinarylight.showcases.raster_features import (
+            build_material_program_parity_scene,
+        )
+        scene = build_material_program_parity_scene()
+        camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+    else:
+        scene = ol.build_feature_parity_scene()
+        camera = ol.feature_parity_camera()
     print("Rendering GI reference...")
     gi = _render_gi(scene, camera, extent, args.samples)
     print("Rendering raster candidate...")
@@ -77,6 +91,7 @@ def main():
     report = {
         "extent": list(extent),
         "samples": args.samples,
+        "scene": args.scene,
         "metrics": metrics,
         "thresholds": {
             "max_log_color_rmse": args.max_log_color_rmse,

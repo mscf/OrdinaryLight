@@ -238,16 +238,58 @@
         "location": 10,
         "name": "shadow_visibility",
         "type": "float"
+      },
+      {
+        "builtin": null,
+        "location": 11,
+        "name": "world_tangent",
+        "type": "vec4"
+      },
+      {
+        "builtin": null,
+        "location": 12,
+        "name": "metallic_roughness_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 13,
+        "name": "emissive_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 14,
+        "name": "normal_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 15,
+        "name": "occlusion_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 16,
+        "name": "transmission_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 17,
+        "name": "material_index",
+        "type": "float"
       }
     ]
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "4ba5b100df22c0993937031f0bbabc2e45dc0da324212f75a1697a36265b143f",
+  "source_sha256": "b1c768a5f3f79f50a134a5f43c8869df50013d40dd60aaf753f112f29478321f",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "7d580740cef7e9fb84d900e1f218d41b9909860844782fd549d715c25f913e2c",
+        "cache_key": "4676d43870375d6b7eec4505694ec7213eeb8b7272f724bfb1dcbb26e9b4b93a",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -317,6 +359,48 @@
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 12,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -359,6 +443,14 @@
               "kind": "comparison_sampler",
               "name": "shadow_sampler",
               "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "RasterMaterial",
+              "kind": "storage_buffer",
+              "name": "materials",
+              "set": 0
             }
           ],
           "stage": "fragment",
@@ -368,10 +460,10 @@
             1
           ]
         },
-        "sha256": "c9e00d8369d79c810cddbe4b666eb30a90a7a86e62760cc74787df2edeb7919c"
+        "sha256": "03f6d2e3c7c74aeb22d877c66acf6027292a3dfaf06a9fba75477eb6967fe821"
       },
       "vertex": {
-        "cache_key": "faebe337445d89895298aa541173458c4eecc392b30ffdf712dc16f1b3cf8793",
+        "cache_key": "e7d1f2d28fd7219b16361d6faa5e7938b8f4e995e1a19172775d7480b6f7f2a1",
         "file": "raster_scene.vert.spv",
         "reflection": {
           "entry_point": "main",
@@ -447,6 +539,48 @@
               "location": 11,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -521,6 +655,48 @@
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 12,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "resources": [
@@ -540,12 +716,12 @@
             1
           ]
         },
-        "sha256": "4c9cc7138bee1181fd2609a49d1eb810586de623431a549379decd47b0b46cbb"
+        "sha256": "15f09e8003653b524cd4a09a6b36febe310525d4d818f1bad3e9d0e7dc62e58b"
       }
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "74cfcbb355ef63f74261652e622bddd6e15bee08d9fa7244869826d4dfac17b9",
+        "cache_key": "7e08fc3f8b8a94a9d8336f764409d748667ad73c043f2ccfd797b973e92d2387",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -615,6 +791,48 @@
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 12,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -657,6 +875,14 @@
               "kind": "comparison_sampler",
               "name": "shadow_sampler",
               "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "RasterMaterial",
+              "kind": "storage_buffer",
+              "name": "materials",
+              "set": 0
             }
           ],
           "stage": "fragment",
@@ -666,10 +892,10 @@
             1
           ]
         },
-        "sha256": "ea96ef87b7dffb2f8feac3955e4382e80640a4128ca285003c5d8291da937298"
+        "sha256": "93fd2406c2189235db40672809ca54dba989ac52712cb0b2ada6fa7c71168590"
       },
       "vertex": {
-        "cache_key": "df1bfacbc57e897f385bfeff2892b1998297bad5bdb9112c2d1c33a64715a378",
+        "cache_key": "e99335b3b0f1f8fbdeb16c24866f81384e02ff0bd60336c594dc971db7e4bb11",
         "file": "raster_scene.vert.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -745,6 +971,48 @@
               "location": 11,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 18,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 19,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "outputs": [
@@ -819,6 +1087,48 @@
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
+            },
+            {
+              "builtin": null,
+              "location": 11,
+              "name": "world_tangent",
+              "type": "vec4"
+            },
+            {
+              "builtin": null,
+              "location": 12,
+              "name": "metallic_roughness_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 13,
+              "name": "emissive_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 14,
+              "name": "normal_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 15,
+              "name": "occlusion_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 16,
+              "name": "transmission_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 17,
+              "name": "material_index",
+              "type": "float"
             }
           ],
           "resources": [
@@ -838,7 +1148,7 @@
             1
           ]
         },
-        "sha256": "147c86e6411c174658903398533d9c6154014f6c8bd4abfdc7a9c182b9462a82"
+        "sha256": "47c6356e3e35966a90ab3d9efb5f0d63251a5506e741e1764926b3ddce6e9cf4"
       }
     }
   }

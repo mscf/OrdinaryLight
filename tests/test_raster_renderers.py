@@ -69,8 +69,33 @@ class RasterBackendTests(unittest.TestCase):
         target = "spirv" if shutil.which("glslangValidator") else "glsl"
         native = ol.RasterProgram.scene(target=target)
         web = ol.RasterProgram.scene(target="wgsl", validate=False)
-        self.assertEqual(len(native.reflection.varyings), 11)
+        self.assertEqual(len(native.reflection.varyings), 18)
         self.assertIn("@location(1)", web.vertex.source)
+
+    def test_material_shader_variants_are_cached_by_program_set(self):
+        from ordinarylight.showcases.materials import mirror
+        first = ol.RasterProgram.scene(
+            target="wgsl", validate=False,
+            material_programs=(ol.builtin_material,),
+        )
+        repeated = ol.RasterProgram.scene(
+            target="wgsl", validate=False,
+            material_programs=(ol.builtin_material,),
+        )
+        mirror_variant = ol.RasterProgram.scene(
+            target="wgsl", validate=False,
+            material_programs=(mirror,),
+        )
+        self.assertIs(first, repeated)
+        self.assertNotEqual(first.cache_key, mirror_variant.cache_key)
+        self.assertIn("storage_buffer", [
+            item["kind"] if isinstance(item, dict) else item.kind
+            for item in first.fragment.reflection.resources
+        ])
+
+    def test_material_id_decoding_rounds_interpolated_float_varying(self):
+        program = ol.RasterProgram.scene(target="wgsl", validate=False)
+        self.assertIn("u32((material_index + 0.5))", program.fragment.source)
 
     def test_raster_mesh_owns_contiguous_typed_arrays(self):
         mesh = ol.RasterMesh([[0, 0], [1, 0], [0, 1]], [0, 1, 2])
@@ -99,7 +124,7 @@ class RasterBackendTests(unittest.TestCase):
             scene, camera, 100, 100,
             ol.RasterConfig(direct_lighting=False),
         )
-        self.assertEqual(mesh.vertices.shape, (3, 39))
+        self.assertEqual(mesh.vertices.shape, (3, 54))
         np.testing.assert_allclose(
             mesh.vertices[:, 4:7], np.tile((0.2, 0.4, 0.8), (3, 1)),
         )
@@ -230,3 +255,45 @@ class RasterBackendTests(unittest.TestCase):
                     self.assertEqual(len(backend._pipelines), 1)
             finally:
                 backend.close()
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_tangent_space_normal_map_changes_fragment_lighting(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        vertices = [[-1,-1,0],[1,-1,0],[0,1,0]]
+        indices = [[0,1,2]]
+        camera = ol.PerspectiveCamera((0,0,4),(0,0,0))
+        def render(normal_pixel):
+            texture = ol.Texture(np.asarray([[normal_pixel]], np.uint8))
+            mesh = ol.Mesh(
+                vertices, indices,
+                ol.Material(
+                    base_color=(0.8,0.8,0.8), roughness=0.8,
+                    normal_texture=texture,
+                ),
+                texcoords=[[0,0],[1,0],[0.5,1]],
+            )
+            scene = ol.Scene(
+                [mesh], [ol.PointLight((3,0,3), intensity=18)],
+            )
+            backend = ol.renderers.raster.VulkanRasterRenderer(
+                ol.RasterProgram.scene(target="spirv"),
+                config=ol.RasterConfig(
+                    ambient_light=0.0, shadows=False,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            )
+            try:
+                return backend.render_frame(scene, camera, 64, 48)[24,32,:3]
+            finally:
+                backend.close()
+        neutral = render((128,128,255,255))
+        tilted = render((255,128,128,255))
+        # The framebuffer is already tone mapped, so even a substantial
+        # tangent-space normal change can produce a modest display-space
+        # delta.  Keep this above quantization noise while avoiding a test
+        # that depends on a particular GPU's floating-point rounding.
+        self.assertGreater(float(np.linalg.norm(neutral - tilted)), 0.005)

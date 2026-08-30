@@ -18,8 +18,9 @@ MATERIAL_DTYPE = np.dtype([
     ("base_color_roughness", np.float32, (4,)),
     ("emission_metallic", np.float32, (4,)),
     ("attenuation_transmission", np.float32, (4,)),
-    ("texture_indices", np.int32, (4,)),
-    ("texture_indices_extra", np.int32, (4,)),
+    ("ior_distance_program_flags", np.float32, (4,)),
+    ("texture_indices", np.float32, (4,)),
+    ("normal_occlusion_transmission", np.float32, (4,)),
 ], align=True)
 
 LIGHT_DTYPE = np.dtype([
@@ -46,6 +47,7 @@ class RasterGpuScene:
     draws: np.ndarray
     textures: tuple
     shadow_maps: tuple = ()
+    programs: tuple = ()
 
     def __post_init__(self):
         expected = (
@@ -79,7 +81,9 @@ def _texture_table(scene):
     return tuple(textures), lookup
 
 
-def pack_raster_gpu_scene(scene, camera, width, height, *, exposure=1.0):
+def pack_raster_gpu_scene(
+    scene, camera, width, height, *, exposure=1.0, default_program=None,
+):
     """Pack one scene revision into the shared Vulkan/WebGPU raster ABI."""
     from ._core import camera_matrix
 
@@ -87,6 +91,10 @@ def pack_raster_gpu_scene(scene, camera, width, height, *, exposure=1.0):
     camera_data["view_projection"][0] = camera_matrix(camera, width, height)
     camera_data["position_exposure"][0] = (*camera.position, float(exposure))
     textures, texture_lookup = _texture_table(scene)
+    if default_program is None:
+        from ..materials import builtin_material
+        default_program = builtin_material
+    programs = scene.material_programs(default_program)
     materials = np.zeros(len(scene.visible_meshes), MATERIAL_DTYPE)
     draws = np.zeros(len(scene.visible_meshes), DRAW_DTYPE)
     for index, mesh in enumerate(scene.visible_meshes):
@@ -100,6 +108,20 @@ def pack_raster_gpu_scene(scene, camera, width, height, *, exposure=1.0):
         materials["attenuation_transmission"][index] = (
             *material.attenuation_color, material.transmission,
         )
+        program = material.program or default_program
+        program_id = next(
+            item for item, candidate in enumerate(programs)
+            if candidate is program
+        )
+        raster_kinds = {
+            "pbr": 0.0, "diffuse": 1.0, "mirror": 2.0,
+            "glass": 3.0, "unlit": 4.0,
+        }
+        materials["ior_distance_program_flags"][index] = (
+            material.ior, material.attenuation_distance, float(program_id),
+            raster_kinds[program.raster_kind]
+            + (0.25 if material.emission_two_sided else 0.0),
+        )
         texture_values = tuple(
             -1 if texture is None else texture_lookup[id(texture)]
             for texture in (
@@ -112,8 +134,9 @@ def pack_raster_gpu_scene(scene, camera, width, height, *, exposure=1.0):
             )
         )
         materials["texture_indices"][index] = (*texture_values[:3], texture_values[3])
-        materials["texture_indices_extra"][index] = (
-            texture_values[4], texture_values[5], 0, 0,
+        materials["normal_occlusion_transmission"][index] = (
+            material.normal_scale, texture_values[4],
+            material.occlusion_strength, texture_values[5],
         )
         draws["model"][index] = mesh.transform.matrix
         normal = np.eye(4, dtype=np.float32)
@@ -142,7 +165,7 @@ def pack_raster_gpu_scene(scene, camera, width, height, *, exposure=1.0):
     from .shadows import plan_shadow_maps
     return RasterGpuScene(
         camera_data, materials, lights, draws, textures,
-        plan_shadow_maps(scene),
+        plan_shadow_maps(scene), programs,
     )
 
 

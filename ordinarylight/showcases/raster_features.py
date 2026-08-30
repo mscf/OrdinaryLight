@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import numpy as np
 
-from ..lights import DirectionalLight, SpotLight
-from ..scene import Material, Scene
+from ..lights import DirectionalLight, PointLight, SpotLight
+from ..materials import unlit_material
+from ..scene import Material, Scene, Texture
+from .materials import diffuse, fresnel_glass, mirror, sphere
 
 
 def _box(center, size, material):
@@ -89,4 +92,99 @@ def build_spot_shadow_scene():
     return scene
 
 
-__all__ = ["build_directional_shadow_scene", "build_spot_shadow_scene"]
+def _checker_texture(first, second, size=64, cells=8):
+    y, x = np.indices((size, size))
+    mask = ((x // (size // cells)) + (y // (size // cells))) % 2
+    pixels = np.empty((size, size, 4), np.uint8)
+    pixels[..., :3] = np.where(
+        mask[..., None], np.asarray(second, np.uint8),
+        np.asarray(first, np.uint8),
+    )
+    pixels[..., 3] = 255
+    return Texture(pixels)
+
+
+def build_advanced_material_scene():
+    """Exercise every GPU material channel and tangent-space normal mapping."""
+    scene = Scene()
+    scene.add_light(PointLight(
+        (-3.5, 5.5, 4.0), color=(1.0, 0.86, 0.72), intensity=95.0,
+    ))
+    floor_vertices = ((-7,0,-5),(7,0,-5),(7,0,5),(-7,0,5))
+    floor_indices = ((0,2,1),(0,3,2))
+    scene.add_mesh(
+        floor_vertices, floor_indices,
+        Material(base_color=(0.48, 0.52, 0.58), roughness=0.78),
+        texcoords=((0,0),(4,0),(4,3),(0,3)),
+    )
+
+    base = _checker_texture((35, 70, 150), (220, 120, 35))
+    mr = _checker_texture((0, 55, 255), (0, 235, 20))
+    normal = _checker_texture((75, 128, 235), (181, 128, 235), cells=16)
+    occlusion = _checker_texture((60, 60, 60), (255, 255, 255), cells=4)
+    emission = _checker_texture((0, 0, 0), (255, 90, 18), cells=8)
+    transmission = _checker_texture((20, 20, 20), (255, 255, 255), cells=8)
+    definitions = (
+        ((-2.8, 1.2, 0.0), Material(
+            base_color=(1,1,1), roughness=0.72,
+            base_color_texture=base, normal_texture=normal, normal_scale=1.0,
+        )),
+        ((0.0, 1.2, 0.0), Material(
+            base_color=(0.86,0.74,0.32), metallic=1.0, roughness=1.0,
+            metallic_roughness_texture=mr, occlusion_texture=occlusion,
+            occlusion_strength=0.8,
+        )),
+        ((2.8, 1.2, 0.0), Material(
+            base_color=(0.65,0.85,1.0), transmission=1.0, roughness=0.08,
+            emission=(0.7,0.15,0.03), emissive_texture=emission,
+            transmission_texture=transmission,
+        )),
+    )
+    from .vertex_attributes import uv_sphere
+    for center, material in definitions:
+        vertices, indices, normals, texcoords = uv_sphere(
+            center, 1.2, rings=24, segments=48,
+        )
+        scene.add_mesh(
+            vertices, indices, material, normals=normals,
+            texcoords=texcoords,
+        )
+    return scene
+
+
+def build_material_program_parity_scene():
+    """Show deterministic raster equivalents for GI material programs."""
+    scene = Scene()
+    scene.add_light(PointLight(
+        (-3.5, 5.0, 3.5), color=(1.0, 0.88, 0.74), intensity=90.0,
+    ))
+    scene.add_mesh(
+        ((-7,0,-5),(7,0,-5),(7,0,5),(-7,0,5)),
+        ((0,2,1),(0,3,2)),
+        Material(base_color=(0.58,0.62,0.68), roughness=0.8, program=diffuse),
+    )
+    definitions = (
+        ((-3.0,1.15,0), Material(
+            base_color=(0.18,0.52,0.92), roughness=0.65, program=diffuse,
+        )),
+        ((-1.0,1.15,0), Material(
+            base_color=(0.94,0.68,0.18), metallic=1.0, program=mirror,
+        )),
+        ((1.0,1.15,0), Material(
+            base_color=(0.75,0.9,1.0), transmission=1.0,
+            program=fresnel_glass,
+        )),
+        ((3.0,1.15,0), Material(
+            base_color=(0.9,0.16,0.48), program=unlit_material,
+        )),
+    )
+    for center, material in definitions:
+        vertices, indices = sphere(center, 1.05, rings=20, segments=40)
+        scene.add_mesh(vertices, indices, material)
+    return scene
+
+
+__all__ = [
+    "build_advanced_material_scene", "build_directional_shadow_scene",
+    "build_material_program_parity_scene", "build_spot_shadow_scene",
+]

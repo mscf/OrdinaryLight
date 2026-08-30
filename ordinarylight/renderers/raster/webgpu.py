@@ -242,6 +242,22 @@ class WebGpuRasterRenderer(RendererImplementation):
                     usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST,
                 )
                 entries.append({"binding": 3, "resource": camera_buffer})
+            material_payload = mesh.resources.get("material_buffer")
+            if material_payload is not None:
+                if not material_payload:
+                    material_payload = bytes(96)
+                material_buffer = self.device.create_buffer_with_data(
+                    data=material_payload,
+                    usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
+                )
+                entries.append({
+                    "binding": 5,
+                    "resource": {
+                        "buffer": material_buffer,
+                        "offset": 0,
+                        "size": len(material_payload),
+                    },
+                })
             bind_group = self.device.create_bind_group(
                 layout=self._pipeline(mesh.layout).get_bind_group_layout(0),
                 entries=tuple(entries),

@@ -119,7 +119,7 @@ class VulkanRasterRenderer(RendererImplementation):
             self._descriptor_set_layout = vk.vkCreateDescriptorSetLayout(
                 self.device, vk.VkDescriptorSetLayoutCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                    bindingCount=5,
+                    bindingCount=6,
                     pBindings=[
                         vk.VkDescriptorSetLayoutBinding(
                             binding=0,
@@ -148,6 +148,12 @@ class VulkanRasterRenderer(RendererImplementation):
                         vk.VkDescriptorSetLayoutBinding(
                             binding=4,
                             descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
+                            descriptorCount=1,
+                            stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                        ),
+                        vk.VkDescriptorSetLayoutBinding(
+                            binding=5,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                             descriptorCount=1,
                             stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
                         ),
@@ -688,18 +694,30 @@ class VulkanRasterRenderer(RendererImplementation):
         def remember(kind, handle):
             resources.append((kind, handle)); return handle
         descriptor_set = None
+        host_flags = (
+            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+            | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        )
         camera_buffer = camera_memory = None
         camera_payload = mesh.resources.get("camera_uniform")
         if camera_payload is not None:
-            host_flags = (
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-            )
             camera_buffer, camera_memory = self._buffer(
                 len(camera_payload), vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 host_flags, camera_payload,
             )
             resources.extend((("buffer", camera_buffer), ("memory", camera_memory)))
+        material_payload = mesh.resources.get("material_buffer")
+        material_buffer = material_memory = None
+        if material_payload is not None:
+            if not material_payload:
+                material_payload = bytes(96)
+            material_buffer, material_memory = self._buffer(
+                len(material_payload), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                host_flags, material_payload,
+            )
+            resources.extend((
+                ("buffer", material_buffer), ("memory", material_memory),
+            ))
         atlas_image = None
         atlas_view = None
         atlas_staging = None
@@ -790,7 +808,7 @@ class VulkanRasterRenderer(RendererImplementation):
             descriptor_pool = remember("descriptor_pool", vk.vkCreateDescriptorPool(
                 self.device, vk.VkDescriptorPoolCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                    maxSets=1, poolSizeCount=3,
+                    maxSets=1, poolSizeCount=4,
                     pPoolSizes=[
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -802,6 +820,10 @@ class VulkanRasterRenderer(RendererImplementation):
                         ),
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                            descriptorCount=1,
+                        ),
+                        vk.VkDescriptorPoolSize(
+                            type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                             descriptorCount=1,
                         ),
                     ],
@@ -871,6 +893,19 @@ class VulkanRasterRenderer(RendererImplementation):
                         pBufferInfo=[vk.VkDescriptorBufferInfo(
                             buffer=camera_buffer, offset=0,
                             range=len(camera_payload),
+                        )],
+                    ),
+                ], 0, None)
+            if material_buffer is not None:
+                vk.vkUpdateDescriptorSets(self.device, 1, [
+                    vk.VkWriteDescriptorSet(
+                        sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        dstSet=descriptor_set, dstBinding=5,
+                        descriptorCount=1,
+                        descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                        pBufferInfo=[vk.VkDescriptorBufferInfo(
+                            buffer=material_buffer, offset=0,
+                            range=len(material_payload),
                         )],
                     ),
                 ], 0, None)
