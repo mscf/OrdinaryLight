@@ -1473,10 +1473,12 @@ class VulkanGlfwPresenter:
             samples=samples,
         )
 
-    def present_wavefront(self, scene, camera, width, height):
+    def present_wavefront(
+        self, scene, camera, width, height, *, render_extent=None,
+    ):
         """Present the experimental wavefront path without pixel readback."""
         return self._core.present_wavefront_window(
-            scene, camera, width, height
+            scene, camera, width, height, render_extent=render_extent,
         )
 
     def capture_wavefront_hdr(self):

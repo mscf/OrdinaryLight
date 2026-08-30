@@ -1535,7 +1535,12 @@ class VulkanRasterRenderer(RendererImplementation):
         if self._closed:
             return
         self._closed = True
-        self.vk.vkDeviceWaitIdle(self.device)
+        try:
+            self.vk.vkDeviceWaitIdle(self.device)
+        except self.vk.VkErrorDeviceLost:
+            # Preserve the original rendering error and continue releasing
+            # host-side ownership after a lost device.
+            pass
         self._destroy_swapchain_resources()
         for frame in self._present_frames:
             self.vk.vkDestroyFence(self.device, frame["fence"], None)

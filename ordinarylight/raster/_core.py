@@ -452,6 +452,55 @@ _MATERIAL_TEXTURE_FIELDS = (
 )
 
 
+def _box_blur_environment(image, radius):
+    """Blur an equirectangular HDR image with wrapped longitude."""
+    if radius <= 0:
+        return np.asarray(image, np.float32).copy()
+
+    def blur_axis(values, axis, pad_mode):
+        padding = [(0, 0)] * values.ndim
+        padding[axis] = (radius, radius)
+        padded = np.pad(values, padding, mode=pad_mode)
+        cumulative = np.cumsum(padded, axis=axis, dtype=np.float64)
+        leading_shape = list(cumulative.shape)
+        leading_shape[axis] = 1
+        cumulative = np.concatenate((
+            np.zeros(leading_shape, np.float64), cumulative,
+        ), axis=axis)
+        high = [slice(None)] * values.ndim
+        low = [slice(None)] * values.ndim
+        high[axis] = slice(radius * 2 + 1, None)
+        low[axis] = slice(None, -(radius * 2 + 1))
+        return (
+            cumulative[tuple(high)] - cumulative[tuple(low)]
+        ) / float(radius * 2 + 1)
+
+    horizontal = blur_axis(np.asarray(image, np.float32), 1, "wrap")
+    return blur_axis(horizontal, 0, "edge").astype(np.float32)
+
+
+def _prefiltered_environment_texture(image):
+    """Pack four roughness levels into one raster-only environment strip."""
+    from ..scene import Texture
+
+    image = np.asarray(image, np.float32)
+    log_range = max(float(np.log2(1.0 + np.max(image))), 1e-6)
+    levels = []
+    for radius in (0, 2, 8, 24):
+        filtered = _box_blur_environment(image, radius)
+        encoded = np.empty((*filtered.shape[:2], 4), np.uint8)
+        encoded[..., :3] = np.clip(
+            np.log2(1.0 + filtered) / log_range * 255.0 + 0.5,
+            0, 255,
+        ).astype(np.uint8)
+        encoded[..., 3] = 255
+        levels.append(encoded)
+    return Texture(
+        np.concatenate(levels, axis=1),
+        wrap_s="clamp", wrap_t="clamp",
+    )
+
+
 def _material_atlas(scene, enabled=True, shadow_depth=None):
     """Pack every material image into one portable RGBA8 atlas.
 
@@ -469,12 +518,15 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
                 if texture is not None and key not in lookup:
                     lookup[key] = len(textures)
                     textures.append((texture, linear))
-        environment_texture = getattr(scene, "_environment_texture", None)
-        if environment_texture is None and scene.reflection_probes:
-            from ..lights import EnvironmentLight
-            environment_texture = scene._pack_environment_texture(
-                EnvironmentLight(image=scene.reflection_probes[0].image)
-            )[0]
+        environment_image = (
+            scene.environment.image if scene.environment is not None else
+            scene.reflection_probes[0].image if scene.reflection_probes else
+            None
+        )
+        environment_texture = (
+            _prefiltered_environment_texture(environment_image)
+            if environment_image is not None else None
+        )
         if environment_texture is not None:
             key = (id(environment_texture), True)
             if key not in lookup:

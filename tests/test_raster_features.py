@@ -22,6 +22,16 @@ def _camera():
 
 
 class RasterFeatureTests(unittest.TestCase):
+    def test_environment_reflection_filter_footprint_tracks_roughness(self):
+        program = ol.RasterProgram.scene(target="wgsl", validate=False)
+        source = program.fragment.source
+        self.assertIn(
+            "let environment_level: f32 = min((surface_roughness * 5.0), 3.0);",
+            source,
+        )
+        self.assertIn("reflected_encoded_low", source)
+        self.assertIn("reflected_encoded_high", source)
+
     def test_shared_material_texture_is_evaluated(self):
         pixels = np.array([[[255, 0, 0, 255], [0, 255, 0, 255]]], np.uint8)
         material = ol.Material(

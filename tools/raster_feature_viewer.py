@@ -1,4 +1,4 @@
-"""Live Qt catalog for Ordinary Light raster features."""
+"""Live Qt catalog for comparing Ordinary Light rendering targets."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import traceback
 
 import numpy as np
 
@@ -38,6 +39,60 @@ RESOLUTIONS = (
     ("QHD — 1440p", (2560, 1440)),
     ("Ultra HD — 4K", (3840, 2160)),
 )
+
+TARGETS = (
+    ("Vulkan raster", "vulkan-raster"),
+    ("Wavefront GI", "wavefront-gi"),
+    ("WebGPU raster", "webgpu-raster"),
+)
+
+
+def _gi_config(showcase, *, present=False):
+    """Build the interactive GI configuration corresponding to a showcase."""
+    settings = dict(showcase.renderer)
+    return ol.RendererConfig(
+        samples_per_pixel=1,
+        max_bounces=int(settings.get("max_bounces", 8)),
+        present_mode="mailbox",
+        progressive_accumulation=False,
+        material_program=settings.get("material_program"),
+        material_modifier=settings.get(
+            "material_modifier", settings.get("material_hook")
+        ),
+        direct_swapchain_storage=bool(present),
+    )
+
+
+def _preserved_view(showcase, scene, controller, active_showcase_id):
+    """Retain scene/camera state unless the selected showcase changed."""
+    if scene is not None and active_showcase_id == showcase.id:
+        return scene, controller, active_showcase_id
+    scene = showcase.create_scene()
+    controller = ol.ArcballCameraController.from_camera(
+        showcase.camera.camera(scene, angle=-0.45),
+    )
+    return scene, controller, showcase.id
+
+
+def _direct_render_extent(target, selected_extent, surface_extent):
+    """Resolve the extent consumed by a direct-presentation renderer."""
+    if target == "wavefront-gi":
+        return tuple(surface_extent)
+    return tuple(selected_extent)
+
+
+def _surface_aspect_extent(selected_extent, surface_extent):
+    """Fit a resolution budget to the native viewport aspect ratio."""
+    selected_width, selected_height = (int(value) for value in selected_extent)
+    surface_width, surface_height = (int(value) for value in surface_extent)
+    scale = min(
+        selected_width / max(surface_width, 1),
+        selected_height / max(surface_height, 1),
+    )
+    return (
+        max(1, int(round(surface_width * scale))),
+        max(1, int(round(surface_height * scale))),
+    )
 
 
 def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
@@ -80,7 +135,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
     class DirectWindow(QtWidgets.QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("Ordinary Light — direct Vulkan raster showcase")
+            self.setWindowTitle("Ordinary Light — renderer parity showcase")
             self.resize(1500, 900)
             root = QtWidgets.QWidget(); self.setCentralWidget(root)
             layout = QtWidgets.QHBoxLayout(root)
@@ -91,12 +146,24 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.native_window,
             )
             self.container.setMinimumSize(640, 420)
-            layout.addWidget(self.container, 1)
+            self.readback_image = QtWidgets.QLabel(
+                alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
+            )
+            self.readback_image.setMinimumSize(640, 420)
+            self.viewport_stack = QtWidgets.QStackedWidget()
+            self.viewport_stack.addWidget(self.container)
+            self.viewport_stack.addWidget(self.readback_image)
+            layout.addWidget(self.viewport_stack, 1)
             panel = QtWidgets.QWidget(); panel.setMaximumWidth(430)
             form = QtWidgets.QFormLayout(panel); layout.addWidget(panel)
             self.feature = QtWidgets.QComboBox()
             for item in showcases:
                 self.feature.addItem(item.title, item)
+            self.target = QtWidgets.QComboBox()
+            for title, key in TARGETS:
+                self.target.addItem(title, key)
+            selected_target = self.target.findData(args.target)
+            self.target.setCurrentIndex(max(selected_target, 0))
             self.resolution = QtWidgets.QComboBox()
             custom = (max(1, args.width), max(1, args.height))
             self.resolution.addItem(
@@ -107,6 +174,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.resolution.addItem(
                         f"{title} ({extent[0]} × {extent[1]})", extent,
                     )
+            self._selected_extent = custom
+            self.resolution.currentIndexChanged.connect(
+                self._resolution_changed,
+            )
             self.shadows = QtWidgets.QCheckBox(); self.shadows.setChecked(True)
             self.map_size = QtWidgets.QComboBox()
             for size in (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
@@ -114,14 +185,17 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.animate = QtWidgets.QCheckBox(); self.animate.setChecked(True)
             self.description = QtWidgets.QLabel(wordWrap=True)
             self.help = QtWidgets.QLabel(
-                "Direct Vulkan swapchain (no NumPy/QImage readback)\n"
+                "Vulkan targets use the direct swapchain; WebGPU currently "
+                "uses offscreen QImage readback.\n"
                 "Left drag: orbit · Right/middle drag: pan · Wheel: dolly",
                 wordWrap=True,
             )
             button = QtWidgets.QPushButton("Apply and restart renderer")
             button.clicked.connect(self.restart)
             self.feature.currentIndexChanged.connect(self._selection_changed)
+            self.target.currentIndexChanged.connect(self._target_changed)
             form.addRow("Feature", self.feature)
+            form.addRow("Rendering target", self.target)
             form.addRow("Render resolution", self.resolution)
             form.addRow("Enable shadows", self.shadows)
             form.addRow("Shadow map size", self.map_size)
@@ -130,9 +204,14 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow(button)
             self.status = QtWidgets.QLabel(wordWrap=True); form.addRow(self.status)
             self.renderer = None
+            self.renderer_target = None
             self.scene_value = None
+            self.active_showcase_id = None
             self.controller = None
+            self._readback_pixels = None
+            self._readback_qimage = None
             self.future = None
+            self.presentation_failed = False
             self.executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="ordinarylight-qt-vulkan",
             )
@@ -147,7 +226,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
 
         @property
         def extent(self):
-            return tuple(int(value) for value in self.resolution.currentData())
+            return self._selected_extent
+
+        def _resolution_changed(self, _index=None):
+            value = self.resolution.currentData()
+            if value is not None:
+                self._selected_extent = tuple(int(item) for item in value)
 
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
@@ -157,52 +241,103 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
 
+        def _target_changed(self, _index=None):
+            if self.scene_value is not None:
+                self.restart()
+
         def _wait(self):
             if self.future is not None:
-                self.future.result()
-                self.future = None
+                future, self.future = self.future, None
+                return future.result()
 
-        def restart(self):
-            self.status.setText("Initializing direct Vulkan renderer…")
+        def _close_renderer(self):
+            """Drain and close the active renderer without stranding Qt."""
+            errors = []
             try:
                 self._wait()
-                if self.renderer is not None:
-                    self.renderer.close()
+            except Exception as error:
+                errors.append(error)
+            renderer, self.renderer = self.renderer, None
+            if renderer is not None:
+                try:
+                    renderer.close()
+                except Exception as error:
+                    errors.append(error)
+            return errors
+
+        def restart(self):
+            target_key = self.target.currentData()
+            self.status.setText(f"Initializing {self.target.currentText()}…")
+            try:
+                previous_target = self.renderer_target
+                close_errors = self._close_renderer()
+                if close_errors:
+                    self.status.setText(
+                        f"Recovering from presentation failure: {close_errors[0]}"
+                    )
+                if (
+                    previous_target in {"vulkan-raster", "wavefront-gi"}
+                    and target_key in {"vulkan-raster", "wavefront-gi"}
+                ):
+                    self.surface.recreate_surface()
                 item = self.feature.currentData()
-                self.scene_value = item.create_scene()
-                self.controller = ol.ArcballCameraController.from_camera(
-                    item.camera.camera(self.scene_value, angle=-0.45),
+                (
+                    self.scene_value, self.controller, self.active_showcase_id,
+                ) = _preserved_view(
+                    item, self.scene_value, self.controller,
+                    self.active_showcase_id,
                 )
                 settings = dict(item.renderer)
-                default_material = settings.get("material_program")
-                if default_material is None:
-                    default_material = ol.builtin_material
-                target = ol.RasterProgram.scene(
-                    target="spirv", validate=False,
-                    material_programs=self.scene_value.material_programs(
-                        default_material,
-                    ),
-                    material_modifier=settings.get(
-                        "material_modifier", settings.get("material_hook")
-                    ),
-                )
-                settings.update(
-                    shadows=self.shadows.isChecked(),
-                    shadow_map_size=int(self.map_size.currentData()),
-                )
-                config = ol.RasterConfig(
-                    state=ol.RasterState(cull_mode="none"),
-                    ambient_light=float(settings.pop("ambient_light", 0.08)),
-                    **settings,
-                )
-                self.renderer = ol.renderers.raster.VulkanRasterRenderer(
-                    target, config=config,
-                    instance=self.surface.instance,
-                    surface=self.surface.surface,
-                )
+                if target_key == "wavefront-gi":
+                    self.renderer = ol.VulkanSurfacePresenter(
+                        self.surface.instance, self.surface.surface,
+                        config=_gi_config(item, present=True),
+                    )
+                    self.viewport_stack.setCurrentWidget(self.container)
+                elif target_key == "vulkan-raster":
+                    default_material = (
+                        settings.get("material_program") or ol.builtin_material
+                    )
+                    program = ol.RasterProgram.scene(
+                        target="spirv", validate=False,
+                        material_programs=self.scene_value.material_programs(
+                            default_material,
+                        ),
+                        material_modifier=settings.get(
+                            "material_modifier", settings.get("material_hook")
+                        ),
+                    )
+                    settings.update(
+                        shadows=self.shadows.isChecked(),
+                        shadow_map_size=int(self.map_size.currentData()),
+                    )
+                    config = ol.RasterConfig(
+                        state=ol.RasterState(cull_mode="none"),
+                        ambient_light=float(settings.pop("ambient_light", 0.08)),
+                        **settings,
+                    )
+                    self.renderer = ol.renderers.raster.VulkanRasterRenderer(
+                        program, config=config,
+                        instance=self.surface.instance,
+                        surface=self.surface.surface,
+                    )
+                    self.viewport_stack.setCurrentWidget(self.container)
+                else:
+                    self.renderer = _renderer(
+                        item, self.scene_value, target_key,
+                        self.shadows.isChecked(),
+                        int(self.map_size.currentData()),
+                    )
+                    self.viewport_stack.setCurrentWidget(self.readback_image)
+                self.renderer_target = target_key
+                self.presentation_failed = False
                 self.completed.clear()
-                self.status.setText("Direct Vulkan renderer ready")
+                self.status.setText(
+                    f"{self.target.currentText()} ready; scene and camera retained"
+                )
             except Exception as error:
+                self.renderer = None
+                self.renderer_target = None
                 self.status.setText(f"Renderer start failed: {error}")
 
         def tick(self):
@@ -215,12 +350,19 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 if not self.future.done():
                     return
                 try:
-                    self.future.result()
+                    result = self.future.result()
                 except Exception as error:
-                    self.status.setText(f"Direct presentation failed: {error}")
+                    detail = str(error) or repr(error)
+                    self.status.setText(
+                        f"Presentation failed ({type(error).__name__}): {detail}"
+                    )
+                    traceback.print_exception(error)
                     self.future = None
+                    self.presentation_failed = True
                     return
                 self.future = None
+                if self.renderer_target == "webgpu-raster":
+                    self._display_readback(result)
                 complete = time.perf_counter()
                 self.completed.append(complete)
                 while self.completed and complete - self.completed[0] > 1.0:
@@ -238,13 +380,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 submit_ms = timings.get("resident_submit_ms", 0.0)
                 resident = "resident" if timings.get("resident_cache_hit") else "warming"
                 present_mode = timings.get("present_mode", "unknown").upper()
+                path = (
+                    "QImage readback" if self.renderer_target == "webgpu-raster"
+                    else "direct swapchain"
+                )
                 self.status.setText(
                     f"{fps:.1f} FPS | frame {ms:.2f} ms | pack {pack_ms:.2f} ms "
                     f"| prepare {prepare_ms:.2f} ms "
                     f"| submit {submit_ms:.2f} ms | {width} × {height} "
-                    f"| {present_mode} · direct swapchain · {resident}",
+                    f"| {self.target.currentText()} · {present_mode} · {path} · {resident}",
                 )
-            if self.renderer is None or self.controller is None:
+            if (
+                self.renderer is None or self.controller is None
+                or self.presentation_failed
+            ):
                 return
             render_width, render_height = self.extent
             ratio = float(self.native_window.devicePixelRatio())
@@ -253,21 +402,71 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 max(1, round(self.native_window.height() * ratio)),
             )
             camera = self.controller.camera()
-            self.future = self.executor.submit(
-                self.renderer.present_frame,
-                self.scene_value, camera, render_width, render_height,
-                surface_size=surface_size,
+            if self.renderer_target == "vulkan-raster":
+                raster_width, raster_height = _surface_aspect_extent(
+                    (render_width, render_height), surface_size,
+                )
+                self.future = self.executor.submit(
+                    self.renderer.present_frame,
+                    self.scene_value, camera, raster_width, raster_height,
+                    surface_size=surface_size,
+                )
+            elif self.renderer_target == "wavefront-gi":
+                # A direct Vulkan swapchain must follow the native Qt client
+                # extent.  The selected output extent can differ by title-bar
+                # and fractional-scaling pixels when the window is maximized;
+                # repeatedly passing that logical target would force GI to
+                # rebuild all swapchain/history resources every frame.
+                gi_width, gi_height = _direct_render_extent(
+                    self.renderer_target,
+                    (render_width, render_height),
+                    surface_size,
+                )
+                self.future = self.executor.submit(
+                    self.renderer.present_wavefront,
+                    self.scene_value, camera, gi_width, gi_height,
+                    render_extent=(render_width, render_height),
+                )
+            else:
+                self.future = self.executor.submit(
+                    self.renderer.render,
+                    self.scene_value, camera, (render_width, render_height),
+                )
+
+        def _display_readback(self, image):
+            pixels = to_sdr(image)
+            if pixels.shape[2] == 3:
+                rgba = np.full((*pixels.shape[:2], 4), 255, np.uint8)
+                rgba[..., :3] = pixels
+                pixels = rgba
+            self._readback_pixels = np.ascontiguousarray(pixels)
+            self._readback_qimage = QtGui.QImage(
+                self._readback_pixels.data,
+                self._readback_pixels.shape[1],
+                self._readback_pixels.shape[0],
+                self._readback_pixels.strides[0],
+                QtGui.QImage.Format.Format_RGBA8888,
+            ).copy()
+            self.readback_image.setPixmap(
+                QtGui.QPixmap.fromImage(self._readback_qimage).scaled(
+                    self.readback_image.size(),
+                    QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                    QtCore.Qt.TransformationMode.SmoothTransformation,
+                )
             )
 
         def closeEvent(self, event):
             self.timer.stop()
             try:
-                self._wait()
+                errors = self._close_renderer()
+                if errors:
+                    print(f"Renderer shutdown after failure: {errors[0]}")
             finally:
-                if self.renderer is not None:
-                    self.renderer.close()
                 self.executor.shutdown(wait=True, cancel_futures=True)
-                self.surface.close()
+                try:
+                    self.surface.close()
+                except Exception as error:
+                    print(f"Vulkan surface shutdown warning: {error}")
             event.accept()
 
     window = DirectWindow(); window.show()
@@ -283,7 +482,11 @@ def _catalog():
 
 
 def _renderer(showcase, scene, backend_name, shadows, shadow_map_size):
-    target = "spirv" if backend_name == "vulkan" else "wgsl"
+    if backend_name == "wavefront-gi":
+        return ol.Renderer(
+            config=_gi_config(showcase), renderer_preference="gi",
+        )
+    target = "spirv" if backend_name == "vulkan-raster" else "wgsl"
     settings = dict(showcase.renderer)
     default_material = settings.get("material_program") or ol.builtin_material
     program = ol.RasterProgram.scene(
@@ -301,7 +504,7 @@ def _renderer(showcase, scene, backend_name, shadows, shadow_map_size):
     )
     implementation_type = (
         ol.renderers.raster.VulkanRasterRenderer
-        if backend_name == "vulkan" else
+        if backend_name == "vulkan-raster" else
         ol.renderers.raster.WebGpuRasterRenderer
     )
     return ol.Renderer(implementation=implementation_type(program, config=config))
@@ -311,6 +514,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
+    parser.add_argument(
+        "--target", choices=tuple(key for _title, key in TARGETS),
+        default="vulkan-raster",
+        help="initial rendering target",
+    )
     parser.add_argument(
         "--readback", action="store_true",
         help="use the NumPy/QImage comparison path instead of direct Vulkan",
@@ -401,7 +609,23 @@ def main():
             for item in showcases:
                 self.feature.addItem(item.title, item)
             self.backend = QtWidgets.QComboBox()
-            self.backend.addItems(("vulkan", "webgpu", "both"))
+            for title, key in TARGETS:
+                self.backend.addItem(title, (key,))
+            self.backend.addItem(
+                "Vulkan + WebGPU raster", ("vulkan-raster", "webgpu-raster"),
+            )
+            self.backend.addItem(
+                "All three targets",
+                ("wavefront-gi", "vulkan-raster", "webgpu-raster"),
+            )
+            selected_target = next(
+                (
+                    index for index in range(self.backend.count())
+                    if self.backend.itemData(index) == (args.target,)
+                ),
+                0,
+            )
+            self.backend.setCurrentIndex(selected_target)
             self.resolution = QtWidgets.QComboBox()
             custom = (max(1, args.width), max(1, args.height))
             self.resolution.addItem(f"Custom — {custom[0]} × {custom[1]}", custom)
@@ -422,8 +646,9 @@ def main():
             button = QtWidgets.QPushButton("Apply and restart live renderer")
             button.clicked.connect(self.restart)
             self.feature.currentIndexChanged.connect(self._selection_changed)
+            self.backend.currentIndexChanged.connect(self._target_changed)
             form.addRow("Feature", self.feature)
-            form.addRow("Backend", self.backend)
+            form.addRow("Rendering target", self.backend)
             form.addRow("Resolution", self.resolution)
             form.addRow("Enable shadows", self.shadows)
             form.addRow("Shadow map size", self.map_size)
@@ -439,6 +664,7 @@ def main():
             self.timer.start()
             self._selection_changed()
             QtCore.QTimer.singleShot(0, self.restart)
+            self.active_showcase_id = None
 
         @property
         def extent(self):
@@ -451,6 +677,10 @@ def main():
             value = int(item.renderer.get("shadow_map_size", 512))
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
+
+        def _target_changed(self, _index=None):
+            if self.scene_value is not None:
+                self.restart()
 
         def _close_renderers(self):
             for _name, job in self.jobs:
@@ -465,11 +695,13 @@ def main():
             try:
                 self._close_renderers()
                 item = self.feature.currentData()
-                selected = self.backend.currentText()
-                names = ("vulkan", "webgpu") if selected == "both" else (selected,)
-                self.scene_value = item.create_scene()
-                authored = item.camera.camera(self.scene_value, angle=-0.45)
-                self.controller = ol.ArcballCameraController.from_camera(authored)
+                names = tuple(self.backend.currentData())
+                (
+                    self.scene_value, self.controller, self.active_showcase_id,
+                ) = _preserved_view(
+                    item, self.scene_value, self.controller,
+                    self.active_showcase_id,
+                )
                 self.renderers = [
                     (name, _renderer(
                         item, self.scene_value, name, self.shadows.isChecked(),

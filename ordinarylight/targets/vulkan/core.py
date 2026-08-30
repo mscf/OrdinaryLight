@@ -7343,6 +7343,7 @@ class VulkanRayQueryCore:
 
     def present_wavefront_window(
         self, scene, camera, width, height, *, pixel_format="rgba8",
+        render_extent=None,
     ):
         """Render tiled wavefront paths into a Vulkan image and present it."""
         frame_start = time.perf_counter()
@@ -7470,6 +7471,15 @@ class VulkanRayQueryCore:
             if self.dynamic_resolution is not None
             else self.config.wavefront_render_scale
         )
+        if render_extent is not None:
+            requested_render_width = max(1, int(render_extent[0]))
+            requested_render_height = max(1, int(render_extent[1]))
+            requested_scale = min(
+                requested_render_width / max(width, 1),
+                requested_render_height / max(height, 1),
+                1.0,
+            )
+            render_scale = min(render_scale, requested_scale)
         interactive_scale = self.config.wavefront_interactive_render_scale
         if interactive_active and interactive_scale is not None:
             render_scale = min(render_scale, interactive_scale)
@@ -7536,7 +7546,10 @@ class VulkanRayQueryCore:
                     ), None,
                 )
                 self.create_window_swapchain(width, height, wavefront_only=True)
-                return self.present_wavefront_window(scene, camera, width, height)
+                return self.present_wavefront_window(
+                    scene, camera, width, height,
+                    render_extent=render_extent,
+                )
         acquire_ms = (time.perf_counter() - acquire_start) * 1000.0
         vk.vkResetFences(self.device, 1, [frame["fence"]])
 
@@ -9073,9 +9086,17 @@ class VulkanRayQueryCore:
             return
         self._closed = True
         if self.device:
-            self._wait_external_releases()
-            vk.vkDeviceWaitIdle(self.device)
-            self._save_pipeline_cache()
+            device_lost = False
+            try:
+                self._wait_external_releases()
+                vk.vkDeviceWaitIdle(self.device)
+            except vk.VkErrorDeviceLost:
+                # Device loss invalidates pending work, but Vulkan objects and
+                # the logical device still need orderly teardown.  Do not let
+                # the secondary wait failure hide the operation that caused it.
+                device_lost = True
+            if not device_lost:
+                self._save_pipeline_cache()
             self._destroy_swapchain_resources()
             commands = [
                 command

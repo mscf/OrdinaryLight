@@ -315,11 +315,11 @@
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "8ce40b520248853e9c1d6d10b2ffa6e7c03fd4fede81c4b352d4f4680882242b",
+  "source_sha256": "d01fd8c6b5aaf31ab7b665d0913eac009bfde6dc35f3a41b9ffef0cc8163e87f",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "02c5cc1d66005ece5bd7168e7ffe24da4b89fcb55f5fb4e5d6d6f131db7683b1",
+        "cache_key": "c5fe2b35bc8291306bf798b8ae1b5b40e2db29caffe9b2ddaf33f2a913260d63",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -520,7 +520,7 @@
             1
           ]
         },
-        "sha256": "59fbcc8d7f48d38a46e081def24ce954067dcca51ad79f648a9a8334485d6076"
+        "sha256": "3107bd8c3ac163f705e82a8c0ab67095ebe1aaf541ef4b685f629e60f7596f01"
       },
       "vertex": {
         "cache_key": "b3c1a762c72791ab41fc6cb9b2438c716ea61e07fe7fe7c031a2b91b411c7327",
@@ -841,7 +841,7 @@
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "435de6e56d0278e4c30c8840bbb5b7b6b1f039351c971a0eb36f01ec298895da",
+        "cache_key": "fbfb1a91dab122de6401c7c877ed05f2362b8d0edeefeeede84fa07ed9fa60f9",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -1042,7 +1042,7 @@
             1
           ]
         },
-        "sha256": "6c1846e8d79ea8ece2acb8cac1a77adaa71756415b692b88f685e3cecb6b290b"
+        "sha256": "0be7e3309592738de1acdcd37157cb56178e4c30a40774e55513b5470977ef29"
       },
       "vertex": {
         "cache_key": "ae748762302050f00c43580ef9d88d1cca62763d919eaf4dee80e3dda1e1994e",

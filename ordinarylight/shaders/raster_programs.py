@@ -477,13 +477,54 @@ def scene_fragment(
         osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, refracted.y)))
         / 3.14159265,
     )
-    reflected_encoded = base_color_atlas.sample_with(
+    # Four raster-only prefiltered environment levels are packed side by side.
+    # Interpolate adjacent levels using perceptual roughness, analogous to a
+    # cubemap mip/LOD lookup without requiring backend-specific texture LODs.
+    # The stored blur radii grow nonlinearly (0, 2, 8, 24 texels), so map the
+    # perceptual roughness somewhat faster than a linear four-level index.
+    environment_level = osh.minimum(surface_roughness * 5.0, 3.0)
+    environment_level_low = osh.floor(environment_level)
+    environment_level_high = osh.minimum(environment_level_low + 1.0, 3.0)
+    environment_level_mix = osh.fraction(environment_level)
+    reflection_uv_low = osh.vec2(
+        (reflection_uv.x + environment_level_low) * 0.25,
+        reflection_uv.y,
+    )
+    reflection_uv_high = osh.vec2(
+        (reflection_uv.x + environment_level_high) * 0.25,
+        reflection_uv.y,
+    )
+    refraction_uv_low = osh.vec2(
+        (refraction_uv.x + environment_level_low) * 0.25,
+        refraction_uv.y,
+    )
+    refraction_uv_high = osh.vec2(
+        (refraction_uv.x + environment_level_high) * 0.25,
+        refraction_uv.y,
+    )
+    reflected_encoded_low = base_color_atlas.sample_with(
         base_color_sampler,
-        environment_rect.xy + reflection_uv * environment_rect.zw,
+        environment_rect.xy + reflection_uv_low * environment_rect.zw,
     ).xyz
-    refracted_encoded = base_color_atlas.sample_with(
+    reflected_encoded_high = base_color_atlas.sample_with(
         base_color_sampler,
-        environment_rect.xy + refraction_uv * environment_rect.zw,
+        environment_rect.xy + reflection_uv_high * environment_rect.zw,
+    ).xyz
+    refracted_encoded_low = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect.xy + refraction_uv_low * environment_rect.zw,
+    ).xyz
+    refracted_encoded_high = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect.xy + refraction_uv_high * environment_rect.zw,
+    ).xyz
+    reflected_encoded = osh.mix(
+        reflected_encoded_low, reflected_encoded_high,
+        environment_level_mix,
+    )
+    refracted_encoded = osh.mix(
+        refracted_encoded_low, refracted_encoded_high,
+        environment_level_mix,
     ).xyz
     reflected_environment = (
         osh.power(
