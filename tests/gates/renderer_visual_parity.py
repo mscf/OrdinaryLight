@@ -6,17 +6,20 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 import ordinarylight as ol
 from ordinarylight.outputs import to_sdr
 
 
-def _render_gi(scene, camera, extent, samples, material_modifier=None):
+def _render_gi(
+    scene, camera, extent, samples, material_modifier=None, *, max_bounces=8,
+):
     implementation = ol.renderers.gi.VulkanGlobalIlluminationRenderer(
         config=ol.RendererConfig(
             samples_per_pixel=samples,
-            max_bounces=6,
+            max_bounces=max_bounces,
             wavefront_hdr_capture=True,
             material_modifier=material_modifier,
         )
@@ -57,6 +60,11 @@ def main():
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--samples", type=int, default=16)
+    parser.add_argument("--bounces", type=int, default=8)
+    parser.add_argument(
+        "--camera-pose",
+        help="JSON camera pose, in the same format copied by the parity viewer",
+    )
     parser.add_argument(
         "--scene", choices=(
             "feature", "materials", "modifier", "clearcoat", "sheen",
@@ -67,6 +75,14 @@ def main():
         help="shared scene semantics to compare",
     )
     parser.add_argument("--max-log-color-rmse", type=float, default=0.45)
+    parser.add_argument(
+        "--max-object-log-luminance-error", type=float,
+        help="optional maximum absolute log mean-luminance error per object",
+    )
+    parser.add_argument(
+        "--object-prefix",
+        help="limit per-object luminance enforcement to matching mesh names",
+    )
     parser.add_argument("--min-edge-correlation", type=float, default=0.35)
     parser.add_argument("--min-coverage-iou", type=float, default=0.65)
     parser.add_argument(
@@ -83,7 +99,7 @@ def main():
         help="write evidence without enforcing thresholds",
     )
     args = parser.parse_args()
-    if args.width < 1 or args.height < 1 or args.samples < 1:
+    if args.width < 1 or args.height < 1 or args.samples < 1 or args.bounces < 1:
         parser.error("dimensions and samples must be positive")
     extent = (args.width, args.height)
     advanced_baseline = Path(__file__).with_name("baselines").joinpath(
@@ -147,9 +163,16 @@ def main():
     else:
         scene = ol.build_feature_parity_scene()
         camera = ol.feature_parity_camera()
+    if args.camera_pose:
+        pose = json.loads(args.camera_pose)
+        camera = ol.PerspectiveCamera(
+            pose["position"], pose["target"], pose.get("up", (0.0, 1.0, 0.0)),
+            vertical_fov_degrees=pose.get("vertical_fov_degrees", 45.0),
+        )
     print("Rendering GI reference...")
     gi = _render_gi(
         scene, camera, extent, args.samples, material_modifier,
+        max_bounces=args.bounces,
     )
     print("Rendering raster candidate...")
     raster = _render_raster(
@@ -160,16 +183,52 @@ def main():
         reference_mask=gi.object_id > 0,
         candidate_mask=raster.object_id > 0,
     )
+    luminance_weights = np.asarray((0.2126, 0.7152, 0.0722), np.float32)
+    object_metrics = {}
+    object_names = {
+        int(mesh.id): mesh.name for mesh in scene.visible_meshes
+        if mesh.id is not None
+    }
+    object_ids = sorted(set(np.unique(gi.object_id).tolist()) &
+                        set(np.unique(raster.object_id).tolist()))
+    for object_id in object_ids:
+        if int(object_id) <= 0:
+            continue
+        mask = (gi.object_id == object_id) & (raster.object_id == object_id)
+        if not np.any(mask):
+            continue
+        reference_luminance = float(np.mean(
+            gi.color[mask][..., :3] @ luminance_weights
+        ))
+        candidate_luminance = float(np.mean(
+            raster.color[mask][..., :3] @ luminance_weights
+        )) * float(metrics["exposure_scale"])
+        log_error = float(abs(np.log(
+            max(candidate_luminance, 1e-6) /
+            max(reference_luminance, 1e-6)
+        )))
+        object_metrics[str(int(object_id))] = {
+            "name": object_names.get(int(object_id), ""),
+            "pixels": int(np.count_nonzero(mask)),
+            "reference_mean_luminance": reference_luminance,
+            "candidate_mean_luminance": candidate_luminance,
+            "absolute_log_luminance_error": log_error,
+        }
     report = {
         "extent": list(extent),
         "samples": args.samples,
+        "bounces": args.bounces,
         "scene": args.scene,
         "raster_optics": args.raster_optics,
         "metrics": metrics,
+        "object_metrics": object_metrics,
         "thresholds": {
             "max_log_color_rmse": args.max_log_color_rmse,
             "min_edge_correlation": args.min_edge_correlation,
             "min_coverage_iou": args.min_coverage_iou,
+            "max_object_log_luminance_error": (
+                args.max_object_log_luminance_error
+            ),
         },
     }
     args.output.mkdir(parents=True, exist_ok=True)
@@ -189,6 +248,14 @@ def main():
         failures.append("edge correlation")
     if metrics["coverage_iou"] < args.min_coverage_iou:
         failures.append("coverage IoU")
+    if args.max_object_log_luminance_error is not None and any(
+        item["absolute_log_luminance_error"] >
+        args.max_object_log_luminance_error
+        for item in object_metrics.values()
+        if (args.object_prefix is None
+            or item["name"].startswith(args.object_prefix))
+    ):
+        failures.append("per-object luminance")
     if failures and not args.capture_only:
         raise SystemExit("FAIL: raster/GI parity: " + ", ".join(failures))
     print(

@@ -43,6 +43,62 @@ def _checker_texture(first, second, *, size=128, cells=12):
     )
 
 
+def _diorama_radiance_probe(position=(0.0, 1.2, 0.0), width=512, height=256):
+    """Bake the static opaque diorama into an equirectangular local probe."""
+    u = (np.arange(width, dtype=np.float32) + 0.5) / width
+    v = (np.arange(height, dtype=np.float32) + 0.5) / height
+    phi = (u[None, :] - 0.5) * (2.0 * np.pi)
+    theta = v[:, None] * np.pi
+    directions = np.empty((height, width, 3), np.float32)
+    directions[..., 0] = np.cos(phi) * np.sin(theta)
+    directions[..., 1] = np.cos(theta)
+    directions[..., 2] = np.sin(phi) * np.sin(theta)
+    origin = np.asarray(position, np.float32)
+    radiance = np.broadcast_to(_environment(width, height),
+                               (height, width, 3)).copy()
+    nearest = np.full((height, width), np.inf, np.float32)
+
+    # Floor plane and its authored 16-cell checker texture.
+    floor_t = -origin[1] / np.where(
+        np.abs(directions[..., 1]) > 1e-6, directions[..., 1], np.nan,
+    )
+    floor_x = origin[0] + directions[..., 0] * floor_t
+    floor_z = origin[2] + directions[..., 2] * floor_t
+    floor_hit = ((floor_t > 0.0) & (np.abs(floor_x) <= 6.5)
+                 & (np.abs(floor_z) <= 4.5))
+    floor_cells = ((np.floor((floor_x + 6.5) / 13.0 * 16.0)
+                    + np.floor((floor_z + 4.5) / 9.0 * 16.0)) % 2) > 0
+    floor_colors = np.where(
+        floor_cells[..., None],
+        np.asarray((42, 53, 72), np.float32) / 255.0,
+        np.asarray((220, 223, 216), np.float32) / 255.0,
+    )
+    radiance[floor_hit] = floor_colors[floor_hit] * 3.5
+    nearest[floor_hit] = floor_t[floor_hit]
+
+    # Back wall, including its 30-cell comparison pattern and light strip.
+    wall_t = (-4.5 - origin[2]) / np.where(
+        np.abs(directions[..., 2]) > 1e-6, directions[..., 2], np.nan,
+    )
+    wall_x = origin[0] + directions[..., 0] * wall_t
+    wall_y = origin[1] + directions[..., 1] * wall_t
+    wall_hit = ((wall_t > 0.0) & (wall_t < nearest)
+                & (np.abs(wall_x) <= 6.5) & (wall_y >= 0.0)
+                & (wall_y <= 5.8))
+    wall_cells = ((np.floor((wall_x + 6.5) / 13.0 * 30.0)
+                   + np.floor(wall_y / 5.8 * 30.0)) % 2) > 0
+    wall_colors = np.where(
+        wall_cells[..., None],
+        np.asarray((224, 116, 48), np.float32) / 255.0,
+        np.asarray((28, 72, 112), np.float32) / 255.0,
+    )
+    radiance[wall_hit] = wall_colors[wall_hit] * 3.5
+    strip = (wall_hit & (np.abs(wall_x) <= 2.3)
+             & (wall_y >= 4.65) & (wall_y <= 5.05))
+    radiance[strip] = (7.0, 3.5, 1.2)
+    return radiance
+
+
 def _add_quad(scene, corners, material, name, texcoords=None):
     vertices, indices = quad(*corners)
     return scene.add_mesh(
@@ -51,9 +107,11 @@ def _add_quad(scene, corners, material, name, texcoords=None):
     )
 
 
-def _add_diorama(scene):
+def _add_diorama(scene, *, reference_panels=True, wall_cells=10):
     floor_texture = _checker_texture((220, 223, 216), (42, 53, 72), cells=16)
-    wall_texture = _checker_texture((28, 72, 112), (224, 116, 48), cells=10)
+    wall_texture = _checker_texture(
+        (28, 72, 112), (224, 116, 48), cells=wall_cells,
+    )
     _add_quad(scene, (
         (-6.5, 0, -4.5), (-6.5, 0, 4.5),
         (6.5, 0, 4.5), (6.5, 0, -4.5),
@@ -71,12 +129,13 @@ def _add_diorama(scene):
 
     # Saturated panels and luminous strips provide recognizable shapes in
     # both true GI rays and the raster environment approximation.
-    for x, color in ((-4.7, (.9, .08, .06)), (4.7, (.06, .35, 1.0))):
-        _add_quad(scene, (
-            (x - .65, .65, -4.46), (x + .65, .65, -4.46),
-            (x + .65, 3.7, -4.46), (x - .65, 3.7, -4.46),
-        ), Material(base_color=color, roughness=.25),
-        f"reference-panel-{x:+.1f}")
+    if reference_panels:
+        for x, color in ((-4.7, (.9, .08, .06)), (4.7, (.06, .35, 1.0))):
+            _add_quad(scene, (
+                (x - .65, .65, -4.46), (x + .65, .65, -4.46),
+                (x + .65, 3.7, -4.46), (x - .65, 3.7, -4.46),
+            ), Material(base_color=color, roughness=.25),
+            f"reference-panel-{x:+.1f}")
     _add_quad(scene, (
         (-2.3, 4.65, -4.43), (2.3, 4.65, -4.43),
         (2.3, 5.05, -4.43), (-2.3, 5.05, -4.43),
@@ -86,7 +145,7 @@ def _add_diorama(scene):
     ), "warm-light-strip")
 
 
-def _base_scene(*, environment=True):
+def _base_scene(*, environment=True, reference_panels=True, wall_cells=10):
     scene = Scene()
     scene.add_light(SpotLight(
         # Keep the key light across the subjects from the default camera.  A
@@ -102,7 +161,9 @@ def _base_scene(*, environment=True):
         scene.set_environment(EnvironmentLight(
             image=_environment(), intensity=1.25, rotation=0.2,
         ))
-    _add_diorama(scene)
+    _add_diorama(
+        scene, reference_panels=reference_panels, wall_cells=wall_cells,
+    )
     return scene
 
 
@@ -133,11 +194,22 @@ def build_reflection_probe_scene():
 
 
 def build_refraction_scene():
-    scene = _base_scene()
+    # A common checkerboard receiver makes the three samples an IOR
+    # comparison. Colored panels behind only the outside subjects confounded
+    # refraction strength with background luminance and made those materials
+    # appear to lose energy in both raster and GI views.
+    scene = _base_scene(reference_panels=False, wall_cells=30)
+    scene.add_reflection_probe(ReflectionProbe(
+        _diorama_radiance_probe(), position=(0.0, 1.2, 0.0),
+        radius=8.0, intensity=1.0,
+    ))
     for index, ior in enumerate((1.1, 1.33, 1.52)):
         _add_sphere(scene, ((index - 1) * 2.6, 1.2, 0), 1.12, Material(
             base_color=(1, 1, 1), transmission=1.0, roughness=.025,
-            ior=ior, thickness=2.0,
+            # The closed spheres have radius 1.12.  Keep the authored optical
+            # thickness equal to their diameter so the raster two-interface
+            # proxy and the GI medium describe the same physical boundary.
+            ior=ior, thickness=2.24,
         ), f"refraction-{index}")
     return scene
 

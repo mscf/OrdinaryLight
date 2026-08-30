@@ -52,11 +52,17 @@ def main() -> int:
     )
     parser.add_argument("--frames", type=int, default=4)
     parser.add_argument("--ray-steps", type=int, default=24)
+    parser.add_argument("--optical-layers", type=int, default=4)
+    parser.add_argument(
+        "--no-shadows", action="store_true",
+        help="disable raster shadows while isolating optical behavior",
+    )
     parser.add_argument(
         "--diagnostic-channel", default="off",
         choices=(
             "off", "hit", "uv", "depth-delta", "confidence", "object-id",
-            "depth-trace",
+            "depth-trace", "refraction-hit", "refraction-uv",
+            "refraction-source",
         ),
         help="replace optical shading with a raw SSR diagnostic channel",
     )
@@ -91,8 +97,11 @@ def main() -> int:
     settings.update(
         optical_quality="screen-space",
         screen_space_ray_steps=args.ray_steps,
+        screen_space_optical_layers=args.optical_layers,
         optical_debug_view=args.diagnostic_channel,
     )
+    if args.no_shadows:
+        settings["shadows"] = False
     config = ol.RasterConfig(
         state=ol.RasterState(cull_mode="none"),
         ambient_light=float(settings.pop("ambient_light", 0.08)),

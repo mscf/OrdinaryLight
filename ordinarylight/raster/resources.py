@@ -32,6 +32,7 @@ MATERIAL_DTYPE = np.dtype([
     ("environment_rect", np.float32, (4,)),
     ("environment_color_intensity", np.float32, (4,)),
     ("environment_rotation_log_range", np.float32, (4,)),
+    ("probe_position_radius", np.float32, (4,)),
 ], align=True)
 
 LIGHT_DTYPE = np.dtype([
@@ -100,7 +101,7 @@ def _texture_table(scene):
 def pack_raster_gpu_scene(
     scene, camera, width, height, *, exposure=1.0, default_program=None,
     environment_rectangle=None, environment_log_range=0.0,
-    environment_parameters=None,
+    environment_parameters=None, probe_parameters=None,
 ):
     """Pack one scene revision into the shared Vulkan/WebGPU raster ABI."""
     from ._core import camera_matrix
@@ -202,6 +203,11 @@ def pack_raster_gpu_scene(
             )
             materials["environment_rotation_log_range"][index] = (
                 environment.rotation, environment_log_range, 1.0, 0.0,
+            )
+        if probe_parameters is not None:
+            probe_position, probe_radius = probe_parameters
+            materials["probe_position_radius"][index] = (
+                *probe_position, probe_radius,
             )
         draws["model"][index] = mesh.transform.matrix
         normal = np.eye(4, dtype=np.float32)

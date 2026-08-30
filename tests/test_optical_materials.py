@@ -61,6 +61,15 @@ def test_raster_scene_packs_environment_and_transparency():
     assert materials[0]["environment_rect"][2] > 0
     assert materials[0]["environment_color_intensity"][3] > 0
 
+    probe_scene = build_reflection_probe_scene()
+    probe_mesh = ol.scene_mesh(probe_scene, camera, 320, 180)
+    probe_materials = np.frombuffer(
+        probe_mesh.resources["material_buffer"], ol.MATERIAL_DTYPE,
+    )
+    assert np.allclose(
+        probe_materials[0]["probe_position_radius"], (0, 1, 0, 12),
+    )
+
     transparent = build_transparency_scene()
     mesh = ol.scene_mesh(transparent, camera, 320, 180)
     assert mesh.resources["transparent"] is True
@@ -124,6 +133,7 @@ def test_optical_showcases_construct_distinct_valid_scenes():
     )
     assert scenes[0].environment is not None
     assert scenes[1].reflection_probes
+    assert scenes[2].reflection_probes
     assert any(mesh.material.transmission for mesh in scenes[2].visible_meshes)
     assert any(mesh.material.attenuation_distance < 1 for mesh in scenes[3].visible_meshes)
     assert sum(mesh.material.transmission > 0 for mesh in scenes[4].visible_meshes) >= 2
@@ -190,9 +200,11 @@ def test_screen_space_optics_is_explicit_and_preserves_environment_default():
     assert ol.RasterConfig().optical_quality == "environment"
     config = ol.RasterConfig(
         optical_quality="screen-space", screen_space_ray_steps=32,
+        screen_space_optical_layers=6,
     )
     assert config.optical_quality == "screen-space"
     assert config.screen_space_ray_steps == 32
+    assert config.screen_space_optical_layers == 6
     assert tuple(stage.name for stage in ol.create_raster_pipeline(config).stages)[:3] == (
         "shadow_maps", "opaque_prepass", "screen_space_optics",
     )
@@ -200,6 +212,8 @@ def test_screen_space_optics_is_explicit_and_preserves_environment_default():
         ol.RasterConfig(optical_quality="path-traced")
     with pytest.raises(ValueError):
         ol.RasterConfig(screen_space_ray_steps=2)
+    with pytest.raises(ValueError):
+        ol.RasterConfig(screen_space_optical_layers=0)
 
 
 def test_screen_space_optics_partitions_prepass_and_optical_draws():
@@ -221,6 +235,18 @@ def test_screen_space_optics_partitions_prepass_and_optical_draws():
     # range, where front and rear faces can replace one another.
     assert packed.resources["optical_opaque_index_count"] == 0
     assert packed.resources["transparent_index_count"] > 0
+    layer_counts = packed.resources["optical_transmissive_index_counts"]
+    assert len(layer_counts) == 3
+    assert sum(layer_counts) == packed.resources["optical_transmissive_index_count"]
+
+
+def test_native_targets_composite_screen_space_optics_in_bounded_layers():
+    root = Path(ol.__file__).parent / "renderers" / "raster"
+    for target in ("vulkan.py", "webgpu.py"):
+        source = (root / target).read_text()
+        assert '"optical_transmissive_index_counts"' in source
+        assert "screen_space_optical_layers" in source
+        assert "composite_optical_layer" in source
 
 
 def test_screen_space_optical_draws_sort_far_to_near_from_either_side():
@@ -304,3 +330,51 @@ def test_screen_space_resources_are_portable_shader_bindings():
     assert "object_tag" in program.fragment.source
     assert "depth_confidence" in program.fragment.source
     assert "reflection_radius" in program.fragment.source
+
+
+def test_screen_space_refraction_projects_a_world_space_ray_endpoint():
+    source = ol.RasterProgram.scene(
+        target="wgsl", validate=False,
+    ).fragment.source
+    assert "refraction_world" in source
+    assert "refraction_clip" in source
+    assert "camera.view_projection * vec4<f32>(refraction_world, 1.0)" in source
+    assert "refracted.xy *" not in source
+
+
+def test_refraction_diagnostics_are_public_and_shader_backed():
+    for mode in ("refraction-hit", "refraction-uv", "refraction-source"):
+        assert ol.RasterConfig(optical_debug_view=mode).optical_debug_view == mode
+    source = ol.RasterProgram.scene(
+        target="wgsl", validate=False,
+    ).fragment.source
+    assert "refraction_screen_uv" in source
+    assert "refracted_source" in source
+
+
+def test_thick_refraction_models_a_second_closed_surface_interface():
+    source = ol.RasterProgram.scene(
+        target="wgsl", validate=False,
+    ).fragment.source
+    assert "proxy_exit_position" in source
+    assert "proxy_exit_normal" in source
+    assert "raw_secondary_refracted" in source
+    assert "closed_refracted" in source
+
+    scene = build_refraction_scene()
+    assert all(
+        mesh.material.thickness == pytest.approx(2.24)
+        for mesh in scene.meshes if mesh.name.startswith("refraction-")
+    )
+    assert not any(
+        mesh.name.startswith("reference-panel-") for mesh in scene.meshes
+    )
+
+
+def test_dielectric_fresnel_is_derived_from_material_ior():
+    source = ol.RasterProgram.scene(
+        target="wgsl", validate=False,
+    ).fragment.source
+    assert "dielectric_f0_ratio" in source
+    assert "dielectric_f0" in source
+    assert "vec3<f32>(0.04)" not in source

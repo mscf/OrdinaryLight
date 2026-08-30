@@ -7,6 +7,8 @@ import numpy as np
 _OPTICAL_DEBUG_MODES = {
     "off": 0.0, "hit": 1.0, "uv": 2.0, "depth-delta": 3.0,
     "confidence": 4.0, "object-id": 5.0, "depth-trace": 6.0,
+    "refraction-hit": 7.0, "refraction-uv": 8.0,
+    "refraction-source": 9.0,
 }
 
 from ...capabilities import RendererCapabilities
@@ -141,6 +143,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             size=(width, height, 1), format="rgba16float",
             usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
                    | wgpu.TextureUsage.COPY_SRC
+                   | wgpu.TextureUsage.COPY_DST
                    | wgpu.TextureUsage.TEXTURE_BINDING),
         )
         depth = None
@@ -337,7 +340,7 @@ class WebGpuRasterRenderer(RendererImplementation):
                         entry["resource"] = optical_camera_buffer
                 optical_bind_group = self.device.create_bind_group(
                     layout=self._pipeline(
-                        mesh.layout, transparent=True,
+                        mesh.layout, pass_kind="transparent",
                     ).get_bind_group_layout(0),
                     entries=tuple(optical_entries),
                 )
@@ -381,7 +384,22 @@ class WebGpuRasterRenderer(RendererImplementation):
                 size=(width, height, 1), format="rgba16float",
                 usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
                        | wgpu.TextureUsage.COPY_SRC
-                       | wgpu.TextureUsage.COPY_DST),
+                       | wgpu.TextureUsage.COPY_DST
+                       | wgpu.TextureUsage.TEXTURE_BINDING),
+            )
+            optical_ping_entries = [dict(entry) for entry in entries]
+            for entry in optical_ping_entries:
+                if entry["binding"] == 6:
+                    entry["resource"] = output_texture.create_view()
+                elif entry["binding"] == 7:
+                    entry["resource"] = depth.create_view()
+                elif entry["binding"] == 3:
+                    entry["resource"] = optical_camera_buffer
+            optical_ping_bind_group = self.device.create_bind_group(
+                layout=self._pipeline(
+                    mesh.layout, pass_kind="transparent",
+                ).get_bind_group_layout(0),
+                entries=tuple(optical_ping_entries),
             )
             encoder.copy_texture_to_texture(
                 {"texture": texture}, {"texture": output_texture},
@@ -420,24 +438,79 @@ class WebGpuRasterRenderer(RendererImplementation):
                 optical_pass.draw_indexed(
                     optical_opaque_count, 1, opaque_count, 0, 0,
                 )
-            if transmissive_count:
-                optical_pass.set_pipeline(self._pipeline(
-                    mesh.layout, pass_kind="transmissive",
-                ))
-                optical_pass.draw_indexed(
-                    transmissive_count, 1,
-                    opaque_count + optical_opaque_count, 0, 0,
-                )
-            if authored_transparent_count:
-                optical_pass.set_pipeline(self._pipeline(
-                    mesh.layout, pass_kind="transparent",
-                ))
-                optical_pass.draw_indexed(
-                    authored_transparent_count, 1,
-                    opaque_count + optical_opaque_count + transmissive_count,
-                    0, 0,
-                )
             optical_pass.end()
+            final_texture = output_texture
+
+            def composite_optical_layer(
+                source_texture, destination_texture, source_bind_group,
+                pass_kind, draw_count, first_index,
+            ):
+                encoder.copy_texture_to_texture(
+                    {"texture": source_texture},
+                    {"texture": destination_texture},
+                    (width, height, 1),
+                )
+                layer_pass = encoder.begin_render_pass(
+                    color_attachments=({
+                        "view": destination_texture.create_view(),
+                        "resolve_target": None,
+                        "load_op": "load", "store_op": "store",
+                    },),
+                    depth_stencil_attachment={
+                        "view": depth.create_view(),
+                        "depth_read_only": True,
+                    },
+                )
+                layer_pass.set_bind_group(0, source_bind_group)
+                layer_pass.set_pipeline(self._pipeline(
+                    mesh.layout, pass_kind=pass_kind,
+                ))
+                layer_pass.set_vertex_buffer(0, vertex_buffer)
+                layer_pass.set_index_buffer(index_buffer, "uint32")
+                layer_pass.draw_indexed(
+                    draw_count, 1, first_index, 0, 0,
+                )
+                layer_pass.end()
+
+            transmissive_counts = tuple(mesh.resources.get(
+                "optical_transmissive_index_counts", (),
+            ))
+            retained_counts = transmissive_counts[
+                -int(self.config.screen_space_optical_layers):
+            ]
+            next_index = (
+                opaque_count + optical_opaque_count
+                + sum(transmissive_counts[:-len(retained_counts)])
+                if retained_counts else
+                opaque_count + optical_opaque_count
+            )
+            for draw_count in retained_counts:
+                if final_texture is output_texture:
+                    destination_texture = texture
+                    source_bind_group = optical_ping_bind_group
+                else:
+                    destination_texture = output_texture
+                    source_bind_group = optical_bind_group
+                composite_optical_layer(
+                    final_texture, destination_texture, source_bind_group,
+                    "transmissive", int(draw_count), int(next_index),
+                )
+                final_texture = destination_texture
+                next_index += int(draw_count)
+            if authored_transparent_count:
+                if final_texture is output_texture:
+                    destination_texture = texture
+                    source_bind_group = optical_ping_bind_group
+                else:
+                    destination_texture = output_texture
+                    source_bind_group = optical_bind_group
+                composite_optical_layer(
+                    final_texture, destination_texture, source_bind_group,
+                    "transparent", authored_transparent_count,
+                    opaque_count + optical_opaque_count + transmissive_count,
+                )
+                final_texture = destination_texture
+            output_texture = final_texture
         row_bytes = width * 4 * np.dtype(np.float16).itemsize
         padded_row_bytes = (row_bytes + 255) & ~255
         readback = self.device.create_buffer(

@@ -100,6 +100,7 @@ class RasterConfig:
     shadow_normal_bias: float = 1.5
     optical_quality: str = "environment"
     screen_space_ray_steps: int = 24
+    screen_space_optical_layers: int = 4
     optical_debug_view: str = "off"
     material_program: object | None = None
     material_modifier: object | None = None
@@ -126,13 +127,19 @@ class RasterConfig:
             raise ValueError("optical_quality must be environment or screen-space")
         if not 4 <= int(self.screen_space_ray_steps) <= 128:
             raise ValueError("screen_space_ray_steps must be between 4 and 128")
+        if not 1 <= int(self.screen_space_optical_layers) <= 16:
+            raise ValueError(
+                "screen_space_optical_layers must be between 1 and 16"
+            )
         if self.optical_debug_view not in {
             "off", "hit", "uv", "depth-delta", "confidence", "object-id",
-            "depth-trace",
+            "depth-trace", "refraction-hit", "refraction-uv",
+            "refraction-source",
         }:
             raise ValueError(
                 "optical_debug_view must be off, hit, uv, depth-delta, "
-                "confidence, object-id, or depth-trace"
+                "confidence, object-id, depth-trace, refraction-hit, "
+                "refraction-uv, or refraction-source"
             )
         if self.material_program is not None:
             from ..materials import MaterialProgram
@@ -534,9 +541,8 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
                     lookup[key] = len(textures)
                     textures.append((texture, linear))
         environment_image = (
-            scene.environment.image if scene.environment is not None else
             scene.reflection_probes[0].image if scene.reflection_probes else
-            None
+            scene.environment.image if scene.environment is not None else None
         )
         environment_texture = (
             _prefiltered_environment_texture(environment_image)
@@ -1132,6 +1138,7 @@ def scene_mesh(
         environment_rectangle=prepared_resources["environment_rectangle"],
         environment_log_range=prepared_resources["environment_log_range"],
         environment_parameters=prepared_resources["environment_parameters"],
+        probe_parameters=prepared_resources["probe_parameters"],
     )
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
@@ -1149,6 +1156,10 @@ def scene_mesh(
         "transparent_index_count": int(transparent_index_count),
         "optical_transmissive_index_count": int(
             optical_transmissive_index_count
+        ),
+        "optical_transmissive_index_counts": tuple(
+            int(item.indices.size)
+            for item in optical_transmissive_draw_meshes
         ),
         "camera_order_token": tuple(
             material_indices[id(mesh)] for mesh in optical_draw_meshes
@@ -1195,21 +1206,27 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
         "atlas_rectangles": rectangles,
         "environment_rectangle": rectangles.get("environment"),
         "environment_log_range": (
-            scene._pack_environment_texture(scene.environment)[1]
-            if scene.environment is not None else (
-                scene._pack_environment_texture(EnvironmentLight(
-                    image=scene.reflection_probes[0].image,
-                ))[1] if scene.reflection_probes else 0.0
+            scene._pack_environment_texture(EnvironmentLight(
+                image=scene.reflection_probes[0].image,
+            ))[1] if scene.reflection_probes else (
+                scene._pack_environment_texture(scene.environment)[1]
+                if scene.environment is not None else 0.0
             )
         ),
         "environment_parameters": (
-            ((*scene.environment.color, scene.environment.intensity),
-             scene.environment.rotation)
-            if scene.environment is not None else (
-                ((1.0, 1.0, 1.0, scene.reflection_probes[0].intensity),
-                 scene.reflection_probes[0].rotation)
-                if scene.reflection_probes else ((0.0, 0.0, 0.0, 0.0), 0.0)
+            ((1.0, 1.0, 1.0, scene.reflection_probes[0].intensity),
+             scene.reflection_probes[0].rotation)
+            if scene.reflection_probes else (
+                ((*scene.environment.color, scene.environment.intensity),
+                 scene.environment.rotation)
+                if scene.environment is not None else
+                ((0.0, 0.0, 0.0, 0.0), 0.0)
             )
+        ),
+        "probe_parameters": (
+            (scene.reflection_probes[0].position,
+             scene.reflection_probes[0].radius)
+            if scene.reflection_probes else None
         ),
         "shadow_rectangle": shadow_rectangle,
         "shadow_vertices": shadow_vertices,

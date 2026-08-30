@@ -9,6 +9,8 @@ import numpy as np
 _OPTICAL_DEBUG_MODES = {
     "off": 0.0, "hit": 1.0, "uv": 2.0, "depth-delta": 3.0,
     "confidence": 4.0, "object-id": 5.0, "depth-trace": 6.0,
+    "refraction-hit": 7.0, "refraction-uv": 8.0,
+    "refraction-source": 9.0,
 }
 
 from ...capabilities import RendererCapabilities
@@ -954,7 +956,7 @@ class VulkanRasterRenderer(RendererImplementation):
         def remember(kind, handle):
             resources.append((kind, handle)); return handle
         descriptor_set = None
-        optical_descriptor_set = None
+        optical_descriptor_set = optical_ping_descriptor_set = None
         screen_space_optics = bool(
             self.config.optical_quality == "screen-space"
             and mesh.resources.get("optical_index_count", 0)
@@ -1096,23 +1098,23 @@ class VulkanRasterRenderer(RendererImplementation):
             descriptor_pool = remember("descriptor_pool", vk.vkCreateDescriptorPool(
                 self.device, vk.VkDescriptorPoolCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                    maxSets=2, poolSizeCount=4,
+                    maxSets=3, poolSizeCount=4,
                     pPoolSizes=[
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                            descriptorCount=8,
+                            descriptorCount=12,
                         ),
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
-                            descriptorCount=8,
+                            descriptorCount=12,
                         ),
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                            descriptorCount=2,
+                            descriptorCount=3,
                         ),
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                            descriptorCount=2,
+                            descriptorCount=3,
                         ),
                     ],
                 ), None,
@@ -1120,12 +1122,13 @@ class VulkanRasterRenderer(RendererImplementation):
             allocated_descriptor_sets = vk.vkAllocateDescriptorSets(
                 self.device, vk.VkDescriptorSetAllocateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                    descriptorPool=descriptor_pool, descriptorSetCount=2,
-                    pSetLayouts=[self._descriptor_set_layout] * 2,
+                    descriptorPool=descriptor_pool, descriptorSetCount=3,
+                    pSetLayouts=[self._descriptor_set_layout] * 3,
                 ),
             )
             descriptor_set = allocated_descriptor_sets[0]
             optical_descriptor_set = allocated_descriptor_sets[1]
+            optical_ping_descriptor_set = allocated_descriptor_sets[2]
             vk.vkUpdateDescriptorSets(self.device, 6, [
                 vk.VkWriteDescriptorSet(
                     sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1236,25 +1239,32 @@ class VulkanRasterRenderer(RendererImplementation):
             copies = [vk.VkCopyDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
                 srcSet=descriptor_set, srcBinding=binding, srcArrayElement=0,
-                dstSet=optical_descriptor_set, dstBinding=binding,
+                dstSet=target, dstBinding=binding,
                 dstArrayElement=0, descriptorCount=1,
+            ) for target in (
+                optical_descriptor_set, optical_ping_descriptor_set,
             ) for binding in range(10)]
             vk.vkUpdateDescriptorSets(
                 self.device, 0, None, len(copies), copies,
             )
             if camera_buffer is not None and screen_space_optics:
-                vk.vkUpdateDescriptorSets(self.device, 1, [
+                camera_writes = [
                     vk.VkWriteDescriptorSet(
                         sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        dstSet=optical_descriptor_set, dstBinding=3,
+                        dstSet=target, dstBinding=3,
                         descriptorCount=1,
                         descriptorType=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                         pBufferInfo=[vk.VkDescriptorBufferInfo(
                             buffer=camera_buffer, offset=0,
                             range=len(camera_payload),
                         )],
-                    ),
-                ], 0, None)
+                    ) for target in (
+                        optical_descriptor_set, optical_ping_descriptor_set,
+                    )
+                ]
+                vk.vkUpdateDescriptorSets(
+                    self.device, len(camera_writes), camera_writes, 0, None,
+                )
         image = remember("image", vk.vkCreateImage(self.device, vk.VkImageCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             imageType=vk.VK_IMAGE_TYPE_2D, format=vk.VK_FORMAT_R16G16B16A16_SFLOAT,
@@ -1263,6 +1273,7 @@ class VulkanRasterRenderer(RendererImplementation):
             tiling=vk.VK_IMAGE_TILING_OPTIMAL,
             usage=(vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
                    | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                   | vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
                    | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
             sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
             initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1379,6 +1390,7 @@ class VulkanRasterRenderer(RendererImplementation):
         ), None))
         screen_space_optics = bool(screen_space_optics and depth_view is not None)
         optical_image = optical_view = optical_render_pass = optical_framebuffer = None
+        optical_ping_framebuffer = None
         optical_depth_image = optical_depth_view = None
         if screen_space_optics:
             optical_image = remember("image", vk.vkCreateImage(
@@ -1483,7 +1495,10 @@ class VulkanRasterRenderer(RendererImplementation):
                     format=vk.VK_FORMAT_D32_SFLOAT,
                     samples=vk.VK_SAMPLE_COUNT_1_BIT,
                     loadOp=vk.VK_ATTACHMENT_LOAD_OP_LOAD,
-                    storeOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    # Layered optical passes share the immutable opaque-depth
+                    # seed.  Discarding it after the first pass makes later
+                    # refractors fail depth testing nondeterministically.
+                    storeOp=vk.VK_ATTACHMENT_STORE_OP_STORE,
                     stencilLoadOp=vk.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     stencilStoreOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                     initialLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1519,6 +1534,17 @@ class VulkanRasterRenderer(RendererImplementation):
                     width=width, height=height, layers=1,
                 ), None,
             ))
+            optical_ping_framebuffer = remember(
+                "framebuffer", vk.vkCreateFramebuffer(
+                    self.device, vk.VkFramebufferCreateInfo(
+                        sType=vk.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                        renderPass=optical_render_pass,
+                        attachmentCount=2,
+                        pAttachments=[view, optical_depth_view],
+                        width=width, height=height, layers=1,
+                    ), None,
+                ),
+            )
         vertex_module = remember("shader", self._shader(self.program.vertex.binary))
         fragment_module = remember("shader", self._shader(self.program.fragment.binary))
         layout = self._pipeline_layout
@@ -1665,7 +1691,7 @@ class VulkanRasterRenderer(RendererImplementation):
                 or mesh.resources.get("optical_index_count", 0)) else None
         )
         if screen_space_optics and descriptor_set is not None:
-            vk.vkUpdateDescriptorSets(self.device, 2, [
+            vk.vkUpdateDescriptorSets(self.device, 4, [
                 vk.VkWriteDescriptorSet(
                     sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     dstSet=optical_descriptor_set, dstBinding=6,
@@ -1679,6 +1705,26 @@ class VulkanRasterRenderer(RendererImplementation):
                 vk.VkWriteDescriptorSet(
                     sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     dstSet=optical_descriptor_set, dstBinding=7,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    pImageInfo=[vk.VkDescriptorImageInfo(
+                        imageView=depth_view,
+                        imageLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    )],
+                ),
+                vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=optical_ping_descriptor_set, dstBinding=6,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    pImageInfo=[vk.VkDescriptorImageInfo(
+                        imageView=optical_view,
+                        imageLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    )],
+                ),
+                vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=optical_ping_descriptor_set, dstBinding=7,
                     descriptorCount=1,
                     descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     pImageInfo=[vk.VkDescriptorImageInfo(
@@ -2159,27 +2205,161 @@ class VulkanRasterRenderer(RendererImplementation):
                 vk.vkCmdDrawIndexed(
                     command, optical_opaque_count, 1, opaque_count, 0, 0,
                 )
-            if transmissive_count:
-                vk.vkCmdBindPipeline(
-                    command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    transmissive_pipeline,
-                )
-                vk.vkCmdDrawIndexed(
-                    command, transmissive_count, 1,
-                    opaque_count + optical_opaque_count, 0, 0,
-                )
-            if authored_transparent_count:
-                vk.vkCmdBindPipeline(
-                    command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    transparent_pipeline,
-                )
-                vk.vkCmdDrawIndexed(
-                    command, authored_transparent_count, 1,
-                    opaque_count + optical_opaque_count + transmissive_count,
-                    0, 0,
-                )
             vk.vkCmdEndRenderPass(command)
             final_image = optical_image
+            final_framebuffer = optical_framebuffer
+
+            def composite_optical_layer(
+                source_image, destination_image, destination_framebuffer,
+                source_descriptors, draw_pipeline, draw_count, first_index,
+            ):
+                vk.vkCmdPipelineBarrier(
+                    command,
+                    (vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                     | vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
+                    vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                    0, None, 0, None, 2, [
+                        vk.VkImageMemoryBarrier(
+                            sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                            srcAccessMask=vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                            dstAccessMask=vk.VK_ACCESS_TRANSFER_READ_BIT,
+                            oldLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                            newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            image=source_image, subresourceRange=color_range,
+                        ),
+                        vk.VkImageMemoryBarrier(
+                            sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                            srcAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                            dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                            oldLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                            newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            image=destination_image,
+                            subresourceRange=color_range,
+                        ),
+                    ],
+                )
+                vk.vkCmdCopyImage(
+                    command,
+                    source_image, vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    destination_image, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, [vk.VkImageCopy(
+                        srcSubresource=layers,
+                        srcOffset=vk.VkOffset3D(x=0, y=0, z=0),
+                        dstSubresource=layers,
+                        dstOffset=vk.VkOffset3D(x=0, y=0, z=0),
+                        extent=vk.VkExtent3D(
+                            width=width, height=height, depth=1,
+                        ),
+                    )],
+                )
+                vk.vkCmdPipelineBarrier(
+                    command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    (vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                     | vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT), 0,
+                    0, None, 0, None, 2, [
+                        vk.VkImageMemoryBarrier(
+                            sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                            srcAccessMask=vk.VK_ACCESS_TRANSFER_READ_BIT,
+                            dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                            oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                            srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            image=source_image, subresourceRange=color_range,
+                        ),
+                        vk.VkImageMemoryBarrier(
+                            sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                            srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                            dstAccessMask=vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                            oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            newLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                            srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                            image=destination_image,
+                            subresourceRange=color_range,
+                        ),
+                    ],
+                )
+                vk.vkCmdBeginRenderPass(
+                    command, vk.VkRenderPassBeginInfo(
+                        sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                        renderPass=optical_render_pass,
+                        framebuffer=destination_framebuffer,
+                        renderArea=vk.VkRect2D(
+                            offset=vk.VkOffset2D(x=0, y=0),
+                            extent=vk.VkExtent2D(width=width, height=height),
+                        ),
+                        clearValueCount=0, pClearValues=None,
+                    ), vk.VK_SUBPASS_CONTENTS_INLINE,
+                )
+                vk.vkCmdBindDescriptorSets(
+                    command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
+                    0, 1, [source_descriptors], 0, None,
+                )
+                vk.vkCmdBindPipeline(
+                    command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    draw_pipeline,
+                )
+                vk.vkCmdBindVertexBuffers(
+                    command, 0, 1, [vertex_buffer], [0],
+                )
+                vk.vkCmdBindIndexBuffer(
+                    command, index_buffer, 0, vk.VK_INDEX_TYPE_UINT32,
+                )
+                vk.vkCmdDrawIndexed(
+                    command, draw_count, 1, first_index, 0, 0,
+                )
+                vk.vkCmdEndRenderPass(command)
+
+            transmissive_counts = tuple(mesh.resources.get(
+                "optical_transmissive_index_counts", (),
+            ))
+            retained_counts = transmissive_counts[
+                -int(self.config.screen_space_optical_layers):
+            ]
+            next_index = (
+                opaque_count + optical_opaque_count
+                + sum(transmissive_counts[:-len(retained_counts)])
+                if retained_counts else
+                opaque_count + optical_opaque_count
+            )
+            for draw_count in retained_counts:
+                if final_image == optical_image:
+                    destination_image = image
+                    destination_framebuffer = optical_ping_framebuffer
+                    source_descriptors = optical_ping_descriptor_set
+                else:
+                    destination_image = optical_image
+                    destination_framebuffer = optical_framebuffer
+                    source_descriptors = optical_descriptor_set
+                composite_optical_layer(
+                    final_image, destination_image, destination_framebuffer,
+                    source_descriptors, transmissive_pipeline,
+                    int(draw_count), int(next_index),
+                )
+                final_image = destination_image
+                final_framebuffer = destination_framebuffer
+                next_index += int(draw_count)
+            if authored_transparent_count:
+                if final_image == optical_image:
+                    destination_image = image
+                    destination_framebuffer = optical_ping_framebuffer
+                    source_descriptors = optical_ping_descriptor_set
+                else:
+                    destination_image = optical_image
+                    destination_framebuffer = optical_framebuffer
+                    source_descriptors = optical_descriptor_set
+                composite_optical_layer(
+                    final_image, destination_image, destination_framebuffer,
+                    source_descriptors, transparent_pipeline,
+                    authored_transparent_count,
+                    opaque_count + optical_opaque_count + transmissive_count,
+                )
+                final_image = destination_image
         vk.vkCmdPipelineBarrier(
             command,
             vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,

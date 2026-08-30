@@ -292,11 +292,14 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self._readback_pixels = None
             self._readback_qimage = None
             self.future = None
+            self.restart_pending = False
             self.presentation_failed = False
             self.executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="ordinarylight-qt-vulkan",
             )
             self.completed = deque(maxlen=240)
+            self.completed_frame_count = 0
+            self.automatic_switch_requested = False
             self.diagnostic_frames = deque(maxlen=240)
             self._diagnostic_exit_requested = False
             self.last_tick = time.perf_counter()
@@ -404,7 +407,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
 
         def _target_changed(self, _index=None):
             if self.scene_value is not None:
-                self.restart()
+                self.restart_pending = True
+                self.status.setText(
+                    "Finishing the active frame before switching targets…"
+                )
+                if self.future is None:
+                    QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+
+        def _finish_pending_restart(self):
+            if not self.restart_pending:
+                return
+            if self.future is not None:
+                return
+            self.restart_pending = False
+            self.restart()
 
         def _wait(self):
             if self.future is not None:
@@ -427,6 +443,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             return errors
 
         def restart(self):
+            self.restart_pending = False
             target_key = self.target.currentData()
             self.status.setText(f"Initializing {self.target.currentText()}…")
             try:
@@ -532,6 +549,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self._display_readback(result)
                 complete = time.perf_counter()
                 self.completed.append(complete)
+                self.completed_frame_count += 1
                 while self.completed and complete - self.completed[0] > 1.0:
                     self.completed.popleft()
                 fps = 0.0
@@ -656,6 +674,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         if diagnostic.get("present_hdr_hash") else ""
                     ),
                 )
+                if (
+                    args.switch_target_after_frames > 0
+                    and not self.automatic_switch_requested
+                    and self.completed_frame_count
+                    >= args.switch_target_after_frames
+                ):
+                    self.automatic_switch_requested = True
+                    target_index = self.target.findData(args.switch_target_to)
+                    QtCore.QTimer.singleShot(
+                        0, lambda: self.target.setCurrentIndex(target_index),
+                    )
+                if self.restart_pending:
+                    QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+                    return
             if (
                 self.renderer is None or self.controller is None
                 or self.presentation_failed
@@ -818,6 +850,14 @@ def main():
         "--readback", action="store_true",
         help="use the NumPy/QImage comparison path instead of direct Vulkan",
     )
+    parser.add_argument(
+        "--switch-target-after-frames", type=int, default=0,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--switch-target-to", choices=tuple(key for _title, key in TARGETS),
+        default="wavefront-gi", help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
     args.diagnostic_camera_pose = None
     if args.diagnostic_pose:
@@ -833,6 +873,8 @@ def main():
             )
     if args.diagnostic_frames < 0:
         parser.error("--diagnostic-frames must not be negative")
+    if args.switch_target_after_frames < 0:
+        parser.error("--switch-target-after-frames must not be negative")
     if args.diagnostic_frames and args.diagnostic_camera_pose is None:
         parser.error("--diagnostic-frames requires --diagnostic-pose")
     if args.diagnostic_frames and args.readback:

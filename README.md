@@ -1475,6 +1475,10 @@ refraction, and nested dielectrics on Vulkan and WebGPU. The default
 `"environment"` tier deliberately retains the original single-pass,
 lower-cost behavior. Order-independent transparency remains a later quality
 tier; the baseline continues to use deterministic camera-relative sorting.
+Screen-space transmission is composed back-to-front through bounded ping-pong
+layers, allowing refractive objects to remain visible through nearer
+refractors. `screen_space_optical_layers` controls the maximum retained layers
+(four by default, with a supported range of one through sixteen).
 
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization

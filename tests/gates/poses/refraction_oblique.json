@@ -1,0 +1,7 @@
+{
+  "showcase": "optical-screen-refraction",
+  "position": [8.96516217038208, 3.2999854823744923, 3.2857162287835426],
+  "target": [0.0, 1.1, 0.0],
+  "up": [0.0, 1.0, 0.0],
+  "vertical_fov_degrees": 45.0
+}

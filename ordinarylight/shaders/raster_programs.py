@@ -74,6 +74,7 @@ class RasterMaterial:
     environment_rect: osh.vec4
     environment_color_intensity: osh.vec4
     environment_rotation_log_range: osh.vec4
+    probe_position_radius: osh.vec4
 
 
 @osh.vertex
@@ -198,6 +199,7 @@ def scene_fragment(
     environment_rect = materials[material_id].environment_rect
     environment_color_intensity = materials[material_id].environment_color_intensity
     environment_rotation_log_range = materials[material_id].environment_rotation_log_range
+    probe_position_radius = materials[material_id].probe_position_radius
     base_color_sample = base_color_atlas.sample_with(
         base_color_sampler, base_color_uv,
     )
@@ -369,8 +371,14 @@ def scene_fragment(
         masked_surface_alpha
         if optical.w > 0.5 and optical.w < 1.5 else raw_surface_alpha
     )
+    dielectric_ior = osh.maximum(ior_distance_program_flags.x, 1.0001)
+    dielectric_f0_ratio = (
+        (dielectric_ior - 1.0) / (dielectric_ior + 1.0)
+    )
+    dielectric_f0 = dielectric_f0_ratio * dielectric_f0_ratio
     f0 = osh.mix(
-        osh.vec3(0.04), surface_base_color, osh.vec3(surface_metallic),
+        osh.vec3(dielectric_f0), surface_base_color,
+        osh.vec3(surface_metallic),
     )
     fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
         osh.vec3(1.0 - vdoth), osh.vec3(5.0),
@@ -472,20 +480,120 @@ def scene_fragment(
         + raw_refracted.y * raw_refracted.y
         + raw_refracted.z * raw_refracted.z < 0.0001
     ) else raw_refracted
+    # A thick closed dielectric has two interfaces.  Use the authored
+    # thickness as the diameter of a local osculating sphere to recover a
+    # stable exit point and exit normal.  This is exact for spheres, a useful
+    # local approximation for smooth convex objects, and is bypassed for
+    # explicitly thin-walled materials.  The later screen-space exit march
+    # can refine this proxy when a matching back surface is available.
+    proxy_radius = osh.maximum(optical_thickness * 0.5, 0.0001)
+    proxy_center = world_position - surface_normal * proxy_radius
+    proxy_center_delta = world_position - proxy_center
+    proxy_exit_distance = osh.maximum(
+        -2.0 * (
+            refracted.x * proxy_center_delta.x
+            + refracted.y * proxy_center_delta.y
+            + refracted.z * proxy_center_delta.z
+        ),
+        0.0,
+    )
+    proxy_exit_position = world_position + refracted * proxy_exit_distance
+    proxy_exit_delta = proxy_exit_position - proxy_center
+    proxy_exit_normal = proxy_exit_delta / osh.maximum(
+        osh.length(proxy_exit_delta), 0.000001,
+    )
+    raw_secondary_refracted = osh.refract(
+        refracted, -proxy_exit_normal,
+        osh.maximum(ior_distance_program_flags.x, 1.0001),
+    )
+    secondary_reflected = refracted - (-proxy_exit_normal) * (
+        2.0 * (
+            refracted.x * (-proxy_exit_normal.x)
+            + refracted.y * (-proxy_exit_normal.y)
+            + refracted.z * (-proxy_exit_normal.z)
+        )
+    )
+    secondary_refracted = secondary_reflected if (
+        raw_secondary_refracted.x * raw_secondary_refracted.x
+        + raw_secondary_refracted.y * raw_secondary_refracted.y
+        + raw_secondary_refracted.z * raw_secondary_refracted.z < 0.0001
+    ) else raw_secondary_refracted
+    closed_refracted = (
+        secondary_refracted if surface_thin_walled < 0.5 else refracted
+    )
+    closed_exit_position = (
+        proxy_exit_position if surface_thin_walled < 0.5 else world_position
+    )
+    # Local probes describe radiance at a finite position rather than at
+    # infinity. Intersect each outgoing ray with the probe influence sphere
+    # and sample the direction from the probe center to that point. This
+    # spherical parallax correction is stable for arbitrary camera poses and
+    # reduces the sliding produced by treating a room probe as an environment.
+    probe_reflected = reflected
+    probe_refracted = closed_refracted
+    if probe_position_radius.w > 0.0:
+        reflected_offset = world_position - probe_position_radius.xyz
+        reflected_b = (
+            reflected_offset.x * reflected.x
+            + reflected_offset.y * reflected.y
+            + reflected_offset.z * reflected.z
+        )
+        reflected_c = (
+            reflected_offset.x * reflected_offset.x
+            + reflected_offset.y * reflected_offset.y
+            + reflected_offset.z * reflected_offset.z
+            - probe_position_radius.w * probe_position_radius.w
+        )
+        reflected_t = osh.maximum(
+            0.0, -reflected_b + osh.sqrt(osh.maximum(
+                0.0, reflected_b * reflected_b - reflected_c,
+            )),
+        )
+        probe_reflected = (
+            world_position + reflected * reflected_t
+            - probe_position_radius.xyz
+        )
+        probe_reflected = probe_reflected / osh.maximum(
+            osh.length(probe_reflected), 0.000001,
+        )
+        refracted_offset = closed_exit_position - probe_position_radius.xyz
+        refracted_b = (
+            refracted_offset.x * closed_refracted.x
+            + refracted_offset.y * closed_refracted.y
+            + refracted_offset.z * closed_refracted.z
+        )
+        refracted_c = (
+            refracted_offset.x * refracted_offset.x
+            + refracted_offset.y * refracted_offset.y
+            + refracted_offset.z * refracted_offset.z
+            - probe_position_radius.w * probe_position_radius.w
+        )
+        refracted_t = osh.maximum(
+            0.0, -refracted_b + osh.sqrt(osh.maximum(
+                0.0, refracted_b * refracted_b - refracted_c,
+            )),
+        )
+        probe_refracted = (
+            closed_exit_position + closed_refracted * refracted_t
+            - probe_position_radius.xyz
+        )
+        probe_refracted = probe_refracted / osh.maximum(
+            osh.length(probe_refracted), 0.000001,
+        )
     reflection_uv = osh.vec2(
         osh.fraction(
-            osh.arctangent2(reflected.z, reflected.x) / 6.28318531
+            osh.arctangent2(probe_reflected.z, probe_reflected.x) / 6.28318531
             + 0.5 + environment_rotation_log_range.x / 6.28318531
         ),
-        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, reflected.y)))
+        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, probe_reflected.y)))
         / 3.14159265,
     )
     refraction_uv = osh.vec2(
         osh.fraction(
-            osh.arctangent2(refracted.z, refracted.x) / 6.28318531
+            osh.arctangent2(probe_refracted.z, probe_refracted.x) / 6.28318531
             + 0.5 + environment_rotation_log_range.x / 6.28318531
         ),
-        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, refracted.y)))
+        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, probe_refracted.y)))
         / 3.14159265,
     )
     # Four raster-only prefiltered environment levels are packed side by side.
@@ -572,8 +680,14 @@ def scene_fragment(
     # off-screen rays, and geometry hidden from the camera retain the portable
     # environment/probe result.
     quality_distance = osh.minimum(camera.viewport_optics.w / 24.0, 2.0)
-    refraction_travel = (
-        0.025 + optical_thickness * 0.018
+    # Refraction is a world-space direction.  Adding ``refracted.xy`` directly
+    # to screen UV only works when the camera happens to align with the world
+    # XY axes; changing camera azimuth or IOR then sends otherwise identical
+    # objects toward unrelated parts of the scene buffer. Project a point
+    # reached by the refracted ray instead, so the displacement follows the
+    # active view/projection transform.
+    refraction_world_distance = (
+        0.30 + optical_thickness * 0.18
     ) * quality_distance
     reflection_screen_uv = screen_uv
     reflection_hit = 0.0
@@ -730,12 +844,102 @@ def scene_fragment(
                 break
         previous_ray_fraction = ray_fraction
         previous_depth_delta = depth_delta
-    refraction_screen_uv = screen_uv + refracted.xy * refraction_travel
-    refraction_valid = (
-        refraction_screen_uv.x > 0.001 and refraction_screen_uv.x < 0.999
-        and refraction_screen_uv.y > 0.001 and refraction_screen_uv.y < 0.999
-    )
-    refraction_hit = 1.0 if refraction_valid else 0.0
+    # Follow the outgoing ray until it crosses the completed opaque depth
+    # buffer. A fixed-distance projection is not a scene intersection: its UV
+    # can land on arbitrary dark geometry as IOR changes even though the ray
+    # would eventually reach a bright wall or floor. The depth march makes the
+    # selected scene-color sample correspond to an actual visible receiver.
+    refraction_origin = closed_exit_position + closed_refracted * 0.03
+    refraction_extent = osh.maximum(8.0, osh.length(view_delta) * 3.0)
+    refraction_screen_uv = screen_uv
+    refraction_hit = 0.0
+    previous_refraction_fraction = 0.0
+    previous_refraction_delta = -1.0
+    for refraction_step in range(1, 25):
+        refraction_fraction = osh.f32(refraction_step) / 24.0
+        refraction_distance = (
+            0.08
+            + refraction_fraction * refraction_fraction * refraction_extent
+        )
+        refraction_world = (
+            refraction_origin + closed_refracted * refraction_distance
+        )
+        refraction_clip = (
+            camera.view_projection * osh.vec4(refraction_world, 1.0)
+        )
+        if refraction_clip.w <= 0.000001:
+            break
+        refraction_ndc = refraction_clip.xyz / refraction_clip.w
+        refraction_uv_candidate = osh.vec2(
+            refraction_ndc.x * 0.5 + 0.5,
+            0.5 - refraction_ndc.y * 0.5,
+        )
+        if (
+            refraction_uv_candidate.x <= 0.001
+            or refraction_uv_candidate.x >= 0.999
+            or refraction_uv_candidate.y <= 0.001
+            or refraction_uv_candidate.y >= 0.999
+        ):
+            break
+        refraction_scene_depth = scene_depth.sample_depth_level_with(
+            scene_depth_sampler, refraction_uv_candidate, 0,
+        )
+        refraction_delta = refraction_ndc.z - refraction_scene_depth
+        if (
+            previous_refraction_delta <= 0.00001
+            and refraction_delta > 0.00001
+        ):
+            lower_refraction_fraction = previous_refraction_fraction
+            upper_refraction_fraction = refraction_fraction
+            refined_refraction_uv = refraction_uv_candidate
+            refined_refraction_delta = refraction_delta
+            for refraction_refine_step in range(4):
+                middle_refraction_fraction = (
+                    lower_refraction_fraction + upper_refraction_fraction
+                ) * 0.5
+                middle_refraction_distance = (
+                    0.08 + middle_refraction_fraction
+                    * middle_refraction_fraction * refraction_extent
+                )
+                middle_refraction_world = (
+                    refraction_origin
+                    + closed_refracted * middle_refraction_distance
+                )
+                middle_refraction_clip = (
+                    camera.view_projection
+                    * osh.vec4(middle_refraction_world, 1.0)
+                )
+                middle_refraction_ndc = (
+                    middle_refraction_clip.xyz
+                    / osh.maximum(middle_refraction_clip.w, 0.000001)
+                )
+                middle_refraction_uv = osh.vec2(
+                    middle_refraction_ndc.x * 0.5 + 0.5,
+                    0.5 - middle_refraction_ndc.y * 0.5,
+                )
+                middle_refraction_depth = (
+                    scene_depth.sample_depth_level_with(
+                        scene_depth_sampler, middle_refraction_uv, 0,
+                    )
+                )
+                middle_refraction_delta = (
+                    middle_refraction_ndc.z - middle_refraction_depth
+                )
+                if middle_refraction_delta > 0.00001:
+                    upper_refraction_fraction = middle_refraction_fraction
+                    refined_refraction_uv = middle_refraction_uv
+                    refined_refraction_delta = middle_refraction_delta
+                else:
+                    lower_refraction_fraction = middle_refraction_fraction
+            refraction_thickness = (
+                0.00006 + upper_refraction_fraction * 0.00030
+            )
+            if refined_refraction_delta < refraction_thickness:
+                refraction_screen_uv = refined_refraction_uv
+                refraction_hit = 1.0
+            break
+        previous_refraction_fraction = refraction_fraction
+        previous_refraction_delta = refraction_delta
     # Rough SSR must filter in screen space. A single hit texel aliases scene
     # detail and produces resolution-dependent blocks that flicker under tiny
     # camera changes. This compact tent kernel has a radius measured in output
@@ -778,9 +982,23 @@ def scene_fragment(
         reflected_environment, screen_reflected,
         reflection_hit * screen_enabled * (1.0 - surface_roughness),
     )
+    refraction_edge_distance = osh.minimum(
+        osh.minimum(refraction_screen_uv.x, 1.0 - refraction_screen_uv.x),
+        osh.minimum(refraction_screen_uv.y, 1.0 - refraction_screen_uv.y),
+    )
+    refraction_edge_confidence = osh.maximum(
+        0.0, osh.minimum(1.0, refraction_edge_distance * 16.0),
+    )
+    refraction_angle_confidence = osh.maximum(
+        0.0, osh.minimum(1.0, (ndotv - 0.08) * 2.5),
+    )
+    refraction_confidence = (
+        refraction_hit * refraction_edge_confidence
+        * refraction_angle_confidence
+    )
     refracted_source = osh.mix(
         refracted_environment, screen_refracted,
-        refraction_hit * screen_enabled * (1.0 - surface_roughness),
+        refraction_confidence * screen_enabled * (1.0 - surface_roughness),
     )
     environment_enabled = environment_rotation_log_range.z
     ambient = (
@@ -823,13 +1041,19 @@ def scene_fragment(
         )
     if diagnostic_mode > 4.5 and diagnostic_mode < 5.5:
         return osh.vec4(object_tag, material_index, 0.0, 1.0)
-    if diagnostic_mode > 5.5:
+    if diagnostic_mode > 5.5 and diagnostic_mode < 6.5:
         return osh.vec4(
             diagnostic_depth_trace,
             osh.fraction(diagnostic_depth_trace),
             diagnostic_ray_step,
             1.0,
         )
+    if diagnostic_mode > 6.5 and diagnostic_mode < 7.5:
+        return osh.vec4(osh.vec3(refraction_hit), 1.0)
+    if diagnostic_mode > 7.5 and diagnostic_mode < 8.5:
+        return osh.vec4(refraction_screen_uv, refraction_hit, 1.0)
+    if diagnostic_mode > 8.5:
+        return osh.vec4(refracted_source, 1.0)
     return result
 
 
