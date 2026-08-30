@@ -156,7 +156,139 @@ def test_native_targets_split_transparent_depth_write_pass():
     webgpu = (root / "webgpu.py").read_text()
     for source in (vulkan, webgpu):
         assert '"opaque_index_count"' in source
+        assert '"optical_opaque_index_count"' in source
+        assert '"transparent_index_count"' in source
+        assert '"optical_transmissive_index_count"' in source
         assert "transparent_count" in source
-        assert "transparent_pass" in source or "transparent=True" in source
-    assert "self.state.depth_write and not transparent_pass" in vulkan
-    assert "self.state.depth_write and not transparent" in webgpu
+        assert '"optical-opaque"' in source
+        assert '"transmissive"' in source
+    assert 'pass_kind == "opaque"' in vulkan
+    assert "self.state.depth_write and not optical" in webgpu
+    assert "pass_kind == \"transmissive\"" in vulkan
+    assert '"back" if pass_kind == "transmissive"' in webgpu
+    # Optical redraws must remain occluded by the opaque prepass.  An ALWAYS
+    # comparison makes objects behind walls visibly overwrite those walls.
+    assert 'pass_kind == "optical-opaque" else' not in vulkan
+    assert '"always" if pass_kind == "optical-opaque"' not in webgpu
+    assert "vk.VK_COMPARE_OP_LESS_OR_EQUAL" in vulkan
+    assert '"less-equal" if optical' in webgpu
+
+
+def test_screen_space_optics_is_explicit_and_preserves_environment_default():
+    assert ol.RasterConfig().optical_quality == "environment"
+    config = ol.RasterConfig(
+        optical_quality="screen-space", screen_space_ray_steps=32,
+    )
+    assert config.optical_quality == "screen-space"
+    assert config.screen_space_ray_steps == 32
+    assert tuple(stage.name for stage in ol.create_raster_pipeline(config).stages)[:3] == (
+        "shadow_maps", "opaque_prepass", "screen_space_optics",
+    )
+    with pytest.raises(ValueError):
+        ol.RasterConfig(optical_quality="path-traced")
+    with pytest.raises(ValueError):
+        ol.RasterConfig(screen_space_ray_steps=2)
+
+
+def test_screen_space_optics_partitions_prepass_and_optical_draws():
+    scene = build_refraction_scene()
+    camera = ol.PerspectiveCamera((0, 3, 8), (0, 1, 0))
+    packed = ol.scene_mesh(
+        scene, camera, 320, 180,
+        ol.RasterConfig(optical_quality="screen-space"),
+    )
+    assert packed.resources["opaque_prepass_index_count"] > 0
+    assert packed.resources["optical_index_count"] > 0
+    assert (
+        packed.resources["opaque_prepass_index_count"]
+        + packed.resources["optical_index_count"]
+        == packed.indices.size
+    )
+    # Transmission is composited back-to-front even when the authored glTF
+    # alpha mode is opaque. It must not enter the overwrite-only reflector
+    # range, where front and rear faces can replace one another.
+    assert packed.resources["optical_opaque_index_count"] == 0
+    assert packed.resources["transparent_index_count"] > 0
+
+
+def test_screen_space_optical_draws_sort_far_to_near_from_either_side():
+    material = lambda color: ol.Material(
+        base_color=color, transmission=1.0, opacity=1.0,
+    )
+    scene = ol.Scene()
+    scene.add_mesh(*_triangle(1.0), material((1, 0, 0)), name="near-front")
+    scene.add_mesh(*_triangle(-1.0), material((0, 0, 1)), name="near-back")
+    config = ol.RasterConfig(optical_quality="screen-space")
+
+    def order(camera):
+        packed = ol.scene_mesh(scene, camera, 64, 64, config)
+        offset = next(
+            item.offset // 4 for item in packed.layout.attributes
+            if item.semantic == "material_index"
+        )
+        decoded = tuple(
+            int(packed.vertices[packed.indices[index * 3], offset])
+            for index in range(2)
+        )
+        assert packed.resources["camera_order_token"] == decoded
+        return decoded
+
+    assert order(ol.PerspectiveCamera((0, 0, 5), (0, 0, 0))) == (1, 0)
+    assert order(ol.PerspectiveCamera((0, 0, -5), (0, 0, 0))) == (0, 1)
+
+
+def test_nested_dielectric_shell_order_is_stable_under_camera_motion():
+    scene = build_nested_dielectric_scene()
+    visible = tuple(scene.visible_meshes)
+    outer = next(index for index, mesh in enumerate(visible)
+                 if mesh.name == "outer-glass")
+    inner = next(index for index, mesh in enumerate(visible)
+                 if mesh.name == "inner-liquid")
+    config = ol.RasterConfig(optical_quality="screen-space")
+
+    orders = []
+    for offset in (-0.02, 0.0, 0.02):
+        camera = ol.PerspectiveCamera(
+            (offset, 3.0, 9.0), (0.0, 1.45, 0.0),
+        )
+        packed = ol.scene_mesh(scene, camera, 320, 180, config)
+        orders.append(packed.resources["camera_order_token"])
+
+    assert all(order.index(outer) < order.index(inner) for order in orders)
+    assert orders[0] == orders[1] == orders[2]
+
+
+def test_opaque_reflectors_are_available_to_neighboring_screen_rays():
+    scene = ol.Scene()
+    reflector = ol.Material(metallic=1.0, roughness=0.1)
+    scene.add_mesh(*_triangle(0.5), reflector, name="reflector-a")
+    scene.add_mesh(*_triangle(-0.5), reflector, name="reflector-b")
+    packed = ol.scene_mesh(
+        scene, ol.PerspectiveCamera((0, 0, 5), (0, 0, 0)), 64, 64,
+        ol.RasterConfig(optical_quality="screen-space"),
+    )
+    # Both reflectors appear once in opaque scene color and once again in the
+    # optical composite. Their second draw uses equal-depth testing.
+    assert packed.resources["opaque_prepass_index_count"] == 6
+    assert packed.resources["optical_index_count"] == 6
+    assert packed.indices.size == 12
+
+
+def test_screen_space_resources_are_portable_shader_bindings():
+    program = ol.RasterProgram.scene(target="wgsl", validate=False)
+    bindings = {
+        resource["name"]: resource["binding"]
+        for resource in program.fragment.reflection.resources
+    }
+    assert bindings["scene_color"] == 6
+    assert bindings["scene_depth"] == 7
+    assert bindings["scene_sampler"] == 8
+    assert bindings["scene_depth_sampler"] == 9
+    assert "textureSampleLevel(scene_depth, scene_depth_sampler, ray_uv, 0" in program.fragment.source
+    assert "for (var ray_step: i32 = 1; ray_step < 25" in program.fragment.source
+    assert "for (var refine_step" in program.fragment.source
+    assert "edge_confidence" in program.fragment.source
+    assert "different_object" in program.fragment.source
+    assert "object_tag" in program.fragment.source
+    assert "depth_confidence" in program.fragment.source
+    assert "reflection_radius" in program.fragment.source

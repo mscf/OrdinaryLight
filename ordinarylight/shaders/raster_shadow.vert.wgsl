@@ -1,5 +1,5 @@
 struct ShadowVertexOutput {
-    @builtin(position) position: vec4<f32>,
+    @invariant @builtin(position) position: vec4<f32>,
     @location(0) clip_depth: vec2<f32>,
 }
 

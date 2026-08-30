@@ -31,6 +31,10 @@
 - Verified offscreen scene raster paths for native Vulkan/SPIR-V and
   WebGPU/WGSL, sharing meshes, instances, transforms, cameras, base materials,
   textures, analytic lights, shadows, depth state, and named geometry products.
+- Portable screen-space raster optics use an explicit opaque color/depth
+  prepass and a second reflection/refraction composite on Vulkan and WebGPU,
+  with roughness-aware environment/probe fallback. The original environment
+  path remains the default low-cost tier.
 - A portable raster render graph, static temporal/post processing, volume
   slicing, hybrid backend composition, and backend-neutral surface output.
   Native MRT/shadow-map/volume compute paths and direct swapchain/external-image

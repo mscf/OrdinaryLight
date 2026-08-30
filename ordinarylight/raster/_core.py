@@ -98,6 +98,9 @@ class RasterConfig:
     shadow_map_size: int = 256
     shadow_cull_mode: str = "none"
     shadow_normal_bias: float = 1.5
+    optical_quality: str = "environment"
+    screen_space_ray_steps: int = 24
+    optical_debug_view: str = "off"
     material_program: object | None = None
     material_modifier: object | None = None
     material_hook: object | None = None
@@ -119,6 +122,18 @@ class RasterConfig:
             raise ValueError("shadow_cull_mode must be none, front, or back")
         if not np.isfinite(self.shadow_normal_bias) or self.shadow_normal_bias < 0.0:
             raise ValueError("shadow_normal_bias must be a finite non-negative texel count")
+        if self.optical_quality not in {"environment", "screen-space"}:
+            raise ValueError("optical_quality must be environment or screen-space")
+        if not 4 <= int(self.screen_space_ray_steps) <= 128:
+            raise ValueError("screen_space_ray_steps must be between 4 and 128")
+        if self.optical_debug_view not in {
+            "off", "hit", "uv", "depth-delta", "confidence", "object-id",
+            "depth-trace",
+        }:
+            raise ValueError(
+                "optical_debug_view must be off, hit, uv, depth-delta, "
+                "confidence, object-id, or depth-trace"
+            )
         if self.material_program is not None:
             from ..materials import MaterialProgram
             if not isinstance(self.material_program, MaterialProgram):
@@ -879,21 +894,83 @@ def scene_mesh(
     opaque_meshes = tuple(
         mesh for mesh in visible_meshes if mesh.material.alpha_mode != "blend"
     )
+    optical_meshes = tuple(
+        mesh for mesh in opaque_meshes
+        if config.optical_quality == "screen-space" and (
+            mesh.material.transmission > 0.0 or mesh.material.metallic >= 0.5
+        )
+    )
+    # Opaque reflectors participate in both phases: the prepass makes them
+    # visible to neighboring screen-space rays, while the optical pass
+    # reshades their own pixels. Transmissive objects must remain absent from
+    # the prepass or they would hide the background they are meant to refract.
+    prepass_excluded_ids = {
+        id(mesh) for mesh in optical_meshes
+        if mesh.material.transmission > 0.0
+    }
+    prepass_meshes = tuple(
+        mesh for mesh in opaque_meshes if id(mesh) not in prepass_excluded_ids
+    )
     camera_forward = np.asarray(camera.target, np.float32) - camera_position
     camera_forward /= max(float(np.linalg.norm(camera_forward)), 1e-8)
-    transparent_meshes = tuple(sorted(
-        (mesh for mesh in visible_meshes if mesh.material.alpha_mode == "blend"),
+    def optical_sort_key(mesh):
+        vertices = np.asarray(mesh.world_vertices, np.float32)
+        center = np.mean(vertices, axis=0)
+        radius = float(np.max(np.linalg.norm(vertices - center, axis=1)))
+        center_depth = float(np.dot(
+            center - camera_position, camera_forward,
+        ))
+        # Sort by the farthest camera-facing extent, rather than centroid
+        # alone. Concentric dielectric shells otherwise have effectively equal
+        # depths and can exchange order under tiny camera/float changes,
+        # causing the inner medium to blink in and out. Bounding extent keeps
+        # the outer shell first while remaining camera-relative for separated
+        # transparent objects.
+        return -(center_depth + radius)
+    authored_transparent_meshes = tuple(
+        mesh for mesh in visible_meshes if mesh.material.alpha_mode == "blend"
+    )
+    optical_transmissive_meshes = tuple(
+        mesh for mesh in optical_meshes if mesh.material.transmission > 0.0
+    )
+    optical_transmissive_draw_meshes = tuple(sorted(
+        optical_transmissive_meshes,
+        key=optical_sort_key,
+    ))
+    authored_transparent_draw_meshes = tuple(sorted(
+        authored_transparent_meshes,
         # Source-alpha composition is order dependent. Camera-space depth,
         # unlike Euclidean center distance, reverses correctly when the camera
         # crosses a stack of laterally offset transparent layers.
-        key=lambda mesh: -float(np.dot(
-            np.mean(mesh.world_vertices, axis=0) - camera_position,
-            camera_forward,
-        )),
+        key=optical_sort_key,
     ))
+    # Keep depth-resolved optical surfaces and genuinely alpha-composited
+    # surfaces in contiguous index ranges.  Treating both as one transparent
+    # draw makes opaque reflectors inherit order-dependent blending and is
+    # especially unstable when several reflectors overlap on screen.
+    optical_opaque_draw_meshes = tuple(sorted(
+        (
+            mesh for mesh in optical_meshes
+            if mesh.material.transmission <= 0.0
+        ),
+        key=optical_sort_key,
+    ))
+    transparent_meshes = (
+        *optical_transmissive_draw_meshes,
+        *authored_transparent_draw_meshes,
+    )
+    optical_draw_meshes = (*optical_opaque_draw_meshes, *transparent_meshes)
+    opaque_prepass_index_count = sum(mesh.indices.size for mesh in prepass_meshes)
     opaque_index_count = sum(mesh.indices.size for mesh in opaque_meshes)
+    optical_opaque_index_count = sum(
+        mesh.indices.size for mesh in optical_opaque_draw_meshes
+    )
+    transparent_index_count = sum(mesh.indices.size for mesh in transparent_meshes)
+    optical_transmissive_index_count = sum(
+        mesh.indices.size for mesh in optical_transmissive_draw_meshes
+    )
     material_indices = {id(mesh): index for index, mesh in enumerate(visible_meshes)}
-    for mesh in (*opaque_meshes, *transparent_meshes):
+    for mesh in (*prepass_meshes, *optical_draw_meshes):
         material_index = material_indices[id(mesh)]
         world = np.column_stack((mesh.world_vertices, np.ones(len(mesh.vertices), np.float32)))
         clip = world if gpu_camera else world @ matrix.T
@@ -1064,8 +1141,18 @@ def scene_mesh(
         "gpu_camera": bool(gpu_camera),
         "material_buffer": gpu_scene.materials.tobytes(),
         "material_programs": gpu_scene.programs,
-        "transparent": bool(transparent_meshes),
+        "transparent": bool(authored_transparent_meshes),
         "opaque_index_count": int(opaque_index_count),
+        "opaque_prepass_index_count": int(opaque_prepass_index_count),
+        "optical_index_count": int(index_data.size - opaque_prepass_index_count),
+        "optical_opaque_index_count": int(optical_opaque_index_count),
+        "transparent_index_count": int(transparent_index_count),
+        "optical_transmissive_index_count": int(
+            optical_transmissive_index_count
+        ),
+        "camera_order_token": tuple(
+            material_indices[id(mesh)] for mesh in optical_draw_meshes
+        ),
     })
 
 
@@ -1231,7 +1318,18 @@ def create_raster_pipeline(config=None):
             "shadow_maps", reads={"scene"}, writes={"shadow_atlas"},
         ))
         shadow_resource = ("shadow_atlas",)
-    if config.direct_lighting:
+    if config.optical_quality == "screen-space":
+        stages.append(RenderStage(
+            "opaque_prepass", reads={"scene", "camera", *shadow_resource},
+            writes={"opaque_color", "opaque_depth"},
+        ))
+        stages.append(RenderStage(
+            "screen_space_optics",
+            reads={"scene", "camera", "opaque_color", "opaque_depth", *shadow_resource},
+            writes={"hdr_color", "depth", "normal", "object_id"},
+        ))
+        color = "hdr_color"
+    elif config.direct_lighting:
         stages.append(RenderStage(
             "forward_lighting",
             reads={"scene", "camera", *shadow_resource},

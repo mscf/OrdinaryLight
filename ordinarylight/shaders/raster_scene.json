@@ -5,6 +5,7 @@
         "varyings": [
           {
             "builtin": null,
+            "invariant": false,
             "location": 0,
             "name": "clip_depth",
             "type": "vec2"
@@ -17,6 +18,7 @@
         "varyings": [
           {
             "builtin": null,
+            "invariant": false,
             "location": 0,
             "name": "clip_depth",
             "type": "vec2"
@@ -36,6 +38,7 @@
             "inputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "clip_depth",
                 "type": "vec2"
@@ -44,6 +47,7 @@
             "outputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "result",
                 "type": "vec4"
@@ -60,13 +64,14 @@
           "sha256": "f12a9ab598b4752b0a7bed9c9deda4e2d82322f7ac8905a326ad1c237ff4feb5"
         },
         "vertex": {
-          "cache_key": "63b4ee7b5f752b762a4def5d17175705f51170a858533052d8bf4b2596ee811d",
+          "cache_key": "ce1075f14823d859dea06c9e81bbfeb22e2e225f513ef8ee73443a31ef061f40",
           "file": "raster_shadow.vert.spv",
           "reflection": {
             "entry_point": "main",
             "inputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "position",
                 "type": "vec4"
@@ -75,12 +80,14 @@
             "outputs": [
               {
                 "builtin": "position",
+                "invariant": true,
                 "location": null,
                 "name": "position",
                 "type": "vec4"
               },
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "clip_depth",
                 "type": "vec2"
@@ -94,7 +101,7 @@
               1
             ]
           },
-          "sha256": "46d79d3659716eae449355c4e083d265028b96359aa76443bfa1de8925f4c474"
+          "sha256": "4eeeac8508269fdc52a90f5e0a2fb2bb5941f1a1c63e3fe60310974e7e07e535"
         }
       }
     },
@@ -108,6 +115,7 @@
             "inputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "clip_depth",
                 "type": "vec2"
@@ -116,6 +124,7 @@
             "outputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "result",
                 "type": "vec4"
@@ -132,13 +141,14 @@
           "sha256": "1d795608fee9eed08845e1426c376fedf703f726739d6475893db0e44e44fd78"
         },
         "vertex": {
-          "cache_key": "87bfa3c3b8348d01d09788c6f339d38f588348eef0a2188fa66c18a3bdec9e44",
+          "cache_key": "bb5d5fb7a66321bb1b5a2b4f62c35ee12407d8cad8d265eb6c892434a333715f",
           "file": "raster_shadow.vert.wgsl",
           "reflection": {
             "entry_point": "main",
             "inputs": [
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "position",
                 "type": "vec4"
@@ -147,12 +157,14 @@
             "outputs": [
               {
                 "builtin": "position",
+                "invariant": true,
                 "location": null,
                 "name": "position",
                 "type": "vec4"
               },
               {
                 "builtin": null,
+                "invariant": false,
                 "location": 0,
                 "name": "clip_depth",
                 "type": "vec2"
@@ -166,7 +178,7 @@
               1
             ]
           },
-          "sha256": "7dc841738ea1fa47a8204359f8127fd8d3b47da88430b206170146a2d8e1fbe6"
+          "sha256": "4cedcf79eddbc0f03b991fc3a03a0362cb94582b54d25b47daee1ea1631b24a8"
         }
       }
     }
@@ -175,297 +187,358 @@
     "varyings": [
       {
         "builtin": null,
+        "invariant": false,
         "location": 0,
         "name": "base_color",
         "type": "vec3"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 1,
         "name": "world_normal",
         "type": "vec3"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 2,
         "name": "world_position",
         "type": "vec3"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 3,
         "name": "material",
         "type": "vec4"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 4,
         "name": "emission",
         "type": "vec3"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 5,
         "name": "camera_position",
         "type": "vec3"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 6,
         "name": "light_position_type",
         "type": "vec4"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 7,
         "name": "light_color_ambient",
         "type": "vec4"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 8,
         "name": "base_color_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 9,
         "name": "shadow_coordinate",
         "type": "vec4"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 10,
         "name": "shadow_visibility",
         "type": "float"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 11,
         "name": "world_tangent",
         "type": "vec4"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 12,
         "name": "metallic_roughness_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 13,
         "name": "emissive_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 14,
         "name": "normal_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 15,
         "name": "occlusion_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 16,
         "name": "transmission_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 17,
         "name": "material_index",
         "type": "float"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 18,
         "name": "thickness_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 19,
         "name": "clearcoat_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 20,
         "name": "sheen_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 21,
         "name": "anisotropy_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
+        "invariant": false,
         "location": 22,
         "name": "subsurface_uv",
         "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "invariant": false,
+        "location": 23,
+        "name": "object_id",
+        "type": "float"
       }
     ]
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "d01fd8c6b5aaf31ab7b665d0913eac009bfde6dc35f3a41b9ffef0cc8163e87f",
+  "source_sha256": "b80bd5b191e4560bd132d01d7329674a237a1042cd39de43dbcfa4839e7e077f",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "c5fe2b35bc8291306bf798b8ae1b5b40e2db29caffe9b2ddaf33f2a913260d63",
+        "cache_key": "ddbfe9ef0901877a8c5477af10d88c3f299dd53997cc33573b3e0bf4968f84ea",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
           "inputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 12,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
+              "location": 23,
+              "name": "object_id",
+              "type": "float"
             }
           ],
           "outputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "result",
               "type": "vec4"
@@ -511,6 +584,46 @@
               "kind": "storage_buffer",
               "name": "materials",
               "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 6,
+              "format": "rgba",
+              "kind": "sampled_texture_2d",
+              "name": "scene_color",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 7,
+              "format": "depth",
+              "kind": "sampled_depth_texture_2d",
+              "name": "scene_depth",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 8,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "scene_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "scene_depth_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "RasterCamera",
+              "kind": "uniform_buffer",
+              "name": "camera",
+              "set": 0
             }
           ],
           "stage": "fragment",
@@ -520,154 +633,185 @@
             1
           ]
         },
-        "sha256": "3107bd8c3ac163f705e82a8c0ab67095ebe1aaf541ef4b685f629e60f7596f01"
+        "sha256": "328fca3d6b7e0cc782cde9aa57f548e6cb022b82c0c45cb3b3b626f47b21ab72"
       },
       "vertex": {
-        "cache_key": "b3c1a762c72791ab41fc6cb9b2438c716ea61e07fe7fe7c031a2b91b411c7327",
+        "cache_key": "d5d4c61125defbdee4703592009d2ff0a31091dcfe36acd067cc0cfa18abcbc6",
         "file": "raster_scene.vert.spv",
         "reflection": {
           "entry_point": "main",
           "inputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "position",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
+              "location": 12,
+              "name": "object_id",
+              "type": "float"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 23,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 24,
               "name": "subsurface_uv",
               "type": "vec2"
@@ -676,147 +820,178 @@
           "outputs": [
             {
               "builtin": "position",
+              "invariant": true,
               "location": null,
               "name": "position",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 12,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
+              "location": 23,
+              "name": "object_id",
+              "type": "float"
             }
           ],
           "resources": [
@@ -836,158 +1011,189 @@
             1
           ]
         },
-        "sha256": "41dbddfe5e70e573e2fe86a0f4f006a8ff773f08d6f5d2545cf934e49ceb92db"
+        "sha256": "fa90b5af5728ed245ff3d8049cf605d5e5dcf356e5788b841123ac113753afb4"
       }
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "fbfb1a91dab122de6401c7c877ed05f2362b8d0edeefeeede84fa07ed9fa60f9",
+        "cache_key": "c49f66b452d7e5f7037ec05ee61896fdfdca6d2ec041a381673afc395ed8c37e",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
           "inputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 12,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
+              "location": 23,
+              "name": "object_id",
+              "type": "float"
             }
           ],
           "outputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "result",
               "type": "vec4"
@@ -1033,6 +1239,46 @@
               "kind": "storage_buffer",
               "name": "materials",
               "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 6,
+              "format": "rgba",
+              "kind": "sampled_texture_2d",
+              "name": "scene_color",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 7,
+              "format": "depth",
+              "kind": "sampled_depth_texture_2d",
+              "name": "scene_depth",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 8,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "scene_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "sampler",
+              "kind": "sampler",
+              "name": "scene_depth_sampler",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "RasterCamera",
+              "kind": "uniform_buffer",
+              "name": "camera",
+              "set": 0
             }
           ],
           "stage": "fragment",
@@ -1042,154 +1288,185 @@
             1
           ]
         },
-        "sha256": "0be7e3309592738de1acdcd37157cb56178e4c30a40774e55513b5470977ef29"
+        "sha256": "6effee0b6d0e98330ee88a859135514ed1b036fdf52348c5facdfc1aa3dd4f47"
       },
       "vertex": {
-        "cache_key": "ae748762302050f00c43580ef9d88d1cca62763d919eaf4dee80e3dda1e1994e",
+        "cache_key": "80849a18d79d16fe3d63776c37d5b2a18ac79af16c6686f008fcb49b545beb79",
         "file": "raster_scene.vert.wgsl",
         "reflection": {
           "entry_point": "main",
           "inputs": [
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "position",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
+              "location": 12,
+              "name": "object_id",
+              "type": "float"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 23,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 24,
               "name": "subsurface_uv",
               "type": "vec2"
@@ -1198,147 +1475,178 @@
           "outputs": [
             {
               "builtin": "position",
+              "invariant": true,
               "location": null,
               "name": "position",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 0,
               "name": "base_color",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 1,
               "name": "world_normal",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 2,
               "name": "world_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 3,
               "name": "material",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 4,
               "name": "emission",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 5,
               "name": "camera_position",
               "type": "vec3"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 6,
               "name": "light_position_type",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 7,
               "name": "light_color_ambient",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 8,
               "name": "base_color_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 9,
               "name": "shadow_coordinate",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 10,
               "name": "shadow_visibility",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 11,
               "name": "world_tangent",
               "type": "vec4"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 12,
               "name": "metallic_roughness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 13,
               "name": "emissive_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 14,
               "name": "normal_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 15,
               "name": "occlusion_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 16,
               "name": "transmission_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 17,
               "name": "material_index",
               "type": "float"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 18,
               "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 19,
               "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 20,
               "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 21,
               "name": "anisotropy_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
+              "invariant": false,
               "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "invariant": false,
+              "location": 23,
+              "name": "object_id",
+              "type": "float"
             }
           ],
           "resources": [
@@ -1358,7 +1666,7 @@
             1
           ]
         },
-        "sha256": "df1237cb707b2a1bbcb41a0868f35ee87993d6257748e251489fd325ad45ed03"
+        "sha256": "333672e9b5152f1830c1ab7f7294a296964c62c66eaf2a93f744f593a28e6cf0"
       }
     }
   }

@@ -16,6 +16,13 @@ struct RasterMaterial {
     environment_rotation_log_range: vec4<f32>,
 }
 
+struct RasterCamera {
+    view_projection: mat4x4<f32>,
+    position_exposure: vec4<f32>,
+    viewport_optics: vec4<f32>,
+    optical_diagnostic: vec4<f32>,
+}
+
 struct SurfaceParameters {
     base_color: vec3<f32>,
     emission: vec3<f32>,
@@ -47,6 +54,11 @@ struct SurfaceContext {
 @group(0) @binding(2) var shadow_map: texture_depth_2d;
 @group(0) @binding(4) var shadow_sampler: sampler_comparison;
 @group(0) @binding(5) var<storage, read> materials: array<RasterMaterial>;
+@group(0) @binding(6) var scene_color: texture_2d<f32>;
+@group(0) @binding(7) var scene_depth: texture_depth_2d;
+@group(0) @binding(8) var scene_sampler: sampler;
+@group(0) @binding(9) var scene_depth_sampler: sampler;
+@group(0) @binding(3) var<uniform> camera: RasterCamera;
 
 fn blend_surface_parameters(base: SurfaceParameters, layer: SurfaceParameters, weight: f32) -> SurfaceParameters {
     let amount: f32 = max(0.0, min(1.0, weight));
@@ -81,12 +93,14 @@ fn main(
     @location(19) clearcoat_uv: vec2<f32>,
     @location(20) sheen_uv: vec2<f32>,
     @location(21) anisotropy_uv: vec2<f32>,
-    @location(22) subsurface_uv: vec2<f32>
+    @location(22) subsurface_uv: vec2<f32>,
+    @location(23) object_id: f32
 ) -> @location(0) vec4<f32> {
     if ((material_index < (-0.5))) {
         return vec4<f32>((base_color + emission), material.w);
     }
     let material_id: u32 = u32((material_index + 0.5));
+    let object_tag: f32 = (floor((object_id + 0.5)) + 1.0);
     let base_color_roughness: vec4<f32> = materials[material_id].base_color_roughness;
     let emission_metallic: vec4<f32> = materials[material_id].emission_metallic;
     let attenuation_transmission: vec4<f32> = materials[material_id].attenuation_transmission;
@@ -223,10 +237,124 @@ fn main(
     let refracted_encoded: vec3<f32> = mix(refracted_encoded_low, refracted_encoded_high, environment_level_mix).xyz;
     let reflected_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (reflected_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
     let refracted_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (refracted_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    let screen_clip: vec4<f32> = (camera.view_projection * vec4<f32>(world_position, 1.0));
+    let screen_ndc: vec3<f32> = (screen_clip.xyz / max(abs(screen_clip.w), 1e-06));
+    let screen_uv: vec2<f32> = vec2<f32>(((screen_ndc.x * 0.5) + 0.5), select((0.5 - (screen_ndc.y * 0.5)), ((screen_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+    let screen_pass_enabled: f32 = select(0.0, 1.0, ((abs(camera.viewport_optics.z) > 0.5) && (abs(camera.viewport_optics.z) < 1.5)));
+    let screen_enabled: f32 = (screen_pass_enabled * max(surface_transmission, surface_metallic));
+    let quality_distance: f32 = min((camera.viewport_optics.w / 24.0), 2.0);
+    let refraction_travel: f32 = ((0.025 + (optical_thickness * 0.018)) * quality_distance);
+    var reflection_screen_uv: vec2<f32> = screen_uv;
+    var reflection_hit: f32 = 0.0;
+    let reflection_origin: vec3<f32> = (world_position + (surface_normal * 0.06));
+    let reflection_extent: f32 = max(8.0, (length(view_delta) * 3.0));
+    var previous_ray_fraction: f32 = 0.0;
+    var previous_depth_delta: f32 = (-1.0);
+    var diagnostic_depth_delta: f32 = (-1.0);
+    var diagnostic_ray_step: f32 = 0.0;
+    var diagnostic_confidence: f32 = 0.0;
+    var diagnostic_depth_trace: f32 = 0.0;
+    for (var ray_step: i32 = 1; ray_step < 25; ray_step += 1) {
+        let ray_fraction: f32 = (f32(ray_step) / 24.0);
+        let ray_distance: f32 = (0.12 + ((ray_fraction * ray_fraction) * reflection_extent));
+        let ray_world: vec3<f32> = (reflection_origin + (reflected * ray_distance));
+        let ray_clip: vec4<f32> = (camera.view_projection * vec4<f32>(ray_world, 1.0));
+        if ((ray_clip.w <= 1e-06)) {
+            break;
+        }
+        let ray_ndc: vec3<f32> = (ray_clip.xyz / ray_clip.w);
+        let ray_uv: vec2<f32> = vec2<f32>(((ray_ndc.x * 0.5) + 0.5), select((0.5 - (ray_ndc.y * 0.5)), ((ray_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+        if (((((ray_uv.x <= 0.001) || (ray_uv.x >= 0.999)) || (ray_uv.y <= 0.001)) || (ray_uv.y >= 0.999))) {
+            break;
+        }
+        let sampled_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, ray_uv, 0);
+        diagnostic_depth_trace = (diagnostic_depth_trace + (sampled_depth * ray_fraction));
+        let depth_delta: f32 = (ray_ndc.z - sampled_depth);
+        diagnostic_depth_delta = depth_delta;
+        diagnostic_ray_step = ray_fraction;
+        let depth_thickness: f32 = (8e-05 + (ray_fraction * 0.00042));
+        if (((previous_depth_delta <= 1e-05) && (depth_delta > 1e-05))) {
+            var lower_fraction: f32 = previous_ray_fraction;
+            var upper_fraction: f32 = ray_fraction;
+            var refined_uv: vec2<f32> = ray_uv;
+            var refined_delta: f32 = depth_delta;
+            for (var refine_step: i32 = 0; refine_step < 4; refine_step += 1) {
+                let middle_fraction: f32 = ((lower_fraction + upper_fraction) * 0.5);
+                let middle_distance: f32 = (0.12 + ((middle_fraction * middle_fraction) * reflection_extent));
+                let middle_world: vec3<f32> = (reflection_origin + (reflected * middle_distance));
+                let middle_clip: vec4<f32> = (camera.view_projection * vec4<f32>(middle_world, 1.0));
+                let middle_ndc: vec3<f32> = (middle_clip.xyz / max(middle_clip.w, 1e-06));
+                let middle_uv: vec2<f32> = vec2<f32>(((middle_ndc.x * 0.5) + 0.5), select((0.5 - (middle_ndc.y * 0.5)), ((middle_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+                let middle_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, middle_uv, 0);
+                let middle_delta: f32 = (middle_ndc.z - middle_depth);
+                if ((middle_delta > 1e-05)) {
+                    upper_fraction = middle_fraction;
+                    refined_uv = middle_uv;
+                    refined_delta = middle_delta;
+                } else {
+                    lower_fraction = middle_fraction;
+                }
+            }
+            let refined_thickness: f32 = (6e-05 + (upper_fraction * 0.0003));
+            let edge_distance: f32 = min(min(refined_uv.x, (1.0 - refined_uv.x)), min(refined_uv.y, (1.0 - refined_uv.y)));
+            let edge_confidence: f32 = clamp(((edge_distance - 0.002) / 0.018), 0.0, 1.0);
+            if ((refined_delta < refined_thickness)) {
+                let candidate: vec4<f32> = textureSampleLevel(scene_color, scene_sampler, refined_uv, 0.0);
+                let different_object: f32 = select(0.0, 1.0, (abs((candidate.w - object_tag)) > 0.25));
+                let hit_texel: vec2<f32> = vec2<f32>((1.0 / max(camera.viewport_optics.x, 1.0)), (1.0 / max(camera.viewport_optics.y, 1.0)));
+                let hit_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, refined_uv, 0);
+                let depth_left: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, (refined_uv - vec2<f32>(hit_texel.x, 0.0)), 0);
+                let depth_right: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, (refined_uv + vec2<f32>(hit_texel.x, 0.0)), 0);
+                let depth_down: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, (refined_uv - vec2<f32>(0.0, hit_texel.y)), 0);
+                let depth_up: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, (refined_uv + vec2<f32>(0.0, hit_texel.y)), 0);
+                let depth_spread: f32 = max(max(abs((depth_left - hit_depth)), abs((depth_right - hit_depth))), max(abs((depth_down - hit_depth)), abs((depth_up - hit_depth))));
+                let depth_confidence: f32 = clamp((1.0 - (depth_spread / 0.00075)), 0.0, 1.0);
+                reflection_screen_uv = refined_uv;
+                reflection_hit = ((edge_confidence * different_object) * depth_confidence);
+                diagnostic_confidence = (edge_confidence * depth_confidence);
+            }
+            if ((camera.optical_diagnostic.x < 5.5)) {
+                break;
+            }
+        }
+        previous_ray_fraction = ray_fraction;
+        previous_depth_delta = depth_delta;
+    }
+    let refraction_screen_uv: vec2<f32> = (screen_uv + (refracted.xy * refraction_travel));
+    let refraction_valid: bool = ((((refraction_screen_uv.x > 0.001) && (refraction_screen_uv.x < 0.999)) && (refraction_screen_uv.y > 0.001)) && (refraction_screen_uv.y < 0.999));
+    let refraction_hit: f32 = select(0.0, 1.0, refraction_valid);
+    let reflection_texel: vec2<f32> = vec2<f32>((1.0 / max(camera.viewport_optics.x, 1.0)), (1.0 / max(camera.viewport_optics.y, 1.0)));
+    let reflection_radius: f32 = (1.0 + ((surface_roughness * surface_roughness) * 10.0));
+    let reflection_offset: vec2<f32> = (reflection_texel * reflection_radius);
+    let screen_reflected: vec3<f32> = ((((((textureSampleLevel(scene_color, scene_sampler, reflection_screen_uv, 0.0).xyz * 4.0) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv + vec2<f32>(reflection_offset.x, 0.0)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv - vec2<f32>(reflection_offset.x, 0.0)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv + vec2<f32>(0.0, reflection_offset.y)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv - vec2<f32>(0.0, reflection_offset.y)), 0.0).xyz) * 0.125);
+    let screen_refracted: vec3<f32> = textureSampleLevel(scene_color, scene_sampler, refraction_screen_uv, 0.0).xyz;
+    let reflected_source: vec3<f32> = mix(reflected_environment, screen_reflected, ((reflection_hit * screen_enabled) * (1.0 - surface_roughness)));
+    let refracted_source: vec3<f32> = mix(refracted_environment, screen_refracted, ((refraction_hit * screen_enabled) * (1.0 - surface_roughness)));
     let environment_enabled: f32 = environment_rotation_log_range.z;
     let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + ((transmission_tint * surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
     let base_shaded: vec3<f32> = ((ambient + direct) + surface_emission);
-    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_environment * transmission_tint), (surface_transmission * environment_enabled));
-    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_environment * fresnel) * environment_enabled));
-    return vec4<f32>(select(shaded, surface_base_color, unlit_program), surface_alpha);
+    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_source * transmission_tint), (surface_transmission * environment_enabled));
+    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_source * fresnel) * environment_enabled));
+    let prepass_alpha: f32 = select(surface_alpha, object_tag, (abs(camera.viewport_optics.z) > 1.5));
+    let result: vec4<f32> = vec4<f32>(select(shaded, surface_base_color, unlit_program), prepass_alpha);
+    let diagnostic_mode: f32 = camera.optical_diagnostic.x;
+    if (((diagnostic_mode > 0.5) && (diagnostic_mode < 1.5))) {
+        return vec4<f32>(vec3<f32>(reflection_hit), 1.0);
+    }
+    if (((diagnostic_mode > 1.5) && (diagnostic_mode < 2.5))) {
+        return vec4<f32>(reflection_screen_uv, diagnostic_ray_step, 1.0);
+    }
+    if (((diagnostic_mode > 2.5) && (diagnostic_mode < 3.5))) {
+        return vec4<f32>(diagnostic_depth_delta, abs(diagnostic_depth_delta), diagnostic_ray_step, 1.0);
+    }
+    if (((diagnostic_mode > 3.5) && (diagnostic_mode < 4.5))) {
+        return vec4<f32>(diagnostic_confidence, reflection_hit, diagnostic_ray_step, 1.0);
+    }
+    if (((diagnostic_mode > 4.5) && (diagnostic_mode < 5.5))) {
+        return vec4<f32>(object_tag, material_index, 0.0, 1.0);
+    }
+    if ((diagnostic_mode > 5.5)) {
+        return vec4<f32>(diagnostic_depth_trace, fract(diagnostic_depth_trace), diagnostic_ray_step, 1.0);
+    }
+    return result;
 }

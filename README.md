@@ -1465,10 +1465,16 @@ source-alpha blending for those records. Alpha masking, blending, and glTF
 The **Optics:** entries in `tools/raster_feature_viewer.py` demonstrate global
 IBL, a local reflection probe, varying IOR, absorption distances, nested
 dielectrics, and overlapping transparency. The advanced-material parity gate
-also captures the renderer-comparable scenes. Screen-space refraction through
-an opaque scene-color/depth prepass and order-independent transparency remain
-optional raster quality tiers; the portable baseline deliberately uses the
-environment fallback and deterministic object sorting.
+also captures the renderer-comparable scenes. `RasterConfig(optical_quality=
+"screen-space")` enables a portable two-phase optical tier: an opaque
+color/depth prepass followed by a synchronized reflection/refraction composite
+for reflective, transmissive, and blended draws. Missed projected rays retain
+the roughness-filtered environment or reflection-probe result. The
+**Optics (screen-space):** viewer entries exercise rough reflection,
+refraction, and nested dielectrics on Vulkan and WebGPU. The default
+`"environment"` tier deliberately retains the original single-pass,
+lower-cost behavior. Order-independent transparency remains a later quality
+tier; the baseline continues to use deterministic camera-relative sorting.
 
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization

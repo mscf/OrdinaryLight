@@ -24,6 +24,26 @@ _CAMERA = OrbitCamera(target=(0.0, 0.9, 0.0), radius=8.5, height=4.2)
 
 SHOWCASES = (
     *tuple(Showcase(
+        f"optical-screen-{slug}", f"Optics (screen-space): {title}", builder,
+        description=description,
+        camera=OrbitCamera(target=(0.0, 1.1, 0.0), radius=9.5, height=3.5),
+        renderer={
+            "shadows": True, "shadow_map_size": 1024,
+            "optical_quality": "screen-space",
+            "screen_space_ray_steps": 24,
+        },
+        tags=("raster-feature", "materials", "optics", "screen-space", slug),
+    ) for slug, title, builder, description in (
+        ("rough-reflection", "rough scene reflections",
+         build_environment_reflection_scene,
+         "Screen-space reflections with rough environment fallback."),
+        ("refraction", "scene refraction", build_refraction_scene,
+         "Projected scene-color refraction with IOR and absorption."),
+        ("nested-dielectric", "nested dielectric comparison",
+         build_nested_dielectric_scene,
+         "Screen-space raster optics beside the eight-bounce GI target."),
+    )),
+    *tuple(Showcase(
         f"optical-{slug}", f"Optics: {title}", builder,
         description=description,
         camera=OrbitCamera(target=(0.0, 1.1, 0.0), radius=9.5, height=3.5),

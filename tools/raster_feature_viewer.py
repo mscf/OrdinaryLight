@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -31,6 +33,7 @@ if (
 import ordinarylight as ol
 from ordinarylight.integrations.workbench import discover_showcases
 from ordinarylight.outputs import to_sdr
+from ordinarylight.renderers.raster._diagnostics import frame_difference
 
 
 RESOLUTIONS = (
@@ -45,6 +48,51 @@ TARGETS = (
     ("Wavefront GI", "wavefront-gi"),
     ("WebGPU raster", "webgpu-raster"),
 )
+
+
+def _camera_pose_from_json(text):
+    """Parse a viewer camera-pose payload into validated values."""
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid camera-pose JSON: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("camera-pose JSON must contain an object")
+    showcase_id = payload.get("showcase")
+    if not isinstance(showcase_id, str) or not showcase_id:
+        raise ValueError("camera pose requires a non-empty 'showcase' string")
+    try:
+        camera = ol.PerspectiveCamera(
+            position=tuple(payload["position"]),
+            target=tuple(payload["target"]),
+            up=tuple(payload.get("up", (0.0, 1.0, 0.0))),
+            vertical_fov_degrees=float(
+                payload.get("vertical_fov_degrees", 45.0)
+            ),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"invalid camera pose: {error}") from error
+    if not np.allclose(camera.up, (0.0, 1.0, 0.0), atol=1.0e-7):
+        raise ValueError(
+            "the arcball viewer currently supports only an up vector of [0,1,0]"
+        )
+    return showcase_id, camera
+
+
+def _camera_pose_argument(value):
+    """Load a camera pose from inline JSON or a JSON text file."""
+    value = str(value).strip()
+    if value.startswith("{"):
+        text = value
+    else:
+        path = Path(value).expanduser()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ValueError(
+                f"could not read camera-pose file {path}: {error}"
+            ) from error
+    return _camera_pose_from_json(text)
 
 
 def _gi_config(showcase, *, present=False):
@@ -146,6 +194,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.native_window,
             )
             self.container.setMinimumSize(640, 420)
+            if args.diagnostic_camera_pose is not None:
+                self.container.setFixedSize(args.width, args.height)
             self.readback_image = QtWidgets.QLabel(
                 alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
             )
@@ -159,6 +209,18 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.feature = QtWidgets.QComboBox()
             for item in showcases:
                 self.feature.addItem(item.title, item)
+            startup_showcase = (
+                args.diagnostic_camera_pose[0]
+                if args.diagnostic_camera_pose is not None else args.showcase
+            )
+            if startup_showcase is not None:
+                startup_index = next((
+                    index for index in range(self.feature.count())
+                    if self.feature.itemData(index).id == startup_showcase
+                ), -1)
+                if startup_index < 0:
+                    raise ValueError(f"unknown showcase {startup_showcase!r}")
+                self.feature.setCurrentIndex(startup_index)
             self.target = QtWidgets.QComboBox()
             for title, key in TARGETS:
                 self.target.addItem(title, key)
@@ -182,7 +244,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.map_size = QtWidgets.QComboBox()
             for size in (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
                 self.map_size.addItem(str(size), size)
-            self.animate = QtWidgets.QCheckBox(); self.animate.setChecked(True)
+            self.animate = QtWidgets.QCheckBox()
+            self.animate.setChecked(args.diagnostic_camera_pose is None)
+            self.slow_diagnostic = QtWidgets.QCheckBox()
+            self.slow_diagnostic.setChecked(
+                args.diagnostic_camera_pose is not None
+            )
             self.description = QtWidgets.QLabel(wordWrap=True)
             self.help = QtWidgets.QLabel(
                 "Vulkan targets use the direct swapchain; WebGPU currently "
@@ -192,6 +259,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             button = QtWidgets.QPushButton("Apply and restart renderer")
             button.clicked.connect(self.restart)
+            copy_pose = QtWidgets.QPushButton("Copy camera pose")
+            copy_pose.clicked.connect(self._copy_camera_pose)
+            paste_pose = QtWidgets.QPushButton("Paste camera pose")
+            paste_pose.clicked.connect(self._paste_camera_pose)
+            copy_diagnostics = QtWidgets.QPushButton("Copy live diagnostics")
+            copy_diagnostics.clicked.connect(self._copy_live_diagnostics)
             self.feature.currentIndexChanged.connect(self._selection_changed)
             self.target.currentIndexChanged.connect(self._target_changed)
             form.addRow("Feature", self.feature)
@@ -200,14 +273,22 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Enable shadows", self.shadows)
             form.addRow("Shadow map size", self.map_size)
             form.addRow("Animate camera", self.animate)
+            form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
             form.addRow(button)
+            form.addRow(copy_pose)
+            form.addRow(paste_pose)
+            form.addRow(copy_diagnostics)
             self.status = QtWidgets.QLabel(wordWrap=True); form.addRow(self.status)
             self.renderer = None
             self.renderer_target = None
             self.scene_value = None
             self.active_showcase_id = None
             self.controller = None
+            self._startup_camera = (
+                args.diagnostic_camera_pose[1]
+                if args.diagnostic_camera_pose is not None else None
+            )
             self._readback_pixels = None
             self._readback_qimage = None
             self.future = None
@@ -216,7 +297,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 max_workers=1, thread_name_prefix="ordinarylight-qt-vulkan",
             )
             self.completed = deque(maxlen=240)
+            self.diagnostic_frames = deque(maxlen=240)
+            self._diagnostic_exit_requested = False
             self.last_tick = time.perf_counter()
+            self.last_submission = 0.0
             self.timer = QtCore.QTimer(self)
             self.timer.setInterval(1)
             self.timer.timeout.connect(self.tick)
@@ -232,6 +316,83 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             value = self.resolution.currentData()
             if value is not None:
                 self._selected_extent = tuple(int(item) for item in value)
+
+        def _copy_camera_pose(self):
+            if self.controller is None:
+                return
+            camera = self.controller.camera()
+            showcase = self.feature.currentData()
+            payload = {
+                "showcase": showcase.id,
+                "position": list(camera.position),
+                "target": list(camera.target),
+                "up": list(camera.up),
+                "vertical_fov_degrees": camera.vertical_fov_degrees,
+            }
+            text = json.dumps(payload, separators=(",", ":"))
+            QtWidgets.QApplication.clipboard().setText(text)
+            self.status.setText(f"Camera pose copied: {text}")
+
+        def _paste_camera_pose(self):
+            clipboard_text = QtWidgets.QApplication.clipboard().text().strip()
+            text, accepted = QtWidgets.QInputDialog.getMultiLineText(
+                self,
+                "Paste camera pose",
+                "Camera-pose JSON:",
+                clipboard_text,
+            )
+            if not accepted:
+                return
+            try:
+                showcase_id, camera = _camera_pose_from_json(text.strip())
+                showcase_index = next(
+                    (
+                        index for index in range(self.feature.count())
+                        if self.feature.itemData(index).id == showcase_id
+                    ),
+                    -1,
+                )
+                if showcase_index < 0:
+                    raise ValueError(f"unknown showcase {showcase_id!r}")
+                showcase_changed = showcase_index != self.feature.currentIndex()
+                if showcase_changed:
+                    self.feature.blockSignals(True)
+                    self.feature.setCurrentIndex(showcase_index)
+                    self.feature.blockSignals(False)
+                    self._selection_changed()
+                    self.scene_value = None
+                    self.active_showcase_id = None
+                item = self.feature.currentData()
+                self.scene_value, _, self.active_showcase_id = _preserved_view(
+                    item, self.scene_value, self.controller,
+                    self.active_showcase_id,
+                )
+                self.controller = ol.ArcballCameraController.from_camera(camera)
+                # Resident raster commands contain camera-dependent transparent
+                # draw ordering. Restarting is required only when the showcase
+                # changes; an in-place pose update is otherwise sufficient.
+                if showcase_changed:
+                    self.restart()
+                self.status.setText(
+                    f"Camera pose applied: {showcase_id} at {camera.position}"
+                )
+            except ValueError as error:
+                self.status.setText(f"Camera pose rejected: {error}")
+                QtWidgets.QMessageBox.warning(
+                    self, "Invalid camera pose", str(error),
+                )
+
+        def _copy_live_diagnostics(self):
+            payload = {
+                "showcase": self.feature.currentData().id,
+                "target": self.renderer_target,
+                "frames": list(self.diagnostic_frames),
+            }
+            text = json.dumps(payload, separators=(",", ":"))
+            QtWidgets.QApplication.clipboard().setText(text)
+            self.status.setText(
+                f"Copied {len(self.diagnostic_frames)} live diagnostic frames"
+            )
 
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
@@ -287,6 +448,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     item, self.scene_value, self.controller,
                     self.active_showcase_id,
                 )
+                if self._startup_camera is not None:
+                    self.controller = ol.ArcballCameraController.from_camera(
+                        self._startup_camera,
+                    )
+                    self._startup_camera = None
                 settings = dict(item.renderer)
                 if target_key == "wavefront-gi":
                     self.renderer = ol.VulkanSurfacePresenter(
@@ -332,6 +498,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.renderer_target = target_key
                 self.presentation_failed = False
                 self.completed.clear()
+                self.diagnostic_frames.clear()
                 self.status.setText(
                     f"{self.target.currentText()} ready; scene and camera retained"
                 )
@@ -378,8 +545,85 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 pack_ms = timings.get("scene_pack_ms", 0.0)
                 prepare_ms = timings.get("scene_prepare_ms", 0.0)
                 submit_ms = timings.get("resident_submit_ms", 0.0)
+                swapchain_index = timings.get("swapchain_image_index")
                 resident = "resident" if timings.get("resident_cache_hit") else "warming"
                 present_mode = timings.get("present_mode", "unknown").upper()
+                diagnostic = {
+                    key: timings.get(key) for key in (
+                        "present_submission", "present_frame_slot",
+                        "swapchain_image_index", "camera_uniform_hash",
+                        "resident_cache_key_hash", "resident_generation_hash",
+                        "resident_cache_slot", "render_finished_slot",
+                        "resident_cache_hit", "present_hdr_hash",
+                        "present_captured_submission",
+                        "present_hdr_max_difference", "present_hdr_rmse",
+                        "present_hdr_changed_pixels", "present_hdr_changed_bounds",
+                        "present_opaque_hdr_hash",
+                        "present_opaque_hdr_max_difference",
+                        "present_opaque_hdr_rmse",
+                        "present_opaque_hdr_changed_pixels",
+                        "present_opaque_hdr_changed_bounds",
+                        "present_depth_hash", "present_depth_max_difference",
+                        "present_depth_rmse", "present_depth_changed_pixels",
+                        "present_depth_changed_bounds",
+                    ) if timings.get(key) is not None
+                }
+                if diagnostic and self.renderer_target == "vulkan-raster":
+                    self.diagnostic_frames.append(diagnostic)
+                    if self.slow_diagnostic.isChecked():
+                        print(
+                            "raster_present_diagnostic "
+                            + json.dumps(diagnostic, sort_keys=True),
+                            flush=True,
+                        )
+                    captured = [
+                        frame for frame in self.diagnostic_frames
+                        if frame.get("present_hdr_hash") is not None
+                    ]
+                    if (
+                        args.diagnostic_frames > 0
+                        and len(captured) >= args.diagnostic_frames
+                        and not self._diagnostic_exit_requested
+                    ):
+                        selected = captured[-args.diagnostic_frames:]
+                        report = {
+                            "showcase": self.feature.currentData().id,
+                            "target": self.renderer_target,
+                            "extent": list(self.extent),
+                            "frames": selected,
+                            "summary": {
+                                "unique_hdr_hashes": len({
+                                    frame["present_hdr_hash"]
+                                    for frame in selected
+                                }),
+                                "maximum_absolute_difference": max(
+                                    frame.get(
+                                        "present_hdr_max_difference", 0.0
+                                    ) for frame in selected
+                                ),
+                                "maximum_rmse": max(
+                                    frame.get("present_hdr_rmse", 0.0)
+                                    for frame in selected
+                                ),
+                                "maximum_changed_pixels": max(
+                                    frame.get(
+                                        "present_hdr_changed_pixels", 0
+                                    ) for frame in selected
+                                ),
+                            },
+                        }
+                        report_path = Path(args.diagnostic_report)
+                        report_path.parent.mkdir(parents=True, exist_ok=True)
+                        report_path.write_text(
+                            json.dumps(report, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
+                        self._diagnostic_exit_requested = True
+                        print(
+                            f"wrote raster diagnostic report: {report_path}",
+                            flush=True,
+                        )
+                        QtCore.QTimer.singleShot(0, self.close)
                 path = (
                     "QImage readback" if self.renderer_target == "webgpu-raster"
                     else "direct swapchain"
@@ -388,11 +632,38 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     f"{fps:.1f} FPS | frame {ms:.2f} ms | pack {pack_ms:.2f} ms "
                     f"| prepare {prepare_ms:.2f} ms "
                     f"| submit {submit_ms:.2f} ms | {width} × {height} "
-                    f"| {self.target.currentText()} · {present_mode} · {path} · {resident}",
+                    f"| {self.target.currentText()} · {present_mode} · {path} · {resident}"
+                    + (
+                        f" · image {swapchain_index}"
+                        if swapchain_index is not None else ""
+                    )
+                    + (
+                        "\ninput "
+                        f"{diagnostic.get('camera_uniform_hash')} · cache "
+                        f"{diagnostic.get('resident_cache_key_hash')} · slot "
+                        f"{diagnostic.get('resident_cache_slot')} · frame-slot "
+                        f"{diagnostic.get('present_frame_slot')}"
+                        if diagnostic else ""
+                    )
+                    + (
+                        "\npresented HDR "
+                        f"{diagnostic.get('present_hdr_hash')} · max "
+                        f"{diagnostic.get('present_hdr_max_difference', 0.0):.6g}"
+                        " · RMSE "
+                        f"{diagnostic.get('present_hdr_rmse', 0.0):.6g}"
+                        " · pixels "
+                        f"{diagnostic.get('present_hdr_changed_pixels', 0)}"
+                        if diagnostic.get("present_hdr_hash") else ""
+                    ),
                 )
             if (
                 self.renderer is None or self.controller is None
                 or self.presentation_failed
+            ):
+                return
+            if (
+                self.slow_diagnostic.isChecked()
+                and now - self.last_submission < 0.5
             ):
                 return
             render_width, render_height = self.extent
@@ -402,6 +673,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 max(1, round(self.native_window.height() * ratio)),
             )
             camera = self.controller.camera()
+            self.last_submission = now
             if self.renderer_target == "vulkan-raster":
                 raster_width, raster_height = _surface_aspect_extent(
                     (render_width, render_height), surface_size,
@@ -410,6 +682,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.renderer.present_frame,
                     self.scene_value, camera, raster_width, raster_height,
                     surface_size=surface_size,
+                    diagnostic_readback=(
+                        args.diagnostic_camera_pose is not None
+                    ),
                 )
             elif self.renderer_target == "wavefront-gi":
                 # A direct Vulkan swapchain must follow the native Qt client
@@ -520,10 +795,48 @@ def main():
         help="initial rendering target",
     )
     parser.add_argument(
+        "--showcase",
+        help="initial showcase identifier",
+    )
+    parser.add_argument(
+        "--diagnostic-pose", metavar="JSON_OR_FILE",
+        help=(
+            "start at an inline/file camera pose with animation disabled, "
+            "a fixed-size viewport, diagnostic logging, and a 2 FPS cap"
+        ),
+    )
+    parser.add_argument(
+        "--diagnostic-frames", type=int, default=0,
+        help="capture this many direct HDR frames, write a report, and exit",
+    )
+    parser.add_argument(
+        "--diagnostic-report",
+        default="/tmp/ordinarylight-raster-diagnostic.json",
+        help="output path used with --diagnostic-frames",
+    )
+    parser.add_argument(
         "--readback", action="store_true",
         help="use the NumPy/QImage comparison path instead of direct Vulkan",
     )
     args = parser.parse_args()
+    args.diagnostic_camera_pose = None
+    if args.diagnostic_pose:
+        try:
+            args.diagnostic_camera_pose = _camera_pose_argument(
+                args.diagnostic_pose,
+            )
+        except ValueError as error:
+            parser.error(str(error))
+        if args.showcase and args.showcase != args.diagnostic_camera_pose[0]:
+            parser.error(
+                "--showcase must match the showcase in --diagnostic-pose"
+            )
+    if args.diagnostic_frames < 0:
+        parser.error("--diagnostic-frames must not be negative")
+    if args.diagnostic_frames and args.diagnostic_camera_pose is None:
+        parser.error("--diagnostic-frames requires --diagnostic-pose")
+    if args.diagnostic_frames and args.readback:
+        parser.error("--diagnostic-frames currently measures direct presentation")
     if not args.readback:
         # PySide exposes Qt's XCB connection, allowing a Qt-owned native window
         # to become a Vulkan surface without embedding a GLFW child.
@@ -598,16 +911,36 @@ def main():
             self._qimage = None
             self._pixels = None
             self._last_tick = time.perf_counter()
+            self._last_submission = 0.0
             self._completed_times = deque(maxlen=240)
+            self._diagnostic_reference = None
+            self._startup_camera = (
+                args.diagnostic_camera_pose[1]
+                if args.diagnostic_camera_pose is not None else None
+            )
 
             root = QtWidgets.QWidget(); self.setCentralWidget(root)
             layout = QtWidgets.QHBoxLayout(root)
             self.image = Viewport(self); layout.addWidget(self.image, 1)
+            if args.diagnostic_camera_pose is not None:
+                self.image.setFixedSize(args.width, args.height)
             panel = QtWidgets.QWidget(); panel.setMaximumWidth(430)
             form = QtWidgets.QFormLayout(panel); layout.addWidget(panel)
             self.feature = QtWidgets.QComboBox()
             for item in showcases:
                 self.feature.addItem(item.title, item)
+            startup_showcase = (
+                args.diagnostic_camera_pose[0]
+                if args.diagnostic_camera_pose is not None else args.showcase
+            )
+            if startup_showcase is not None:
+                startup_index = next((
+                    index for index in range(self.feature.count())
+                    if self.feature.itemData(index).id == startup_showcase
+                ), -1)
+                if startup_index < 0:
+                    raise ValueError(f"unknown showcase {startup_showcase!r}")
+                self.feature.setCurrentIndex(startup_index)
             self.backend = QtWidgets.QComboBox()
             for title, key in TARGETS:
                 self.backend.addItem(title, (key,))
@@ -636,7 +969,8 @@ def main():
             self.map_size = QtWidgets.QComboBox()
             for size in (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
                 self.map_size.addItem(str(size), size)
-            self.animate = QtWidgets.QCheckBox(); self.animate.setChecked(True)
+            self.animate = QtWidgets.QCheckBox()
+            self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.live = QtWidgets.QCheckBox(); self.live.setChecked(True)
             self.description = QtWidgets.QLabel(wordWrap=True)
             self.help = QtWidgets.QLabel(
@@ -702,6 +1036,11 @@ def main():
                     item, self.scene_value, self.controller,
                     self.active_showcase_id,
                 )
+                if self._startup_camera is not None:
+                    self.controller = ol.ArcballCameraController.from_camera(
+                        self._startup_camera,
+                    )
+                    self._startup_camera = None
                 self.renderers = [
                     (name, _renderer(
                         item, self.scene_value, name, self.shadows.isChecked(),
@@ -710,6 +1049,7 @@ def main():
                     for name in names
                 ]
                 self._completed_times.clear()
+                self._diagnostic_reference = None
                 self._last_tick = time.perf_counter()
                 self.status.setText("Live renderer ready")
             except Exception as error:
@@ -751,15 +1091,45 @@ def main():
                     gpu = [stat.gpu_ms for stat in statistics if stat and stat.gpu_ms is not None]
                     gpu_text = f" | GPU {max(gpu):.2f} ms" if gpu else ""
                     width, height = self.extent
+                    diagnostic_pixels = np.concatenate(
+                        [image for _name, image in completed], axis=1,
+                    )
+                    diagnostic_hash = hashlib.sha256(
+                        diagnostic_pixels.tobytes()
+                    ).hexdigest()[:16]
+                    difference_text = ""
+                    if args.diagnostic_camera_pose is not None:
+                        if self._diagnostic_reference is None:
+                            self._diagnostic_reference = diagnostic_pixels.copy()
+                            difference_text = " | reference"
+                        else:
+                            difference = frame_difference(
+                                self._diagnostic_reference,
+                                diagnostic_pixels,
+                            )
+                            difference_text = (
+                                " | diff max "
+                                f"{difference['maximum_absolute_difference']:.6g}"
+                                f" · RMSE {difference['rmse']:.6f}"
+                                f" · pixels {difference['changed_pixels']}"
+                            )
                     self.status.setText(
                         f"{fps:.1f} FPS{gpu_text} | {width} × {height} | "
                         + ", ".join(name for name, _image in completed)
+                        + f" | SDR {diagnostic_hash}"
+                        + difference_text
                     )
                 except Exception as error:
                     self.jobs.clear()
                     self.status.setText(f"Render failed: {error}")
                     return
+            if (
+                args.diagnostic_camera_pose is not None
+                and now - self._last_submission < 0.5
+            ):
+                return
             if self.live.isChecked() or self._qimage is None:
+                self._last_submission = now
                 self._submit()
 
         def _display(self, images):

@@ -16,7 +16,7 @@ default_raster_material_hook = default_material_modifier
 
 @osh.structure
 class SceneVertexOutput:
-    position: osh.builtin(osh.vec4, "position")
+    position: osh.invariant(osh.builtin(osh.vec4, "position"))
     base_color: osh.location(osh.vec3, 0)
     world_normal: osh.location(osh.vec3, 1)
     world_position: osh.location(osh.vec3, 2)
@@ -40,11 +40,12 @@ class SceneVertexOutput:
     sheen_uv: osh.location(osh.vec2, 20)
     anisotropy_uv: osh.location(osh.vec2, 21)
     subsurface_uv: osh.location(osh.vec2, 22)
+    object_id: osh.location(osh.f32, 23)
 
 
 @osh.structure
 class ShadowVertexOutput:
-    position: osh.builtin(osh.vec4, "position")
+    position: osh.invariant(osh.builtin(osh.vec4, "position"))
     clip_depth: osh.location(osh.vec2, 0)
 
 
@@ -52,6 +53,8 @@ class ShadowVertexOutput:
 class RasterCamera:
     view_projection: osh.mat4
     position_exposure: osh.vec4
+    viewport_optics: osh.vec4
+    optical_diagnostic: osh.vec4
 
 
 @osh.structure
@@ -106,6 +109,7 @@ def scene_vertex(
     base_color_uv: osh.location(osh.vec2, 9),
     shadow_coordinate: osh.location(osh.vec4, 10),
     shadow_visibility: osh.location(osh.f32, 11),
+    object_id: osh.location(osh.f32, 12),
     world_tangent: osh.location(osh.vec4, 13),
     metallic_roughness_uv: osh.location(osh.vec2, 14),
     emissive_uv: osh.location(osh.vec2, 15),
@@ -128,7 +132,7 @@ def scene_vertex(
         base_color_uv, shadow_coordinate, shadow_visibility,
         world_tangent, metallic_roughness_uv, emissive_uv, normal_uv,
         occlusion_uv, transmission_uv, material_index, thickness_uv,
-        clearcoat_uv, sheen_uv, anisotropy_uv, subsurface_uv,
+        clearcoat_uv, sheen_uv, anisotropy_uv, subsurface_uv, object_id,
     )
 
 
@@ -157,11 +161,17 @@ def scene_fragment(
     sheen_uv: osh.location(osh.vec2, 20),
     anisotropy_uv: osh.location(osh.vec2, 21),
     subsurface_uv: osh.location(osh.vec2, 22),
+    object_id: osh.location(osh.f32, 23),
     base_color_atlas: osh.sampled_texture_2d(binding=0),
     base_color_sampler: osh.sampler(binding=1),
     shadow_map: osh.sampled_depth_texture_2d(binding=2),
     shadow_sampler: osh.comparison_sampler(binding=4),
     materials: osh.storage_buffer(RasterMaterial, access="read", binding=5),
+    scene_color: osh.sampled_texture_2d(binding=6),
+    scene_depth: osh.sampled_depth_texture_2d(binding=7),
+    scene_sampler: osh.sampler(binding=8),
+    scene_depth_sampler: osh.sampler(binding=9),
+    camera: osh.uniform_buffer(RasterCamera, binding=3),
 ) -> osh.location(osh.vec4, 0):
     if material_index < -0.5:
         return osh.vec4(base_color + emission, material.w)
@@ -173,6 +183,7 @@ def scene_fragment(
     # the nearest integer so those harmless interpolation errors cannot change
     # material identity.
     material_id = osh.u32(material_index + 0.5)
+    object_tag = osh.floor(object_id + 0.5) + 1.0
     base_color_roughness = materials[material_id].base_color_roughness
     emission_metallic = materials[material_id].emission_metallic
     attenuation_transmission = materials[material_id].attenuation_transmission
@@ -538,6 +549,243 @@ def scene_fragment(
             refracted_encoded * environment_rotation_log_range.y,
         ) - osh.vec3(1.0)
     ) * environment_color_intensity.xyz * environment_color_intensity.w
+    screen_clip = camera.view_projection * osh.vec4(world_position, 1.0)
+    screen_ndc = screen_clip.xyz / osh.maximum(
+        osh.absolute(screen_clip.w), 0.000001,
+    )
+    screen_uv = osh.vec2(
+        screen_ndc.x * 0.5 + 0.5,
+        (screen_ndc.y * 0.5 + 0.5) if camera.viewport_optics.z < 0.0
+        else (0.5 - screen_ndc.y * 0.5),
+    )
+    screen_pass_enabled = (
+        1.0 if (
+            osh.absolute(camera.viewport_optics.z) > 0.5
+            and osh.absolute(camera.viewport_optics.z) < 1.5
+        ) else 0.0
+    )
+    screen_enabled = screen_pass_enabled * osh.maximum(
+        surface_transmission, surface_metallic,
+    )
+    # March the world-space reflection ray through projected screen space and
+    # accept only crossings of the completed opaque depth buffer.  This makes
+    # neighboring on-screen geometry participate in reflections while misses,
+    # off-screen rays, and geometry hidden from the camera retain the portable
+    # environment/probe result.
+    quality_distance = osh.minimum(camera.viewport_optics.w / 24.0, 2.0)
+    refraction_travel = (
+        0.025 + optical_thickness * 0.018
+    ) * quality_distance
+    reflection_screen_uv = screen_uv
+    reflection_hit = 0.0
+    reflection_origin = world_position + surface_normal * 0.06
+    reflection_extent = osh.maximum(8.0, osh.length(view_delta) * 3.0)
+    previous_ray_fraction = 0.0
+    previous_depth_delta = -1.0
+    diagnostic_depth_delta = -1.0
+    diagnostic_ray_step = 0.0
+    diagnostic_confidence = 0.0
+    diagnostic_depth_trace = 0.0
+    # A fixed-bound native loop is preferable here. Explicit expansion is
+    # available through Ordinary Shade's ``unroll_range``, but duplicating the
+    # texture-heavy refinement body increases driver code-generation variance
+    # on some Vulkan implementations without improving the march.
+    for ray_step in range(1, 25):
+        ray_fraction = osh.f32(ray_step) / 24.0
+        ray_distance = 0.12 + ray_fraction * ray_fraction * reflection_extent
+        ray_world = reflection_origin + reflected * ray_distance
+        ray_clip = camera.view_projection * osh.vec4(ray_world, 1.0)
+        if ray_clip.w <= 0.000001:
+            break
+        ray_ndc = ray_clip.xyz / ray_clip.w
+        ray_uv = osh.vec2(
+            ray_ndc.x * 0.5 + 0.5,
+            (ray_ndc.y * 0.5 + 0.5) if camera.viewport_optics.z < 0.0
+            else (0.5 - ray_ndc.y * 0.5),
+        )
+        if (
+            ray_uv.x <= 0.001 or ray_uv.x >= 0.999
+            or ray_uv.y <= 0.001 or ray_uv.y >= 0.999
+        ):
+            break
+        sampled_depth = scene_depth.sample_depth_level_with(
+            scene_depth_sampler, ray_uv, 0,
+        )
+        diagnostic_depth_trace = (
+            diagnostic_depth_trace + sampled_depth * ray_fraction
+        )
+        depth_delta = ray_ndc.z - sampled_depth
+        diagnostic_depth_delta = depth_delta
+        diagnostic_ray_step = ray_fraction
+        # A valid hit crosses from in front of opaque depth to just behind it.
+        # Requiring the crossing (rather than accepting any nearby sample)
+        # rejects the reflector's own grazing silhouette.  NDC depth is highly
+        # compressed here, so the former milliscale band admitted geometry
+        # several world units away and visibly shimmered during motion.
+        depth_thickness = 0.00008 + ray_fraction * 0.00042
+        if (
+            previous_depth_delta <= 0.00001
+            and depth_delta > 0.00001
+        ):
+            # The coarse march is deliberately cheap, but choosing its first
+            # sample directly makes the reflected texel jump by a whole step
+            # as the camera moves. Refine the depth crossing before sampling
+            # scene color so adjacent frames converge on the same surface.
+            lower_fraction = previous_ray_fraction
+            upper_fraction = ray_fraction
+            refined_uv = ray_uv
+            refined_delta = depth_delta
+            for refine_step in range(4):
+                middle_fraction = (lower_fraction + upper_fraction) * 0.5
+                middle_distance = (
+                    0.12
+                    + middle_fraction * middle_fraction * reflection_extent
+                )
+                middle_world = reflection_origin + reflected * middle_distance
+                middle_clip = (
+                    camera.view_projection * osh.vec4(middle_world, 1.0)
+                )
+                middle_ndc = middle_clip.xyz / osh.maximum(
+                    middle_clip.w, 0.000001,
+                )
+                middle_uv = osh.vec2(
+                    middle_ndc.x * 0.5 + 0.5,
+                    (middle_ndc.y * 0.5 + 0.5)
+                    if camera.viewport_optics.z < 0.0
+                    else (0.5 - middle_ndc.y * 0.5),
+                )
+                middle_depth = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler, middle_uv, 0,
+                )
+                middle_delta = middle_ndc.z - middle_depth
+                if middle_delta > 0.00001:
+                    upper_fraction = middle_fraction
+                    refined_uv = middle_uv
+                    refined_delta = middle_delta
+                else:
+                    lower_fraction = middle_fraction
+            refined_thickness = 0.00006 + upper_fraction * 0.00030
+            edge_distance = osh.minimum(
+                osh.minimum(refined_uv.x, 1.0 - refined_uv.x),
+                osh.minimum(refined_uv.y, 1.0 - refined_uv.y),
+            )
+            edge_confidence = osh.clamp(
+                (edge_distance - 0.002) / 0.018, 0.0, 1.0,
+            )
+            if refined_delta < refined_thickness:
+                candidate = scene_color.sample_level_with(
+                    scene_sampler, refined_uv, 0.0,
+                )
+                different_object = (
+                    1.0 if osh.absolute(candidate.w - object_tag) > 0.25
+                    else 0.0
+                )
+                # A hit adjacent to a depth discontinuity is not stable under
+                # sub-pixel motion: at one resolution it sees foreground and
+                # at another it sees background. Measure a one-pixel cross in
+                # the opaque depth buffer and smoothly prefer the environment
+                # fallback instead of letting that binary choice shimmer.
+                hit_texel = osh.vec2(
+                    1.0 / osh.maximum(camera.viewport_optics.x, 1.0),
+                    1.0 / osh.maximum(camera.viewport_optics.y, 1.0),
+                )
+                hit_depth = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler, refined_uv, 0,
+                )
+                depth_left = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler,
+                    refined_uv - osh.vec2(hit_texel.x, 0.0),
+                    0,
+                )
+                depth_right = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler,
+                    refined_uv + osh.vec2(hit_texel.x, 0.0),
+                    0,
+                )
+                depth_down = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler,
+                    refined_uv - osh.vec2(0.0, hit_texel.y),
+                    0,
+                )
+                depth_up = scene_depth.sample_depth_level_with(
+                    scene_depth_sampler,
+                    refined_uv + osh.vec2(0.0, hit_texel.y),
+                    0,
+                )
+                depth_spread = osh.maximum(
+                    osh.maximum(
+                        osh.absolute(depth_left - hit_depth),
+                        osh.absolute(depth_right - hit_depth),
+                    ),
+                    osh.maximum(
+                        osh.absolute(depth_down - hit_depth),
+                        osh.absolute(depth_up - hit_depth),
+                    ),
+                )
+                depth_confidence = osh.clamp(
+                    1.0 - depth_spread / 0.00075, 0.0, 1.0,
+                )
+                reflection_screen_uv = refined_uv
+                reflection_hit = (
+                    edge_confidence * different_object * depth_confidence
+                )
+                diagnostic_confidence = edge_confidence * depth_confidence
+            if camera.optical_diagnostic.x < 5.5:
+                break
+        previous_ray_fraction = ray_fraction
+        previous_depth_delta = depth_delta
+    refraction_screen_uv = screen_uv + refracted.xy * refraction_travel
+    refraction_valid = (
+        refraction_screen_uv.x > 0.001 and refraction_screen_uv.x < 0.999
+        and refraction_screen_uv.y > 0.001 and refraction_screen_uv.y < 0.999
+    )
+    refraction_hit = 1.0 if refraction_valid else 0.0
+    # Rough SSR must filter in screen space. A single hit texel aliases scene
+    # detail and produces resolution-dependent blocks that flicker under tiny
+    # camera changes. This compact tent kernel has a radius measured in output
+    # pixels, so 1080p and 4K converge toward the same appearance.
+    reflection_texel = osh.vec2(
+        1.0 / osh.maximum(camera.viewport_optics.x, 1.0),
+        1.0 / osh.maximum(camera.viewport_optics.y, 1.0),
+    )
+    reflection_radius = 1.0 + surface_roughness * surface_roughness * 10.0
+    reflection_offset = reflection_texel * reflection_radius
+    screen_reflected = (
+        scene_color.sample_level_with(
+            scene_sampler, reflection_screen_uv, 0.0,
+        ).xyz * 4.0
+        + scene_color.sample_level_with(
+            scene_sampler,
+            reflection_screen_uv + osh.vec2(reflection_offset.x, 0.0),
+            0.0,
+        ).xyz
+        + scene_color.sample_level_with(
+            scene_sampler,
+            reflection_screen_uv - osh.vec2(reflection_offset.x, 0.0),
+            0.0,
+        ).xyz
+        + scene_color.sample_level_with(
+            scene_sampler,
+            reflection_screen_uv + osh.vec2(0.0, reflection_offset.y),
+            0.0,
+        ).xyz
+        + scene_color.sample_level_with(
+            scene_sampler,
+            reflection_screen_uv - osh.vec2(0.0, reflection_offset.y),
+            0.0,
+        ).xyz
+    ) * 0.125
+    screen_refracted = scene_color.sample_level_with(
+        scene_sampler, refraction_screen_uv, 0.0,
+    ).xyz
+    reflected_source = osh.mix(
+        reflected_environment, screen_reflected,
+        reflection_hit * screen_enabled * (1.0 - surface_roughness),
+    )
+    refracted_source = osh.mix(
+        refracted_environment, screen_refracted,
+        refraction_hit * screen_enabled * (1.0 - surface_roughness),
+    )
     environment_enabled = environment_rotation_log_range.z
     ambient = (
         surface_base_color * diffuse_weight
@@ -547,14 +795,46 @@ def scene_fragment(
     base_shaded = ambient + direct + surface_emission
     transmitted_shaded = osh.mix(
         base_shaded,
-        refracted_environment * transmission_tint,
+        refracted_source * transmission_tint,
         surface_transmission * environment_enabled,
     )
     shaded = (
         transmitted_shaded
-        + reflected_environment * fresnel * environment_enabled
+        + reflected_source * fresnel * environment_enabled
     )
-    return osh.vec4(surface_base_color if unlit_program else shaded, surface_alpha)
+    prepass_alpha = (
+        object_tag if osh.absolute(camera.viewport_optics.z) > 1.5
+        else surface_alpha
+    )
+    result = osh.vec4(
+        surface_base_color if unlit_program else shaded, prepass_alpha,
+    )
+    diagnostic_mode = camera.optical_diagnostic.x
+    if diagnostic_mode > 0.5 and diagnostic_mode < 1.5:
+        return osh.vec4(osh.vec3(reflection_hit), 1.0)
+    if diagnostic_mode > 1.5 and diagnostic_mode < 2.5:
+        return osh.vec4(reflection_screen_uv, diagnostic_ray_step, 1.0)
+    if diagnostic_mode > 2.5 and diagnostic_mode < 3.5:
+        return osh.vec4(
+            diagnostic_depth_delta,
+            osh.absolute(diagnostic_depth_delta),
+            diagnostic_ray_step,
+            1.0,
+        )
+    if diagnostic_mode > 3.5 and diagnostic_mode < 4.5:
+        return osh.vec4(
+            diagnostic_confidence, reflection_hit, diagnostic_ray_step, 1.0,
+        )
+    if diagnostic_mode > 4.5 and diagnostic_mode < 5.5:
+        return osh.vec4(object_tag, material_index, 0.0, 1.0)
+    if diagnostic_mode > 5.5:
+        return osh.vec4(
+            diagnostic_depth_trace,
+            osh.fraction(diagnostic_depth_trace),
+            diagnostic_ray_step,
+            1.0,
+        )
+    return result
 
 
 __all__ = [

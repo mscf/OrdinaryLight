@@ -12,6 +12,8 @@ from ..lights import DirectionalLight, PointLight, SpotLight
 CAMERA_DTYPE = np.dtype([
     ("view_projection", np.float32, (4, 4)),
     ("position_exposure", np.float32, (4,)),
+    ("viewport_optics", np.float32, (4,)),
+    ("optical_diagnostic", np.float32, (4,)),
 ], align=True)
 
 MATERIAL_DTYPE = np.dtype([
@@ -106,6 +108,7 @@ def pack_raster_gpu_scene(
     camera_data = np.zeros(1, CAMERA_DTYPE)
     camera_data["view_projection"][0] = camera_matrix(camera, width, height)
     camera_data["position_exposure"][0] = (*camera.position, float(exposure))
+    camera_data["viewport_optics"][0] = (float(width), float(height), 0.0, 4.0)
     textures, texture_lookup = _texture_table(scene)
     if default_program is None:
         from ..materials import builtin_material

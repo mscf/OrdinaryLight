@@ -27,7 +27,10 @@ def _render_gi(scene, camera, extent, samples, material_modifier=None):
         )
 
 
-def _render_raster(scene, camera, extent, material_modifier=None):
+def _render_raster(
+    scene, camera, extent, material_modifier=None,
+    optical_quality="environment",
+):
     program = ol.RasterProgram.scene(
         target="spirv",
         material_programs=scene.material_programs(ol.builtin_material),
@@ -40,6 +43,7 @@ def _render_raster(scene, camera, extent, material_modifier=None):
             ambient_light=0.08,
             shading_model="pbr",
             tone_mapping="none",
+            optical_quality=optical_quality,
         ),
     )
     with ol.Renderer(implementation=implementation) as renderer:
@@ -65,6 +69,11 @@ def main():
     parser.add_argument("--max-log-color-rmse", type=float, default=0.45)
     parser.add_argument("--min-edge-correlation", type=float, default=0.35)
     parser.add_argument("--min-coverage-iou", type=float, default=0.65)
+    parser.add_argument(
+        "--raster-optics", choices=("environment", "screen-space"),
+        default="environment",
+        help="raster optical quality tier (environment remains the baseline)",
+    )
     parser.add_argument(
         "--output", type=Path,
         default=Path("/tmp/ordinarylight_renderer_visual_parity"),
@@ -143,7 +152,9 @@ def main():
         scene, camera, extent, args.samples, material_modifier,
     )
     print("Rendering raster candidate...")
-    raster = _render_raster(scene, camera, extent, material_modifier)
+    raster = _render_raster(
+        scene, camera, extent, material_modifier, args.raster_optics,
+    )
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,
         reference_mask=gi.object_id > 0,
@@ -153,6 +164,7 @@ def main():
         "extent": list(extent),
         "samples": args.samples,
         "scene": args.scene,
+        "raster_optics": args.raster_optics,
         "metrics": metrics,
         "thresholds": {
             "max_log_color_rmse": args.max_log_color_rmse,

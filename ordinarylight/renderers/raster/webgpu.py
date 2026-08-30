@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
+_OPTICAL_DEBUG_MODES = {
+    "off": 0.0, "hit": 1.0, "uv": 2.0, "depth-delta": 3.0,
+    "confidence": 4.0, "object-id": 5.0, "depth-trace": 6.0,
+}
+
 from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
@@ -19,6 +24,14 @@ class WebGpuRasterRenderer(RendererImplementation):
     implementation = RendererImplementationInfo(
         name="webgpu-raster", family="raster", graphics_api="webgpu",
     )
+
+    @staticmethod
+    def _opaque_camera_payload(payload):
+        camera = np.frombuffer(payload, dtype=CAMERA_DTYPE).copy()
+        mode = camera["viewport_optics"][0, 2]
+        camera["viewport_optics"][0, 2] = 2.0 if mode > 0.0 else 0.0
+        camera["optical_diagnostic"][0] = 0.0
+        return camera.tobytes()
 
     def __init__(self, program, *, config=None, state=None, power_preference="high-performance"):
         try:
@@ -63,8 +76,12 @@ class WebGpuRasterRenderer(RendererImplementation):
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
 
-    def _pipeline(self, layout, *, transparent=False):
-        key = (layout, self.state, bool(transparent))
+    def _pipeline(self, layout, *, pass_kind="opaque"):
+        optical = pass_kind in {
+            "optical-opaque", "transmissive", "transparent",
+        }
+        transparent = pass_kind in {"transmissive", "transparent"}
+        key = (layout, self.state, pass_kind)
         if key in self._pipelines:
             return self._pipelines[key]
         # Source-alpha blending is harmless for opaque fragments (alpha=1)
@@ -86,11 +103,22 @@ class WebGpuRasterRenderer(RendererImplementation):
                     "attributes": tuple({"format": item.format, "offset": item.offset, "shader_location": item.location} for item in layout.attributes),
                 },),
             },
-            primitive={"topology": self.state.topology, "cull_mode": self.state.cull_mode, "front_face": self.state.front_face},
+            primitive={
+                "topology": self.state.topology,
+                "cull_mode": (
+                    "back" if pass_kind == "transmissive"
+                    else self.state.cull_mode
+                ),
+                "front_face": self.state.front_face,
+            },
             depth_stencil={
                 "format": "depth32float",
-                "depth_write_enabled": self.state.depth_write and not transparent,
-                "depth_compare": self.state.depth_compare,
+                "depth_write_enabled": self.state.depth_write and not optical,
+                "depth_compare": (
+                    "less-equal" if optical and
+                    self.config.optical_quality == "screen-space" else
+                    self.state.depth_compare
+                ),
             } if self.state.depth_test else None,
             fragment={
                 "module": self._fragment_module,
@@ -111,11 +139,17 @@ class WebGpuRasterRenderer(RendererImplementation):
             return np.broadcast_to(clear, (height, width, 4)).copy()
         texture = self.device.create_texture(
             size=(width, height, 1), format="rgba16float",
-            usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC,
+            usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
+                   | wgpu.TextureUsage.COPY_SRC
+                   | wgpu.TextureUsage.TEXTURE_BINDING),
         )
         depth = None
         if self.state.depth_test:
-            depth = self.device.create_texture(size=(width, height, 1), format="depth32float", usage=wgpu.TextureUsage.RENDER_ATTACHMENT)
+            depth = self.device.create_texture(
+                size=(width, height, 1), format="depth32float",
+                usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
+                       | wgpu.TextureUsage.TEXTURE_BINDING),
+            )
         vertex_buffer = self.device.create_buffer_with_data(
             data=mesh.vertices, usage=wgpu.BufferUsage.VERTEX,
         )
@@ -141,6 +175,10 @@ class WebGpuRasterRenderer(RendererImplementation):
             )
             atlas_sampler = self.device.create_sampler(
                 mag_filter="linear", min_filter="linear",
+                address_mode_u="clamp-to-edge", address_mode_v="clamp-to-edge",
+            )
+            scene_depth_sampler = self.device.create_sampler(
+                mag_filter="nearest", min_filter="nearest",
                 address_mode_u="clamp-to-edge", address_mode_v="clamp-to-edge",
             )
             shadow_sampler = self.device.create_sampler(
@@ -235,20 +273,38 @@ class WebGpuRasterRenderer(RendererImplementation):
                 },
             )
             shadow_clear_pass.end()
+        screen_space_optics = bool(
+            self.config.optical_quality == "screen-space"
+            and mesh.resources.get("optical_index_count", 0) and depth is not None
+        )
         if atlas_texture is not None:
             entries = [
                 {"binding": 0, "resource": atlas_texture.create_view()},
                 {"binding": 1, "resource": atlas_sampler},
                 {"binding": 2, "resource": shadow_depth.create_view()},
                 {"binding": 4, "resource": shadow_sampler},
+                {"binding": 6, "resource": atlas_texture.create_view()},
+                {"binding": 7, "resource": shadow_depth.create_view()},
+                {"binding": 8, "resource": atlas_sampler},
+                {"binding": 9, "resource": scene_depth_sampler},
             ]
             camera_payload = mesh.resources.get("camera_uniform")
+            optical_camera_buffer = None
             if camera_payload is not None:
                 camera_buffer = self.device.create_buffer_with_data(
-                    data=camera_payload,
+                    data=(
+                        self._opaque_camera_payload(camera_payload)
+                        if screen_space_optics else camera_payload
+                    ),
                     usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST,
                 )
                 entries.append({"binding": 3, "resource": camera_buffer})
+                if screen_space_optics:
+                    optical_camera_buffer = self.device.create_buffer_with_data(
+                        data=camera_payload,
+                        usage=(wgpu.BufferUsage.UNIFORM
+                               | wgpu.BufferUsage.COPY_DST),
+                    )
             material_payload = mesh.resources.get("material_buffer")
             if material_payload is not None:
                 if not material_payload:
@@ -269,6 +325,23 @@ class WebGpuRasterRenderer(RendererImplementation):
                 layout=self._pipeline(mesh.layout).get_bind_group_layout(0),
                 entries=tuple(entries),
             )
+            optical_bind_group = None
+            if screen_space_optics:
+                optical_entries = [dict(entry) for entry in entries]
+                for entry in optical_entries:
+                    if entry["binding"] == 6:
+                        entry["resource"] = texture.create_view()
+                    elif entry["binding"] == 7:
+                        entry["resource"] = depth.create_view()
+                    elif entry["binding"] == 3:
+                        entry["resource"] = optical_camera_buffer
+                optical_bind_group = self.device.create_bind_group(
+                    layout=self._pipeline(
+                        mesh.layout, transparent=True,
+                    ).get_bind_group_layout(0),
+                    entries=tuple(optical_entries),
+                )
+        output_texture = texture
         render_pass = encoder.begin_render_pass(color_attachments=({
             "view": texture.create_view(), "resolve_target": None,
             "load_op": "clear", "store_op": "store",
@@ -285,20 +358,86 @@ class WebGpuRasterRenderer(RendererImplementation):
                 data=mesh.indices, usage=wgpu.BufferUsage.INDEX,
             )
             render_pass.set_index_buffer(index_buffer, "uint32")
-            opaque_count = int(mesh.resources.get(
+            authored_opaque_count = int(mesh.resources.get(
                 "opaque_index_count", mesh.indices.size,
             ))
+            opaque_count = (
+                int(mesh.resources.get("opaque_prepass_index_count", 0))
+                if screen_space_optics else authored_opaque_count
+            )
             if opaque_count:
                 render_pass.draw_indexed(opaque_count)
             transparent_count = mesh.indices.size - opaque_count
-            if transparent_count:
+            if transparent_count and not screen_space_optics:
                 render_pass.set_pipeline(
-                    self._pipeline(mesh.layout, transparent=True),
+                    self._pipeline(mesh.layout, pass_kind="transparent"),
                 )
                 render_pass.draw_indexed(
                     transparent_count, 1, opaque_count, 0, 0,
                 )
         render_pass.end()
+        if screen_space_optics:
+            output_texture = self.device.create_texture(
+                size=(width, height, 1), format="rgba16float",
+                usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
+                       | wgpu.TextureUsage.COPY_SRC
+                       | wgpu.TextureUsage.COPY_DST),
+            )
+            encoder.copy_texture_to_texture(
+                {"texture": texture}, {"texture": output_texture},
+                (width, height, 1),
+            )
+            optical_pass = encoder.begin_render_pass(
+                color_attachments=({
+                    "view": output_texture.create_view(),
+                    "resolve_target": None,
+                    "load_op": "load", "store_op": "store",
+                },),
+                depth_stencil_attachment={
+                    "view": depth.create_view(),
+                    "depth_read_only": True,
+                },
+            )
+            optical_pass.set_bind_group(0, optical_bind_group)
+            optical_pass.set_vertex_buffer(0, vertex_buffer)
+            optical_pass.set_index_buffer(index_buffer, "uint32")
+            optical_opaque_count = int(mesh.resources.get(
+                "optical_opaque_index_count", 0,
+            ))
+            alpha_transparent_count = int(mesh.resources.get(
+                "transparent_index_count", 0,
+            ))
+            transmissive_count = int(mesh.resources.get(
+                "optical_transmissive_index_count", 0,
+            ))
+            authored_transparent_count = (
+                alpha_transparent_count - transmissive_count
+            )
+            if optical_opaque_count:
+                optical_pass.set_pipeline(self._pipeline(
+                    mesh.layout, pass_kind="optical-opaque",
+                ))
+                optical_pass.draw_indexed(
+                    optical_opaque_count, 1, opaque_count, 0, 0,
+                )
+            if transmissive_count:
+                optical_pass.set_pipeline(self._pipeline(
+                    mesh.layout, pass_kind="transmissive",
+                ))
+                optical_pass.draw_indexed(
+                    transmissive_count, 1,
+                    opaque_count + optical_opaque_count, 0, 0,
+                )
+            if authored_transparent_count:
+                optical_pass.set_pipeline(self._pipeline(
+                    mesh.layout, pass_kind="transparent",
+                ))
+                optical_pass.draw_indexed(
+                    authored_transparent_count, 1,
+                    opaque_count + optical_opaque_count + transmissive_count,
+                    0, 0,
+                )
+            optical_pass.end()
         row_bytes = width * 4 * np.dtype(np.float16).itemsize
         padded_row_bytes = (row_bytes + 255) & ~255
         readback = self.device.create_buffer(
@@ -306,7 +445,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.COPY_SRC,
         )
         encoder.copy_texture_to_buffer(
-            {"texture": texture},
+            {"texture": output_texture},
             {"buffer": readback, "bytes_per_row": padded_row_bytes,
              "rows_per_image": height},
             (width, height, 1),
@@ -326,6 +465,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         camera_data = np.zeros(1, CAMERA_DTYPE)
         camera_data["view_projection"][0] = camera_matrix(camera, width, height).T
         camera_data["position_exposure"][0] = (*camera.position, 1.0)
+        camera_data["viewport_optics"][0] = (width, height, 1.0 if self.config.optical_quality == "screen-space" else 0.0, self.config.screen_space_ray_steps)
+        camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
+            self.config.optical_debug_view
+        ]
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
@@ -347,6 +490,10 @@ class WebGpuRasterRenderer(RendererImplementation):
                 camera, width, height,
             ).T
             camera_data["position_exposure"][0] = (*camera.position, 1.0)
+            camera_data["viewport_optics"][0] = (width, height, 1.0 if self.config.optical_quality == "screen-space" else 0.0, self.config.screen_space_ray_steps)
+            camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
+                self.config.optical_debug_view
+            ]
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)

@@ -12,6 +12,7 @@ if shade_root.exists():
     sys.path.insert(0, str(shade_root))
 
 import ordinarylight as ol
+from ordinarylight.renderers.raster._diagnostics import frame_difference
 from ordinarylight.materials.gpu import (
     SurfaceContext, SurfaceParameters, blend_surface_parameters,
 )
@@ -67,6 +68,32 @@ class RasterBackendTests(unittest.TestCase):
         self.assertTrue(callable(renderer.present_frame))
         self.assertIsInstance(renderer.direct_presentation, property)
 
+    def test_frame_difference_detects_and_quantifies_changed_pixels(self):
+        reference = np.zeros((2, 3, 4), np.float32)
+        current = reference.copy()
+        current[0, 1, 2] = 4.0
+        current[1, 2, 0] = -2.0
+
+        difference = frame_difference(reference, current)
+
+        self.assertEqual(difference["maximum_absolute_difference"], 4.0)
+        self.assertEqual(difference["changed_pixels"], 2)
+        self.assertEqual(
+            difference["changed_bounds"], {"x": [1, 2], "y": [0, 1]},
+        )
+        self.assertAlmostEqual(
+            difference["rmse"], np.sqrt((16.0 + 4.0) / 24.0),
+        )
+        self.assertEqual(
+            frame_difference(reference, reference),
+            {
+                "maximum_absolute_difference": 0.0,
+                "rmse": 0.0,
+                "changed_pixels": 0,
+                "changed_bounds": None,
+            },
+        )
+
     def test_present_cache_key_tracks_draw_shape_not_camera_payload(self):
         renderer = ol.renderers.raster.VulkanRasterRenderer
         first = ol.triangle_mesh()
@@ -82,11 +109,59 @@ class RasterBackendTests(unittest.TestCase):
             key, renderer._present_cache_key(first, 2, 1920, 1080),
         )
 
+    def test_present_cache_retires_previous_camera_order_generation(self):
+        renderer_type = ol.renderers.raster.VulkanRasterRenderer
+        renderer = object.__new__(renderer_type)
+        renderer._present_cache_generation = None
+        renderer.device = object()
+        events = []
+
+        class FakeVulkan:
+            @staticmethod
+            def vkDeviceWaitIdle(device):
+                events.append(("idle", device))
+
+        renderer.vk = FakeVulkan()
+        renderer._clear_present_cache = lambda: events.append(("clear",))
+
+        self.assertTrue(renderer._activate_present_cache_generation((1, 2)))
+        self.assertFalse(renderer._activate_present_cache_generation((1, 2)))
+        self.assertEqual(events, [])
+        self.assertTrue(renderer._activate_present_cache_generation((2, 1)))
+        self.assertEqual(events, [("idle", renderer.device), ("clear",)])
+
+    def test_present_completion_semaphore_is_owned_by_swapchain_image(self):
+        renderer = object.__new__(
+            ol.renderers.raster.VulkanRasterRenderer
+        )
+        renderer._present_render_finished = [object(), object(), object()]
+
+        self.assertIs(
+            renderer._render_finished_for_image(0),
+            renderer._present_render_finished[0],
+        )
+        self.assertIs(
+            renderer._render_finished_for_image(2),
+            renderer._present_render_finished[2],
+        )
+        with self.assertRaisesRegex(RuntimeError, "completion semaphore"):
+            renderer._render_finished_for_image(3)
+
+    def test_opaque_prepass_disables_screen_space_sampling(self):
+        camera = np.zeros(1, ol.raster.CAMERA_DTYPE)
+        camera["viewport_optics"][0] = (1920, 1080, -1, 32)
+        payload = ol.renderers.raster.VulkanRasterRenderer._opaque_camera_payload(
+            camera.tobytes(),
+        )
+        decoded = np.frombuffer(payload, dtype=ol.raster.CAMERA_DTYPE)
+        self.assertEqual(decoded["viewport_optics"][0, 2], -2.0)
+        self.assertEqual(decoded["viewport_optics"][0, 3], 32.0)
+
     def test_builtin_scene_program_compiles_for_both_implementations(self):
         target = "spirv" if shutil.which("glslangValidator") else "glsl"
         native = ol.RasterProgram.scene(target=target)
         web = ol.RasterProgram.scene(target="wgsl", validate=False)
-        self.assertEqual(len(native.reflection.varyings), 23)
+        self.assertEqual(len(native.reflection.varyings), 24)
         self.assertIn("@location(1)", web.vertex.source)
 
     def test_material_shader_variants_are_cached_by_program_set(self):
@@ -215,6 +290,61 @@ class RasterBackendTests(unittest.TestCase):
         os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
         "GPU raster validation is opt-in",
     )
+    def test_screen_space_optics_runs_on_both_native_targets(self):
+        from ordinarylight.showcases.optical_materials import (
+            build_refraction_scene,
+        )
+        scene = build_refraction_scene()
+        camera = ol.PerspectiveCamera((0, 3, 8), (0, 1, 0))
+        target_types = []
+        if importlib.util.find_spec("vulkan") is not None:
+            target_types.append((
+                "spirv", ol.renderers.raster.VulkanRasterRenderer,
+            ))
+        if importlib.util.find_spec("wgpu") is not None:
+            target_types.append((
+                "wgsl", ol.renderers.raster.WebGpuRasterRenderer,
+            ))
+        if not target_types:
+            self.skipTest("no GPU raster backend is available")
+        screen_images = []
+        for target, implementation in target_types:
+            with self.subTest(target=target):
+                program = ol.RasterProgram.scene(
+                    target=target, validate=False,
+                    material_programs=scene.material_programs(
+                        ol.builtin_material,
+                    ),
+                )
+                images = []
+                for tier in ("environment", "screen-space"):
+                    backend = implementation(
+                        program, config=ol.RasterConfig(
+                            optical_quality=tier, shadows=False,
+                            state=ol.RasterState(cull_mode="none"),
+                        ),
+                    )
+                    try:
+                        images.append(backend.render_frame(
+                            scene, camera, 160, 90,
+                        ))
+                    finally:
+                        backend.close()
+                self.assertTrue(np.all(np.isfinite(images[1])))
+                self.assertGreater(
+                    float(np.mean(np.abs(images[1] - images[0]))), 1e-4,
+                )
+                screen_images.append(images[1])
+        if len(screen_images) == 2:
+            self.assertLess(
+                float(np.mean(np.abs(screen_images[0] - screen_images[1]))),
+                0.06,
+            )
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
     def test_scene_rendering_and_depth_match_implementation_contract(self):
         scene, camera = self._overlap_scene()
         choices = []
@@ -292,6 +422,34 @@ class RasterBackendTests(unittest.TestCase):
                     self.assertEqual(len(backend._pipelines), 1)
             finally:
                 backend.close()
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_screen_space_optics_executes_with_sampled_scene_depth(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        from ordinarylight.showcases.optical_materials import (
+            build_environment_reflection_scene,
+        )
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                optical_quality="screen-space", screen_space_ray_steps=16,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            scene = build_environment_reflection_scene()
+            camera = ol.PerspectiveCamera((0, 3.0, 9.0), (0, 1.0, 0))
+            image = backend.render_frame(scene, camera, 96, 64)
+            repeated = backend.render_frame(scene, camera, 96, 64)
+            self.assertTrue(np.isfinite(image).all())
+            self.assertGreater(float(np.std(image[..., :3])), 0.02)
+            np.testing.assert_allclose(repeated, image, atol=2e-3)
+        finally:
+            backend.close()
 
     @unittest.skipUnless(
         os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",

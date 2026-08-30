@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 import ordinarylight as ol
 from ordinarylight.integrations.workbench import OrbitCamera
 
@@ -98,3 +100,52 @@ def test_raster_internal_extent_matches_native_surface_aspect_ratio():
     extent = viewer._surface_aspect_extent((1920, 1080), (1200, 900))
     assert extent == (1440, 1080)
     assert extent[0] / extent[1] == 1200 / 900
+
+
+def test_camera_pose_json_round_trips_into_validated_camera():
+    showcase_id, camera = viewer._camera_pose_from_json(
+        '{"showcase":"optical-screen-rough-reflection",'
+        '"position":[-9.795,1.33,0.12],"target":[0,1.1,0],'
+        '"up":[0,1,0],"vertical_fov_degrees":45}'
+    )
+
+    assert showcase_id == "optical-screen-rough-reflection"
+    assert camera.position == (-9.795, 1.33, 0.12)
+    assert camera.target == (0, 1.1, 0)
+    assert camera.vertical_fov_degrees == 45.0
+    restored = ol.ArcballCameraController.from_camera(camera).camera()
+    assert restored.position == pytest.approx(camera.position)
+    assert restored.target == pytest.approx(camera.target)
+    assert restored.up == pytest.approx(camera.up)
+    assert restored.vertical_fov_degrees == camera.vertical_fov_degrees
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    (
+        ("not json", "invalid camera-pose JSON"),
+        ('{"position":[0,0,1],"target":[0,0,0]}', "showcase"),
+        (
+            '{"showcase":"x","position":[0,0,1],"target":[0,0,0],'
+            '"up":[1,0,0]}',
+            "up vector",
+        ),
+    ),
+)
+def test_camera_pose_json_rejects_invalid_viewer_payloads(payload, message):
+    with pytest.raises(ValueError, match=message):
+        viewer._camera_pose_from_json(payload)
+
+
+def test_camera_pose_argument_accepts_inline_json_and_file(tmp_path):
+    payload = (
+        '{"showcase":"optical-screen-rough-reflection",'
+        '"position":[-9,1,0],"target":[0,1,0]}'
+    )
+    inline_id, inline_camera = viewer._camera_pose_argument(payload)
+    path = tmp_path / "pose.json"
+    path.write_text(payload, encoding="utf-8")
+    file_id, file_camera = viewer._camera_pose_argument(path)
+
+    assert inline_id == file_id == "optical-screen-rough-reflection"
+    assert inline_camera == file_camera
