@@ -6,6 +6,10 @@ from ordinarylight.showcases.raster_features import (
     build_material_program_parity_scene, build_spot_shadow_scene,
 )
 
+from ordinarylight.showcases.raster_material_hooks import (
+    layered_raster_showcase_hook,
+)
+
 
 _CAMERA = OrbitCamera(target=(0.0, 0.9, 0.0), radius=8.5, height=4.2)
 
@@ -47,5 +51,20 @@ SHOWCASES = (
         camera=OrbitCamera(target=(0.0, 1.0, 0.0), radius=10.0, height=3.4),
         renderer={"shadows": False, "shadow_map_size": 1024},
         tags=("raster-feature", "materials", "shaders", "parity"),
+    ),
+    Showcase(
+        "raster-layered-hook", "Raster: layered Ordinary Shade hook",
+        build_advanced_material_scene,
+        description=(
+            "A portable pre-lighting material hook layers a procedural blue "
+            "coating over the shared textured surface ABI."
+        ),
+        camera=OrbitCamera(target=(0.0, 1.1, 0.0), radius=9.0, height=3.6),
+        renderer={
+            "shadows": False,
+            "shadow_map_size": 1024,
+            "material_hook": layered_raster_showcase_hook,
+        },
+        tags=("raster-feature", "materials", "shaders", "layering"),
     ),
 )

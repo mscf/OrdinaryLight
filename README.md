@@ -1381,8 +1381,9 @@ semantics:
 - `renderers.raster.WebGpuRasterRenderer` consumes WGSL through the optional `wgpu` package.
 
 Install `ordinarylight[vulkan]` or `ordinarylight[webgpu]` for the respective
-runtime. Compiling Python shader functions additionally requires Ordinary
-Shade. Both renderers implement the standard `RendererProtocol` contract and can
+runtime. Ordinary Shade is a core dependency because Python-authored shader
+functions and material hooks are part of the standard renderer API. Both
+renderers implement the standard `RendererProtocol` contract and can
 render existing `Scene` meshes, instances, materials, and object transforms
 through perspective and orthographic cameras. Panoramic cameras require a
 later non-linear projection pass.
@@ -1406,6 +1407,36 @@ normal mapping. Deterministic raster equivalents are provided for PBR,
 diffuse, mirror, glass, and unlit material programs, while GI retains the
 program's stochastic transport semantics. Program-set signatures select cached
 shader/pipeline variants without changing the scene API.
+
+Advanced material authoring has two composable levels. Renderer-neutral
+parameter layers remain part of the `MaterialProgram` and therefore compile
+into GI material evaluation:
+
+```python
+@ol.material
+def coated(ctx):
+    base = ol.MaterialEvaluation(
+        ctx.base_color, ctx.emission, ctx.metallic, ctx.roughness,
+        ctx.transmission, ctx.ior, ctx.attenuation_color,
+        ctx.attenuation_distance,
+    )
+    coat = ol.MaterialEvaluation(
+        (0.1, 0.6, 1.0), (0, 0, 0), 0.1, 0.12,
+        0.0, 1.45, (1, 1, 1), ctx.attenuation_distance,
+    )
+    return ol.layered_material(base, ol.MaterialLayer(coat, ctx.uv.x))
+```
+
+Raster-specific programmable effects use a stable pre-lighting Ordinary Shade
+hook. A hook receives sampled material parameters, the mapped normal, UV,
+world position, view direction, and material-program ID; it returns the same
+`RasterSurface` structure. It therefore compiles identically to SPIR-V and
+WGSL and does not require backend-specific shader source injection. Import the
+hook ABI from `ordinarylight.shaders.raster_programs`, decorate the function
+with `@ol.raster_material_hook`, and pass it to both `RasterProgram.scene()`
+and `RasterConfig(material_hook=...)`. `blend_raster_surfaces()` provides the
+first ordered layering primitive. The viewer entry **Raster: layered Ordinary
+Shade hook** is a live example.
 
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization

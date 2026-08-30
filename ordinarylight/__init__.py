@@ -26,6 +26,7 @@ from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from .surface import ArraySurface, RenderSurface
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
+    raster_material_hook,
     RasterVertexAttribute, RasterVertexLayout, camera_matrix,
     create_raster_pipeline, rasterize_geometry_products, scene_mesh,
     triangle_mesh, CAMERA_DTYPE, DRAW_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE,
@@ -57,6 +58,8 @@ from .materials import (
     SCATTER_TRANSMISSION,
     MaterialContext,
     MaterialEvaluation,
+    MaterialLayer,
+    LayeredMaterialEvaluation,
     MaterialProgram,
     SurfaceResponse,
     builtin_material,
@@ -65,6 +68,8 @@ from .materials import (
     cosine_sample_hemisphere,
     fresnel_schlick,
     material,
+    layered_material,
+    blend_material_evaluations,
     material_dispatch_glsl,
     maximum,
     mix,
@@ -126,8 +131,11 @@ def __getattr__(name):
 
 __all__ = [
     "Material",
+    "MaterialLayer",
+    "LayeredMaterialEvaluation",
     "RasterMesh",
     "RasterConfig",
+    "raster_material_hook",
     "RasterPostProcessor",
     "RasterProgram",
     "RasterState",
@@ -179,6 +187,8 @@ __all__ = [
     "SCATTER_TRANSMISSION",
     "MaterialContext",
     "MaterialEvaluation",
+    "blend_material_evaluations",
+    "layered_material",
     "MaterialProgram",
     "SurfaceResponse",
     "Expression",

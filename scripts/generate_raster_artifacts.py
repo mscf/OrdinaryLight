@@ -16,7 +16,9 @@ if str(ROOT) not in sys.path:
 
 import ordinaryshade as osh
 from ordinarylight.shaders.raster_programs import (
-    scene_fragment, scene_vertex, shadow_fragment, shadow_vertex,
+    blend_raster_surfaces, default_raster_material_hook,
+    scene_fragment, scene_vertex,
+    shadow_fragment, shadow_vertex,
 )
 
 
@@ -27,7 +29,7 @@ def _digest(payload):
     return hashlib.sha256(payload).hexdigest()
 
 
-def _compile(target, vertex_program, fragment_program):
+def _compile(target, vertex_program, fragment_program, *, helpers=()):
     options = {"target": target, "validate": True}
     if target == "spirv":
         from ordinarylight.shaders.compiler import find_glsl_compiler
@@ -36,7 +38,7 @@ def _compile(target, vertex_program, fragment_program):
         if compiler is not None:
             options["spirv_compiler"] = compiler
     vertex = osh.compile(vertex_program, **options)
-    fragment = osh.compile(fragment_program, **options)
+    fragment = osh.compile(fragment_program, helpers=helpers, **options)
     reflection = osh.link_graphics(vertex, fragment)
     return vertex, fragment, reflection
 
@@ -55,6 +57,7 @@ def build_artifacts():
     for target in ("spirv", "wgsl"):
         vertex, fragment, reflection = _compile(
             target, scene_vertex, scene_fragment,
+            helpers=(blend_raster_surfaces, default_raster_material_hook),
         )
         linked_reflection = reflection
         records = {}

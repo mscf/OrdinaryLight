@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -98,6 +99,7 @@ class RasterConfig:
     shadow_cull_mode: str = "none"
     shadow_normal_bias: float = 1.5
     material_program: object | None = None
+    material_hook: object | None = None
 
     def __post_init__(self):
         if self.ambient_light < 0.0:
@@ -120,6 +122,30 @@ class RasterConfig:
             from ..materials import MaterialProgram
             if not isinstance(self.material_program, MaterialProgram):
                 raise TypeError("material_program must be created by @material")
+        if self.material_hook is not None and not (
+            hasattr(self.material_hook, "function")
+            and getattr(self.material_hook, "__name__", None)
+            == "ordinarylight_raster_material_hook"
+        ):
+            raise TypeError(
+                "material_hook must be created by @raster_material_hook"
+            )
+
+
+def raster_material_hook(function):
+    """Declare a portable Ordinary Shade hook for raster surface parameters.
+
+    Hooks receive and return the stable ``RasterSurface`` ABI declared in
+    :mod:`ordinarylight.shaders.raster_programs`. They run after texture and
+    normal-map evaluation but before lighting, on Vulkan and WebGPU alike.
+    """
+    try:
+        import ordinaryshade as osh
+    except ImportError as error:
+        raise RuntimeError(
+            "raster material hooks require the ordinaryshade package"
+        ) from error
+    return osh.function(name="ordinarylight_raster_material_hook")(function)
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,7 +302,10 @@ class RasterProgram:
     reflection: Any
 
     @classmethod
-    def compile(cls, vertex, fragment, *, target: str, validate: bool = True):
+    def compile(
+        cls, vertex, fragment, *, target: str, validate: bool = True,
+        helpers=(),
+    ):
         try:
             import ordinaryshade as osh
         except ImportError as error:
@@ -288,12 +317,13 @@ class RasterProgram:
             if compiler is not None:
                 options["spirv_compiler"] = compiler
         vertex_result = osh.compile(vertex, **options)
-        fragment_result = osh.compile(fragment, **options)
+        fragment_result = osh.compile(fragment, helpers=helpers, **options)
         return cls(vertex_result, fragment_result, osh.link_graphics(vertex_result, fragment_result))
 
     @classmethod
     def scene(
         cls, *, target: str, validate: bool = True, material_programs=(),
+        material_hook=None,
     ):
         """Compile/cache the scene program for one material-program set.
 
@@ -309,11 +339,24 @@ class RasterProgram:
             (item.name, item.raster_kind, item.glsl())
             for item in material_programs
         )
-        key = (target, bool(validate), signature)
+        if material_hook is not None and not (
+            hasattr(material_hook, "function")
+            and getattr(material_hook, "__name__", None)
+            == "ordinarylight_raster_material_hook"
+        ):
+            raise TypeError(
+                "material_hook must be created by @raster_material_hook"
+            )
+        hook_signature = None if material_hook is None else (
+            material_hook.function.__module__,
+            material_hook.function.__qualname__,
+            inspect.getsource(material_hook.function),
+        )
+        key = (target, bool(validate), signature, hook_signature)
         cached = _SCENE_PROGRAM_CACHE.get(key)
         if cached is not None:
             return cached
-        artifact = _load_scene_artifact(target)
+        artifact = _load_scene_artifact(target) if material_hook is None else None
         if artifact is not None:
             if signature:
                 variant = hashlib.sha256(
@@ -333,13 +376,20 @@ class RasterProgram:
             _SCENE_PROGRAM_CACHE[key] = artifact
             return artifact
         try:
-            from ..shaders.raster_programs import scene_fragment, scene_vertex
+            from ..shaders.raster_programs import (
+                blend_raster_surfaces, default_raster_material_hook,
+                scene_fragment, scene_vertex,
+            )
         except ImportError as error:
             raise RuntimeError(
                 "built-in raster shaders require the ordinaryshade package"
             ) from error
         result = cls.compile(
             scene_vertex, scene_fragment, target=target, validate=validate,
+            helpers=(
+                blend_raster_surfaces,
+                material_hook or default_raster_material_hook,
+            ),
         )
         _SCENE_PROGRAM_CACHE[key] = result
         return result

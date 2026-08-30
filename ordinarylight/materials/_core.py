@@ -252,6 +252,77 @@ class MaterialEvaluation:
 
 
 @dataclass(frozen=True)
+class MaterialLayer:
+    """One weighted, renderer-neutral material-parameter layer."""
+
+    evaluation: MaterialEvaluation
+    weight: Expression
+
+    def __post_init__(self):
+        if not isinstance(self.evaluation, MaterialEvaluation):
+            raise TypeError("material layer evaluation must be MaterialEvaluation")
+        object.__setattr__(self, "weight", _coerce(self.weight, "float"))
+
+
+@dataclass(frozen=True)
+class LayeredMaterialEvaluation:
+    """A base evaluation plus ordered parameter layers.
+
+    Layers are resolved in declaration order. This representation keeps the
+    authored composition available for future multi-lobe integrators while
+    today's renderers receive the same flattened material parameters.
+    """
+
+    base: MaterialEvaluation
+    layers: tuple[MaterialLayer, ...]
+
+    def __post_init__(self):
+        if not isinstance(self.base, MaterialEvaluation):
+            raise TypeError("layered material base must be MaterialEvaluation")
+        layers = tuple(self.layers)
+        if not layers or any(not isinstance(item, MaterialLayer) for item in layers):
+            raise TypeError("layered material requires one or more MaterialLayer values")
+        object.__setattr__(self, "layers", layers)
+
+    @property
+    def resolved(self):
+        result = self.base
+        for layer in self.layers:
+            result = blend_material_evaluations(
+                result, layer.evaluation, layer.weight,
+            )
+        return result
+
+
+def blend_material_evaluations(base, layer, weight):
+    """Blend two material evaluations without choosing a renderer backend."""
+    if not isinstance(base, MaterialEvaluation) or not isinstance(
+        layer, MaterialEvaluation
+    ):
+        raise TypeError("material blending requires MaterialEvaluation values")
+    amount = _coerce(weight, "float")
+    return MaterialEvaluation(
+        base_color=mix(base.base_color, layer.base_color, amount),
+        emission=base.emission + layer.emission * amount,
+        metallic=mix(base.metallic, layer.metallic, amount),
+        roughness=mix(base.roughness, layer.roughness, amount),
+        transmission=mix(base.transmission, layer.transmission, amount),
+        ior=mix(base.ior, layer.ior, amount),
+        attenuation_color=mix(
+            base.attenuation_color, layer.attenuation_color, amount,
+        ),
+        attenuation_distance=mix(
+            base.attenuation_distance, layer.attenuation_distance, amount,
+        ),
+    )
+
+
+def layered_material(base, *layers):
+    """Build an ordered material composition for use inside ``@material``."""
+    return LayeredMaterialEvaluation(base, tuple(layers))
+
+
+@dataclass(frozen=True)
 class SurfaceResponse:
     """A material-controlled path-scattering result."""
 
@@ -274,7 +345,7 @@ class MaterialProgram:
     """Compiled material IR plus GLSL generation and ABI metadata."""
 
     name: str
-    evaluation: MaterialEvaluation | SurfaceResponse
+    evaluation: MaterialEvaluation | LayeredMaterialEvaluation | SurfaceResponse
     required_attributes: tuple[tuple[str, int], ...] = ()
 
     @property
@@ -290,7 +361,9 @@ class MaterialProgram:
         closest deterministic surface model while parameter-evaluation
         programs retain the standard PBR model.
         """
-        if isinstance(self.evaluation, MaterialEvaluation):
+        if isinstance(
+            self.evaluation, (MaterialEvaluation, LayeredMaterialEvaluation)
+        ):
             return "unlit" if self.name == "unlit_material" else "pbr"
         event = self.evaluation.event.code
         if event == repr(float(SCATTER_DIFFUSE)):
@@ -313,9 +386,14 @@ class MaterialProgram:
             f"MaterialEvaluation {function_name}(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
             "{", "    MaterialEvaluation result;",
         ]
-        if isinstance(self.evaluation, MaterialEvaluation):
+        evaluation = (
+            self.evaluation.resolved
+            if isinstance(self.evaluation, LayeredMaterialEvaluation)
+            else self.evaluation
+        )
+        if isinstance(evaluation, MaterialEvaluation):
             for field_name, field_type in material_expected.items():
-                expression = getattr(self.evaluation, field_name)
+                expression = getattr(evaluation, field_name)
                 self._assign(lines, field_name, field_type, expression)
             lines.extend((
                 "    result.custom_scattering = 0.0;",
@@ -342,7 +420,7 @@ class MaterialProgram:
                 "    result.custom_scattering = 1.0;",
             ))
             for field_name, field_type in response_expected.items():
-                expression = getattr(self.evaluation, field_name)
+                expression = getattr(evaluation, field_name)
                 self._assign(lines, field_name, field_type, expression)
         lines.extend(("    return result;", "}"))
         source = "\n".join(lines)
@@ -398,8 +476,13 @@ def material(function):
     """Trace a restricted Python material function into a MaterialProgram."""
     context = MaterialContext.shader_inputs()
     evaluation = function(context)
-    if not isinstance(evaluation, (MaterialEvaluation, SurfaceResponse)):
-        raise TypeError("A material function must return MaterialEvaluation or SurfaceResponse")
+    if not isinstance(evaluation, (
+        MaterialEvaluation, LayeredMaterialEvaluation, SurfaceResponse,
+    )):
+        raise TypeError(
+            "A material function must return MaterialEvaluation, "
+            "LayeredMaterialEvaluation, or SurfaceResponse"
+        )
     program = MaterialProgram(
         function.__name__, evaluation,
         tuple(context._attribute_requests.items()),

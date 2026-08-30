@@ -7,12 +7,15 @@ from pathlib import Path
 
 import numpy as np
 
-import ordinarylight as ol
-
-
 shade_root = Path(__file__).parents[2] / "ordinaryshade"
 if shade_root.exists():
     sys.path.insert(0, str(shade_root))
+
+import ordinarylight as ol
+from ordinarylight.shaders.raster_programs import (
+    RasterMaterialContext, RasterSurface, blend_raster_surfaces,
+)
+
 try:
     import ordinaryshade as osh
 except ImportError as error:
@@ -27,6 +30,18 @@ def raster_vertex(position: osh.location(osh.vec2, 0)) -> osh.builtin(osh.vec4, 
 @osh.fragment
 def raster_fragment() -> osh.location(osh.vec4, 0):
     return osh.vec4(0.95, 0.45, 0.15, 1.0)
+
+
+@ol.raster_material_hook
+def striped_material_hook(
+    surface: RasterSurface, context: RasterMaterialContext,
+) -> RasterSurface:
+    stripe = osh.maximum(0.0, osh.minimum(1.0, context.uv.x * 2.0))
+    layer = RasterSurface(
+        osh.vec3(0.1, 0.8, 1.0), surface.emission, surface.normal,
+        0.0, 0.18, surface.transmission, surface.occlusion,
+    )
+    return blend_raster_surfaces(surface, layer, stripe)
 
 
 class RasterBackendTests(unittest.TestCase):
@@ -92,6 +107,26 @@ class RasterBackendTests(unittest.TestCase):
             item["kind"] if isinstance(item, dict) else item.kind
             for item in first.fragment.reflection.resources
         ])
+
+    def test_portable_raster_material_hook_compiles_and_is_cached(self):
+        first = ol.RasterProgram.scene(
+            target="wgsl", validate=False,
+            material_hook=striped_material_hook,
+        )
+        repeated = ol.RasterProgram.scene(
+            target="wgsl", validate=False,
+            material_hook=striped_material_hook,
+        )
+        plain = ol.RasterProgram.scene(target="wgsl", validate=False)
+        self.assertIs(first, repeated)
+        self.assertNotEqual(first.cache_key, plain.cache_key)
+        self.assertIn("ordinarylight_raster_material_hook", first.fragment.source)
+        self.assertIn("blend_raster_surfaces", first.fragment.source)
+        self.assertIn("context.uv.x", first.fragment.source)
+
+    def test_raster_config_rejects_undecorated_material_hook(self):
+        with self.assertRaises(TypeError):
+            ol.RasterConfig(material_hook=lambda surface, context: surface)
 
     def test_material_id_decoding_rounds_interpolated_float_varying(self):
         program = ol.RasterProgram.scene(target="wgsl", validate=False)
@@ -297,3 +332,34 @@ class RasterBackendTests(unittest.TestCase):
         # delta.  Keep this above quantization noise while avoiding a test
         # that depends on a particular GPU's floating-point rounding.
         self.assertGreater(float(np.linalg.norm(neutral - tilted)), 0.005)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_custom_material_hook_executes_on_vulkan(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        mesh = ol.Mesh(
+            [[-1,-1,0],[1,-1,0],[0,1,0]], [[0,1,2]],
+            ol.Material(base_color=(0.8, 0.1, 0.1)),
+            texcoords=[[0,0],[1,0],[0.5,1]],
+        )
+        scene = ol.Scene([mesh])
+        camera = ol.PerspectiveCamera((0,0,4),(0,0,0))
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(
+                target="spirv", material_hook=striped_material_hook,
+            ),
+            config=ol.RasterConfig(
+                material_hook=striped_material_hook,
+                direct_lighting=False, ambient_light=1.0,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            center = backend.render_frame(scene, camera, 64, 48)[24,32,:3]
+            self.assertGreater(float(center[2]), 0.3)
+            self.assertGreater(float(center[1]), 0.2)
+        finally:
+            backend.close()

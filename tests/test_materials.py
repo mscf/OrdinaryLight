@@ -11,6 +11,34 @@ from ordinarylight.shaders.compiler import (
 
 
 class MaterialProgramTests(unittest.TestCase):
+    def test_layered_material_evaluation_compiles_for_gi(self):
+        @ol.material
+        def coated(ctx):
+            base = ol.MaterialEvaluation(
+                ctx.base_color, ctx.emission, ctx.metallic, ctx.roughness,
+                ctx.transmission, ctx.ior, ctx.attenuation_color,
+                ctx.attenuation_distance,
+            )
+            coating = ol.MaterialEvaluation(
+                (0.15, 0.65, 1.0), (0.0, 0.0, 0.0), 0.15, 0.12,
+                0.0, 1.45, (1.0, 1.0, 1.0), ctx.attenuation_distance,
+            )
+            return ol.layered_material(
+                base, ol.MaterialLayer(coating, ctx.uv.x),
+            )
+
+        self.assertIsInstance(coated.evaluation, ol.LayeredMaterialEvaluation)
+        generated = coated.glsl()
+        self.assertIn("mix(material.base_roughness.rgb", generated)
+        self.assertIn("uv.x", generated)
+        source = material_shader_source("ray_query.comp", coated)
+        self.assertIn("evaluateMaterial_0", source)
+        if find_glsl_compiler():
+            self.assertEqual(
+                compile_material_shader("ray_query.comp", coated)[:4],
+                b"\x03\x02#\x07",
+            )
+
     def test_material_declares_and_specializes_vertex_attributes(self):
         @ol.material
         def vertex_tint(ctx):

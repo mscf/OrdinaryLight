@@ -16,6 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# The source-checkout showcase uses Python-authored Ordinary Shade hooks.  Make
+# the sibling checkout available without requiring developers to install an
+# editable package first.  Installed distributions continue to use their
+# normally installed dependency.
+SHADE_ROOT = ROOT.parent / "ordinaryshade"
+if (
+    (SHADE_ROOT / "ordinaryshade").is_dir()
+    and str(SHADE_ROOT) not in sys.path
+):
+    sys.path.insert(0, str(SHADE_ROOT))
+
 import ordinarylight as ol
 from ordinarylight.integrations.workbench import discover_showcases
 from ordinarylight.outputs import to_sdr
@@ -171,6 +182,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     material_programs=self.scene_value.material_programs(
                         default_material,
                     ),
+                    material_hook=settings.get("material_hook"),
                 )
                 settings.update(
                     shadows=self.shadows.isChecked(),
@@ -268,10 +280,15 @@ def _catalog():
     )
 
 
-def _renderer(showcase, backend_name, shadows, shadow_map_size):
+def _renderer(showcase, scene, backend_name, shadows, shadow_map_size):
     target = "spirv" if backend_name == "vulkan" else "wgsl"
-    program = ol.RasterProgram.scene(target=target, validate=False)
     settings = dict(showcase.renderer)
+    default_material = settings.get("material_program") or ol.builtin_material
+    program = ol.RasterProgram.scene(
+        target=target, validate=False,
+        material_programs=scene.material_programs(default_material),
+        material_hook=settings.get("material_hook"),
+    )
     settings.update(shadows=shadows, shadow_map_size=shadow_map_size)
     config = ol.RasterConfig(
         state=ol.RasterState(cull_mode="none"),
@@ -451,7 +468,8 @@ def main():
                 self.controller = ol.ArcballCameraController.from_camera(authored)
                 self.renderers = [
                     (name, _renderer(
-                        item, name, self.shadows.isChecked(), int(self.map_size.currentData()),
+                        item, self.scene_value, name, self.shadows.isChecked(),
+                        int(self.map_size.currentData()),
                     ))
                     for name in names
                 ]
