@@ -123,7 +123,7 @@ class TextureTests(unittest.TestCase):
             texcoords=((0, 0), (1, 0), (0, 1)),
         )
         packed = scene.triangle_material_data()[0]
-        self.assertEqual(packed.shape, (11, 4))
+        self.assertEqual(packed.shape, (12, 4))
         np.testing.assert_allclose(packed[6], (0.8, 0.12, 0.35, -0.6))
         np.testing.assert_allclose(packed[7], (0.55, 0.7, 1.0, 0.0))
         np.testing.assert_allclose(packed[8, :3], (0.2, 0.4, 0.8))

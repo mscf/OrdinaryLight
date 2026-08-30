@@ -10,6 +10,10 @@ struct RasterMaterial {
     sheen_color: vec4<f32>,
     subsurface_color: vec4<f32>,
     advanced_texture_indices: vec4<f32>,
+    optical: vec4<f32>,
+    environment_rect: vec4<f32>,
+    environment_color_intensity: vec4<f32>,
+    environment_rotation_log_range: vec4<f32>,
 }
 
 struct SurfaceParameters {
@@ -73,10 +77,11 @@ fn main(
     @location(15) occlusion_uv: vec2<f32>,
     @location(16) transmission_uv: vec2<f32>,
     @location(17) material_index: f32,
-    @location(18) clearcoat_uv: vec2<f32>,
-    @location(19) sheen_uv: vec2<f32>,
-    @location(20) anisotropy_uv: vec2<f32>,
-    @location(21) subsurface_uv: vec2<f32>
+    @location(18) thickness_uv: vec2<f32>,
+    @location(19) clearcoat_uv: vec2<f32>,
+    @location(20) sheen_uv: vec2<f32>,
+    @location(21) anisotropy_uv: vec2<f32>,
+    @location(22) subsurface_uv: vec2<f32>
 ) -> @location(0) vec4<f32> {
     if ((material_index < (-0.5))) {
         return vec4<f32>((base_color + emission), material.w);
@@ -92,16 +97,22 @@ fn main(
     let advanced_sheen_color: vec3<f32> = materials[material_id].sheen_color.xyz;
     let advanced_subsurface_color: vec3<f32> = materials[material_id].subsurface_color.xyz;
     let advanced_texture_indices: vec4<f32> = materials[material_id].advanced_texture_indices;
-    let sampled_base_color: vec3<f32> = (base_color_roughness.xyz * textureSample(base_color_atlas, base_color_sampler, clearcoat_uv).xyz);
+    let optical: vec4<f32> = materials[material_id].optical;
+    let environment_rect: vec4<f32> = materials[material_id].environment_rect;
+    let environment_color_intensity: vec4<f32> = materials[material_id].environment_color_intensity;
+    let environment_rotation_log_range: vec4<f32> = materials[material_id].environment_rotation_log_range;
+    let base_color_sample: vec4<f32> = textureSample(base_color_atlas, base_color_sampler, base_color_uv);
+    let sampled_base_color: vec3<f32> = (base_color_roughness.xyz * base_color_sample.xyz);
     let metallic_roughness_sample: vec4<f32> = textureSample(base_color_atlas, base_color_sampler, metallic_roughness_uv);
     let sampled_emission: vec3<f32> = (emission_metallic.xyz * textureSample(base_color_atlas, base_color_sampler, emissive_uv).xyz);
     let normal_sample: vec3<f32> = ((textureSample(base_color_atlas, base_color_sampler, normal_uv).xyz * 2.0) - vec3<f32>(1.0));
     let occlusion_sample: f32 = textureSample(base_color_atlas, base_color_sampler, occlusion_uv).x;
     let transmission_sample: f32 = textureSample(base_color_atlas, base_color_sampler, transmission_uv).x;
-    let clearcoat_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, sheen_uv).x, (advanced_texture_indices.x >= 0.0));
-    let sheen_sample: vec3<f32> = select(vec3<f32>(1.0), textureSample(base_color_atlas, base_color_sampler, anisotropy_uv).xyz, (advanced_texture_indices.y >= 0.0));
-    let anisotropy_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, subsurface_uv).x, (advanced_texture_indices.z >= 0.0));
-    let subsurface_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, base_color_uv).x, (advanced_texture_indices.w >= 0.0));
+    let thickness_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, thickness_uv).x, (optical.x >= 0.0));
+    let clearcoat_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, clearcoat_uv).x, (advanced_texture_indices.x >= 0.0));
+    let sheen_sample: vec3<f32> = select(vec3<f32>(1.0), textureSample(base_color_atlas, base_color_sampler, sheen_uv).xyz, (advanced_texture_indices.y >= 0.0));
+    let anisotropy_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, anisotropy_uv).x, (advanced_texture_indices.z >= 0.0));
+    let subsurface_sample: f32 = select(1.0, textureSample(base_color_atlas, base_color_sampler, subsurface_uv).x, (advanced_texture_indices.w >= 0.0));
     let shadow_w: f32 = max(abs(shadow_coordinate.w), 1e-06);
     let projected_shadow: vec3<f32> = (shadow_coordinate.xyz / shadow_w);
     let geometric_normal: vec3<f32> = (world_normal / max(length(world_normal), 1e-06));
@@ -153,7 +164,9 @@ fn main(
     let ndotv: f32 = max((((surface_normal.x * view.x) + (surface_normal.y * view.y)) + (surface_normal.z * view.z)), 0.0);
     let ndoth: f32 = max((((surface_normal.x * half_vector.x) + (surface_normal.y * half_vector.y)) + (surface_normal.z * half_vector.z)), 0.0);
     let vdoth: f32 = max((((view.x * half_vector.x) + (view.y * half_vector.y)) + (view.z * half_vector.z)), 0.0);
-    let surface_alpha: f32 = material.w;
+    let raw_surface_alpha: f32 = (material.w * base_color_sample.w);
+    let masked_surface_alpha: f32 = select(0.0, 1.0, (raw_surface_alpha >= optical.z));
+    let surface_alpha: f32 = select(raw_surface_alpha, masked_surface_alpha, ((optical.w > 0.5) && (optical.w < 1.5)));
     let f0: vec3<f32> = mix(vec3<f32>(0.04), surface_base_color, vec3<f32>(surface_metallic));
     let fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - vdoth)), vec3<f32>(5.0))));
     let alpha: f32 = (surface_roughness * surface_roughness);
@@ -172,7 +185,11 @@ fn main(
     let coat_denominator: f32 = (((ndoth * ndoth) * (coat_alpha2 - 1.0)) + 1.0);
     let coat_distribution: f32 = (coat_alpha2 / max(((3.14159265 * coat_denominator) * coat_denominator), 1e-06));
     let coat_fresnel: f32 = (0.04 + (0.96 * pow((1.0 - vdoth), 5.0)));
-    let clearcoat_specular: vec3<f32> = vec3<f32>((((surface_clearcoat * coat_distribution) * coat_fresnel) / max(((4.0 * ndotv) * ndotl), 1e-06)));
+    let coat_k: f32 = (((surface_clearcoat_roughness + 1.0) * (surface_clearcoat_roughness + 1.0)) / 8.0);
+    let coat_geometry_v: f32 = (ndotv / max(((ndotv * (1.0 - coat_k)) + coat_k), 1e-06));
+    let coat_geometry_l: f32 = (ndotl / max(((ndotl * (1.0 - coat_k)) + coat_k), 1e-06));
+    let clearcoat_specular: vec3<f32> = vec3<f32>((((((surface_clearcoat * coat_distribution) * coat_geometry_v) * coat_geometry_l) * coat_fresnel) / max(((4.0 * ndotv) * ndotl), 1e-06)));
+    let base_energy: f32 = (1.0 - (surface_clearcoat * coat_fresnel));
     let diffuse_weight: f32 = ((1.0 - surface_metallic) * (1.0 - surface_transmission));
     let diffuse_base: vec3<f32> = ((((vec3<f32>(1.0) - fresnel) * surface_base_color) * diffuse_weight) / 3.14159265);
     let diffuse: vec3<f32> = mix(diffuse_base, (diffuse_base * hooked.subsurface_color), surface_subsurface);
@@ -180,9 +197,24 @@ fn main(
     let diffuse_ndotl: f32 = mix(ndotl, wrapped_ndotl, surface_subsurface);
     let attenuation: f32 = (1.0 / (distance * distance));
     let visibility: f32 = ((attenuation * shadow_visibility) * shadow_map_visibility);
-    let direct: vec3<f32> = ((((diffuse + surface_sheen) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + (((specular + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
-    let transmission_tint: vec3<f32> = mix(attenuation_transmission.xyz, surface_base_color, surface_thin_walled);
+    let direct: vec3<f32> = (((((diffuse + surface_sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
+    let optical_thickness: f32 = (advanced1.w * thickness_sample);
+    let absorption_exponent: f32 = (optical_thickness / max(ior_distance_program_flags.y, 1e-06));
+    let transmission_tint: vec3<f32> = mix(pow(max(attenuation_transmission.xyz, vec3<f32>(1e-06)), vec3<f32>(absorption_exponent)), surface_base_color, surface_thin_walled);
+    let incident: vec3<f32> = (-view);
+    let reflected: vec3<f32> = (incident - (surface_normal * (2.0 * (((incident.x * surface_normal.x) + (incident.y * surface_normal.y)) + (incident.z * surface_normal.z)))));
+    let raw_refracted: vec3<f32> = refract(incident, surface_normal, (1.0 / max(ior_distance_program_flags.x, 1.0001)));
+    let refracted: vec3<f32> = select(raw_refracted, reflected, ((((raw_refracted.x * raw_refracted.x) + (raw_refracted.y * raw_refracted.y)) + (raw_refracted.z * raw_refracted.z)) < 0.0001));
+    let reflection_uv: vec2<f32> = vec2<f32>(fract((((atan2(reflected.z, reflected.x) / 6.28318531) + 0.5) + (environment_rotation_log_range.x / 6.28318531))), (acos(max((-1.0), min(1.0, reflected.y))) / 3.14159265));
+    let refraction_uv: vec2<f32> = vec2<f32>(fract((((atan2(refracted.z, refracted.x) / 6.28318531) + 0.5) + (environment_rotation_log_range.x / 6.28318531))), (acos(max((-1.0), min(1.0, refracted.y))) / 3.14159265));
+    let reflected_encoded: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (reflection_uv * environment_rect.zw))).xyz;
+    let refracted_encoded: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (refraction_uv * environment_rect.zw))).xyz;
+    let reflected_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (reflected_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    let refracted_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (refracted_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    let environment_enabled: f32 = environment_rotation_log_range.z;
     let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + ((transmission_tint * surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
-    let shaded: vec3<f32> = ((ambient + direct) + surface_emission);
+    let base_shaded: vec3<f32> = ((ambient + direct) + surface_emission);
+    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_environment * transmission_tint), (surface_transmission * environment_enabled));
+    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_environment * fresnel) * environment_enabled));
     return vec4<f32>(select(shaded, surface_base_color, unlit_program), surface_alpha);
 }

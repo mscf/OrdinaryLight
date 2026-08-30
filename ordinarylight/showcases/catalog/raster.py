@@ -13,11 +13,39 @@ from ordinarylight.showcases.advanced_materials import (
     build_anisotropy_scene, build_clearcoat_scene, build_sheen_scene,
     build_subsurface_scene, build_thin_transmission_scene,
 )
+from ordinarylight.showcases.optical_materials import (
+    build_absorption_scene, build_environment_reflection_scene,
+    build_nested_dielectric_scene, build_reflection_probe_scene,
+    build_refraction_scene, build_transparency_scene,
+)
 
 
 _CAMERA = OrbitCamera(target=(0.0, 0.9, 0.0), radius=8.5, height=4.2)
 
 SHOWCASES = (
+    *tuple(Showcase(
+        f"optical-{slug}", f"Optics: {title}", builder,
+        description=description,
+        camera=OrbitCamera(target=(0.0, 1.1, 0.0), radius=9.5, height=3.5),
+        renderer={"shadows": True, "shadow_map_size": 1024},
+        tags=("raster-feature", "materials", "optics", slug),
+    ) for slug, title, builder, description in (
+        ("environment-reflection", "environment reflections",
+         build_environment_reflection_scene,
+         "Roughness-dependent image-based reflections."),
+        ("reflection-probe", "local reflection probe",
+         build_reflection_probe_scene,
+         "Raster probe fallback; GI traces the represented scene."),
+        ("refraction", "dielectric refraction", build_refraction_scene,
+         "Fresnel reflection, refraction, and total internal reflection."),
+        ("absorption", "Beer-Lambert absorption", build_absorption_scene,
+         "Distance-based colored attenuation through dielectric media."),
+        ("nested-dielectric", "nested dielectrics",
+         build_nested_dielectric_scene,
+         "Nested IOR media and boundary transitions."),
+        ("transparency", "sorted transparency", build_transparency_scene,
+         "Opaque-first, far-to-near source-alpha transparency."),
+    )),
     *tuple(Showcase(
         f"advanced-{slug}", f"Materials: {title}", builder,
         description=description,

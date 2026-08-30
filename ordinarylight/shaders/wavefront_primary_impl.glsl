@@ -79,6 +79,7 @@ struct MaterialData {
     vec4 sheen_color;
     vec4 subsurface_color;
     vec4 advanced_texture_indices;
+    vec4 optical;
 };
 
 struct VertexAttributeData { vec4 normal; vec4 texcoord; vec4 tangent; };
@@ -822,10 +823,6 @@ bool ordinarylightSecondaryBounce(
             medium_depth = ordinarylight_secondary_medium_depth(
                 refracted, entering, medium_depth,
                 WAVE_MAX_MEDIUM_STACK_DEPTH);
-            path.throughput.rgb =
-                ordinarylight_secondary_transmission_throughput(
-                    path.throughput.rgb, material.base_roughness.rgb,
-                    transmission);
 #else
             float current_ior = WAVE_MEDIUM_IOR(
                 path_index, medium_depth - 1u);
@@ -842,9 +839,16 @@ bool ordinarylightSecondaryBounce(
             } else if (!entering && medium_depth > 1u) {
                 medium_depth--;
             }
-            path.throughput.rgb *= mix(
-                vec3(1.0), material.base_roughness.rgb, 0.2) * transmission;
 #endif
+            float optical_distance = entering ? 0.0 : distance;
+            if (material.advanced1.z > 0.5)
+                optical_distance = material.advanced1.w;
+            vec3 absorption = pow(
+                max(material.attenuation_transmission.rgb, vec3(0.000001)),
+                vec3(optical_distance / max(material.ior_distance.y, 0.000001)));
+            vec3 tint = mix(
+                vec3(1.0), material.base_roughness.rgb, material.advanced1.z);
+            path.throughput.rgb *= absorption * tint * transmission;
         } else {
 #if WAVE_ORDINARYSHADE_SECONDARY_CONTROL
             float nee_probability = ordinarylight_secondary_nee_probability(
@@ -1393,8 +1397,6 @@ void processPrimaryPixel(uvec2 local_pixel)
         if (entered_medium)
             WAVE_SET_MEDIUM_IOR(path_index, 1u, target_ior);
         medium_depth = ordinarylight_primary_medium_depth(entered_medium);
-        path.throughput.rgb *= ordinarylight_primary_transmission_weight(
-            material.base_roughness.rgb, transmission);
 #else
         float target_ior = max(material.ior_distance.x, 1.0001);
         next_direction = refract(incoming, normal, 1.0 / target_ior);
@@ -1404,9 +1406,15 @@ void processPrimaryPixel(uvec2 local_pixel)
             WAVE_SET_MEDIUM_IOR(path_index, 1u, target_ior);
             medium_depth = 2u;
         }
-        path.throughput.rgb *= mix(vec3(1.0), material.base_roughness.rgb, 0.2)
-            * transmission;
 #endif
+        float optical_distance = material.advanced1.z > 0.5
+            ? material.advanced1.w : 0.0;
+        vec3 absorption = pow(
+            max(material.attenuation_transmission.rgb, vec3(0.000001)),
+            vec3(optical_distance / max(material.ior_distance.y, 0.000001)));
+        vec3 tint = mix(
+            vec3(1.0), material.base_roughness.rgb, material.advanced1.z);
+        path.throughput.rgb *= absorption * tint * transmission;
     } else {
         path.radiance.rgb += samplePointLights(
             position, normal, incoming, material);

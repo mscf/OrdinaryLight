@@ -243,7 +243,8 @@ bool materialHasTextures(MaterialData material)
     return any(greaterThanEqual(material.texture_indices, vec4(0.0)))
         || material.texture_parameters.y >= 0.0
         || material.texture_parameters.w >= 0.0
-        || any(greaterThanEqual(material.advanced_texture_indices, vec4(0.0)));
+        || any(greaterThanEqual(material.advanced_texture_indices, vec4(0.0)))
+        || material.optical.x >= 0.0;
 #endif
 }
 
@@ -307,12 +308,16 @@ void applyMaterialTextures(
     vec4 subsurface_sample = sampleMaterialTexture(
         material.advanced_texture_indices.w, uv0, uv1, false,
         uv0_footprint, uv1_footprint);
+    vec4 thickness_sample = sampleMaterialTexture(
+        material.optical.x, uv0, uv1, false,
+        uv0_footprint, uv1_footprint);
     material.advanced0.x *= clearcoat_sample.r;
     material.advanced0.y *= max(clearcoat_sample.g, clearcoat_sample.r);
     material.sheen_color.rgb *= sheen_sample.rgb;
     material.advanced0.z *= sheen_sample.a;
     material.advanced0.w *= anisotropy_sample.r;
     material.advanced1.x *= subsurface_sample.r;
+    material.advanced1.w *= thickness_sample.g;
     if (material.attenuation_transmission.a > 0.001)
         return;
 #if WAVE_WORK_COUNTERS

@@ -35,10 +35,11 @@ class SceneVertexOutput:
     occlusion_uv: osh.location(osh.vec2, 15)
     transmission_uv: osh.location(osh.vec2, 16)
     material_index: osh.location(osh.f32, 17)
-    clearcoat_uv: osh.location(osh.vec2, 18)
-    sheen_uv: osh.location(osh.vec2, 19)
-    anisotropy_uv: osh.location(osh.vec2, 20)
-    subsurface_uv: osh.location(osh.vec2, 21)
+    thickness_uv: osh.location(osh.vec2, 18)
+    clearcoat_uv: osh.location(osh.vec2, 19)
+    sheen_uv: osh.location(osh.vec2, 20)
+    anisotropy_uv: osh.location(osh.vec2, 21)
+    subsurface_uv: osh.location(osh.vec2, 22)
 
 
 @osh.structure
@@ -66,6 +67,10 @@ class RasterMaterial:
     sheen_color: osh.vec4
     subsurface_color: osh.vec4
     advanced_texture_indices: osh.vec4
+    optical: osh.vec4
+    environment_rect: osh.vec4
+    environment_color_intensity: osh.vec4
+    environment_rotation_log_range: osh.vec4
 
 
 @osh.vertex
@@ -108,10 +113,11 @@ def scene_vertex(
     occlusion_uv: osh.location(osh.vec2, 17),
     transmission_uv: osh.location(osh.vec2, 18),
     material_index: osh.location(osh.f32, 19),
-    clearcoat_uv: osh.location(osh.vec2, 20),
-    sheen_uv: osh.location(osh.vec2, 21),
-    anisotropy_uv: osh.location(osh.vec2, 22),
-    subsurface_uv: osh.location(osh.vec2, 23),
+    thickness_uv: osh.location(osh.vec2, 20),
+    clearcoat_uv: osh.location(osh.vec2, 21),
+    sheen_uv: osh.location(osh.vec2, 22),
+    anisotropy_uv: osh.location(osh.vec2, 23),
+    subsurface_uv: osh.location(osh.vec2, 24),
     camera: osh.uniform_buffer(RasterCamera, binding=3),
 ) -> SceneVertexOutput:
     return SceneVertexOutput(
@@ -121,7 +127,7 @@ def scene_vertex(
         light_position_type, light_color_ambient,
         base_color_uv, shadow_coordinate, shadow_visibility,
         world_tangent, metallic_roughness_uv, emissive_uv, normal_uv,
-        occlusion_uv, transmission_uv, material_index,
+        occlusion_uv, transmission_uv, material_index, thickness_uv,
         clearcoat_uv, sheen_uv, anisotropy_uv, subsurface_uv,
     )
 
@@ -146,10 +152,11 @@ def scene_fragment(
     occlusion_uv: osh.location(osh.vec2, 15),
     transmission_uv: osh.location(osh.vec2, 16),
     material_index: osh.location(osh.f32, 17),
-    clearcoat_uv: osh.location(osh.vec2, 18),
-    sheen_uv: osh.location(osh.vec2, 19),
-    anisotropy_uv: osh.location(osh.vec2, 20),
-    subsurface_uv: osh.location(osh.vec2, 21),
+    thickness_uv: osh.location(osh.vec2, 18),
+    clearcoat_uv: osh.location(osh.vec2, 19),
+    sheen_uv: osh.location(osh.vec2, 20),
+    anisotropy_uv: osh.location(osh.vec2, 21),
+    subsurface_uv: osh.location(osh.vec2, 22),
     base_color_atlas: osh.sampled_texture_2d(binding=0),
     base_color_sampler: osh.sampler(binding=1),
     shadow_map: osh.sampled_depth_texture_2d(binding=2),
@@ -176,9 +183,14 @@ def scene_fragment(
     advanced_sheen_color = materials[material_id].sheen_color.xyz
     advanced_subsurface_color = materials[material_id].subsurface_color.xyz
     advanced_texture_indices = materials[material_id].advanced_texture_indices
-    sampled_base_color = base_color_roughness.xyz * base_color_atlas.sample_with(
-        base_color_sampler, clearcoat_uv,
-    ).xyz
+    optical = materials[material_id].optical
+    environment_rect = materials[material_id].environment_rect
+    environment_color_intensity = materials[material_id].environment_color_intensity
+    environment_rotation_log_range = materials[material_id].environment_rotation_log_range
+    base_color_sample = base_color_atlas.sample_with(
+        base_color_sampler, base_color_uv,
+    )
+    sampled_base_color = base_color_roughness.xyz * base_color_sample.xyz
     metallic_roughness_sample = base_color_atlas.sample_with(
         base_color_sampler, metallic_roughness_uv,
     )
@@ -194,17 +206,20 @@ def scene_fragment(
     transmission_sample = base_color_atlas.sample_with(
         base_color_sampler, transmission_uv,
     ).x
+    thickness_sample = base_color_atlas.sample_with(
+        base_color_sampler, thickness_uv,
+    ).x if optical.x >= 0.0 else 1.0
     clearcoat_sample = base_color_atlas.sample_with(
-        base_color_sampler, sheen_uv,
+        base_color_sampler, clearcoat_uv,
     ).x if advanced_texture_indices.x >= 0.0 else 1.0
     sheen_sample = base_color_atlas.sample_with(
-        base_color_sampler, anisotropy_uv,
+        base_color_sampler, sheen_uv,
     ).xyz if advanced_texture_indices.y >= 0.0 else osh.vec3(1.0)
     anisotropy_sample = base_color_atlas.sample_with(
-        base_color_sampler, subsurface_uv,
+        base_color_sampler, anisotropy_uv,
     ).x if advanced_texture_indices.z >= 0.0 else 1.0
     subsurface_sample = base_color_atlas.sample_with(
-        base_color_sampler, base_color_uv,
+        base_color_sampler, subsurface_uv,
     ).x if advanced_texture_indices.w >= 0.0 else 1.0
     shadow_w = osh.maximum(osh.absolute(shadow_coordinate.w), 0.000001)
     projected_shadow = shadow_coordinate.xyz / shadow_w
@@ -337,7 +352,12 @@ def scene_fragment(
         + view.z * half_vector.z,
         0.0,
     )
-    surface_alpha = material.w
+    raw_surface_alpha = material.w * base_color_sample.w
+    masked_surface_alpha = 1.0 if raw_surface_alpha >= optical.z else 0.0
+    surface_alpha = (
+        masked_surface_alpha
+        if optical.w > 0.5 and optical.w < 1.5 else raw_surface_alpha
+    )
     f0 = osh.mix(
         osh.vec3(0.04), surface_base_color, osh.vec3(surface_metallic),
     )
@@ -416,16 +436,83 @@ def scene_fragment(
         + (specular * base_energy + clearcoat_specular) * light_color_ambient.xyz
         * (ndotl * visibility)
     )
-    transmission_tint = osh.mix(
-        attenuation_transmission.xyz, surface_base_color,
-        surface_thin_walled,
+    optical_thickness = advanced1.w * thickness_sample
+    absorption_exponent = optical_thickness / osh.maximum(
+        ior_distance_program_flags.y, 0.000001,
     )
+    transmission_tint = osh.mix(
+        osh.power(
+            osh.maximum(attenuation_transmission.xyz, osh.vec3(0.000001)),
+            osh.vec3(absorption_exponent),
+        ), surface_base_color, surface_thin_walled,
+    )
+    incident = -view
+    reflected = incident - surface_normal * (
+        2.0 * (incident.x * surface_normal.x
+               + incident.y * surface_normal.y
+               + incident.z * surface_normal.z)
+    )
+    raw_refracted = osh.refract(
+        incident, surface_normal,
+        1.0 / osh.maximum(ior_distance_program_flags.x, 1.0001),
+    )
+    refracted = reflected if (
+        raw_refracted.x * raw_refracted.x
+        + raw_refracted.y * raw_refracted.y
+        + raw_refracted.z * raw_refracted.z < 0.0001
+    ) else raw_refracted
+    reflection_uv = osh.vec2(
+        osh.fraction(
+            osh.arctangent2(reflected.z, reflected.x) / 6.28318531
+            + 0.5 + environment_rotation_log_range.x / 6.28318531
+        ),
+        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, reflected.y)))
+        / 3.14159265,
+    )
+    refraction_uv = osh.vec2(
+        osh.fraction(
+            osh.arctangent2(refracted.z, refracted.x) / 6.28318531
+            + 0.5 + environment_rotation_log_range.x / 6.28318531
+        ),
+        osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, refracted.y)))
+        / 3.14159265,
+    )
+    reflected_encoded = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect.xy + reflection_uv * environment_rect.zw,
+    ).xyz
+    refracted_encoded = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect.xy + refraction_uv * environment_rect.zw,
+    ).xyz
+    reflected_environment = (
+        osh.power(
+            osh.vec3(2.0),
+            reflected_encoded * environment_rotation_log_range.y,
+        ) - osh.vec3(1.0)
+    ) * environment_color_intensity.xyz * environment_color_intensity.w
+    refracted_environment = (
+        osh.power(
+            osh.vec3(2.0),
+            refracted_encoded * environment_rotation_log_range.y,
+        ) - osh.vec3(1.0)
+    ) * environment_color_intensity.xyz * environment_color_intensity.w
+    environment_enabled = environment_rotation_log_range.z
     ambient = (
         surface_base_color * diffuse_weight
         + f0 * (1.0 - 0.5 * surface_roughness)
         + transmission_tint * surface_transmission * (osh.vec3(1.0) - f0)
     ) * light_color_ambient.w * surface_occlusion
-    shaded = ambient + direct + surface_emission
+    base_shaded = ambient + direct + surface_emission
+    transmitted_shaded = osh.mix(
+        base_shaded,
+        refracted_environment * transmission_tint,
+        surface_transmission * environment_enabled,
+    )
+    shaded = (
+        transmitted_shaded
+        + reflected_environment * fresnel * environment_enabled
+    )
     return osh.vec4(surface_base_color if unlit_program else shaded, surface_alpha)
 
 

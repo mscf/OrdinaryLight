@@ -12,7 +12,7 @@ from ..animations import (
 from ..cameras import PerspectiveCamera
 from ..lights import (
     DIRECTIONAL, LIGHT_TYPES, POINT, SPOT, DirectionalLight,
-    EnvironmentLight, PointLight, SpotLight,
+    EnvironmentLight, PointLight, ReflectionProbe, SpotLight,
 )
 from ..materials import MATERIAL_PARAMETER_LAYOUT
 
@@ -347,6 +347,10 @@ class Material:
     ior: float = 1.5
     attenuation_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
     attenuation_distance: float = float("inf")
+    thickness: float = 0.0
+    opacity: float = 1.0
+    alpha_mode: str = "opaque"
+    alpha_cutoff: float = 0.5
     emission_two_sided: bool = False
     base_color_texture: Texture | None = field(default=None, compare=False)
     metallic_roughness_texture: Texture | None = field(default=None, compare=False)
@@ -356,6 +360,7 @@ class Material:
     occlusion_texture: Texture | None = field(default=None, compare=False)
     occlusion_strength: float = 1.0
     transmission_texture: Texture | None = field(default=None, compare=False)
+    thickness_texture: Texture | None = field(default=None, compare=False)
     clearcoat_texture: Texture | None = field(default=None, compare=False)
     sheen_texture: Texture | None = field(default=None, compare=False)
     anisotropy_texture: Texture | None = field(default=None, compare=False)
@@ -366,6 +371,7 @@ class Material:
     normal_transform: TextureTransform = field(default_factory=TextureTransform)
     occlusion_transform: TextureTransform = field(default_factory=TextureTransform)
     transmission_transform: TextureTransform = field(default_factory=TextureTransform)
+    thickness_transform: TextureTransform = field(default_factory=TextureTransform)
     program: object | None = field(default=None, compare=False)
 
     def __post_init__(self):
@@ -406,6 +412,14 @@ class Material:
             raise ValueError("attenuation_color components must be between zero and one")
         if self.attenuation_distance <= 0.0:
             raise ValueError("attenuation_distance must be positive")
+        if not np.isfinite(self.thickness) or self.thickness < 0.0:
+            raise ValueError("thickness must be finite and non-negative")
+        if not 0.0 <= self.opacity <= 1.0:
+            raise ValueError("opacity must be between zero and one")
+        if self.alpha_mode not in {"opaque", "mask", "blend"}:
+            raise ValueError("alpha_mode must be opaque, mask, or blend")
+        if not 0.0 <= self.alpha_cutoff <= 1.0:
+            raise ValueError("alpha_cutoff must be between zero and one")
         if not isinstance(self.emission_two_sided, bool):
             raise TypeError("emission_two_sided must be a bool")
         for name in (
@@ -413,6 +427,7 @@ class Material:
             "normal_texture",
             "occlusion_texture",
             "transmission_texture",
+            "thickness_texture",
             "clearcoat_texture", "sheen_texture", "anisotropy_texture",
             "subsurface_texture",
         ):
@@ -428,6 +443,7 @@ class Material:
             "emissive_transform", "normal_transform",
             "occlusion_transform",
             "transmission_transform",
+            "thickness_transform",
         ):
             if not isinstance(getattr(self, name), TextureTransform):
                 raise TypeError(f"{name} must be a TextureTransform")
@@ -833,6 +849,7 @@ class Scene:
     mesh_resources: list[MeshResource] = field(default_factory=list)
     volumes: list[Volume] = field(default_factory=list)
     environment: EnvironmentLight | None = None
+    reflection_probes: list[ReflectionProbe] = field(default_factory=list)
     animations: list[AnimationClip] = field(default_factory=list)
     nodes: list[Node] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
@@ -863,6 +880,7 @@ class Scene:
         self.lights = list(self.lights)
         self.mesh_resources = list(self.mesh_resources)
         self.volumes = list(self.volumes)
+        self.reflection_probes = list(self.reflection_probes)
         self.animations = list(self.animations)
         self.nodes = list(self.nodes)
         if not hasattr(self.metadata, "items"):
@@ -878,6 +896,9 @@ class Scene:
             self._environment_texture = self._pack_environment_texture(
                 self.environment
             )[0]
+        if any(not isinstance(item, ReflectionProbe)
+               for item in self.reflection_probes):
+            raise TypeError("reflection_probes must contain ReflectionProbe objects")
         for resource in self.mesh_resources:
             if not isinstance(resource, MeshResource):
                 raise TypeError("mesh_resources must contain MeshResource objects")
@@ -1039,6 +1060,11 @@ class Scene:
                     "roughness": material.roughness,
                     "transmission": material.transmission,
                     "ior": material.ior,
+                    "attenuation_color": list(material.attenuation_color),
+                    "attenuation_distance": material.attenuation_distance,
+                    "thickness": material.thickness,
+                    "opacity": material.opacity,
+                    "alpha_mode": material.alpha_mode,
                 }
                 for material, material_id in materials
             ],
@@ -1083,6 +1109,14 @@ class Scene:
                     else list(self.environment.image.shape)
                 ),
             },
+            "reflection_probes": [
+                {
+                    "position": list(probe.position), "radius": probe.radius,
+                    "intensity": probe.intensity, "rotation": probe.rotation,
+                    "image_shape": list(probe.image.shape),
+                }
+                for probe in self.reflection_probes
+            ],
             "animations": [
                 {
                     "name": clip.name,
@@ -1805,6 +1839,22 @@ class Scene:
         self._changed(shading=True)
         return light
 
+    def add_reflection_probe(self, probe=None, **parameters):
+        """Attach a local raster reflection probe."""
+        if probe is not None and parameters:
+            raise TypeError("pass a ReflectionProbe or keyword parameters, not both")
+        probe = ReflectionProbe(**parameters) if probe is None else probe
+        if not isinstance(probe, ReflectionProbe):
+            raise TypeError("probe must be a ReflectionProbe")
+        self.reflection_probes.append(probe)
+        self._changed(shading=True)
+        return probe
+
+    def remove_reflection_probe(self, probe):
+        self.reflection_probes.remove(probe)
+        self._changed(shading=True)
+        return probe
+
     def add_animation(self, clip):
         """Attach a reusable animation clip to this scene."""
         if not isinstance(clip, AnimationClip):
@@ -2260,6 +2310,7 @@ class Scene:
         """Remove every mesh, volume, and light while retaining monotonic IDs."""
         if (not self.meshes and not self.lights and not self.mesh_resources
                 and not self.volumes and self.environment is None
+                and not self.reflection_probes
                 and not self.nodes and not self.animations):
             return
         self.meshes.clear()
@@ -2267,6 +2318,7 @@ class Scene:
         self.mesh_resources.clear()
         self.volumes.clear()
         self.environment = None
+        self.reflection_probes.clear()
         self._environment_texture = None
         self.animations.clear()
         self._animation_bases.clear()
@@ -2541,6 +2593,7 @@ class Scene:
                     (material.occlusion_texture, material.occlusion_transform),
                     (material.transmission_texture,
                      material.transmission_transform),
+                    (material.thickness_texture, material.thickness_transform),
                     (material.clearcoat_texture, material.base_color_transform),
                     (material.sheen_texture, material.base_color_transform),
                     (material.anisotropy_texture, material.base_color_transform),
@@ -2590,7 +2643,7 @@ class Scene:
                 ),
                 (
                     material.subsurface, material.subsurface_radius,
-                    float(material.thin_walled), 0.0,
+                    float(material.thin_walled), material.thickness,
                 ),
                 (*material.sheen_color, 0.0),
                 (*material.subsurface_color, 0.0),
@@ -2612,9 +2665,17 @@ class Scene:
                         material.base_color_transform,
                     )),
                 ),
+                (
+                    float(self._texture_binding_index(
+                        bindings, material.thickness_texture,
+                        material.thickness_transform,
+                    )),
+                    material.opacity, material.alpha_cutoff,
+                    float({"opaque": 0, "mask": 1, "blend": 2}[material.alpha_mode]),
+                ),
             )
             records.extend([record] * len(mesh.indices))
-        return np.ascontiguousarray(records, dtype=np.float32).reshape((-1, 11, 4))
+        return np.ascontiguousarray(records, dtype=np.float32).reshape((-1, 12, 4))
 
     @property
     def textures(self):
@@ -2628,6 +2689,7 @@ class Scene:
                 mesh.material.normal_texture,
                 mesh.material.occlusion_texture,
                 mesh.material.transmission_texture,
+                mesh.material.thickness_texture,
                 mesh.material.clearcoat_texture,
                 mesh.material.sheen_texture,
                 mesh.material.anisotropy_texture,
@@ -2653,6 +2715,7 @@ class Scene:
                 (material.normal_texture, material.normal_transform),
                 (material.occlusion_texture, material.occlusion_transform),
                 (material.transmission_texture, material.transmission_transform),
+                (material.thickness_texture, material.thickness_transform),
                 (material.clearcoat_texture, material.base_color_transform),
                 (material.sheen_texture, material.base_color_transform),
                 (material.anisotropy_texture, material.base_color_transform),

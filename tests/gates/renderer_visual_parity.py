@@ -57,6 +57,8 @@ def main():
         "--scene", choices=(
             "feature", "materials", "modifier", "clearcoat", "sheen",
             "anisotropy", "thin-transmission", "subsurface",
+            "environment-reflection", "refraction", "absorption",
+            "nested-dielectric", "transparency",
         ), default="feature",
         help="shared scene semantics to compare",
     )
@@ -89,6 +91,24 @@ def main():
     material_modifier = None
     advanced_builders = {}
     if args.scene in {
+        "environment-reflection", "refraction", "absorption",
+        "nested-dielectric", "transparency",
+    }:
+        from ordinarylight.showcases.optical_materials import (
+            build_absorption_scene, build_environment_reflection_scene,
+            build_nested_dielectric_scene, build_refraction_scene,
+            build_transparency_scene,
+        )
+        optical_builders = {
+            "environment-reflection": build_environment_reflection_scene,
+            "refraction": build_refraction_scene,
+            "absorption": build_absorption_scene,
+            "nested-dielectric": build_nested_dielectric_scene,
+            "transparency": build_transparency_scene,
+        }
+        scene = optical_builders[args.scene]()
+        camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+    elif args.scene in {
         "clearcoat", "sheen", "anisotropy", "thin-transmission", "subsurface",
     }:
         from ordinarylight.showcases.advanced_materials import (

@@ -63,12 +63,15 @@ class WebGpuRasterRenderer(RendererImplementation):
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
 
-    def _pipeline(self, layout):
-        key = (layout, self.state)
+    def _pipeline(self, layout, *, transparent=False):
+        key = (layout, self.state, bool(transparent))
         if key in self._pipelines:
             return self._pipelines[key]
+        # Source-alpha blending is harmless for opaque fragments (alpha=1)
+        # and lets material-level ``alpha_mode='blend'`` work without forcing
+        # applications to replace the renderer-wide pipeline state.
         blend = None
-        if self.state.blend_mode == "alpha":
+        if transparent or self.state.blend_mode in {"opaque", "alpha"}:
             blend = {"color": {"src_factor": "src-alpha", "dst_factor": "one-minus-src-alpha", "operation": "add"}, "alpha": {"src_factor": "one", "dst_factor": "one-minus-src-alpha", "operation": "add"}}
         elif self.state.blend_mode == "additive":
             blend = {"color": {"src_factor": "one", "dst_factor": "one", "operation": "add"}, "alpha": {"src_factor": "one", "dst_factor": "one", "operation": "add"}}
@@ -84,7 +87,11 @@ class WebGpuRasterRenderer(RendererImplementation):
                 },),
             },
             primitive={"topology": self.state.topology, "cull_mode": self.state.cull_mode, "front_face": self.state.front_face},
-            depth_stencil={"format": "depth32float", "depth_write_enabled": self.state.depth_write, "depth_compare": self.state.depth_compare} if self.state.depth_test else None,
+            depth_stencil={
+                "format": "depth32float",
+                "depth_write_enabled": self.state.depth_write and not transparent,
+                "depth_compare": self.state.depth_compare,
+            } if self.state.depth_test else None,
             fragment={
                 "module": self._fragment_module,
                 "entry_point": "main",
@@ -278,7 +285,19 @@ class WebGpuRasterRenderer(RendererImplementation):
                 data=mesh.indices, usage=wgpu.BufferUsage.INDEX,
             )
             render_pass.set_index_buffer(index_buffer, "uint32")
-            render_pass.draw_indexed(mesh.indices.size)
+            opaque_count = int(mesh.resources.get(
+                "opaque_index_count", mesh.indices.size,
+            ))
+            if opaque_count:
+                render_pass.draw_indexed(opaque_count)
+            transparent_count = mesh.indices.size - opaque_count
+            if transparent_count:
+                render_pass.set_pipeline(
+                    self._pipeline(mesh.layout, transparent=True),
+                )
+                render_pass.draw_indexed(
+                    transparent_count, 1, opaque_count, 0, 0,
+                )
         render_pass.end()
         row_bytes = width * 4 * np.dtype(np.float16).itemsize
         padded_row_bytes = (row_bytes + 255) & ~255

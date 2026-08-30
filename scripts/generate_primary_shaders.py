@@ -54,6 +54,7 @@ class MaterialData:
         "sheen_color": osh.vec4,
         "subsurface_color": osh.vec4,
         "advanced_texture_indices": osh.vec4,
+        "optical": osh.vec4,
     }
 
 

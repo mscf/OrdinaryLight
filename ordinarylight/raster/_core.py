@@ -444,6 +444,7 @@ _MATERIAL_TEXTURE_FIELDS = (
     ("normal_texture", "normal_transform", 2, True),
     ("occlusion_texture", "occlusion_transform", 0, True),
     ("transmission_texture", "transmission_transform", 0, True),
+    ("thickness_texture", "thickness_transform", 0, True),
     ("clearcoat_texture", "base_color_transform", 0, True),
     ("sheen_texture", "base_color_transform", 0, False),
     ("anisotropy_texture", "base_color_transform", 0, True),
@@ -468,6 +469,17 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
                 if texture is not None and key not in lookup:
                     lookup[key] = len(textures)
                     textures.append((texture, linear))
+        environment_texture = getattr(scene, "_environment_texture", None)
+        if environment_texture is None and scene.reflection_probes:
+            from ..lights import EnvironmentLight
+            environment_texture = scene._pack_environment_texture(
+                EnvironmentLight(image=scene.reflection_probes[0].image)
+            )[0]
+        if environment_texture is not None:
+            key = (id(environment_texture), True)
+            if key not in lookup:
+                lookup[key] = len(textures)
+                textures.append((environment_texture, True))
     color_height = max((item.pixels.shape[0] for item, _ in textures), default=1)
     shadow_height = 0 if shadow_depth is None else shadow_depth.shape[0]
     shadow_width = 0 if shadow_depth is None else shadow_depth.shape[1]
@@ -494,6 +506,8 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
         atlas[:h, x:x + w] = image
         rectangles[(id(texture), linear)] = (x, 0, w, h, width, height)
         x += w
+    if environment_texture is not None:
+        rectangles["environment"] = rectangles[(id(environment_texture), True)]
     shadow_rectangle = None
     if shadow_depth is not None:
         y = color_height
@@ -517,7 +531,9 @@ _base_color_atlas = _material_atlas
 
 def _rasterize_shadow_depth(scene, matrix, size):
     depth = np.ones((size, size), np.float32)
-    for material_index, mesh in enumerate(scene.visible_meshes):
+    for mesh in scene.visible_meshes:
+        if mesh.material.alpha_mode == "blend":
+            continue
         if not len(mesh.indices):
             continue
         world = np.column_stack((
@@ -580,6 +596,12 @@ def _shadow_atlas_coordinates(world, matrix, rectangle):
 def _shadow_geometry(scene, matrix):
     rows, indices, base = [], [], 0
     for mesh in scene.visible_meshes:
+        # The baseline shadow map has no colored/transmissive shadow model.
+        # Treating blend surfaces as opaque casters creates dark triangular
+        # wedges at their quad boundaries, so omit them until a dedicated
+        # transmissive-shadow pass is selected.
+        if mesh.material.alpha_mode == "blend":
+            continue
         world = np.column_stack((
             mesh.world_vertices,
             np.ones(len(mesh.world_vertices), np.float32),
@@ -683,6 +705,8 @@ def _shadow_visibility(scene, owner, origins, directions, maximum_distance):
     epsilon = 1e-4
     for candidate in scene.visible_meshes:
         if candidate is owner or not len(candidate.indices):
+            continue
+        if candidate.material.alpha_mode == "blend":
             continue
         triangles = candidate.world_vertices[candidate.indices]
         edge1 = triangles[:, 1] - triangles[:, 0]
@@ -799,7 +823,26 @@ def scene_mesh(
     )
     if not config.direct_lighting:
         light_color_ambient[:3] = 0.0
-    for material_index, mesh in enumerate(scene.visible_meshes):
+    visible_meshes = tuple(scene.visible_meshes)
+    opaque_meshes = tuple(
+        mesh for mesh in visible_meshes if mesh.material.alpha_mode != "blend"
+    )
+    camera_forward = np.asarray(camera.target, np.float32) - camera_position
+    camera_forward /= max(float(np.linalg.norm(camera_forward)), 1e-8)
+    transparent_meshes = tuple(sorted(
+        (mesh for mesh in visible_meshes if mesh.material.alpha_mode == "blend"),
+        # Source-alpha composition is order dependent. Camera-space depth,
+        # unlike Euclidean center distance, reverses correctly when the camera
+        # crosses a stack of laterally offset transparent layers.
+        key=lambda mesh: -float(np.dot(
+            np.mean(mesh.world_vertices, axis=0) - camera_position,
+            camera_forward,
+        )),
+    ))
+    opaque_index_count = sum(mesh.indices.size for mesh in opaque_meshes)
+    material_indices = {id(mesh): index for index, mesh in enumerate(visible_meshes)}
+    for mesh in (*opaque_meshes, *transparent_meshes):
+        material_index = material_indices[id(mesh)]
         world = np.column_stack((mesh.world_vertices, np.ones(len(mesh.vertices), np.float32)))
         clip = world if gpu_camera else world @ matrix.T
         (
@@ -844,7 +887,8 @@ def scene_mesh(
         object_id = np.full(len(world), float(mesh.id or 0), np.float32)
         rows.append(np.column_stack((
             clip, color, mesh.world_normals, mesh.world_vertices,
-            metallic, roughness, transmission, np.ones(len(world), np.float32), emission,
+            metallic, roughness, transmission,
+            np.full(len(world), mesh.material.opacity, np.float32), emission,
             np.broadcast_to(
                 np.zeros(3, np.float32) if gpu_camera else camera_position,
                 (len(world), 3),
@@ -917,13 +961,13 @@ def scene_mesh(
                     np.zeros((len(local), 4), np.float32),
                     *[np.zeros((len(local), 2), np.float32) for _ in range(5)],
                     np.full(len(local), -1.0, np.float32),
-                    *[np.zeros((len(local), 2), np.float32) for _ in range(4)],
+                    *[np.zeros((len(local), 2), np.float32) for _ in range(5)],
                 )))
                 indices.append(base_indices + base)
                 base += len(local)
-    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 62), np.float32)
+    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 64), np.float32)
     index_data = np.concatenate(indices).astype(np.uint32) if indices else np.empty(0, np.uint32)
-    layout = RasterVertexLayout(248, (
+    layout = RasterVertexLayout(256, (
         RasterVertexAttribute(0, "float32x4", 0, "position"),
         RasterVertexAttribute(1, "float32x3", 16, "base_color"),
         RasterVertexAttribute(2, "float32x3", 28, "normal"),
@@ -944,10 +988,11 @@ def scene_mesh(
         RasterVertexAttribute(17, "float32x2", 196, "occlusion_uv"),
         RasterVertexAttribute(18, "float32x2", 204, "transmission_uv"),
         RasterVertexAttribute(19, "float32", 212, "material_index"),
-        RasterVertexAttribute(20, "float32x2", 216, "clearcoat_uv"),
-        RasterVertexAttribute(21, "float32x2", 224, "sheen_uv"),
-        RasterVertexAttribute(22, "float32x2", 232, "anisotropy_uv"),
-        RasterVertexAttribute(23, "float32x2", 240, "subsurface_uv"),
+        RasterVertexAttribute(20, "float32x2", 216, "thickness_uv"),
+        RasterVertexAttribute(21, "float32x2", 224, "clearcoat_uv"),
+        RasterVertexAttribute(22, "float32x2", 232, "sheen_uv"),
+        RasterVertexAttribute(23, "float32x2", 240, "anisotropy_uv"),
+        RasterVertexAttribute(24, "float32x2", 248, "subsurface_uv"),
     ))
     shadow_vertices = prepared_resources["shadow_vertices"]
     shadow_indices = prepared_resources["shadow_indices"]
@@ -955,6 +1000,9 @@ def scene_mesh(
     gpu_scene = pack_raster_gpu_scene(
         scene, camera, width, height,
         default_program=config.material_program,
+        environment_rectangle=prepared_resources["environment_rectangle"],
+        environment_log_range=prepared_resources["environment_log_range"],
+        environment_parameters=prepared_resources["environment_parameters"],
     )
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
@@ -964,6 +1012,8 @@ def scene_mesh(
         "gpu_camera": bool(gpu_camera),
         "material_buffer": gpu_scene.materials.tobytes(),
         "material_programs": gpu_scene.programs,
+        "transparent": bool(transparent_meshes),
+        "opaque_index_count": int(opaque_index_count),
     })
 
 
@@ -974,6 +1024,7 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
     the result until scene geometry/materials/lights or ``config`` change.
     """
     config = config or RasterConfig()
+    from ..lights import EnvironmentLight
     from .shadows import plan_shadow_maps
     shadow_requests = plan_shadow_maps(
         scene, extent=(config.shadow_map_size, config.shadow_map_size),
@@ -1003,6 +1054,24 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
         "shadow_request": shadow_request,
         "base_color_atlas": atlas,
         "atlas_rectangles": rectangles,
+        "environment_rectangle": rectangles.get("environment"),
+        "environment_log_range": (
+            scene._pack_environment_texture(scene.environment)[1]
+            if scene.environment is not None else (
+                scene._pack_environment_texture(EnvironmentLight(
+                    image=scene.reflection_probes[0].image,
+                ))[1] if scene.reflection_probes else 0.0
+            )
+        ),
+        "environment_parameters": (
+            ((*scene.environment.color, scene.environment.intensity),
+             scene.environment.rotation)
+            if scene.environment is not None else (
+                ((1.0, 1.0, 1.0, scene.reflection_probes[0].intensity),
+                 scene.reflection_probes[0].rotation)
+                if scene.reflection_probes else ((0.0, 0.0, 0.0, 0.0), 0.0)
+            )
+        ),
         "shadow_rectangle": shadow_rectangle,
         "shadow_vertices": shadow_vertices,
         "shadow_indices": shadow_indices,

@@ -70,6 +70,7 @@ struct MaterialData {
     vec4 sheen_color;
     vec4 subsurface_color;
     vec4 advanced_texture_indices;
+    vec4 optical;
 };
 
 struct VertexAttributeData { vec4 normal; vec4 texcoord; vec4 tangent; };

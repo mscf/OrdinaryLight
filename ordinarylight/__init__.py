@@ -22,7 +22,9 @@ from .cameras import (
     ArcballCameraController, Camera, OrthographicCamera, PanoramicCamera,
     PerspectiveCamera,
 )
-from .lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
+from .lights import (
+    DirectionalLight, EnvironmentLight, PointLight, ReflectionProbe, SpotLight,
+)
 from .surface import ArraySurface, RenderSurface
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
@@ -222,6 +224,7 @@ __all__ = [
     "DirectionalLight",
     "SpotLight",
     "EnvironmentLight",
+    "ReflectionProbe",
     "cameras",
     "lights",
     "ArraySurface",

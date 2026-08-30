@@ -69,6 +69,7 @@ struct MaterialData
     vec4 sheen_color;
     vec4 subsurface_color;
     vec4 advanced_texture_indices;
+    vec4 optical;
 };
 
 struct VertexAttributeData
@@ -469,7 +470,7 @@ vec2 shadeRayCone(WaveRay ray, float distance);
 float shadePowerHeuristic(float pdf_a, float pdf_b);
 ShadeMissResult shadeResolveEnvironmentMiss(WavePathState input_path, vec3 environment, uint environment_samples, float unified_area_probability);
 WavePathState shadeAdvanceBounceOrTerminate(WavePathState input_path, uint max_bounces);
-ShadeTransmissionResult shadeTransmitPath(WavePathState input_path, ShadeMediumStack input_stack, MaterialData material, vec3 normal, vec3 incoming, bool entering);
+ShadeTransmissionResult shadeTransmitPath(WavePathState input_path, ShadeMediumStack input_stack, MaterialData material, vec3 normal, vec3 incoming, bool entering, float hit_distance);
 ShadeTransmissionResult shadeTrackCustomTransmission(WavePathState input_path, ShadeMediumStack input_stack, MaterialData material, vec3 direction, bool entering);
 ShadeRouletteResult shadeApplyRussianRoulette(WavePathState input_path, uint initial_random_state, uint next_bounce, float transmission, uint roulette_start, float minimum_survival);
 ShadeContinuationResult shadeBuildContinuation(WavePathState input_path, vec3 hit_position, vec3 input_direction, uint path_index, uint next_bounce, uint medium_depth, float transmission, float bsdf_pdf, uint random_state, float cone_width, float cone_spread, bool unified_secondary_nee);
@@ -1171,7 +1172,7 @@ WavePathState shadeAdvanceBounceOrTerminate(WavePathState input_path, uint max_b
     return path;
 }
 
-ShadeTransmissionResult shadeTransmitPath(WavePathState input_path, ShadeMediumStack input_stack, MaterialData material, vec3 normal, vec3 incoming, bool entering)
+ShadeTransmissionResult shadeTransmitPath(WavePathState input_path, ShadeMediumStack input_stack, MaterialData material, vec3 normal, vec3 incoming, bool entering, float hit_distance)
 {
     WavePathState path = input_path;
     ShadeMediumStack stack = input_stack;
@@ -1209,8 +1210,15 @@ ShadeTransmissionResult shadeTransmitPath(WavePathState input_path, ShadeMediumS
             }
         }
     }
-    vec3 tint = mix(vec3(1.0), material.base_roughness.rgb, 0.2);
-    path.throughput = vec4(((path.throughput.rgb * tint) * material.attenuation_transmission.a), path.throughput.w);
+    float optical_distance = (entering ? 0.0 : hit_distance);
+    if ((material.advanced1.z > 0.5))
+    {
+        optical_distance = material.advanced1.w;
+    }
+    float attenuation_exponent = (optical_distance / max(material.ior_distance.y, 1e-06));
+    vec3 absorption = pow(max(material.attenuation_transmission.rgb, vec3(1e-06)), vec3(attenuation_exponent));
+    vec3 tint = mix(vec3(1.0), material.base_roughness.rgb, material.advanced1.z);
+    path.throughput = vec4((((path.throughput.rgb * absorption) * tint) * material.attenuation_transmission.a), path.throughput.w);
     return ShadeTransmissionResult(path, stack, direction, medium_depth);
 }
 
@@ -2555,7 +2563,7 @@ void main()
     {
         if ((transmission > 0.001))
         {
-            ShadeTransmissionResult transmitted = shadeTransmitPath(path, stacks[path_index], surface.material, surface.normal, incoming, surface.entering);
+            ShadeTransmissionResult transmitted = shadeTransmitPath(path, stacks[path_index], surface.material, surface.normal, incoming, surface.entering, loaded.hit.position_t.w);
             path = transmitted.path;
             stacks[path_index] = transmitted.stack;
             next_direction = transmitted.direction;

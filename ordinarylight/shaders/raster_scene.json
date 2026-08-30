@@ -284,24 +284,30 @@
       {
         "builtin": null,
         "location": 18,
-        "name": "clearcoat_uv",
+        "name": "thickness_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
         "location": 19,
-        "name": "sheen_uv",
+        "name": "clearcoat_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
         "location": 20,
-        "name": "anisotropy_uv",
+        "name": "sheen_uv",
         "type": "vec2"
       },
       {
         "builtin": null,
         "location": 21,
+        "name": "anisotropy_uv",
+        "type": "vec2"
+      },
+      {
+        "builtin": null,
+        "location": 22,
         "name": "subsurface_uv",
         "type": "vec2"
       }
@@ -309,11 +315,11 @@
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "66be3cc1c5aa01d269bd08792825a1ccb143c17c0b8f7dabab47aa64b39c4fa2",
+  "source_sha256": "8ce40b520248853e9c1d6d10b2ffa6e7c03fd4fede81c4b352d4f4680882242b",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "9a55916bf81456e2586d7065bdc5f379db91657b9a9538d6a8dc922a5b54a1cd",
+        "cache_key": "02c5cc1d66005ece5bd7168e7ffe24da4b89fcb55f5fb4e5d6d6f131db7683b1",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -429,24 +435,30 @@
             {
               "builtin": null,
               "location": 18,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 19,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 20,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -508,10 +520,10 @@
             1
           ]
         },
-        "sha256": "d22088b642024932124fef158947f9650a885ac1adc702f08dc4cf9e60aba3e8"
+        "sha256": "59fbcc8d7f48d38a46e081def24ce954067dcca51ad79f648a9a8334485d6076"
       },
       "vertex": {
-        "cache_key": "4301f49978f39ab16cc90a756c949d143fb384d9b72041f09ec416dba1eae68e",
+        "cache_key": "b3c1a762c72791ab41fc6cb9b2438c716ea61e07fe7fe7c031a2b91b411c7327",
         "file": "raster_scene.vert.spv",
         "reflection": {
           "entry_point": "main",
@@ -633,24 +645,30 @@
             {
               "builtin": null,
               "location": 20,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 22,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 23,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 24,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -773,24 +791,30 @@
             {
               "builtin": null,
               "location": 18,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 19,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 20,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -812,12 +836,12 @@
             1
           ]
         },
-        "sha256": "9c6c7096c11a834b7f448a5d8069bed42ab4e04933bb85193b849c5fe3667b88"
+        "sha256": "41dbddfe5e70e573e2fe86a0f4f006a8ff773f08d6f5d2545cf934e49ceb92db"
       }
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "39806da6ed098054ddea07f69fa655b41f4567c9209c209032aeb2b66854e41f",
+        "cache_key": "435de6e56d0278e4c30c8840bbb5b7b6b1f039351c971a0eb36f01ec298895da",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -933,24 +957,30 @@
             {
               "builtin": null,
               "location": 18,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 19,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 20,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -1012,10 +1042,10 @@
             1
           ]
         },
-        "sha256": "2c964e0c4ec67c00958ccc789834ed3acead5b9ae4f12657677ee0de7b5a4899"
+        "sha256": "6c1846e8d79ea8ece2acb8cac1a77adaa71756415b692b88f685e3cecb6b290b"
       },
       "vertex": {
-        "cache_key": "df0470236378e2593dddff4f1929e8e54a32eec7a31beb943458621a37ae526b",
+        "cache_key": "ae748762302050f00c43580ef9d88d1cca62763d919eaf4dee80e3dda1e1994e",
         "file": "raster_scene.vert.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -1137,24 +1167,30 @@
             {
               "builtin": null,
               "location": 20,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 22,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 23,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 24,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -1277,24 +1313,30 @@
             {
               "builtin": null,
               "location": 18,
-              "name": "clearcoat_uv",
+              "name": "thickness_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 19,
-              "name": "sheen_uv",
+              "name": "clearcoat_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 20,
-              "name": "anisotropy_uv",
+              "name": "sheen_uv",
               "type": "vec2"
             },
             {
               "builtin": null,
               "location": 21,
+              "name": "anisotropy_uv",
+              "type": "vec2"
+            },
+            {
+              "builtin": null,
+              "location": 22,
               "name": "subsurface_uv",
               "type": "vec2"
             }
@@ -1316,7 +1358,7 @@
             1
           ]
         },
-        "sha256": "29e74d611987390345482745d96cd2606e5fa06ca597de5068c1639c2cd676f2"
+        "sha256": "df1237cb707b2a1bbcb41a0868f35ee87993d6257748e251489fd325ad45ed03"
       }
     }
   }

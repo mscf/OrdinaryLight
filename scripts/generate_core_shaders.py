@@ -380,6 +380,7 @@ class MaterialData:
     sheen_color: osh.vec4
     subsurface_color: osh.vec4
     advanced_texture_indices: osh.vec4
+    optical: osh.vec4
 
 
 @osh.structure
@@ -3386,6 +3387,7 @@ def shadeTransmitPath(
     normal: osh.vec3,
     incoming: osh.vec3,
     entering: osh.boolean,
+    hit_distance: osh.f32,
 ) -> ShadeTransmissionResult:
     path = input_path
     stack = input_stack
@@ -3404,9 +3406,24 @@ def shadeTransmitPath(
         medium_depth = medium_depth + osh.u32(1)
     elif not entering and medium_depth > osh.u32(1):
         medium_depth = medium_depth - osh.u32(1)
-    tint = osh.mix(osh.vec3(1.0), material.base_roughness.rgb, 0.2)
+    optical_distance = 0.0 if entering else hit_distance
+    if material.advanced1.z > 0.5:
+        optical_distance = material.advanced1.w
+    attenuation_exponent = optical_distance / osh.maximum(
+        material.ior_distance.y, 0.000001,
+    )
+    absorption = osh.power(
+        osh.maximum(
+            material.attenuation_transmission.rgb, osh.vec3(0.000001),
+        ),
+        osh.vec3(attenuation_exponent),
+    )
+    tint = osh.mix(
+        osh.vec3(1.0), material.base_roughness.rgb, material.advanced1.z,
+    )
     path.throughput = osh.vec4(
-        path.throughput.rgb * tint * material.attenuation_transmission.a,
+        path.throughput.rgb * absorption * tint
+        * material.attenuation_transmission.a,
         path.throughput.w,
     )
     return ShadeTransmissionResult(path, stack, direction, medium_depth)
@@ -5047,6 +5064,8 @@ def shade_texture_probe(
         osh.vec4(1.0), osh.vec4(0.0), osh.vec4(1.0, 1.0, 1.0, 0.0),
         osh.vec4(1.5, 0.0, 0.0, 0.0), osh.vec4(-1.0),
         osh.vec4(1.0, -1.0, 0.0, -1.0),
+        osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0),
+        osh.vec4(-1.0, 1.0, 0.5, 0.0), osh.vec4(0.0),
     )
     material = shadeApplyMaterialTextures(
         material, osh.vec2(0.5), osh.vec2(0.5), 0.0, 0.0
@@ -5120,10 +5139,13 @@ def shade_control_probe(
         osh.vec4(1.0), osh.vec4(0.0),
         osh.vec4(1.0, 1.0, 1.0, 1.0),
         osh.vec4(1.5, 0.0, 0.0, 0.0), osh.vec4(-1.0), osh.vec4(0.0),
+        osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0),
+        osh.vec4(-1.0, 1.0, 0.5, 0.0), osh.vec4(0.0),
     )
     transmitted = shadeTransmitPath(
         paths[loaded.hit.path_index], stacks[loaded.hit.path_index], material,
         osh.vec3(0.0, 1.0, 0.0), loaded.ray.direction_tmax.xyz, True,
+        loaded.hit.position_t.w,
     )
     paths[loaded.hit.path_index] = transmitted.path
     stacks[loaded.hit.path_index] = transmitted.stack
@@ -5387,7 +5409,7 @@ def wavefront_shade_candidate(
     elif transmission > 0.001:
         transmitted = shadeTransmitPath(
             path, stacks[path_index], surface.material, surface.normal,
-            incoming, surface.entering,
+            incoming, surface.entering, loaded.hit.position_t.w,
         )
         path = transmitted.path
         stacks[path_index] = transmitted.stack

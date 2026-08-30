@@ -58,6 +58,14 @@ class VulkanGateTests(unittest.TestCase):
                 "tests.gates.renderer_visual_parity", "--scene", scene,
                 "--output", f"/tmp/ordinarylight_{scene}_parity",
             )
+        for scene in (
+            "environment-reflection", "refraction", "absorption",
+            "nested-dielectric", "transparency",
+        ):
+            self._run(
+                "tests.gates.renderer_visual_parity", "--scene", scene,
+                "--output", f"/tmp/ordinarylight_{scene}_parity",
+            )
 
     def test_volume_compositing(self):
         self._run(

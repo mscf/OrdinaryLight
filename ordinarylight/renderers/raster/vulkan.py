@@ -1040,11 +1040,20 @@ class VulkanRasterRenderer(RendererImplementation):
         cull_modes = {"none": vk.VK_CULL_MODE_NONE, "front": vk.VK_CULL_MODE_FRONT_BIT, "back": vk.VK_CULL_MODE_BACK_BIT}
         front_faces = {"cw": vk.VK_FRONT_FACE_CLOCKWISE, "ccw": vk.VK_FRONT_FACE_COUNTER_CLOCKWISE}
         compares = {"never": vk.VK_COMPARE_OP_NEVER, "less": vk.VK_COMPARE_OP_LESS, "less-equal": vk.VK_COMPARE_OP_LESS_OR_EQUAL, "always": vk.VK_COMPARE_OP_ALWAYS}
-        pipeline_key = (mesh.layout, self.state, width, height)
-        pipeline = self._pipelines.get(pipeline_key)
-        if pipeline is None:
-            pipeline = vk.vkCreateGraphicsPipelines(
-            self.device, vk.VK_NULL_HANDLE, 1, [vk.VkGraphicsPipelineCreateInfo(
+        def graphics_pipeline(transparent_pass=False):
+            pipeline_key = (
+                mesh.layout, self.state, width, height,
+                bool(transparent_pass),
+            )
+            cached = self._pipelines.get(pipeline_key)
+            if cached is not None:
+                return cached
+            alpha_blend = bool(
+                transparent_pass or self.state.blend_mode == "alpha"
+            )
+            additive_blend = self.state.blend_mode == "additive"
+            created = vk.vkCreateGraphicsPipelines(
+                self.device, vk.VK_NULL_HANDLE, 1, [vk.VkGraphicsPipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
                 stageCount=2, pStages=stages,
                 pVertexInputState=vk.VkPipelineVertexInputStateCreateInfo(
@@ -1074,23 +1083,49 @@ class VulkanRasterRenderer(RendererImplementation):
                 pDepthStencilState=vk.VkPipelineDepthStencilStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
                     depthTestEnable=vk.VK_TRUE if self.state.depth_test else vk.VK_FALSE,
-                    depthWriteEnable=vk.VK_TRUE if self.state.depth_write else vk.VK_FALSE,
+                    depthWriteEnable=(
+                        vk.VK_TRUE
+                        if self.state.depth_write and not transparent_pass
+                        else vk.VK_FALSE
+                    ),
                     depthCompareOp=compares[self.state.depth_compare],
                 ),
                 pColorBlendState=vk.VkPipelineColorBlendStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
                     attachmentCount=1, pAttachments=[vk.VkPipelineColorBlendAttachmentState(
-                        blendEnable=vk.VK_FALSE if self.state.blend_mode == "opaque" else vk.VK_TRUE,
-                        srcColorBlendFactor=(vk.VK_BLEND_FACTOR_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
-                        dstColorBlendFactor=(vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
+                        blendEnable=(
+                            vk.VK_TRUE if alpha_blend or additive_blend
+                            else vk.VK_FALSE
+                        ),
+                        srcColorBlendFactor=(
+                            vk.VK_BLEND_FACTOR_SRC_ALPHA
+                            if alpha_blend
+                            else vk.VK_BLEND_FACTOR_ONE
+                        ),
+                        dstColorBlendFactor=(
+                            vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
+                            if alpha_blend
+                            else vk.VK_BLEND_FACTOR_ONE
+                        ),
                         colorBlendOp=vk.VK_BLEND_OP_ADD,
                         srcAlphaBlendFactor=vk.VK_BLEND_FACTOR_ONE,
-                        dstAlphaBlendFactor=(vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA if self.state.blend_mode == "alpha" else vk.VK_BLEND_FACTOR_ONE),
+                        dstAlphaBlendFactor=(
+                            vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
+                            if alpha_blend
+                            else vk.VK_BLEND_FACTOR_ONE
+                        ),
                         alphaBlendOp=vk.VK_BLEND_OP_ADD,
                         colorWriteMask=0xF)]),
                 layout=layout, renderPass=render_pass, subpass=0,
-            )], None)[0]
-            self._pipelines[pipeline_key] = pipeline
+                )], None)[0]
+            self._pipelines[pipeline_key] = created
+            return created
+
+        pipeline = graphics_pipeline(False)
+        transparent_pipeline = (
+            graphics_pipeline(True)
+            if mesh.resources.get("transparent") else None
+        )
         host = vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         vertex_buffer, vertex_memory = self._buffer(mesh.vertices.nbytes, vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, host, mesh.vertices.tobytes())
         resources.extend((("buffer", vertex_buffer), ("memory", vertex_memory)))
@@ -1223,7 +1258,20 @@ class VulkanRasterRenderer(RendererImplementation):
             vk.vkCmdDraw(command, mesh.vertices.shape[0], 1, 0, 0)
         else:
             vk.vkCmdBindIndexBuffer(command, index_buffer, 0, vk.VK_INDEX_TYPE_UINT32)
-            vk.vkCmdDrawIndexed(command, mesh.indices.size, 1, 0, 0, 0)
+            opaque_count = int(mesh.resources.get(
+                "opaque_index_count", mesh.indices.size,
+            ))
+            if opaque_count:
+                vk.vkCmdDrawIndexed(command, opaque_count, 1, 0, 0, 0)
+            transparent_count = mesh.indices.size - opaque_count
+            if transparent_count:
+                vk.vkCmdBindPipeline(
+                    command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    transparent_pipeline,
+                )
+                vk.vkCmdDrawIndexed(
+                    command, transparent_count, 1, opaque_count, 0, 0,
+                )
         vk.vkCmdEndRenderPass(command)
         vk.vkCmdPipelineBarrier(
             command,

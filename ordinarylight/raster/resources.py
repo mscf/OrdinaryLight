@@ -26,6 +26,10 @@ MATERIAL_DTYPE = np.dtype([
     ("sheen_color", np.float32, (4,)),
     ("subsurface_color", np.float32, (4,)),
     ("advanced_texture_indices", np.float32, (4,)),
+    ("optical", np.float32, (4,)),
+    ("environment_rect", np.float32, (4,)),
+    ("environment_color_intensity", np.float32, (4,)),
+    ("environment_rotation_log_range", np.float32, (4,)),
 ], align=True)
 
 LIGHT_DTYPE = np.dtype([
@@ -79,6 +83,7 @@ def _texture_table(scene):
             mesh.material.normal_texture,
             mesh.material.occlusion_texture,
             mesh.material.transmission_texture,
+            mesh.material.thickness_texture,
             mesh.material.clearcoat_texture,
             mesh.material.sheen_texture,
             mesh.material.anisotropy_texture,
@@ -92,6 +97,8 @@ def _texture_table(scene):
 
 def pack_raster_gpu_scene(
     scene, camera, width, height, *, exposure=1.0, default_program=None,
+    environment_rectangle=None, environment_log_range=0.0,
+    environment_parameters=None,
 ):
     """Pack one scene revision into the shared Vulkan/WebGPU raster ABI."""
     from ._core import camera_matrix
@@ -153,7 +160,7 @@ def pack_raster_gpu_scene(
         )
         materials["advanced1"][index] = (
             material.subsurface, material.subsurface_radius,
-            float(material.thin_walled), 0.0,
+            float(material.thin_walled), material.thickness,
         )
         materials["sheen_color"][index] = (*material.sheen_color, 0.0)
         materials["subsurface_color"][index] = (
@@ -166,6 +173,33 @@ def pack_raster_gpu_scene(
                 material.anisotropy_texture, material.subsurface_texture,
             )
         )
+        alpha_modes = {"opaque": 0.0, "mask": 1.0, "blend": 2.0}
+        materials["optical"][index] = (
+            -1 if material.thickness_texture is None else
+            texture_lookup[id(material.thickness_texture)],
+            material.opacity, material.alpha_cutoff,
+            alpha_modes[material.alpha_mode],
+        )
+        environment = scene.environment
+        if environment_rectangle is not None:
+            x, y, rect_width, rect_height, atlas_width, atlas_height = environment_rectangle
+            materials["environment_rect"][index] = (
+                x / atlas_width, y / atlas_height,
+                rect_width / atlas_width, rect_height / atlas_height,
+            )
+        if environment_parameters is not None:
+            color_intensity, rotation = environment_parameters
+            materials["environment_color_intensity"][index] = color_intensity
+            materials["environment_rotation_log_range"][index] = (
+                rotation, environment_log_range, 1.0, 0.0,
+            )
+        elif environment is not None:
+            materials["environment_color_intensity"][index] = (
+                *environment.color, environment.intensity,
+            )
+            materials["environment_rotation_log_range"][index] = (
+                environment.rotation, environment_log_range, 1.0, 0.0,
+            )
         draws["model"][index] = mesh.transform.matrix
         normal = np.eye(4, dtype=np.float32)
         normal[:3, :3] = np.linalg.inv(mesh.transform.matrix[:3, :3]).T

@@ -41,6 +41,7 @@ struct MaterialData
     vec4 sheen_color;
     vec4 subsurface_color;
     vec4 advanced_texture_indices;
+    vec4 optical;
 };
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT scene_tlas;

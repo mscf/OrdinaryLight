@@ -3,6 +3,7 @@
 from .directional_light import DirectionalLight
 from .environment_light import EnvironmentLight
 from .point_light import PointLight
+from .reflection_probe import ReflectionProbe
 from .spot_light import SpotLight
 
 POINT = 0
@@ -14,5 +15,6 @@ LIGHT_TYPES = (PointLight, DirectionalLight, SpotLight)
 
 __all__ = [
     "DIRECTIONAL", "LIGHT_TYPES", "Light", "POINT", "SPOT",
-    "DirectionalLight", "EnvironmentLight", "PointLight", "SpotLight",
+    "DirectionalLight", "EnvironmentLight", "PointLight", "ReflectionProbe",
+    "SpotLight",
 ]

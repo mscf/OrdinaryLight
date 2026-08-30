@@ -188,6 +188,8 @@ def _material(gltf, index, textures):
     pbr = source.pbrMetallicRoughness
     base = tuple(((pbr.baseColorFactor if pbr is not None else None)
                   or (1.0, 1.0, 1.0, 1.0))[:3])
+    opacity = float(((pbr.baseColorFactor if pbr is not None else None)
+                     or (1.0, 1.0, 1.0, 1.0))[3])
     emissive = tuple(source.emissiveFactor or (0.0, 0.0, 0.0))
     extensions = source.extensions or {}
     transmission = extensions.get("KHR_materials_transmission", {})
@@ -220,6 +222,9 @@ def _material(gltf, index, textures):
     transmission_texture, transmission_transform = _texture_reference(
         transmission.get("transmissionTexture"), textures
     )
+    thickness_texture, thickness_transform = _texture_reference(
+        volume.get("thicknessTexture"), textures
+    )
     clearcoat_texture, _ = _texture_reference(
         clearcoat.get("clearcoatTexture"), textures
     )
@@ -245,6 +250,10 @@ def _material(gltf, index, textures):
         ior=ior.get("ior", 1.5),
         attenuation_color=tuple(volume.get("attenuationColor", (1.0, 1.0, 1.0))),
         attenuation_distance=attenuation_distance,
+        thickness=volume.get("thicknessFactor", 0.0),
+        opacity=opacity,
+        alpha_mode=(source.alphaMode or "OPAQUE").lower(),
+        alpha_cutoff=(source.alphaCutoff if source.alphaCutoff is not None else 0.5),
         emission_two_sided=bool(source.doubleSided),
         base_color_texture=base_texture,
         base_color_transform=base_transform,
@@ -268,6 +277,8 @@ def _material(gltf, index, textures):
         ),
         transmission_texture=transmission_texture,
         transmission_transform=transmission_transform,
+        thickness_texture=thickness_texture,
+        thickness_transform=thickness_transform,
         clearcoat_texture=clearcoat_texture,
         sheen_texture=sheen_texture,
         anisotropy_texture=anisotropy_texture,

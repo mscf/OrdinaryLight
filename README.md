@@ -1450,6 +1450,26 @@ modifier-authored normals back into path shading. Focused live scenes for each
 advanced lobe are available in `tools/raster_feature_viewer.py`; the same
 scenes are exercised by the raster/GI visual parity gate.
 
+Optical materials add `thickness`, `thickness_texture`, `opacity`,
+`alpha_mode`, and `alpha_cutoff` without introducing a renderer-specific
+material type. `EnvironmentLight` supplies global image-based reflection and
+refraction; `ReflectionProbe` supplies a local raster fallback while GI traces
+the represented geometry. Raster transmission uses Fresnel, total-internal-
+reflection fallback, directional environment refraction, and Beer--Lambert
+attenuation. GI uses the same authored IOR, thickness, and attenuation data
+with its nested medium stack and true path distance. Opaque geometry is emitted
+first and blend materials are sorted far-to-near; Vulkan and WebGPU use
+source-alpha blending for those records. Alpha masking, blending, and glTF
+`KHR_materials_volume`/base-color-alpha import share these semantics.
+
+The **Optics:** entries in `tools/raster_feature_viewer.py` demonstrate global
+IBL, a local reflection probe, varying IOR, absorption distances, nested
+dielectrics, and overlapping transparency. The advanced-material parity gate
+also captures the renderer-comparable scenes. Screen-space refraction through
+an opaque scene-color/depth prepass and order-independent transparency remain
+optional raster quality tiers; the portable baseline deliberately uses the
+environment fallback and deterministic object sorting.
+
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization
 targets without changing these public semantics.

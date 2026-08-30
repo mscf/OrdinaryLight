@@ -86,7 +86,7 @@ class RasterBackendTests(unittest.TestCase):
         target = "spirv" if shutil.which("glslangValidator") else "glsl"
         native = ol.RasterProgram.scene(target=target)
         web = ol.RasterProgram.scene(target="wgsl", validate=False)
-        self.assertEqual(len(native.reflection.varyings), 22)
+        self.assertEqual(len(native.reflection.varyings), 23)
         self.assertIn("@location(1)", web.vertex.source)
 
     def test_material_shader_variants_are_cached_by_program_set(self):
@@ -161,7 +161,7 @@ class RasterBackendTests(unittest.TestCase):
             scene, camera, 100, 100,
             ol.RasterConfig(direct_lighting=False),
         )
-        self.assertEqual(mesh.vertices.shape, (3, 62))
+        self.assertEqual(mesh.vertices.shape, (3, 64))
         np.testing.assert_allclose(
             mesh.vertices[:, 4:7], np.tile((0.2, 0.4, 0.8), (3, 1)),
         )
