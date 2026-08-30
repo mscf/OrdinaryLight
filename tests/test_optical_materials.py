@@ -174,6 +174,18 @@ def test_native_targets_split_transparent_depth_write_pass():
     assert '"less-equal" if optical' in webgpu
 
 
+def test_screen_space_projection_uses_attachment_y_orientation():
+    """Vulkan's negative viewport and WebGPU both produce top-left images."""
+    source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
+    shader = source.read_text()
+    assert shader.count("0.5 - screen_ndc.y * 0.5") == 1
+    assert shader.count("0.5 - ray_ndc.y * 0.5") == 1
+    assert shader.count("0.5 - middle_ndc.y * 0.5") == 1
+    assert "screen_ndc.y * 0.5 + 0.5" not in shader
+    assert "ray_ndc.y * 0.5 + 0.5" not in shader
+    assert "middle_ndc.y * 0.5 + 0.5" not in shader
+
+
 def test_screen_space_optics_is_explicit_and_preserves_environment_default():
     assert ol.RasterConfig().optical_quality == "environment"
     config = ol.RasterConfig(

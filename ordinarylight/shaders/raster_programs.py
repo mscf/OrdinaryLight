@@ -555,8 +555,7 @@ def scene_fragment(
     )
     screen_uv = osh.vec2(
         screen_ndc.x * 0.5 + 0.5,
-        (screen_ndc.y * 0.5 + 0.5) if camera.viewport_optics.z < 0.0
-        else (0.5 - screen_ndc.y * 0.5),
+        0.5 - screen_ndc.y * 0.5,
     )
     screen_pass_enabled = (
         1.0 if (
@@ -600,8 +599,7 @@ def scene_fragment(
         ray_ndc = ray_clip.xyz / ray_clip.w
         ray_uv = osh.vec2(
             ray_ndc.x * 0.5 + 0.5,
-            (ray_ndc.y * 0.5 + 0.5) if camera.viewport_optics.z < 0.0
-            else (0.5 - ray_ndc.y * 0.5),
+            0.5 - ray_ndc.y * 0.5,
         )
         if (
             ray_uv.x <= 0.001 or ray_uv.x >= 0.999
@@ -650,9 +648,7 @@ def scene_fragment(
                 )
                 middle_uv = osh.vec2(
                     middle_ndc.x * 0.5 + 0.5,
-                    (middle_ndc.y * 0.5 + 0.5)
-                    if camera.viewport_optics.z < 0.0
-                    else (0.5 - middle_ndc.y * 0.5),
+                    0.5 - middle_ndc.y * 0.5,
                 )
                 middle_depth = scene_depth.sample_depth_level_with(
                     scene_depth_sampler, middle_uv, 0,

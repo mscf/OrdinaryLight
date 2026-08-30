@@ -239,7 +239,7 @@ fn main(
     let refracted_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (refracted_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
     let screen_clip: vec4<f32> = (camera.view_projection * vec4<f32>(world_position, 1.0));
     let screen_ndc: vec3<f32> = (screen_clip.xyz / max(abs(screen_clip.w), 1e-06));
-    let screen_uv: vec2<f32> = vec2<f32>(((screen_ndc.x * 0.5) + 0.5), select((0.5 - (screen_ndc.y * 0.5)), ((screen_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+    let screen_uv: vec2<f32> = vec2<f32>(((screen_ndc.x * 0.5) + 0.5), (0.5 - (screen_ndc.y * 0.5)));
     let screen_pass_enabled: f32 = select(0.0, 1.0, ((abs(camera.viewport_optics.z) > 0.5) && (abs(camera.viewport_optics.z) < 1.5)));
     let screen_enabled: f32 = (screen_pass_enabled * max(surface_transmission, surface_metallic));
     let quality_distance: f32 = min((camera.viewport_optics.w / 24.0), 2.0);
@@ -263,7 +263,7 @@ fn main(
             break;
         }
         let ray_ndc: vec3<f32> = (ray_clip.xyz / ray_clip.w);
-        let ray_uv: vec2<f32> = vec2<f32>(((ray_ndc.x * 0.5) + 0.5), select((0.5 - (ray_ndc.y * 0.5)), ((ray_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+        let ray_uv: vec2<f32> = vec2<f32>(((ray_ndc.x * 0.5) + 0.5), (0.5 - (ray_ndc.y * 0.5)));
         if (((((ray_uv.x <= 0.001) || (ray_uv.x >= 0.999)) || (ray_uv.y <= 0.001)) || (ray_uv.y >= 0.999))) {
             break;
         }
@@ -284,7 +284,7 @@ fn main(
                 let middle_world: vec3<f32> = (reflection_origin + (reflected * middle_distance));
                 let middle_clip: vec4<f32> = (camera.view_projection * vec4<f32>(middle_world, 1.0));
                 let middle_ndc: vec3<f32> = (middle_clip.xyz / max(middle_clip.w, 1e-06));
-                let middle_uv: vec2<f32> = vec2<f32>(((middle_ndc.x * 0.5) + 0.5), select((0.5 - (middle_ndc.y * 0.5)), ((middle_ndc.y * 0.5) + 0.5), (camera.viewport_optics.z < 0.0)));
+                let middle_uv: vec2<f32> = vec2<f32>(((middle_ndc.x * 0.5) + 0.5), (0.5 - (middle_ndc.y * 0.5)));
                 let middle_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, middle_uv, 0);
                 let middle_delta: f32 = (middle_ndc.z - middle_depth);
                 if ((middle_delta > 1e-05)) {
