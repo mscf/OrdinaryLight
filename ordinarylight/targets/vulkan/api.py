@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from ...materials import MaterialProgram
+from ...materials import MaterialProgram, modifier_signature
 from ...selection import (
     PickOptions, PickResult, ViewportMapping, pick as cpu_pick,
 )
@@ -30,6 +30,7 @@ class RendererConfig:
     swapchain_images: int = 0
     present_pacing: bool = False
     material_program: MaterialProgram | None = None
+    material_modifier: object | None = None
     samples_per_pixel: int = 1
     progressive_accumulation: bool = False
     stationary_accumulation: bool = False
@@ -152,6 +153,7 @@ class RendererConfig:
             self.material_program, MaterialProgram
         ):
             raise TypeError("material_program must be created by @material")
+        modifier_signature(self.material_modifier)
         if not 1 <= self.samples_per_pixel <= 64:
             raise ValueError("samples_per_pixel must be between 1 and 64")
         if (

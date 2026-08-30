@@ -121,6 +121,47 @@ class MaterialProgramTests(unittest.TestCase):
         self.assertEqual(layout.channels, (("color", 3),))
         self.assertEqual(layout.pack(scene).shape, (3, 1, 4))
 
+    def test_portable_surface_modifier_compiles_for_all_gi_stages(self):
+        from ordinarylight.showcases.raster_material_hooks import (
+            advanced_surface_showcase_modifier,
+        )
+        source = material_shader_source(
+            "ray_query.comp", ol.builtin_material,
+            material_modifier=advanced_surface_showcase_modifier,
+        )
+        self.assertIn("struct SurfaceParameters", source)
+        self.assertIn("ordinarylight_material_modifier", source)
+        self.assertIn("surface.clearcoat", source)
+        layout = ol.VertexAttributeLayout(())
+        for shader, binding in (
+            ("wavefront_primary.comp", 24),
+            ("wavefront_shade_candidate.glsl", 16),
+        ):
+            staged = wavefront_material_shader_source(
+                shader, (ol.builtin_material,), attribute_layout=layout,
+                attribute_binding=binding,
+                material_modifier=advanced_surface_showcase_modifier,
+            )
+            self.assertIn("ordinarylight_material_modifier", staged)
+            if find_glsl_compiler():
+                binary = compile_wavefront_material_shader(
+                    shader, (ol.builtin_material,), attribute_layout=layout,
+                    attribute_binding=binding,
+                    material_modifier=advanced_surface_showcase_modifier,
+                )
+                self.assertEqual(binary[:4], b"\x03\x02#\x07")
+
+    def test_material_modifier_forces_empty_gi_attribute_layout(self):
+        from ordinarylight.targets.vulkan.core import VulkanRayQueryCore
+        scene = ol.Scene()
+        scene.add_mesh(
+            ((0, 0, 0), (1, 0, 0), (0, 1, 0)), ((0, 1, 2),),
+        )
+        layout = VulkanRayQueryCore._material_attribute_layout(
+            scene, (ol.builtin_material,), ol.default_material_modifier,
+        )
+        self.assertEqual(layout.channels, ())
+
     def test_staged_attribute_material_shaders_compile(self):
         @ol.material
         def colored(ctx):

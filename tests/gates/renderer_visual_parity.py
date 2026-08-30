@@ -12,12 +12,13 @@ import ordinarylight as ol
 from ordinarylight.outputs import to_sdr
 
 
-def _render_gi(scene, camera, extent, samples):
+def _render_gi(scene, camera, extent, samples, material_modifier=None):
     implementation = ol.renderers.gi.VulkanGlobalIlluminationRenderer(
         config=ol.RendererConfig(
             samples_per_pixel=samples,
             max_bounces=6,
             wavefront_hdr_capture=True,
+            material_modifier=material_modifier,
         )
     )
     with ol.Renderer(implementation=implementation) as renderer:
@@ -26,10 +27,11 @@ def _render_gi(scene, camera, extent, samples):
         )
 
 
-def _render_raster(scene, camera, extent):
+def _render_raster(scene, camera, extent, material_modifier=None):
     program = ol.RasterProgram.scene(
         target="spirv",
         material_programs=scene.material_programs(ol.builtin_material),
+        material_modifier=material_modifier,
     )
     implementation = ol.renderers.raster.VulkanRasterRenderer(
         program,
@@ -52,7 +54,7 @@ def main():
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument(
-        "--scene", choices=("feature", "materials"), default="feature",
+        "--scene", choices=("feature", "materials", "modifier"), default="feature",
         help="shared scene semantics to compare",
     )
     parser.add_argument("--max-log-color-rmse", type=float, default=0.45)
@@ -70,19 +72,27 @@ def main():
     if args.width < 1 or args.height < 1 or args.samples < 1:
         parser.error("dimensions and samples must be positive")
     extent = (args.width, args.height)
-    if args.scene == "materials":
+    material_modifier = None
+    if args.scene in {"materials", "modifier"}:
         from ordinarylight.showcases.raster_features import (
             build_material_program_parity_scene,
         )
         scene = build_material_program_parity_scene()
         camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+        if args.scene == "modifier":
+            from ordinarylight.showcases.raster_material_hooks import (
+                advanced_surface_showcase_modifier,
+            )
+            material_modifier = advanced_surface_showcase_modifier
     else:
         scene = ol.build_feature_parity_scene()
         camera = ol.feature_parity_camera()
     print("Rendering GI reference...")
-    gi = _render_gi(scene, camera, extent, args.samples)
+    gi = _render_gi(
+        scene, camera, extent, args.samples, material_modifier,
+    )
     print("Rendering raster candidate...")
-    raster = _render_raster(scene, camera, extent)
+    raster = _render_raster(scene, camera, extent, material_modifier)
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,
         reference_mask=gi.object_id > 0,

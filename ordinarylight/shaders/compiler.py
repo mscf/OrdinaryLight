@@ -26,7 +26,9 @@ def find_glsl_compiler():
     return str(development_compiler) if development_compiler.is_file() else None
 
 
-def material_shader_source(shader_name, program, *, attribute_layout=None):
+def material_shader_source(
+    shader_name, program, *, attribute_layout=None, material_modifier=None,
+):
     """Inject a material program into one of the packaged shader templates."""
     programs = (program,) if isinstance(program, MaterialProgram) else tuple(program)
     if not programs or any(not isinstance(item, MaterialProgram) for item in programs):
@@ -62,7 +64,7 @@ def material_shader_source(shader_name, program, *, attribute_layout=None):
         slots = {name: attribute_layout.slot(name) for name in required}
     generated = (
         f"{_BEGIN}\n"
-        f"{material_dispatch_glsl(programs, attribute_slots=slots)}\n"
+        f"{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier)}\n"
         f"{_END}"
     )
     if required:
@@ -120,7 +122,7 @@ def wavefront_material_shader_source(
     shader_name, programs, *, attribute_layout, attribute_binding,
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
-    native_textures=False, profiling=False,
+    native_textures=False, profiling=False, material_modifier=None,
 ):
     """Generate a wavefront specialization for material or surface programs."""
     from ..materials import MaterialEvaluation, SurfaceResponse
@@ -230,7 +232,7 @@ vec3 waveVertexAttribute3(uint slot) {{ return waveVertexAttribute4(slot).xyz; }
 """
         generated = (
             f"{_BEGIN}\n{attribute_support}"
-            f"{material_dispatch_glsl(programs, attribute_slots=slots)}\n"
+            f"{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier)}\n"
             f"{_END}"
         )
         source = source[:begin] + generated + source[end + len(_END):]
@@ -292,7 +294,7 @@ vec4 waveVertexAttribute4(uint slot)
 float waveVertexAttribute1(uint slot) {{ return waveVertexAttribute4(slot).x; }}
 vec2 waveVertexAttribute2(uint slot) {{ return waveVertexAttribute4(slot).xy; }}
 vec3 waveVertexAttribute3(uint slot) {{ return waveVertexAttribute4(slot).xyz; }}
-{material_dispatch_glsl(programs, attribute_slots=slots)}
+{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier)}
 MaterialEvaluation waveApplyMaterialProgram(
     inout MaterialData material, vec3 normal, vec2 uv, vec3 direction,
     bool entering, uint primitive, vec3 weights, float bounce_index)
@@ -483,7 +485,7 @@ def compile_wavefront_material_shader(
     shader_name, programs, *, attribute_layout, attribute_binding,
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
-    native_textures=False, profiling=False,
+    native_textures=False, profiling=False, material_modifier=None,
     compiler=None,
 ):
     compiler = compiler or find_glsl_compiler()
@@ -499,6 +501,7 @@ def compile_wavefront_material_shader(
             volume_empty_space_skipping=volume_empty_space_skipping,
             native_textures=native_textures,
             profiling=profiling,
+            material_modifier=material_modifier,
         ),
         compiler,
     )
@@ -526,7 +529,8 @@ def _compile_source(source, compiler):
 
 
 def compile_material_shader(
-    shader_name, program, compiler=None, *, attribute_layout=None
+    shader_name, program, compiler=None, *, attribute_layout=None,
+    material_modifier=None,
 ):
     """Generate and compile a complete shader for ``program``."""
     compiler = compiler or find_glsl_compiler()
@@ -537,7 +541,8 @@ def compile_material_shader(
         )
     return _compile_source(
         material_shader_source(
-            shader_name, program, attribute_layout=attribute_layout
+            shader_name, program, attribute_layout=attribute_layout,
+            material_modifier=material_modifier,
         ),
         compiler,
     )

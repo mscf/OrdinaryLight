@@ -610,6 +610,7 @@ class VulkanWavefrontExecutor:
             self.core.config.wavefront_ordinaryshade_shade,
             self.core.native_textures_enabled,
             self.core.config.wavefront_profiling,
+            self.core.config.material_modifier,
         )
         if signature == self.custom_material_signature:
             return
@@ -635,6 +636,7 @@ class VulkanWavefrontExecutor:
                 volume_empty_space_skipping=volume_empty_space_skipping,
                 native_textures=self.core.native_textures_enabled,
                 profiling=self.core.config.wavefront_profiling,
+                material_modifier=self.core.config.material_modifier,
             )
             shade = compile_wavefront_material_shader(
                 (
@@ -649,6 +651,7 @@ class VulkanWavefrontExecutor:
                 volume_empty_space_skipping=volume_empty_space_skipping,
                 native_textures=self.core.native_textures_enabled,
                 profiling=self.core.config.wavefront_profiling,
+                material_modifier=self.core.config.material_modifier,
             )
             self.custom_primary_module, self.custom_primary_pipeline = (
                 self._pipeline_bytes(primary, self.primary_pipeline_layout)
@@ -4556,7 +4559,10 @@ class VulkanRayQueryCore:
             if self.surface is not None or self._headless_surface
             else "ray_query.comp"
         )
-        if len(programs) == 1 and programs[0] is builtin_material:
+        if (
+            len(programs) == 1 and programs[0] is builtin_material
+            and self.config.material_modifier is None
+        ):
             shader_bytes = files("ordinarylight").joinpath(
                 f"shaders/{shader_source_name}.spv"
             ).read_bytes()
@@ -4565,6 +4571,7 @@ class VulkanRayQueryCore:
             shader_bytes = compile_material_shader(
                 shader_source_name, programs,
                 attribute_layout=attribute_layout,
+                material_modifier=self.config.material_modifier,
             )
         replacement_module = vk.vkCreateShaderModule(
             self.device,
@@ -4637,13 +4644,13 @@ class VulkanRayQueryCore:
             self._replace_compute_pipeline(
                 programs,
                 attribute_layout=self._material_attribute_layout(
-                    scene, programs
+                    scene, programs, self.config.material_modifier
                 ),
             )
         return programs, default_program
 
     @staticmethod
-    def _material_attribute_layout(scene, programs):
+    def _material_attribute_layout(scene, programs, material_modifier=None):
         """Return the opt-in custom vertex ABI required by material programs."""
         requirements = {}
         ordered_names = []
@@ -4661,7 +4668,10 @@ class VulkanRayQueryCore:
         if not ordered_names:
             from ...materials import builtin_material
             return (
-                None if all(program is builtin_material for program in programs)
+                None if (
+                    all(program is builtin_material for program in programs)
+                    and material_modifier is None
+                )
                 else VertexAttributeLayout(())
             )
         layout = VertexAttributeLayout.from_scene(scene, ordered_names)
@@ -5323,7 +5333,7 @@ class VulkanRayQueryCore:
         stage_start = time.perf_counter()
         programs, default_program = self._ensure_scene_pipeline(scene)
         custom_attribute_layout = self._material_attribute_layout(
-            scene, programs
+            scene, programs, self.config.material_modifier
         )
         triangles = scene.render_triangles()
         if not len(triangles):
@@ -6084,7 +6094,9 @@ class VulkanRayQueryCore:
                         return False
                     changed_blases.append(item)
         programs, default_program = self._ensure_scene_pipeline(scene)
-        custom_attribute_layout = self._material_attribute_layout(scene, programs)
+        custom_attribute_layout = self._material_attribute_layout(
+            scene, programs, self.config.material_modifier
+        )
         if custom_attribute_layout != resources.custom_attribute_layout:
             return False
         updates = [

@@ -7,7 +7,7 @@ from ordinarylight.showcases.raster_features import (
 )
 
 from ordinarylight.showcases.raster_material_hooks import (
-    layered_raster_showcase_hook,
+    advanced_surface_showcase_modifier,
 )
 
 
@@ -53,17 +53,17 @@ SHOWCASES = (
         tags=("raster-feature", "materials", "shaders", "parity"),
     ),
     Showcase(
-        "raster-layered-hook", "Raster: layered Ordinary Shade hook",
+        "portable-surface-modifier", "Raster/GI: portable surface modifier",
         build_advanced_material_scene,
         description=(
-            "A portable pre-lighting material hook layers a procedural blue "
-            "coating over the shared textured surface ABI."
+            "A portable Ordinary Shade modifier demonstrates clearcoat, "
+            "sheen, anisotropy, and thin-walled transmission."
         ),
         camera=OrbitCamera(target=(0.0, 1.1, 0.0), radius=9.0, height=3.6),
         renderer={
             "shadows": False,
             "shadow_map_size": 1024,
-            "material_hook": layered_raster_showcase_hook,
+            "material_modifier": advanced_surface_showcase_modifier,
         },
         tags=("raster-feature", "materials", "shaders", "layering"),
     ),

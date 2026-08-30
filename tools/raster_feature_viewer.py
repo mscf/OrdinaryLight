@@ -182,7 +182,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     material_programs=self.scene_value.material_programs(
                         default_material,
                     ),
-                    material_hook=settings.get("material_hook"),
+                    material_modifier=settings.get(
+                        "material_modifier", settings.get("material_hook")
+                    ),
                 )
                 settings.update(
                     shadows=self.shadows.isChecked(),
@@ -287,7 +289,9 @@ def _renderer(showcase, scene, backend_name, shadows, shadow_map_size):
     program = ol.RasterProgram.scene(
         target=target, validate=False,
         material_programs=scene.material_programs(default_material),
-        material_hook=settings.get("material_hook"),
+        material_modifier=settings.get(
+            "material_modifier", settings.get("material_hook")
+        ),
     )
     settings.update(shadows=shadows, shadow_map_size=shadow_map_size)
     config = ol.RasterConfig(

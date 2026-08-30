@@ -50,6 +50,7 @@ illumination or traced transmission:
 
 ```bash
 python -m tests.gates.renderer_visual_parity
+python -m tests.gates.renderer_visual_parity --scene modifier
 ```
 
 For interactive inspection, render the same evidence into a side-by-side Qt

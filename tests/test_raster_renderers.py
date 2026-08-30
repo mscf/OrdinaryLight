@@ -12,8 +12,8 @@ if shade_root.exists():
     sys.path.insert(0, str(shade_root))
 
 import ordinarylight as ol
-from ordinarylight.shaders.raster_programs import (
-    RasterMaterialContext, RasterSurface, blend_raster_surfaces,
+from ordinarylight.materials.gpu import (
+    SurfaceContext, SurfaceParameters, blend_surface_parameters,
 )
 
 try:
@@ -34,14 +34,16 @@ def raster_fragment() -> osh.location(osh.vec4, 0):
 
 @ol.raster_material_hook
 def striped_material_hook(
-    surface: RasterSurface, context: RasterMaterialContext,
-) -> RasterSurface:
+    surface: SurfaceParameters, context: SurfaceContext,
+) -> SurfaceParameters:
     stripe = osh.maximum(0.0, osh.minimum(1.0, context.uv.x * 2.0))
-    layer = RasterSurface(
+    layer = SurfaceParameters(
         osh.vec3(0.1, 0.8, 1.0), surface.emission, surface.normal,
         0.0, 0.18, surface.transmission, surface.occlusion,
+        0.6, 0.1, osh.vec3(0.05), 0.3, 0.0, surface.thin_walled,
+        0.2, osh.vec3(1.0, 0.4, 0.2), 0.35,
     )
-    return blend_raster_surfaces(surface, layer, stripe)
+    return blend_surface_parameters(surface, layer, stripe)
 
 
 class RasterBackendTests(unittest.TestCase):
@@ -120,8 +122,8 @@ class RasterBackendTests(unittest.TestCase):
         plain = ol.RasterProgram.scene(target="wgsl", validate=False)
         self.assertIs(first, repeated)
         self.assertNotEqual(first.cache_key, plain.cache_key)
-        self.assertIn("ordinarylight_raster_material_hook", first.fragment.source)
-        self.assertIn("blend_raster_surfaces", first.fragment.source)
+        self.assertIn("ordinarylight_material_modifier", first.fragment.source)
+        self.assertIn("blend_surface_parameters", first.fragment.source)
         self.assertIn("context.uv.x", first.fragment.source)
 
     def test_raster_config_rejects_undecorated_material_hook(self):

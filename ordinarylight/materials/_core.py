@@ -444,8 +444,11 @@ class MaterialProgram:
         lines.append(f"    result.{field_name} = {expression.code};")
 
 
-def material_dispatch_glsl(programs, *, attribute_slots=None):
+def material_dispatch_glsl(
+    programs, *, attribute_slots=None, material_modifier=None,
+):
     """Generate evaluator functions and a material-ID dispatcher."""
+    from .gpu import material_modifier_glsl
     programs = tuple(programs)
     if not programs:
         raise ValueError("At least one material program is required")
@@ -456,17 +459,31 @@ def material_dispatch_glsl(programs, *, attribute_slots=None):
         for index, program in enumerate(programs)
     ]
     lines = [
+        material_modifier_glsl(material_modifier),
         *functions,
         "MaterialEvaluation evaluateMaterial(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
         "{",
         "    int program_id = int(floor(material.ior_distance.z));",
+        "    MaterialEvaluation evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);",
     ]
     for index in range(1, len(programs)):
         lines.append(
-            f"    if (program_id == {index}) return evaluateMaterial_{index}(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);"
+            f"    if (program_id == {index}) evaluated = evaluateMaterial_{index}(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);"
         )
     lines.extend((
-        "    return evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);",
+        "    SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, 0.0, 0.1, vec3(0.0), 0.5, 0.0, 0.0, 0.0, evaluated.base_color, 0.5);",
+        "    surface = ordinarylight_material_modifier(surface, SurfaceContext(uv, normal, -direction, float(program_id)));",
+        "    float subsurface = clamp(surface.subsurface, 0.0, 1.0);",
+        "    evaluated.base_color = clamp(mix(surface.base_color, surface.subsurface_color, subsurface * 0.5) + surface.sheen_color * (1.0 - clamp(surface.sheen_roughness, 0.0, 1.0)) * 0.2, vec3(0.0), vec3(1.0));",
+        "    evaluated.emission = max(surface.emission, vec3(0.0));",
+        "    evaluated.metallic = clamp(surface.metallic, 0.0, 1.0);",
+        "    float coat_mix = clamp(surface.clearcoat, 0.0, 1.0) * 0.25;",
+        "    float anisotropic_roughness = surface.roughness * (1.0 - 0.25 * abs(clamp(surface.anisotropy, -1.0, 1.0)));",
+        "    evaluated.roughness = clamp(mix(anisotropic_roughness, surface.clearcoat_roughness, coat_mix) + subsurface * clamp(surface.subsurface_radius, 0.0, 1.0) * 0.1, 0.001, 1.0);",
+        "    evaluated.transmission = clamp(surface.transmission, 0.0, 1.0);",
+        "    if (surface.thin_walled > 0.5) evaluated.attenuation_distance = 1e30;",
+        "    evaluated.emission *= clamp(surface.occlusion, 0.0, 1.0);",
+        "    return evaluated;",
         "}",
     ))
     return "\n".join(lines)

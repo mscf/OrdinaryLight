@@ -7,7 +7,7 @@ struct RasterMaterial {
     normal_occlusion_transmission: vec4<f32>,
 }
 
-struct RasterSurface {
+struct SurfaceParameters {
     base_color: vec3<f32>,
     emission: vec3<f32>,
     normal: vec3<f32>,
@@ -15,11 +15,20 @@ struct RasterSurface {
     roughness: f32,
     transmission: f32,
     occlusion: f32,
+    clearcoat: f32,
+    clearcoat_roughness: f32,
+    sheen_color: vec3<f32>,
+    sheen_roughness: f32,
+    anisotropy: f32,
+    thin_walled: f32,
+    subsurface: f32,
+    subsurface_color: vec3<f32>,
+    subsurface_radius: f32,
 }
 
-struct RasterMaterialContext {
+struct SurfaceContext {
     uv: vec2<f32>,
-    world_position: vec3<f32>,
+    normal: vec3<f32>,
     view_direction: vec3<f32>,
     program_id: f32,
 }
@@ -30,13 +39,12 @@ struct RasterMaterialContext {
 @group(0) @binding(4) var shadow_sampler: sampler_comparison;
 @group(0) @binding(5) var<storage, read> materials: array<RasterMaterial>;
 
-fn blend_raster_surfaces(base: RasterSurface, layer: RasterSurface, weight: f32) -> RasterSurface {
+fn blend_surface_parameters(base: SurfaceParameters, layer: SurfaceParameters, weight: f32) -> SurfaceParameters {
     let amount: f32 = max(0.0, min(1.0, weight));
-    let mixed_normal: vec3<f32> = normalize(mix(base.normal, layer.normal, amount));
-    return RasterSurface(mix(base.base_color, layer.base_color, amount), mix(base.emission, layer.emission, amount), mixed_normal, mix(base.metallic, layer.metallic, amount), mix(base.roughness, layer.roughness, amount), mix(base.transmission, layer.transmission, amount), mix(base.occlusion, layer.occlusion, amount));
+    return SurfaceParameters(mix(base.base_color, layer.base_color, amount), (base.emission + (layer.emission * amount)), normalize(mix(base.normal, layer.normal, amount)), mix(base.metallic, layer.metallic, amount), mix(base.roughness, layer.roughness, amount), mix(base.transmission, layer.transmission, amount), mix(base.occlusion, layer.occlusion, amount), mix(base.clearcoat, layer.clearcoat, amount), mix(base.clearcoat_roughness, layer.clearcoat_roughness, amount), mix(base.sheen_color, layer.sheen_color, amount), mix(base.sheen_roughness, layer.sheen_roughness, amount), mix(base.anisotropy, layer.anisotropy, amount), mix(base.thin_walled, layer.thin_walled, amount), mix(base.subsurface, layer.subsurface, amount), mix(base.subsurface_color, layer.subsurface_color, amount), mix(base.subsurface_radius, layer.subsurface_radius, amount));
 }
 
-fn ordinarylight_raster_material_hook(surface: RasterSurface, context: RasterMaterialContext) -> RasterSurface {
+fn ordinarylight_material_modifier(surface: SurfaceParameters, context: SurfaceContext) -> SurfaceParameters {
     return surface;
 }
 
@@ -96,7 +104,7 @@ fn main(
     let base_transmission: f32 = (attenuation_transmission.w * transmission_sample);
     let transmission: f32 = select(base_transmission, 1.0, glass_program);
     let occlusion: f32 = mix(1.0, occlusion_sample, normal_occlusion_transmission.z);
-    let hooked: RasterSurface = ordinarylight_raster_material_hook(RasterSurface(sampled_base_color, sampled_emission, normal, metallic, roughness, transmission, occlusion), RasterMaterialContext(base_color_uv, world_position, view, ior_distance_program_flags.z));
+    let hooked: SurfaceParameters = ordinarylight_material_modifier(SurfaceParameters(sampled_base_color, sampled_emission, normal, metallic, roughness, transmission, occlusion, 0.0, 0.1, vec3<f32>(0.0), 0.5, 0.0, 0.0, 0.0, sampled_base_color, 0.5), SurfaceContext(base_color_uv, normal, view, ior_distance_program_flags.z));
     let surface_base_color: vec3<f32> = hooked.base_color;
     let surface_emission: vec3<f32> = hooked.emission;
     let surface_normal: vec3<f32> = (hooked.normal / max(length(hooked.normal), 1e-06));
@@ -104,6 +112,13 @@ fn main(
     let surface_roughness: f32 = max(0.04, min(1.0, hooked.roughness));
     let surface_transmission: f32 = max(0.0, min(1.0, hooked.transmission));
     let surface_occlusion: f32 = max(0.0, min(1.0, hooked.occlusion));
+    let surface_clearcoat: f32 = max(0.0, min(1.0, hooked.clearcoat));
+    let surface_clearcoat_roughness: f32 = max(0.04, min(1.0, hooked.clearcoat_roughness));
+    let surface_sheen: vec3<f32> = (hooked.sheen_color * (1.0 - max(0.0, min(1.0, hooked.sheen_roughness))));
+    let surface_anisotropy: f32 = max((-1.0), min(1.0, hooked.anisotropy));
+    let surface_thin_walled: f32 = max(0.0, min(1.0, hooked.thin_walled));
+    let surface_subsurface: f32 = max(0.0, min(1.0, hooked.subsurface));
+    let surface_subsurface_radius: f32 = max(0.0, min(1.0, hooked.subsurface_radius));
     let light_delta: vec3<f32> = (light_position_type.xyz - world_position);
     let point_distance: f32 = max(length(light_delta), 1e-06);
     let point_incoming: vec3<f32> = (light_delta / point_distance);
@@ -124,18 +139,32 @@ fn main(
     let f0: vec3<f32> = mix(vec3<f32>(0.04), surface_base_color, vec3<f32>(surface_metallic));
     let fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - vdoth)), vec3<f32>(5.0))));
     let alpha: f32 = (surface_roughness * surface_roughness);
-    let alpha2: f32 = (alpha * alpha);
-    let denominator: f32 = (((ndoth * ndoth) * (alpha2 - 1.0)) + 1.0);
-    let distribution: f32 = (alpha2 / max(((3.14159265 * denominator) * denominator), 1e-06));
+    let alpha_x: f32 = max(0.02, (alpha * (1.0 - (0.7 * surface_anisotropy))));
+    let alpha_y: f32 = max(0.02, (alpha * (1.0 + (0.7 * surface_anisotropy))));
+    let tangent_dot_half: f32 = (((tangent.x * half_vector.x) + (tangent.y * half_vector.y)) + (tangent.z * half_vector.z));
+    let bitangent_dot_half: f32 = (((bitangent.x * half_vector.x) + (bitangent.y * half_vector.y)) + (bitangent.z * half_vector.z));
+    let anisotropic_denominator: f32 = ((((tangent_dot_half * tangent_dot_half) / (alpha_x * alpha_x)) + ((bitangent_dot_half * bitangent_dot_half) / (alpha_y * alpha_y))) + (ndoth * ndoth));
+    let distribution: f32 = (1.0 / max(((((3.14159265 * alpha_x) * alpha_y) * anisotropic_denominator) * anisotropic_denominator), 1e-06));
     let k: f32 = (((surface_roughness + 1.0) * (surface_roughness + 1.0)) / 8.0);
     let geometry_v: f32 = (ndotv / max(((ndotv * (1.0 - k)) + k), 1e-06));
     let geometry_l: f32 = (ndotl / max(((ndotl * (1.0 - k)) + k), 1e-06));
     let specular: vec3<f32> = ((((distribution * geometry_v) * geometry_l) * fresnel) / max(((4.0 * ndotv) * ndotl), 1e-06));
+    let coat_alpha: f32 = (surface_clearcoat_roughness * surface_clearcoat_roughness);
+    let coat_alpha2: f32 = (coat_alpha * coat_alpha);
+    let coat_denominator: f32 = (((ndoth * ndoth) * (coat_alpha2 - 1.0)) + 1.0);
+    let coat_distribution: f32 = (coat_alpha2 / max(((3.14159265 * coat_denominator) * coat_denominator), 1e-06));
+    let coat_fresnel: f32 = (0.04 + (0.96 * pow((1.0 - vdoth), 5.0)));
+    let clearcoat_specular: vec3<f32> = vec3<f32>((((surface_clearcoat * coat_distribution) * coat_fresnel) / max(((4.0 * ndotv) * ndotl), 1e-06)));
     let diffuse_weight: f32 = ((1.0 - surface_metallic) * (1.0 - surface_transmission));
-    let diffuse: vec3<f32> = ((((vec3<f32>(1.0) - fresnel) * surface_base_color) * diffuse_weight) / 3.14159265);
+    let diffuse_base: vec3<f32> = ((((vec3<f32>(1.0) - fresnel) * surface_base_color) * diffuse_weight) / 3.14159265);
+    let diffuse: vec3<f32> = mix(diffuse_base, (diffuse_base * hooked.subsurface_color), surface_subsurface);
+    let wrapped_ndotl: f32 = max(0.0, ((ndotl + surface_subsurface_radius) / (1.0 + surface_subsurface_radius)));
+    let diffuse_ndotl: f32 = mix(ndotl, wrapped_ndotl, surface_subsurface);
     let attenuation: f32 = (1.0 / (distance * distance));
-    let direct: vec3<f32> = (((diffuse + specular) * light_color_ambient.xyz) * (((ndotl * attenuation) * shadow_visibility) * shadow_map_visibility));
-    let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + (vec3<f32>(surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
+    let visibility: f32 = ((attenuation * shadow_visibility) * shadow_map_visibility);
+    let direct: vec3<f32> = ((((diffuse + surface_sheen) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + (((specular + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
+    let transmission_tint: vec3<f32> = mix(attenuation_transmission.xyz, surface_base_color, surface_thin_walled);
+    let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + ((transmission_tint * surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
     let shaded: vec3<f32> = ((ambient + direct) + surface_emission);
     return vec4<f32>(select(shaded, surface_base_color, unlit_program), surface_alpha);
 }

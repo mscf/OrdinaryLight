@@ -1427,16 +1427,18 @@ def coated(ctx):
     return ol.layered_material(base, ol.MaterialLayer(coat, ctx.uv.x))
 ```
 
-Raster-specific programmable effects use a stable pre-lighting Ordinary Shade
-hook. A hook receives sampled material parameters, the mapped normal, UV,
-world position, view direction, and material-program ID; it returns the same
-`RasterSurface` structure. It therefore compiles identically to SPIR-V and
-WGSL and does not require backend-specific shader source injection. Import the
-hook ABI from `ordinarylight.shaders.raster_programs`, decorate the function
-with `@ol.raster_material_hook`, and pass it to both `RasterProgram.scene()`
-and `RasterConfig(material_hook=...)`. `blend_raster_surfaces()` provides the
-first ordered layering primitive. The viewer entry **Raster: layered Ordinary
-Shade hook** is a live example.
+Portable programmable effects use a renderer-neutral pre-lighting/pre-BSDF
+Ordinary Shade modifier. A modifier receives `SurfaceParameters` and a
+`SurfaceContext` containing UV, mapped normal, view direction, and material
+program ID, then returns updated parameters. Decorate it with
+`@ol.material_modifier` and pass it to `RasterProgram.scene()`,
+`RasterConfig(material_modifier=...)`, or
+`RendererConfig(material_modifier=...)`. The same Python source is compiled
+to raster SPIR-V/WGSL and injected into both Vulkan GI execution strategies.
+`ol.blend_surface_parameters()` provides ordered layering. The portable ABI
+includes clearcoat, sheen, anisotropy, thin-walled transmission, and a compact
+subsurface approximation in addition to the standard PBR fields. The viewer
+entry **Raster/GI: portable surface modifier** is a live example.
 
 Auxiliary depth/normal/object-ID products currently use correctness-oriented
 CPU implementations. Native MRT and GPU volume passes remain optimization

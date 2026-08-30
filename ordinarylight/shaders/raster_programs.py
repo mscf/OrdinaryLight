@@ -2,6 +2,17 @@
 
 import ordinaryshade as osh
 
+from ..materials.gpu import (
+    SurfaceContext, SurfaceParameters, blend_surface_parameters,
+    default_material_modifier,
+)
+
+# Compatibility names for the first raster-only material-hook baseline.
+RasterMaterialContext = SurfaceContext
+RasterSurface = SurfaceParameters
+blend_raster_surfaces = blend_surface_parameters
+default_raster_material_hook = default_material_modifier
+
 
 @osh.structure
 class SceneVertexOutput:
@@ -46,49 +57,6 @@ class RasterMaterial:
     ior_distance_program_flags: osh.vec4
     texture_indices: osh.vec4
     normal_occlusion_transmission: osh.vec4
-
-
-@osh.structure
-class RasterMaterialContext:
-    uv: osh.vec2
-    world_position: osh.vec3
-    view_direction: osh.vec3
-    program_id: osh.f32
-
-
-@osh.structure
-class RasterSurface:
-    base_color: osh.vec3
-    emission: osh.vec3
-    normal: osh.vec3
-    metallic: osh.f32
-    roughness: osh.f32
-    transmission: osh.f32
-    occlusion: osh.f32
-
-
-@osh.function
-def blend_raster_surfaces(
-    base: RasterSurface, layer: RasterSurface, weight: osh.f32,
-) -> RasterSurface:
-    amount = osh.maximum(0.0, osh.minimum(1.0, weight))
-    mixed_normal = osh.normalize(osh.mix(base.normal, layer.normal, amount))
-    return RasterSurface(
-        osh.mix(base.base_color, layer.base_color, amount),
-        osh.mix(base.emission, layer.emission, amount),
-        mixed_normal,
-        osh.mix(base.metallic, layer.metallic, amount),
-        osh.mix(base.roughness, layer.roughness, amount),
-        osh.mix(base.transmission, layer.transmission, amount),
-        osh.mix(base.occlusion, layer.occlusion, amount),
-    )
-
-
-@osh.function(name="ordinarylight_raster_material_hook")
-def default_raster_material_hook(
-    surface: RasterSurface, context: RasterMaterialContext,
-) -> RasterSurface:
-    return surface
 
 
 @osh.vertex
@@ -242,13 +210,15 @@ def scene_fragment(
         1.0, occlusion_sample,
         normal_occlusion_transmission.z,
     )
-    hooked = ordinarylight_raster_material_hook(
-        RasterSurface(
+    hooked = ordinarylight_material_modifier(
+        SurfaceParameters(
             sampled_base_color, sampled_emission, normal, metallic,
             roughness, transmission, occlusion,
+            0.0, 0.1, osh.vec3(0.0), 0.5, 0.0, 0.0,
+            0.0, sampled_base_color, 0.5,
         ),
-        RasterMaterialContext(
-            base_color_uv, world_position, view,
+        SurfaceContext(
+            base_color_uv, normal, view,
             ior_distance_program_flags.z,
         ),
     )
@@ -268,6 +238,27 @@ def scene_fragment(
     )
     surface_occlusion = osh.maximum(
         0.0, osh.minimum(1.0, hooked.occlusion),
+    )
+    surface_clearcoat = osh.maximum(
+        0.0, osh.minimum(1.0, hooked.clearcoat),
+    )
+    surface_clearcoat_roughness = osh.maximum(
+        0.04, osh.minimum(1.0, hooked.clearcoat_roughness),
+    )
+    surface_sheen = hooked.sheen_color * (
+        1.0 - osh.maximum(0.0, osh.minimum(1.0, hooked.sheen_roughness))
+    )
+    surface_anisotropy = osh.maximum(
+        -1.0, osh.minimum(1.0, hooked.anisotropy),
+    )
+    surface_thin_walled = osh.maximum(
+        0.0, osh.minimum(1.0, hooked.thin_walled),
+    )
+    surface_subsurface = osh.maximum(
+        0.0, osh.minimum(1.0, hooked.subsurface),
+    )
+    surface_subsurface_radius = osh.maximum(
+        0.0, osh.minimum(1.0, hooked.subsurface_radius),
     )
     light_delta = light_position_type.xyz - world_position
     point_distance = osh.maximum(osh.length(light_delta), 0.000001)
@@ -316,10 +307,25 @@ def scene_fragment(
         osh.vec3(1.0 - vdoth), osh.vec3(5.0),
     )
     alpha = surface_roughness * surface_roughness
-    alpha2 = alpha * alpha
-    denominator = ndoth * ndoth * (alpha2 - 1.0) + 1.0
-    distribution = alpha2 / osh.maximum(
-        3.14159265 * denominator * denominator, 0.000001,
+    alpha_x = osh.maximum(0.02, alpha * (1.0 - 0.7 * surface_anisotropy))
+    alpha_y = osh.maximum(0.02, alpha * (1.0 + 0.7 * surface_anisotropy))
+    tangent_dot_half = (
+        tangent.x * half_vector.x + tangent.y * half_vector.y
+        + tangent.z * half_vector.z
+    )
+    bitangent_dot_half = (
+        bitangent.x * half_vector.x + bitangent.y * half_vector.y
+        + bitangent.z * half_vector.z
+    )
+    anisotropic_denominator = (
+        tangent_dot_half * tangent_dot_half / (alpha_x * alpha_x)
+        + bitangent_dot_half * bitangent_dot_half / (alpha_y * alpha_y)
+        + ndoth * ndoth
+    )
+    distribution = 1.0 / osh.maximum(
+        3.14159265 * alpha_x * alpha_y
+        * anisotropic_denominator * anisotropic_denominator,
+        0.000001,
     )
     k = (surface_roughness + 1.0) * (surface_roughness + 1.0) / 8.0
     geometry_v = ndotv / osh.maximum(ndotv * (1.0 - k) + k, 0.000001)
@@ -327,20 +333,47 @@ def scene_fragment(
     specular = distribution * geometry_v * geometry_l * fresnel / osh.maximum(
         4.0 * ndotv * ndotl, 0.000001,
     )
+    coat_alpha = surface_clearcoat_roughness * surface_clearcoat_roughness
+    coat_alpha2 = coat_alpha * coat_alpha
+    coat_denominator = ndoth * ndoth * (coat_alpha2 - 1.0) + 1.0
+    coat_distribution = coat_alpha2 / osh.maximum(
+        3.14159265 * coat_denominator * coat_denominator, 0.000001,
+    )
+    coat_fresnel = 0.04 + 0.96 * osh.power(1.0 - vdoth, 5.0)
+    clearcoat_specular = osh.vec3(
+        surface_clearcoat * coat_distribution * coat_fresnel
+        / osh.maximum(4.0 * ndotv * ndotl, 0.000001)
+    )
     diffuse_weight = (1.0 - surface_metallic) * (1.0 - surface_transmission)
-    diffuse = (
+    diffuse_base = (
         (osh.vec3(1.0) - fresnel) * surface_base_color
         * diffuse_weight / 3.14159265
     )
+    diffuse = osh.mix(
+        diffuse_base, diffuse_base * hooked.subsurface_color,
+        surface_subsurface,
+    )
+    wrapped_ndotl = osh.maximum(
+        0.0, (ndotl + surface_subsurface_radius)
+        / (1.0 + surface_subsurface_radius),
+    )
+    diffuse_ndotl = osh.mix(ndotl, wrapped_ndotl, surface_subsurface)
     attenuation = 1.0 / (distance * distance)
+    visibility = attenuation * shadow_visibility * shadow_map_visibility
     direct = (
-        (diffuse + specular) * light_color_ambient.xyz
-        * (ndotl * attenuation * shadow_visibility * shadow_map_visibility)
+        (diffuse + surface_sheen) * light_color_ambient.xyz
+        * (diffuse_ndotl * visibility)
+        + (specular + clearcoat_specular) * light_color_ambient.xyz
+        * (ndotl * visibility)
+    )
+    transmission_tint = osh.mix(
+        attenuation_transmission.xyz, surface_base_color,
+        surface_thin_walled,
     )
     ambient = (
         surface_base_color * diffuse_weight
         + f0 * (1.0 - 0.5 * surface_roughness)
-        + osh.vec3(surface_transmission) * (osh.vec3(1.0) - f0)
+        + transmission_tint * surface_transmission * (osh.vec3(1.0) - f0)
     ) * light_color_ambient.w * surface_occlusion
     shaded = ambient + direct + surface_emission
     return osh.vec4(surface_base_color if unlit_program else shaded, surface_alpha)
