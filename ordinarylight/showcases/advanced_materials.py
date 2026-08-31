@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from ..lights import DirectionalLight, PointLight
+import numpy as np
+
+from ..lights import DirectionalLight, EnvironmentLight, PointLight
 from ..scene import Material, Scene
 from .materials import sphere
 
@@ -48,10 +50,35 @@ def build_sheen_scene():
 
 
 def build_anisotropy_scene():
-    return _scene(tuple(Material(
+    scene = _scene(tuple(Material(
         base_color=(0.78, 0.52, 0.16), metallic=1.0, roughness=0.28,
         anisotropy=value,
     ) for value in (-0.85, 0.0, 0.85)))
+    # Metallic anisotropy is only fully characterized when there is broad
+    # incident radiance for the elongated lobe to reflect. GI can obtain that
+    # radiance from indirect scene paths, while strict rasterization cannot;
+    # an explicit studio environment gives both targets the same input.
+    width, height = 256, 128
+    u = (np.arange(width, dtype=np.float32) + 0.5) / width
+    v = (np.arange(height, dtype=np.float32) + 0.5) / height
+    uu, vv = np.meshgrid(u, v)
+    environment = np.empty((height, width, 3), np.float32)
+    horizon = np.exp(-((vv - 0.48) / 0.18) ** 2)
+    environment[..., 0] = 0.045 + 0.18 * horizon
+    environment[..., 1] = 0.055 + 0.20 * horizon
+    environment[..., 2] = 0.075 + 0.24 * horizon
+    key = np.exp(-(
+        ((uu - 0.20) / 0.055) ** 2 + ((vv - 0.30) / 0.12) ** 2
+    ))
+    rim = np.exp(-(
+        ((uu - 0.72) / 0.14) ** 2 + ((vv - 0.42) / 0.055) ** 2
+    ))
+    environment += key[..., None] * np.asarray((7.0, 6.4, 5.4), np.float32)
+    environment += rim[..., None] * np.asarray((1.2, 1.7, 2.5), np.float32)
+    scene.set_environment(EnvironmentLight(
+        image=environment, intensity=1.15, rotation=-0.18,
+    ))
+    return scene
 
 
 def build_thin_transmission_scene():

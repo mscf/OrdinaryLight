@@ -11,6 +11,7 @@ from ordinarylight.showcases.optical_materials import (
     build_nested_dielectric_scene, build_reflection_probe_scene,
     build_refraction_scene, build_transparency_scene,
 )
+from ordinarylight.showcases.advanced_materials import build_anisotropy_scene
 
 
 def _triangle(z=0.0):
@@ -18,6 +19,21 @@ def _triangle(z=0.0):
         np.asarray(((-1, 0, z), (1, 0, z), (0, 1, z)), np.float32),
         np.asarray(((0, 1, 2),), np.uint32),
     )
+
+
+def test_anisotropy_showcase_has_shared_hdr_incident_radiance():
+    scene = build_anisotropy_scene()
+    assert scene.environment is not None
+    assert scene.environment.image is not None
+    assert float(np.max(scene.environment.image)) > 4.0
+    materials = tuple(
+        mesh.material for mesh in scene.meshes
+        if (mesh.name or "").startswith("material-")
+    )
+    assert tuple(material.anisotropy for material in materials) == pytest.approx(
+        (-0.85, 0.0, 0.85)
+    )
+    assert all(material.metallic == 1.0 for material in materials)
 
 
 def test_optical_material_parameters_validate_and_pack():
