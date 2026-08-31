@@ -188,7 +188,8 @@ fn main(
     let distance: f32 = select(point_distance, 1.0, (light_position_type.w > 0.5));
     let half_delta: vec3<f32> = (incoming + view);
     let half_vector: vec3<f32> = (half_delta / max(length(half_delta), 1e-06));
-    let ndotl: f32 = max((((surface_normal.x * incoming.x) + (surface_normal.y * incoming.y)) + (surface_normal.z * incoming.z)), 0.0);
+    let signed_ndotl: f32 = (((surface_normal.x * incoming.x) + (surface_normal.y * incoming.y)) + (surface_normal.z * incoming.z));
+    let ndotl: f32 = max(signed_ndotl, 0.0);
     let receiver_bias: f32 = max(2e-05, ((1.0 - ndotl) * 0.0001));
     let pcf_visibility: f32 = textureSampleCompare(shadow_map, shadow_sampler, projected_shadow.xy, (projected_shadow.z - receiver_bias));
     let shadow_map_visibility: f32 = select(pcf_visibility, 1.0, (abs(shadow_coordinate.w) < 1e-06));
@@ -229,11 +230,14 @@ fn main(
     let diffuse_weight: f32 = ((1.0 - surface_metallic) * (1.0 - surface_transmission));
     let diffuse_base: vec3<f32> = ((((vec3<f32>(1.0) - fresnel) * surface_base_color) * diffuse_weight) / 3.14159265);
     let diffuse: vec3<f32> = mix(diffuse_base, (diffuse_base * hooked.subsurface_color), surface_subsurface);
-    let wrapped_ndotl: f32 = max(0.0, ((ndotl + surface_subsurface_radius) / (1.0 + surface_subsurface_radius)));
+    let wrapped_ndotl: f32 = max(0.0, ((signed_ndotl + surface_subsurface_radius) / (1.0 + surface_subsurface_radius)));
     let diffuse_ndotl: f32 = mix(ndotl, wrapped_ndotl, surface_subsurface);
     let attenuation: f32 = (1.0 / (distance * distance));
-    let visibility: f32 = ((attenuation * shadow_visibility) * shadow_map_visibility);
-    let direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
+    let visibility: f32 = (attenuation * shadow_visibility);
+    let wrapped_contribution: f32 = max((diffuse_ndotl - ndotl), 0.0);
+    let scattered_shadow_visibility: f32 = mix(shadow_map_visibility, 1.0, surface_subsurface);
+    let diffuse_visibility: f32 = ((ndotl * shadow_map_visibility) + (wrapped_contribution * scattered_shadow_visibility));
+    let direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_visibility * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * ((ndotl * shadow_map_visibility) * visibility)));
     let optical_thickness: f32 = (advanced1.w * thickness_sample);
     let absorption_exponent: f32 = (optical_thickness / max(ior_distance_program_flags.y, 1e-06));
     let transmission_tint: vec3<f32> = mix(pow(max(attenuation_transmission.xyz, vec3<f32>(1e-06)), vec3<f32>(absorption_exponent)), surface_base_color, surface_thin_walled);

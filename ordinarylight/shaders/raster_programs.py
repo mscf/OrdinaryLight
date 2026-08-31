@@ -352,11 +352,11 @@ def scene_fragment(
     distance = 1.0 if light_position_type.w > 0.5 else point_distance
     half_delta = incoming + view
     half_vector = half_delta / osh.maximum(osh.length(half_delta), 0.000001)
-    ndotl = osh.maximum(
+    signed_ndotl = (
         surface_normal.x * incoming.x + surface_normal.y * incoming.y
-        + surface_normal.z * incoming.z,
-        0.0,
+        + surface_normal.z * incoming.z
     )
+    ndotl = osh.maximum(signed_ndotl, 0.0)
     receiver_bias = osh.maximum(0.00002, (1.0 - ndotl) * 0.0001)
     pcf_visibility = shadow_map.sample_compare_with(
         shadow_sampler, projected_shadow.xy,
@@ -462,18 +462,34 @@ def scene_fragment(
         diffuse_base, diffuse_base * hooked.subsurface_color,
         surface_subsurface,
     )
+    # Apply the wrap to signed N.L. Clamping first gives every back-facing
+    # fragment the same positive value and leaves the shadow map to create an
+    # abrupt, triangle-shaped terminator. Signed wrapping instead rolls the
+    # lobe continuously through zero, as the approximation requires.
     wrapped_ndotl = osh.maximum(
-        0.0, (ndotl + surface_subsurface_radius)
+        0.0, (signed_ndotl + surface_subsurface_radius)
         / (1.0 + surface_subsurface_radius),
     )
     diffuse_ndotl = osh.mix(ndotl, wrapped_ndotl, surface_subsurface)
     attenuation = 1.0 / (distance * distance)
-    visibility = attenuation * shadow_visibility * shadow_map_visibility
+    visibility = attenuation * shadow_visibility
+    # Keep the ordinary surface response fully shadowed, but allow the added
+    # wrapped component to cross the geometric/self-shadow terminator. This is
+    # the portable approximation of local subsurface diffusion; treating that
+    # component as opaque direct light produces a serrated shadow-map fringe.
+    wrapped_contribution = osh.maximum(diffuse_ndotl - ndotl, 0.0)
+    scattered_shadow_visibility = osh.mix(
+        shadow_map_visibility, 1.0, surface_subsurface,
+    )
+    diffuse_visibility = (
+        ndotl * shadow_map_visibility
+        + wrapped_contribution * scattered_shadow_visibility
+    )
     direct = (
         (diffuse + sheen) * base_energy * light_color_ambient.xyz
-        * (diffuse_ndotl * visibility)
+        * (diffuse_visibility * visibility)
         + (specular * base_energy + clearcoat_specular) * light_color_ambient.xyz
-        * (ndotl * visibility)
+        * (ndotl * shadow_map_visibility * visibility)
     )
     optical_thickness = advanced1.w * thickness_sample
     absorption_exponent = optical_thickness / osh.maximum(

@@ -13,6 +13,7 @@ from ordinarylight.showcases.optical_materials import (
 )
 from ordinarylight.showcases.advanced_materials import (
     build_anisotropy_scene, build_clearcoat_scene,
+    build_subsurface_scene,
 )
 
 
@@ -50,6 +51,46 @@ def test_clearcoat_showcase_uses_a_shared_shadow_capable_key_light():
     assert len(requests) == 1
     assert requests[0].kind == "spot"
     assert requests[0].light_index == 0
+
+
+def test_subsurface_showcase_uses_presentation_grade_spheres():
+    scene = build_subsurface_scene()
+    spheres = [
+        mesh for mesh in scene.meshes
+        if (mesh.name or "").startswith("material-")
+    ]
+    assert len(spheres) == 3
+    # 48 rings x 96 segments produces 9,024 triangles. The old 24-ring
+    # proxies exposed a serrated wrapped-light terminator at the default pose.
+    assert all(len(mesh.indices) == 9_024 for mesh in spheres)
+
+
+def test_subsurface_wrap_uses_signed_incidence_and_scattered_visibility():
+    source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
+    shader = source.read_text()
+    assert "signed_ndotl = (" in shader
+    assert "(signed_ndotl + surface_subsurface_radius)" in shader
+    assert "wrapped_contribution = osh.maximum(diffuse_ndotl - ndotl" in shader
+    assert "scattered_shadow_visibility = osh.mix(" in shader
+
+    generated = (
+        Path(ol.__file__).parent / "shaders" / "raster_scene.frag.wgsl"
+    ).read_text()
+    assert "let signed_ndotl: f32" in generated
+    assert "let scattered_shadow_visibility: f32" in generated
+
+
+def test_terminator_serration_metric_rejects_high_frequency_teeth():
+    from tests.gates.renderer_visual_parity import terminator_serration
+
+    mask = np.zeros((64, 64), bool)
+    mask[10:54, 10:54] = True
+    smooth = np.full((64, 64, 3), 96, np.uint8)
+    serrated = smooth.copy()
+    serrated[36:51, 10:54:2] = 48
+
+    assert terminator_serration(smooth, mask) == 0.0
+    assert terminator_serration(serrated, mask) > 0.1
 
 
 def test_optical_material_parameters_validate_and_pack():

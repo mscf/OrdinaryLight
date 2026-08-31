@@ -9,7 +9,9 @@ from ..scene import Material, Scene
 from .materials import sphere
 
 
-def _scene(materials, *, lights=None):
+def _scene(
+    materials, *, lights=None, sphere_rings=24, sphere_segments=48,
+):
     scene = Scene()
     if lights is None:
         lights = (
@@ -32,7 +34,10 @@ def _scene(materials, *, lights=None):
     count = len(materials)
     for index, material in enumerate(materials):
         x = (index - (count - 1) * 0.5) * 2.5
-        vertices, indices = sphere((x, 1.15, 0.0), 1.08, rings=24, segments=48)
+        vertices, indices = sphere(
+            (x, 1.15, 0.0), 1.08,
+            rings=sphere_rings, segments=sphere_segments,
+        )
         scene.add_mesh(vertices, indices, material, name=f"material-{index}")
     return scene
 
@@ -107,11 +112,17 @@ def build_thin_transmission_scene():
 
 
 def build_subsurface_scene():
-    return _scene(tuple(Material(
-        base_color=(0.62, 0.12, 0.08), roughness=0.62,
-        subsurface=weight, subsurface_color=(1.0, 0.22, 0.12),
-        subsurface_radius=radius,
-    ) for weight, radius in ((0.0, 0.2), (0.55, 0.45), (1.0, 0.8))))
+    return _scene(
+        tuple(Material(
+            base_color=(0.62, 0.12, 0.08), roughness=0.62,
+            subsurface=weight, subsurface_color=(1.0, 0.22, 0.12),
+            subsurface_radius=radius,
+        ) for weight, radius in ((0.0, 0.2), (0.55, 0.45), (1.0, 0.8))),
+        # Wrapped illumination exposes the mesh beyond the Lambert
+        # terminator; presentation-grade tessellation keeps the showcase
+        # focused on the material lobe rather than its proxy geometry.
+        sphere_rings=48, sphere_segments=96,
+    )
 
 
 __all__ = [
