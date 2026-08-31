@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..lights import DirectionalLight, EnvironmentLight, PointLight
+from ..lights import DirectionalLight, EnvironmentLight, PointLight, SpotLight
 from ..scene import Material, Scene
 from .materials import sphere
 
 
-def _scene(materials):
+def _scene(materials, *, lights=None):
     scene = Scene()
-    scene.add_light(DirectionalLight(
-        direction=(0.35, -1.0, -0.25), color=(0.8, 0.88, 1.0),
-        intensity=2.2,
-    ))
-    scene.add_light(PointLight(
-        position=(-3.0, 4.5, 4.0), color=(1.0, 0.72, 0.48), intensity=85.0,
-    ))
+    if lights is None:
+        lights = (
+            DirectionalLight(
+                direction=(0.35, -1.0, -0.25), color=(0.8, 0.88, 1.0),
+                intensity=2.2,
+            ),
+            PointLight(
+                position=(-3.0, 4.5, 4.0), color=(1.0, 0.72, 0.48),
+                intensity=85.0,
+            ),
+        )
+    for light in lights:
+        scene.add_light(light)
     scene.add_mesh(
         ((-8, 0, -5), (8, 0, -5), (8, 0, 5), (-8, 0, 5)),
         ((0, 2, 1), (0, 3, 2)),
@@ -32,10 +38,20 @@ def _scene(materials):
 
 
 def build_clearcoat_scene():
-    return _scene(tuple(Material(
+    materials = tuple(Material(
         base_color=(0.72, 0.08, 0.035), roughness=0.55,
         clearcoat=weight, clearcoat_roughness=roughness,
-    ) for weight, roughness in ((0.0, 0.1), (0.5, 0.18), (1.0, 0.04))))
+    ) for weight, roughness in ((0.0, 0.1), (0.5, 0.18), (1.0, 0.04)))
+    # A point light requires a cube shadow map, which is not part of the first
+    # strict-raster shadow tier.  Keep this material comparison on one broad,
+    # shadow-capable key that both GI and raster evaluate identically.  It
+    # preserves the intended warm studio light while making inter-object
+    # occlusion visible through the shared 2D spot-shadow path.
+    return _scene(materials, lights=(SpotLight(
+        position=(-3.0, 4.5, 4.0), direction=(3.0, -3.35, -4.0),
+        color=(1.0, 0.76, 0.56), intensity=105.0,
+        inner_cone_angle=0.72, outer_cone_angle=1.08, range=20.0,
+    ),))
 
 
 def build_sheen_scene():

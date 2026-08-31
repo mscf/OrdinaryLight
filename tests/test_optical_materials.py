@@ -11,7 +11,9 @@ from ordinarylight.showcases.optical_materials import (
     build_nested_dielectric_scene, build_reflection_probe_scene,
     build_refraction_scene, build_transparency_scene,
 )
-from ordinarylight.showcases.advanced_materials import build_anisotropy_scene
+from ordinarylight.showcases.advanced_materials import (
+    build_anisotropy_scene, build_clearcoat_scene,
+)
 
 
 def _triangle(z=0.0):
@@ -34,6 +36,20 @@ def test_anisotropy_showcase_has_shared_hdr_incident_radiance():
         (-0.85, 0.0, 0.85)
     )
     assert all(material.metallic == 1.0 for material in materials)
+
+
+def test_clearcoat_showcase_uses_a_shared_shadow_capable_key_light():
+    from ordinarylight.lights import SpotLight
+    from ordinarylight.raster.shadows import plan_shadow_maps
+
+    scene = build_clearcoat_scene()
+
+    assert len(scene.lights) == 1
+    assert isinstance(scene.lights[0], SpotLight)
+    requests = plan_shadow_maps(scene, extent=(1024, 1024), max_maps=1)
+    assert len(requests) == 1
+    assert requests[0].kind == "spot"
+    assert requests[0].light_index == 0
 
 
 def test_optical_material_parameters_validate_and_pack():
