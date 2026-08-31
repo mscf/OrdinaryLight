@@ -48,6 +48,27 @@ def test_raster_gpu_scene_packs_materials_lights_draws_and_textures():
     assert packed.shadow_maps == ()
 
 
+def test_scene_without_environment_keeps_environment_sampling_disabled():
+    from ordinarylight.raster._core import prepare_scene_mesh_resources
+
+    mesh = ol.Mesh(
+        [[-1, -1, 0], [1, -1, 0], [0, 1, 0]], [[0, 1, 2]],
+        ol.Material(transmission=1.0, thin_walled=True),
+    )
+    scene = ol.Scene([mesh])
+    prepared = prepare_scene_mesh_resources(scene, ol.RasterConfig())
+    assert prepared["environment_parameters"] == (None,)
+
+    packed = ol.pack_raster_gpu_scene(
+        scene, ol.PerspectiveCamera((0, 0, 4), (0, 0, 0)), 640, 480,
+        environment_parameters=prepared["environment_parameters"],
+    )
+    assert packed.materials["environment_rotation_log_range"][0, 2] == 0.0
+    np.testing.assert_allclose(
+        packed.materials["environment_color_intensity"][0], 0.0,
+    )
+
+
 def test_shadow_map_plan_supports_directional_and_spot_first():
     scene = ol.Scene(lights=[
         ol.PointLight((0, 1, 0)),

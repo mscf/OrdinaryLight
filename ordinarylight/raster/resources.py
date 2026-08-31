@@ -214,7 +214,14 @@ def pack_raster_gpu_scene(
                 rect_width / atlas_width, rect_height / atlas_height,
             )
         parameters = environment_parameters
-        if isinstance(environment_parameters, (tuple, list)) and environment_parameters and isinstance(environment_parameters[0], (tuple, list)) and len(environment_parameters) == len(scene.visible_meshes):
+        if (
+            isinstance(environment_parameters, (tuple, list))
+            and len(environment_parameters) == len(scene.visible_meshes)
+            and all(
+                item is None or isinstance(item, (tuple, list))
+                for item in environment_parameters
+            )
+        ):
             parameters = environment_parameters[index]
         log_range = environment_log_range[index] if isinstance(environment_log_range, (tuple, list)) else environment_log_range
         if parameters is not None:

@@ -946,13 +946,12 @@ def scene_mesh(
         center_depth = float(np.dot(
             center - camera_position, camera_forward,
         ))
-        # Sort by the farthest camera-facing extent, rather than centroid
-        # alone. Concentric dielectric shells otherwise have effectively equal
-        # depths and can exchange order under tiny camera/float changes,
-        # causing the inner medium to blink in and out. Bounding extent keeps
-        # the outer shell first while remaining camera-relative for separated
-        # transparent objects.
-        return -(center_depth + radius)
+        # Back-to-front composition is governed by the nearest visible extent,
+        # not the farthest point of the bounds.  This distinction matters for
+        # concentric dielectrics: the inner shell's front surface is behind the
+        # outer shell and must be composed first.  The radius also provides a
+        # stable ordering when concentric centroids are numerically identical.
+        return -(center_depth - radius)
     authored_transparent_meshes = tuple(
         mesh for mesh in visible_meshes if mesh.material.alpha_mode == "blend"
     )
@@ -963,6 +962,39 @@ def scene_mesh(
         optical_transmissive_meshes,
         key=optical_sort_key,
     ))
+    optical_screen_bounds = []
+    for optical_mesh in optical_transmissive_draw_meshes:
+        optical_world = np.column_stack((
+            optical_mesh.world_vertices,
+            np.ones(len(optical_mesh.world_vertices), np.float32),
+        ))
+        optical_clip = optical_world @ matrix.T
+        valid = optical_clip[:, 3] > 1e-6
+        if not np.any(valid):
+            optical_screen_bounds.append(None)
+            continue
+        optical_ndc = optical_clip[valid, :2] / optical_clip[valid, 3:4]
+        optical_screen_bounds.append((
+            float(np.min(optical_ndc[:, 0])),
+            float(np.min(optical_ndc[:, 1])),
+            float(np.max(optical_ndc[:, 0])),
+            float(np.max(optical_ndc[:, 1])),
+        ))
+    # Two disjoint silhouettes cannot contribute to one another at their
+    # visible pixels and may independently sample the immutable opaque scene.
+    # With three or more refractors, remain conservative: an off-axis screen
+    # ray can land inside another object's silhouette even when their primary
+    # projections do not overlap pairwise.
+    optical_transmissive_layers_overlap = (
+        len(optical_screen_bounds) > 2
+        or any(
+            first is not None and second is not None
+            and first[0] <= second[2] and second[0] <= first[2]
+            and first[1] <= second[3] and second[1] <= first[3]
+            for index, first in enumerate(optical_screen_bounds)
+            for second in optical_screen_bounds[index + 1:]
+        )
+    )
     authored_transparent_draw_meshes = tuple(sorted(
         authored_transparent_meshes,
         # Source-alpha composition is order dependent. Camera-space depth,
@@ -1184,6 +1216,9 @@ def scene_mesh(
             int(item.indices.size)
             for item in optical_transmissive_draw_meshes
         ),
+        "optical_transmissive_layers_overlap": bool(
+            optical_transmissive_layers_overlap
+        ),
         "camera_order_token": tuple(
             material_indices[id(mesh)] for mesh in optical_draw_meshes
         ),
@@ -1255,7 +1290,7 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
              if rectangles.get(("probe_selection", index)) else
              (((*scene.environment.color, scene.environment.intensity),
                scene.environment.rotation) if scene.environment is not None else
-              ((0.0, 0.0, 0.0, 0.0), 0.0)))
+              None))
             for index, _mesh in enumerate(scene.visible_meshes)
         ),
         "probe_parameters": tuple(

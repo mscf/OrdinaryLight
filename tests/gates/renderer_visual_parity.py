@@ -32,7 +32,7 @@ def _render_gi(
 
 def _render_raster(
     scene, camera, extent, material_modifier=None,
-    optical_quality="environment",
+    optical_quality="environment", optical_debug_view="off",
 ):
     program = ol.RasterProgram.scene(
         target="spirv",
@@ -47,6 +47,7 @@ def _render_raster(
             shading_model="pbr",
             tone_mapping="none",
             optical_quality=optical_quality,
+            optical_debug_view=optical_debug_view,
         ),
     )
     with ol.Renderer(implementation=implementation) as renderer:
@@ -91,8 +92,20 @@ def main():
     parser.add_argument("--min-coverage-iou", type=float, default=0.65)
     parser.add_argument(
         "--raster-optics", choices=("environment", "screen-space"),
-        default="environment",
-        help="raster optical quality tier (environment remains the baseline)",
+        help=(
+            "raster optical quality tier (defaults to screen-space for the "
+            "thin-transmission showcase and environment otherwise)"
+        ),
+    )
+    parser.add_argument(
+        "--raster-optical-debug-view",
+        choices=(
+            "off", "hit", "uv", "depth-delta", "confidence", "object-id",
+            "depth-trace", "refraction-hit", "refraction-uv",
+            "refraction-source",
+        ),
+        default="off",
+        help="capture a raster optical diagnostic instead of final shading",
     )
     parser.add_argument(
         "--output", type=Path,
@@ -103,6 +116,11 @@ def main():
         help="write evidence without enforcing thresholds",
     )
     args = parser.parse_args()
+    if args.raster_optics is None:
+        args.raster_optics = (
+            "screen-space" if args.scene == "thin-transmission"
+            else "environment"
+        )
     if args.width < 1 or args.height < 1 or args.samples < 1 or args.bounces < 1:
         parser.error("dimensions and samples must be positive")
     extent = (args.width, args.height)
@@ -120,6 +138,14 @@ def main():
             args.max_log_color_rmse = accepted["max_log_color_rmse"]
             args.min_edge_correlation = accepted["min_edge_correlation"]
             args.min_coverage_iou = accepted["min_coverage_iou"]
+            args.max_object_log_luminance_error = accepted.get(
+                "max_object_log_luminance_error",
+                args.max_object_log_luminance_error,
+            )
+            args.min_object_edge_correlation = accepted.get(
+                "min_object_edge_correlation",
+                args.min_object_edge_correlation,
+            )
     material_modifier = None
     advanced_builders = {}
     if args.scene in {
@@ -184,6 +210,7 @@ def main():
     print("Rendering raster candidate...")
     raster = _render_raster(
         scene, camera, extent, material_modifier, args.raster_optics,
+        args.raster_optical_debug_view,
     )
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,
@@ -265,19 +292,23 @@ def main():
         failures.append("edge correlation")
     if metrics["coverage_iou"] < args.min_coverage_iou:
         failures.append("coverage IoU")
+    def selected_object(item):
+        return (
+            args.object_prefix is None
+            or (item["name"] is not None
+                and item["name"].startswith(args.object_prefix))
+        )
     if args.max_object_log_luminance_error is not None and any(
         item["absolute_log_luminance_error"] >
         args.max_object_log_luminance_error
         for item in object_metrics.values()
-        if (args.object_prefix is None
-            or item["name"].startswith(args.object_prefix))
+        if selected_object(item)
     ):
         failures.append("per-object luminance")
     if args.min_object_edge_correlation is not None and any(
         item["crop_edge_correlation"] < args.min_object_edge_correlation
         for item in object_metrics.values()
-        if (args.object_prefix is None
-            or item["name"].startswith(args.object_prefix))
+        if selected_object(item)
     ):
         failures.append("per-object edge correlation")
     if failures and not args.capture_only:

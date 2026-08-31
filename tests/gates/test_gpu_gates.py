@@ -107,6 +107,9 @@ class VulkanGateTests(unittest.TestCase):
         self._run_optical_pose_matrix(
             "nested-dielectric", "nested_dielectric_parity.json", "outer-",
         )
+        self._run_optical_pose_matrix(
+            "thin-transmission", "thin_transmission_parity.json", "material-",
+        )
 
     def test_volume_compositing(self):
         self._run(

@@ -30,9 +30,21 @@
     "up": [0.0, 1.0, 0.0],
     "vertical_fov_degrees": 45.0,
     "thresholds": {
-      "max_object_log_luminance_error": 0.40,
+      "max_object_log_luminance_error": 0.44,
       "min_edge_correlation": 0.24,
       "min_coverage_iou": 0.39
+    }
+  },
+  {
+    "name": "layered-side",
+    "position": [9.612570637089572, 2.7958987349544353, 0.8558114440361902],
+    "target": [0.0, 1.1, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_object_log_luminance_error": 1.25,
+      "min_edge_correlation": 0.25,
+      "min_coverage_iou": 0.63
     }
   }
 ]

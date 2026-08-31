@@ -1271,6 +1271,12 @@ def scene_fragment(
         refraction_confidence * screen_enabled * (1.0 - surface_roughness),
     )
     environment_enabled = environment_rotation_log_range.z
+    reflection_source_enabled = osh.maximum(
+        environment_enabled, reflection_hit * screen_enabled,
+    )
+    refraction_source_enabled = osh.maximum(
+        environment_enabled, refraction_confidence * screen_enabled,
+    )
     ambient = (
         surface_base_color * diffuse_weight
         + f0 * (1.0 - 0.5 * surface_roughness)
@@ -1280,11 +1286,11 @@ def scene_fragment(
     transmitted_shaded = osh.mix(
         base_shaded,
         refracted_source * transmission_tint,
-        surface_transmission * environment_enabled,
+        surface_transmission * refraction_source_enabled,
     )
     shaded = (
         transmitted_shaded
-        + reflected_source * fresnel * environment_enabled
+        + reflected_source * fresnel * reflection_source_enabled
     )
     prepass_alpha = (
         object_tag if osh.absolute(camera.viewport_optics.z) > 1.5

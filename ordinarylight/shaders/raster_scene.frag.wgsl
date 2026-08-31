@@ -503,10 +503,12 @@ fn main(
     let refraction_confidence: f32 = ((refraction_hit * refraction_edge_confidence) * refraction_angle_confidence);
     let refracted_source: vec3<f32> = mix(refracted_environment, screen_refracted, ((refraction_confidence * screen_enabled) * (1.0 - surface_roughness)));
     let environment_enabled: f32 = environment_rotation_log_range.z;
+    let reflection_source_enabled: f32 = max(environment_enabled, (reflection_hit * screen_enabled));
+    let refraction_source_enabled: f32 = max(environment_enabled, (refraction_confidence * screen_enabled));
     let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + ((transmission_tint * surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
     let base_shaded: vec3<f32> = ((ambient + direct) + surface_emission);
-    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_source * transmission_tint), (surface_transmission * environment_enabled));
-    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_source * fresnel) * environment_enabled));
+    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_source * transmission_tint), (surface_transmission * refraction_source_enabled));
+    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_source * fresnel) * reflection_source_enabled));
     let prepass_alpha: f32 = select(surface_alpha, object_tag, (abs(camera.viewport_optics.z) > 1.5));
     let result: vec4<f32> = vec4<f32>(select(shaded, surface_base_color, unlit_program), prepass_alpha);
     let diagnostic_mode: f32 = camera.optical_diagnostic.x;

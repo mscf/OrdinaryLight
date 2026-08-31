@@ -57,7 +57,7 @@ def build_anisotropy_scene():
 def build_thin_transmission_scene():
     return _scene((
         Material(base_color=(0.75, 0.9, 1.0), transmission=1.0,
-                 roughness=0.06, ior=1.5),
+                 roughness=0.06, ior=1.5, thickness=2.16),
         Material(base_color=(0.75, 0.9, 1.0), transmission=1.0,
                  roughness=0.06, ior=1.5, thin_walled=True),
     ))

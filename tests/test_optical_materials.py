@@ -282,7 +282,7 @@ def test_native_targets_split_transparent_depth_write_pass():
         assert "transparent_count" in source
         assert '"optical-opaque"' in source
         assert '"transmissive"' in source
-    assert 'pass_kind == "opaque"' in vulkan
+    assert 'pass_kind in {"opaque", "transmissive"}' in vulkan
     assert "self.state.depth_write and not optical" in webgpu
     assert "pass_kind == \"transmissive\"" in vulkan
     assert '"back" if pass_kind == "transmissive"' in webgpu
@@ -304,6 +304,17 @@ def test_screen_space_projection_uses_attachment_y_orientation():
     assert "screen_ndc.y * 0.5 + 0.5" not in shader
     assert "ray_ndc.y * 0.5 + 0.5" not in shader
     assert "middle_ndc.y * 0.5 + 0.5" not in shader
+
+
+def test_screen_space_optics_does_not_require_an_environment_map():
+    source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
+    shader = source.read_text()
+    assert "reflection_source_enabled = osh.maximum(" in shader
+    assert "environment_enabled, reflection_hit * screen_enabled," in shader
+    assert "refraction_source_enabled = osh.maximum(" in shader
+    assert "environment_enabled, refraction_confidence * screen_enabled," in shader
+    assert "surface_transmission * refraction_source_enabled" in shader
+    assert "reflected_source * fresnel * reflection_source_enabled" in shader
 
 
 def test_screen_space_optics_is_explicit_and_preserves_environment_default():
@@ -359,6 +370,14 @@ def test_native_targets_composite_screen_space_optics_in_bounded_layers():
         assert "composite_optical_layer" in source
 
 
+def test_vulkan_disjoint_transmissive_layers_sample_immutable_opaque_scene():
+    source = (
+        Path(ol.__file__).parent / "renderers" / "raster" / "vulkan.py"
+    ).read_text()
+    assert '"optical_transmissive_layers_overlap"' in source
+    assert "if not transmissive_layers_overlap" in source
+
+
 def test_screen_space_optical_draws_sort_far_to_near_from_either_side():
     material = lambda color: ol.Material(
         base_color=color, transmission=1.0, opacity=1.0,
@@ -402,7 +421,9 @@ def test_nested_dielectric_shell_order_is_stable_under_camera_motion():
         packed = ol.scene_mesh(scene, camera, 320, 180, config)
         orders.append(packed.resources["camera_order_token"])
 
-    assert all(order.index(outer) < order.index(inner) for order in orders)
+    # Back-to-front optical composition draws the inner shell before the
+    # enclosing outer shell so the latter can sample the accumulated result.
+    assert all(order.index(inner) < order.index(outer) for order in orders)
     assert orders[0] == orders[1] == orders[2]
 
 
@@ -416,6 +437,28 @@ def test_nested_dielectric_showcase_uses_layered_screen_space_optics_only():
     assert len(nested) == 1
     assert nested[0].renderer["optical_quality"] == "screen-space"
     assert nested[0].renderer["screen_space_ray_steps"] == 24
+
+
+def test_thin_transmission_showcase_uses_screen_space_optics_and_solid_depth():
+    from ordinarylight.showcases.advanced_materials import (
+        build_thin_transmission_scene,
+    )
+    from ordinarylight.showcases.catalog.raster import SHOWCASES
+
+    showcase = next(
+        item for item in SHOWCASES if item.id == "advanced-thin-transmission"
+    )
+    assert showcase.renderer["optical_quality"] == "screen-space"
+    assert showcase.renderer["screen_space_ray_steps"] == 24
+
+    materials = tuple(
+        mesh.material for mesh in build_thin_transmission_scene().visible_meshes
+        if mesh.name and mesh.name.startswith("material-")
+    )
+    assert len(materials) == 2
+    assert materials[0].thin_walled is False
+    assert materials[0].thickness > 0.0
+    assert materials[1].thin_walled is True
 
 
 def test_nested_dielectric_visual_gate_has_multiple_fixed_pose_baselines():
