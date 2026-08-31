@@ -17,7 +17,10 @@ from .scene import (
     Transform, VertexAttributeLayout, Volume, VolumeMaterial,
     TextureTransform,
 )
-from . import cameras, lights
+from . import cameras, lights, probes
+from .probes import (
+    ProbeCaptureManager, capture_reflection_probe, select_reflection_probes,
+)
 from .cameras import (
     ArcballCameraController, Camera, OrthographicCamera, PanoramicCamera,
     PerspectiveCamera,
@@ -225,6 +228,10 @@ __all__ = [
     "SpotLight",
     "EnvironmentLight",
     "ReflectionProbe",
+    "ProbeCaptureManager",
+    "capture_reflection_probe",
+    "select_reflection_probes",
+    "probes",
     "cameras",
     "lights",
     "ArraySurface",

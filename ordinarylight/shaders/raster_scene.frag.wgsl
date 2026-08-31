@@ -15,6 +15,13 @@ struct RasterMaterial {
     environment_color_intensity: vec4<f32>,
     environment_rotation_log_range: vec4<f32>,
     probe_position_radius: vec4<f32>,
+    probe_box_min_mode: vec4<f32>,
+    probe_box_max_blend: vec4<f32>,
+    environment_rect_secondary: vec4<f32>,
+    environment_rotation_log_range_secondary: vec4<f32>,
+    probe_position_radius_secondary: vec4<f32>,
+    probe_box_min_mode_secondary: vec4<f32>,
+    probe_box_max_blend_secondary: vec4<f32>,
 }
 
 struct RasterCamera {
@@ -117,6 +124,13 @@ fn main(
     let environment_color_intensity: vec4<f32> = materials[material_id].environment_color_intensity;
     let environment_rotation_log_range: vec4<f32> = materials[material_id].environment_rotation_log_range;
     let probe_position_radius: vec4<f32> = materials[material_id].probe_position_radius;
+    let probe_box_min_mode: vec4<f32> = materials[material_id].probe_box_min_mode;
+    let probe_box_max_blend: vec4<f32> = materials[material_id].probe_box_max_blend;
+    let environment_rect_secondary: vec4<f32> = materials[material_id].environment_rect_secondary;
+    let environment_rotation_log_range_secondary: vec4<f32> = materials[material_id].environment_rotation_log_range_secondary;
+    let probe_position_radius_secondary: vec4<f32> = materials[material_id].probe_position_radius_secondary;
+    let probe_box_min_mode_secondary: vec4<f32> = materials[material_id].probe_box_min_mode_secondary;
+    let probe_box_max_blend_secondary: vec4<f32> = materials[material_id].probe_box_max_blend_secondary;
     let base_color_sample: vec4<f32> = textureSample(base_color_atlas, base_color_sampler, base_color_uv);
     let sampled_base_color: vec3<f32> = (base_color_roughness.xyz * base_color_sample.xyz);
     let metallic_roughness_sample: vec4<f32> = textureSample(base_color_atlas, base_color_sampler, metallic_roughness_uv);
@@ -159,7 +173,8 @@ fn main(
     let surface_occlusion: f32 = max(0.0, min(1.0, hooked.occlusion));
     let surface_clearcoat: f32 = max(0.0, min(1.0, hooked.clearcoat));
     let surface_clearcoat_roughness: f32 = max(0.04, min(1.0, hooked.clearcoat_roughness));
-    let surface_sheen: vec3<f32> = (hooked.sheen_color * (1.0 - max(0.0, min(1.0, hooked.sheen_roughness))));
+    let surface_sheen_color: vec3<f32> = hooked.sheen_color;
+    let surface_sheen_roughness: f32 = max(0.0, min(1.0, hooked.sheen_roughness));
     let surface_anisotropy: f32 = max((-1.0), min(1.0, hooked.anisotropy));
     let surface_thin_walled: f32 = max(0.0, min(1.0, hooked.thin_walled));
     let surface_subsurface: f32 = max(0.0, min(1.0, hooked.subsurface));
@@ -180,6 +195,8 @@ fn main(
     let ndotv: f32 = max((((surface_normal.x * view.x) + (surface_normal.y * view.y)) + (surface_normal.z * view.z)), 0.0);
     let ndoth: f32 = max((((surface_normal.x * half_vector.x) + (surface_normal.y * half_vector.y)) + (surface_normal.z * half_vector.z)), 0.0);
     let vdoth: f32 = max((((view.x * half_vector.x) + (view.y * half_vector.y)) + (view.z * half_vector.z)), 0.0);
+    let sheen_weight: f32 = ((1.0 - surface_sheen_roughness) * pow((1.0 - vdoth), 5.0));
+    let sheen: vec3<f32> = (surface_sheen_color * sheen_weight);
     let raw_surface_alpha: f32 = (material.w * base_color_sample.w);
     let masked_surface_alpha: f32 = select(0.0, 1.0, (raw_surface_alpha >= optical.z));
     let surface_alpha: f32 = select(raw_surface_alpha, masked_surface_alpha, ((optical.w > 0.5) && (optical.w < 1.5)));
@@ -216,7 +233,7 @@ fn main(
     let diffuse_ndotl: f32 = mix(ndotl, wrapped_ndotl, surface_subsurface);
     let attenuation: f32 = (1.0 / (distance * distance));
     let visibility: f32 = ((attenuation * shadow_visibility) * shadow_map_visibility);
-    let direct: vec3<f32> = (((((diffuse + surface_sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
+    let direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_ndotl * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * (ndotl * visibility)));
     let optical_thickness: f32 = (advanced1.w * thickness_sample);
     let absorption_exponent: f32 = (optical_thickness / max(ior_distance_program_flags.y, 1e-06));
     let transmission_tint: vec3<f32> = mix(pow(max(attenuation_transmission.xyz, vec3<f32>(1e-06)), vec3<f32>(absorption_exponent)), surface_base_color, surface_thin_walled);
@@ -251,9 +268,59 @@ fn main(
         let refracted_t: f32 = max(0.0, ((-refracted_b) + sqrt(max(0.0, ((refracted_b * refracted_b) - refracted_c)))));
         probe_refracted = ((closed_exit_position + (closed_refracted * refracted_t)) - probe_position_radius.xyz);
         probe_refracted = (probe_refracted / max(length(probe_refracted), 1e-06));
+        if ((probe_box_min_mode.w > 0.5)) {
+            let reflected_safe: vec3<f32> = vec3<f32>(select(1e-06, reflected.x, (abs(reflected.x) > 1e-06)), select(1e-06, reflected.y, (abs(reflected.y) > 1e-06)), select(1e-06, reflected.z, (abs(reflected.z) > 1e-06)));
+            let reflected_to_min: vec3<f32> = ((probe_box_min_mode.xyz - world_position) / reflected_safe);
+            let reflected_to_max: vec3<f32> = ((probe_box_max_blend.xyz - world_position) / reflected_safe);
+            let reflected_far: vec3<f32> = max(reflected_to_min, reflected_to_max);
+            let reflected_box_t: f32 = min(reflected_far.x, min(reflected_far.y, reflected_far.z));
+            probe_reflected = ((world_position + (reflected * reflected_box_t)) - probe_position_radius.xyz);
+            probe_reflected = (probe_reflected / max(length(probe_reflected), 1e-06));
+            let refracted_safe: vec3<f32> = vec3<f32>(select(1e-06, closed_refracted.x, (abs(closed_refracted.x) > 1e-06)), select(1e-06, closed_refracted.y, (abs(closed_refracted.y) > 1e-06)), select(1e-06, closed_refracted.z, (abs(closed_refracted.z) > 1e-06)));
+            let refracted_to_min: vec3<f32> = ((probe_box_min_mode.xyz - closed_exit_position) / refracted_safe);
+            let refracted_to_max: vec3<f32> = ((probe_box_max_blend.xyz - closed_exit_position) / refracted_safe);
+            let refracted_far: vec3<f32> = max(refracted_to_min, refracted_to_max);
+            let refracted_box_t: f32 = min(refracted_far.x, min(refracted_far.y, refracted_far.z));
+            probe_refracted = ((closed_exit_position + (closed_refracted * refracted_box_t)) - probe_position_radius.xyz);
+            probe_refracted = (probe_refracted / max(length(probe_refracted), 1e-06));
+        }
+    }
+    var probe_reflected_secondary: vec3<f32> = reflected;
+    var probe_refracted_secondary: vec3<f32> = closed_refracted;
+    if ((probe_position_radius_secondary.w > 0.0)) {
+        let reflected_offset_secondary: vec3<f32> = (world_position - probe_position_radius_secondary.xyz);
+        let reflected_b_secondary: f32 = (((reflected_offset_secondary.x * reflected.x) + (reflected_offset_secondary.y * reflected.y)) + (reflected_offset_secondary.z * reflected.z));
+        let reflected_c_secondary: f32 = ((((reflected_offset_secondary.x * reflected_offset_secondary.x) + (reflected_offset_secondary.y * reflected_offset_secondary.y)) + (reflected_offset_secondary.z * reflected_offset_secondary.z)) - (probe_position_radius_secondary.w * probe_position_radius_secondary.w));
+        let reflected_sphere_t_secondary: f32 = max(0.0, ((-reflected_b_secondary) + sqrt(max(0.0, ((reflected_b_secondary * reflected_b_secondary) - reflected_c_secondary)))));
+        probe_reflected_secondary = ((world_position + (reflected * reflected_sphere_t_secondary)) - probe_position_radius_secondary.xyz);
+        probe_reflected_secondary = (probe_reflected_secondary / max(length(probe_reflected_secondary), 1e-06));
+        let refracted_offset_secondary: vec3<f32> = (closed_exit_position - probe_position_radius_secondary.xyz);
+        let refracted_b_secondary: f32 = (((refracted_offset_secondary.x * closed_refracted.x) + (refracted_offset_secondary.y * closed_refracted.y)) + (refracted_offset_secondary.z * closed_refracted.z));
+        let refracted_c_secondary: f32 = ((((refracted_offset_secondary.x * refracted_offset_secondary.x) + (refracted_offset_secondary.y * refracted_offset_secondary.y)) + (refracted_offset_secondary.z * refracted_offset_secondary.z)) - (probe_position_radius_secondary.w * probe_position_radius_secondary.w));
+        let refracted_sphere_t_secondary: f32 = max(0.0, ((-refracted_b_secondary) + sqrt(max(0.0, ((refracted_b_secondary * refracted_b_secondary) - refracted_c_secondary)))));
+        probe_refracted_secondary = ((closed_exit_position + (closed_refracted * refracted_sphere_t_secondary)) - probe_position_radius_secondary.xyz);
+        probe_refracted_secondary = (probe_refracted_secondary / max(length(probe_refracted_secondary), 1e-06));
+    }
+    if ((probe_box_min_mode_secondary.w > 0.5)) {
+        let reflected_safe_secondary: vec3<f32> = vec3<f32>(select(1e-06, reflected.x, (abs(reflected.x) > 1e-06)), select(1e-06, reflected.y, (abs(reflected.y) > 1e-06)), select(1e-06, reflected.z, (abs(reflected.z) > 1e-06)));
+        let reflected_min_secondary: vec3<f32> = ((probe_box_min_mode_secondary.xyz - world_position) / reflected_safe_secondary);
+        let reflected_max_secondary: vec3<f32> = ((probe_box_max_blend_secondary.xyz - world_position) / reflected_safe_secondary);
+        let reflected_far_secondary: vec3<f32> = max(reflected_min_secondary, reflected_max_secondary);
+        let reflected_t_secondary: f32 = min(reflected_far_secondary.x, min(reflected_far_secondary.y, reflected_far_secondary.z));
+        probe_reflected_secondary = ((world_position + (reflected * reflected_t_secondary)) - probe_position_radius_secondary.xyz);
+        probe_reflected_secondary = (probe_reflected_secondary / max(length(probe_reflected_secondary), 1e-06));
+        let refracted_safe_secondary: vec3<f32> = vec3<f32>(select(1e-06, closed_refracted.x, (abs(closed_refracted.x) > 1e-06)), select(1e-06, closed_refracted.y, (abs(closed_refracted.y) > 1e-06)), select(1e-06, closed_refracted.z, (abs(closed_refracted.z) > 1e-06)));
+        let refracted_min_secondary: vec3<f32> = ((probe_box_min_mode_secondary.xyz - closed_exit_position) / refracted_safe_secondary);
+        let refracted_max_secondary: vec3<f32> = ((probe_box_max_blend_secondary.xyz - closed_exit_position) / refracted_safe_secondary);
+        let refracted_far_secondary: vec3<f32> = max(refracted_min_secondary, refracted_max_secondary);
+        let refracted_t_secondary: f32 = min(refracted_far_secondary.x, min(refracted_far_secondary.y, refracted_far_secondary.z));
+        probe_refracted_secondary = ((closed_exit_position + (closed_refracted * refracted_t_secondary)) - probe_position_radius_secondary.xyz);
+        probe_refracted_secondary = (probe_refracted_secondary / max(length(probe_refracted_secondary), 1e-06));
     }
     let reflection_uv: vec2<f32> = vec2<f32>(fract((((atan2(probe_reflected.z, probe_reflected.x) / 6.28318531) + 0.5) + (environment_rotation_log_range.x / 6.28318531))), (acos(max((-1.0), min(1.0, probe_reflected.y))) / 3.14159265));
     let refraction_uv: vec2<f32> = vec2<f32>(fract((((atan2(probe_refracted.z, probe_refracted.x) / 6.28318531) + 0.5) + (environment_rotation_log_range.x / 6.28318531))), (acos(max((-1.0), min(1.0, probe_refracted.y))) / 3.14159265));
+    let reflection_uv_secondary: vec2<f32> = vec2<f32>(fract((((atan2(probe_reflected_secondary.z, probe_reflected_secondary.x) / 6.28318531) + 0.5) + (environment_rotation_log_range_secondary.x / 6.28318531))), (acos(max((-1.0), min(1.0, probe_reflected_secondary.y))) / 3.14159265));
+    let refraction_uv_secondary: vec2<f32> = vec2<f32>(fract((((atan2(probe_refracted_secondary.z, probe_refracted_secondary.x) / 6.28318531) + 0.5) + (environment_rotation_log_range_secondary.x / 6.28318531))), (acos(max((-1.0), min(1.0, probe_refracted_secondary.y))) / 3.14159265));
     let environment_level: f32 = min((surface_roughness * 5.0), 3.0);
     let environment_level_low: f32 = floor(environment_level);
     let environment_level_high: f32 = min((environment_level_low + 1.0), 3.0);
@@ -262,14 +329,32 @@ fn main(
     let reflection_uv_high: vec2<f32> = vec2<f32>(((reflection_uv.x + environment_level_high) * 0.25), reflection_uv.y);
     let refraction_uv_low: vec2<f32> = vec2<f32>(((refraction_uv.x + environment_level_low) * 0.25), refraction_uv.y);
     let refraction_uv_high: vec2<f32> = vec2<f32>(((refraction_uv.x + environment_level_high) * 0.25), refraction_uv.y);
+    let reflection_uv_secondary_low: vec2<f32> = vec2<f32>(((reflection_uv_secondary.x + environment_level_low) * 0.25), reflection_uv_secondary.y);
+    let reflection_uv_secondary_high: vec2<f32> = vec2<f32>(((reflection_uv_secondary.x + environment_level_high) * 0.25), reflection_uv_secondary.y);
+    let refraction_uv_secondary_low: vec2<f32> = vec2<f32>(((refraction_uv_secondary.x + environment_level_low) * 0.25), refraction_uv_secondary.y);
+    let refraction_uv_secondary_high: vec2<f32> = vec2<f32>(((refraction_uv_secondary.x + environment_level_high) * 0.25), refraction_uv_secondary.y);
     let reflected_encoded_low: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (reflection_uv_low * environment_rect.zw))).xyz;
     let reflected_encoded_high: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (reflection_uv_high * environment_rect.zw))).xyz;
     let refracted_encoded_low: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (refraction_uv_low * environment_rect.zw))).xyz;
     let refracted_encoded_high: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect.xy + (refraction_uv_high * environment_rect.zw))).xyz;
+    let reflected_secondary_low: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect_secondary.xy + (reflection_uv_secondary_low * environment_rect_secondary.zw))).xyz;
+    let reflected_secondary_high: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect_secondary.xy + (reflection_uv_secondary_high * environment_rect_secondary.zw))).xyz;
+    let refracted_secondary_low: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect_secondary.xy + (refraction_uv_secondary_low * environment_rect_secondary.zw))).xyz;
+    let refracted_secondary_high: vec3<f32> = textureSample(base_color_atlas, base_color_sampler, (environment_rect_secondary.xy + (refraction_uv_secondary_high * environment_rect_secondary.zw))).xyz;
     let reflected_encoded: vec3<f32> = mix(reflected_encoded_low, reflected_encoded_high, environment_level_mix);
     let refracted_encoded: vec3<f32> = mix(refracted_encoded_low, refracted_encoded_high, environment_level_mix).xyz;
-    let reflected_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (reflected_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
-    let refracted_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (refracted_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    let reflected_secondary_encoded: vec3<f32> = mix(reflected_secondary_low, reflected_secondary_high, environment_level_mix);
+    let refracted_secondary_encoded: vec3<f32> = mix(refracted_secondary_low, refracted_secondary_high, environment_level_mix);
+    var reflected_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (reflected_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    var refracted_environment: vec3<f32> = (((pow(vec3<f32>(2.0), (refracted_encoded * environment_rotation_log_range.y)) - vec3<f32>(1.0)) * environment_color_intensity.xyz) * environment_color_intensity.w);
+    let secondary_enabled: f32 = select(0.0, 1.0, (environment_rect_secondary.z > 0.0));
+    let secondary_reflected_environment: vec3<f32> = (pow(vec3<f32>(2.0), (reflected_secondary_encoded * environment_rotation_log_range_secondary.y)) - vec3<f32>(1.0));
+    let secondary_refracted_environment: vec3<f32> = (pow(vec3<f32>(2.0), (refracted_secondary_encoded * environment_rotation_log_range_secondary.y)) - vec3<f32>(1.0));
+    let primary_weight: f32 = select(1.0, probe_box_max_blend.w, (secondary_enabled > 0.5));
+    let secondary_weight: f32 = (probe_box_max_blend_secondary.w * secondary_enabled);
+    let weight_sum: f32 = max((primary_weight + secondary_weight), 1e-06);
+    reflected_environment = (((reflected_environment * primary_weight) + (secondary_reflected_environment * secondary_weight)) / weight_sum);
+    refracted_environment = (((refracted_environment * primary_weight) + (secondary_refracted_environment * secondary_weight)) / weight_sum);
     let screen_clip: vec4<f32> = (camera.view_projection * vec4<f32>(world_position, 1.0));
     let screen_ndc: vec3<f32> = (screen_clip.xyz / max(abs(screen_clip.w), 1e-06));
     let screen_uv: vec2<f32> = vec2<f32>(((screen_ndc.x * 0.5) + 0.5), (0.5 - (screen_ndc.y * 0.5)));

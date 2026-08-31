@@ -14,7 +14,8 @@ from ordinarylight.showcases.advanced_materials import (
     build_subsurface_scene, build_thin_transmission_scene,
 )
 from ordinarylight.showcases.optical_materials import (
-    build_absorption_scene, build_environment_reflection_scene,
+    build_absorption_scene,
+    build_environment_reflection_scene,
     build_nested_dielectric_scene, build_reflection_probe_scene,
     build_refraction_scene, build_transparency_scene,
 )
@@ -60,9 +61,6 @@ SHOWCASES = (
          "Fresnel reflection, refraction, and total internal reflection."),
         ("absorption", "Beer-Lambert absorption", build_absorption_scene,
          "Distance-based colored attenuation through dielectric media."),
-        ("nested-dielectric", "nested dielectrics",
-         build_nested_dielectric_scene,
-         "Nested IOR media and boundary transitions."),
         ("transparency", "sorted transparency", build_transparency_scene,
          "Opaque-first, far-to-near source-alpha transparency."),
     )),

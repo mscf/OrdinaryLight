@@ -1,0 +1,38 @@
+[
+  {
+    "name": "oblique-right",
+    "position": [8.96516217038208, 3.2999854823744923, 3.2857162287835426],
+    "target": [0.0, 1.1, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_object_log_luminance_error": 0.57,
+      "min_edge_correlation": 0.25,
+      "min_coverage_iou": 0.65
+    }
+  },
+  {
+    "name": "front-low",
+    "position": [1.690432155602245, 2.7283035927409185, 9.513204851004362],
+    "target": [0.0, 1.1, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_object_log_luminance_error": 0.65,
+      "min_edge_correlation": 0.23,
+      "min_coverage_iou": 0.65
+    }
+  },
+  {
+    "name": "reverse-high",
+    "position": [13.416704195246835, 9.21356509358462, 2.216097566165522],
+    "target": [0.0, 1.1, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_object_log_luminance_error": 0.40,
+      "min_edge_correlation": 0.24,
+      "min_coverage_iou": 0.39
+    }
+  }
+]

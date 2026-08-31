@@ -75,6 +75,13 @@ class RasterMaterial:
     environment_color_intensity: osh.vec4
     environment_rotation_log_range: osh.vec4
     probe_position_radius: osh.vec4
+    probe_box_min_mode: osh.vec4
+    probe_box_max_blend: osh.vec4
+    environment_rect_secondary: osh.vec4
+    environment_rotation_log_range_secondary: osh.vec4
+    probe_position_radius_secondary: osh.vec4
+    probe_box_min_mode_secondary: osh.vec4
+    probe_box_max_blend_secondary: osh.vec4
 
 
 @osh.vertex
@@ -200,6 +207,13 @@ def scene_fragment(
     environment_color_intensity = materials[material_id].environment_color_intensity
     environment_rotation_log_range = materials[material_id].environment_rotation_log_range
     probe_position_radius = materials[material_id].probe_position_radius
+    probe_box_min_mode = materials[material_id].probe_box_min_mode
+    probe_box_max_blend = materials[material_id].probe_box_max_blend
+    environment_rect_secondary = materials[material_id].environment_rect_secondary
+    environment_rotation_log_range_secondary = materials[material_id].environment_rotation_log_range_secondary
+    probe_position_radius_secondary = materials[material_id].probe_position_radius_secondary
+    probe_box_min_mode_secondary = materials[material_id].probe_box_min_mode_secondary
+    probe_box_max_blend_secondary = materials[material_id].probe_box_max_blend_secondary
     base_color_sample = base_color_atlas.sample_with(
         base_color_sampler, base_color_uv,
     )
@@ -311,8 +325,9 @@ def scene_fragment(
     surface_clearcoat_roughness = osh.maximum(
         0.04, osh.minimum(1.0, hooked.clearcoat_roughness),
     )
-    surface_sheen = hooked.sheen_color * (
-        1.0 - osh.maximum(0.0, osh.minimum(1.0, hooked.sheen_roughness))
+    surface_sheen_color = hooked.sheen_color
+    surface_sheen_roughness = osh.maximum(
+        0.0, osh.minimum(1.0, hooked.sheen_roughness),
     )
     surface_anisotropy = osh.maximum(
         -1.0, osh.minimum(1.0, hooked.anisotropy),
@@ -365,6 +380,11 @@ def scene_fragment(
         + view.z * half_vector.z,
         0.0,
     )
+    sheen_weight = (
+        (1.0 - surface_sheen_roughness)
+        * osh.power(1.0 - vdoth, 5.0)
+    )
+    sheen = surface_sheen_color * sheen_weight
     raw_surface_alpha = material.w * base_color_sample.w
     masked_surface_alpha = 1.0 if raw_surface_alpha >= optical.z else 0.0
     surface_alpha = (
@@ -450,7 +470,7 @@ def scene_fragment(
     attenuation = 1.0 / (distance * distance)
     visibility = attenuation * shadow_visibility * shadow_map_visibility
     direct = (
-        (diffuse + surface_sheen) * base_energy * light_color_ambient.xyz
+        (diffuse + sheen) * base_energy * light_color_ambient.xyz
         * (diffuse_ndotl * visibility)
         + (specular * base_energy + clearcoat_specular) * light_color_ambient.xyz
         * (ndotl * visibility)
@@ -580,6 +600,160 @@ def scene_fragment(
         probe_refracted = probe_refracted / osh.maximum(
             osh.length(probe_refracted), 0.000001,
         )
+        if probe_box_min_mode.w > 0.5:
+            reflected_safe = osh.vec3(
+                reflected.x if osh.absolute(reflected.x) > 0.000001 else 0.000001,
+                reflected.y if osh.absolute(reflected.y) > 0.000001 else 0.000001,
+                reflected.z if osh.absolute(reflected.z) > 0.000001 else 0.000001,
+            )
+            reflected_to_min = (probe_box_min_mode.xyz - world_position) / reflected_safe
+            reflected_to_max = (probe_box_max_blend.xyz - world_position) / reflected_safe
+            reflected_far = osh.maximum(reflected_to_min, reflected_to_max)
+            reflected_box_t = osh.minimum(
+                reflected_far.x, osh.minimum(reflected_far.y, reflected_far.z),
+            )
+            probe_reflected = (
+                world_position + reflected * reflected_box_t
+                - probe_position_radius.xyz
+            )
+            probe_reflected = probe_reflected / osh.maximum(
+                osh.length(probe_reflected), 0.000001,
+            )
+            refracted_safe = osh.vec3(
+                closed_refracted.x if osh.absolute(closed_refracted.x) > 0.000001 else 0.000001,
+                closed_refracted.y if osh.absolute(closed_refracted.y) > 0.000001 else 0.000001,
+                closed_refracted.z if osh.absolute(closed_refracted.z) > 0.000001 else 0.000001,
+            )
+            refracted_to_min = (probe_box_min_mode.xyz - closed_exit_position) / refracted_safe
+            refracted_to_max = (probe_box_max_blend.xyz - closed_exit_position) / refracted_safe
+            refracted_far = osh.maximum(refracted_to_min, refracted_to_max)
+            refracted_box_t = osh.minimum(
+                refracted_far.x, osh.minimum(refracted_far.y, refracted_far.z),
+            )
+            probe_refracted = (
+                closed_exit_position + closed_refracted * refracted_box_t
+                - probe_position_radius.xyz
+            )
+            probe_refracted = probe_refracted / osh.maximum(
+                osh.length(probe_refracted), 0.000001,
+            )
+    # A secondary local probe must be projected from its own capture origin.
+    # Blending images first and applying the primary transform afterwards
+    # makes nearby geometry appear detached because the two captures have
+    # different parallax.
+    probe_reflected_secondary = reflected
+    probe_refracted_secondary = closed_refracted
+    if probe_position_radius_secondary.w > 0.0:
+        reflected_offset_secondary = (
+            world_position - probe_position_radius_secondary.xyz
+        )
+        reflected_b_secondary = (
+            reflected_offset_secondary.x * reflected.x
+            + reflected_offset_secondary.y * reflected.y
+            + reflected_offset_secondary.z * reflected.z
+        )
+        reflected_c_secondary = (
+            reflected_offset_secondary.x * reflected_offset_secondary.x
+            + reflected_offset_secondary.y * reflected_offset_secondary.y
+            + reflected_offset_secondary.z * reflected_offset_secondary.z
+            - probe_position_radius_secondary.w
+            * probe_position_radius_secondary.w
+        )
+        reflected_sphere_t_secondary = osh.maximum(
+            0.0, -reflected_b_secondary + osh.sqrt(osh.maximum(
+                0.0,
+                reflected_b_secondary * reflected_b_secondary
+                - reflected_c_secondary,
+            )),
+        )
+        probe_reflected_secondary = (
+            world_position + reflected * reflected_sphere_t_secondary
+            - probe_position_radius_secondary.xyz
+        )
+        probe_reflected_secondary = probe_reflected_secondary / osh.maximum(
+            osh.length(probe_reflected_secondary), 0.000001,
+        )
+        refracted_offset_secondary = (
+            closed_exit_position - probe_position_radius_secondary.xyz
+        )
+        refracted_b_secondary = (
+            refracted_offset_secondary.x * closed_refracted.x
+            + refracted_offset_secondary.y * closed_refracted.y
+            + refracted_offset_secondary.z * closed_refracted.z
+        )
+        refracted_c_secondary = (
+            refracted_offset_secondary.x * refracted_offset_secondary.x
+            + refracted_offset_secondary.y * refracted_offset_secondary.y
+            + refracted_offset_secondary.z * refracted_offset_secondary.z
+            - probe_position_radius_secondary.w
+            * probe_position_radius_secondary.w
+        )
+        refracted_sphere_t_secondary = osh.maximum(
+            0.0, -refracted_b_secondary + osh.sqrt(osh.maximum(
+                0.0,
+                refracted_b_secondary * refracted_b_secondary
+                - refracted_c_secondary,
+            )),
+        )
+        probe_refracted_secondary = (
+            closed_exit_position
+            + closed_refracted * refracted_sphere_t_secondary
+            - probe_position_radius_secondary.xyz
+        )
+        probe_refracted_secondary = probe_refracted_secondary / osh.maximum(
+            osh.length(probe_refracted_secondary), 0.000001,
+        )
+    if probe_box_min_mode_secondary.w > 0.5:
+        reflected_safe_secondary = osh.vec3(
+            reflected.x if osh.absolute(reflected.x) > 0.000001 else 0.000001,
+            reflected.y if osh.absolute(reflected.y) > 0.000001 else 0.000001,
+            reflected.z if osh.absolute(reflected.z) > 0.000001 else 0.000001,
+        )
+        reflected_min_secondary = (
+            probe_box_min_mode_secondary.xyz - world_position
+        ) / reflected_safe_secondary
+        reflected_max_secondary = (
+            probe_box_max_blend_secondary.xyz - world_position
+        ) / reflected_safe_secondary
+        reflected_far_secondary = osh.maximum(
+            reflected_min_secondary, reflected_max_secondary,
+        )
+        reflected_t_secondary = osh.minimum(
+            reflected_far_secondary.x,
+            osh.minimum(reflected_far_secondary.y, reflected_far_secondary.z),
+        )
+        probe_reflected_secondary = (
+            world_position + reflected * reflected_t_secondary
+            - probe_position_radius_secondary.xyz
+        )
+        probe_reflected_secondary = probe_reflected_secondary / osh.maximum(
+            osh.length(probe_reflected_secondary), 0.000001,
+        )
+        refracted_safe_secondary = osh.vec3(
+            closed_refracted.x if osh.absolute(closed_refracted.x) > 0.000001 else 0.000001,
+            closed_refracted.y if osh.absolute(closed_refracted.y) > 0.000001 else 0.000001,
+            closed_refracted.z if osh.absolute(closed_refracted.z) > 0.000001 else 0.000001,
+        )
+        refracted_min_secondary = (
+            probe_box_min_mode_secondary.xyz - closed_exit_position
+        ) / refracted_safe_secondary
+        refracted_max_secondary = (
+            probe_box_max_blend_secondary.xyz - closed_exit_position
+        ) / refracted_safe_secondary
+        refracted_far_secondary = osh.maximum(
+            refracted_min_secondary, refracted_max_secondary,
+        )
+        refracted_t_secondary = osh.minimum(
+            refracted_far_secondary.x,
+            osh.minimum(refracted_far_secondary.y, refracted_far_secondary.z),
+        )
+        probe_refracted_secondary = (
+            closed_exit_position + closed_refracted * refracted_t_secondary
+            - probe_position_radius_secondary.xyz
+        )
+        probe_refracted_secondary = probe_refracted_secondary / osh.maximum(
+            osh.length(probe_refracted_secondary), 0.000001,
+        )
     reflection_uv = osh.vec2(
         osh.fraction(
             osh.arctangent2(probe_reflected.z, probe_reflected.x) / 6.28318531
@@ -595,6 +769,28 @@ def scene_fragment(
         ),
         osh.arccosine(osh.maximum(-1.0, osh.minimum(1.0, probe_refracted.y)))
         / 3.14159265,
+    )
+    reflection_uv_secondary = osh.vec2(
+        osh.fraction(
+            osh.arctangent2(
+                probe_reflected_secondary.z, probe_reflected_secondary.x,
+            ) / 6.28318531 + 0.5
+            + environment_rotation_log_range_secondary.x / 6.28318531
+        ),
+        osh.arccosine(osh.maximum(
+            -1.0, osh.minimum(1.0, probe_reflected_secondary.y),
+        )) / 3.14159265,
+    )
+    refraction_uv_secondary = osh.vec2(
+        osh.fraction(
+            osh.arctangent2(
+                probe_refracted_secondary.z, probe_refracted_secondary.x,
+            ) / 6.28318531 + 0.5
+            + environment_rotation_log_range_secondary.x / 6.28318531
+        ),
+        osh.arccosine(osh.maximum(
+            -1.0, osh.minimum(1.0, probe_refracted_secondary.y),
+        )) / 3.14159265,
     )
     # Four raster-only prefiltered environment levels are packed side by side.
     # Interpolate adjacent levels using perceptual roughness, analogous to a
@@ -621,6 +817,22 @@ def scene_fragment(
         (refraction_uv.x + environment_level_high) * 0.25,
         refraction_uv.y,
     )
+    reflection_uv_secondary_low = osh.vec2(
+        (reflection_uv_secondary.x + environment_level_low) * 0.25,
+        reflection_uv_secondary.y,
+    )
+    reflection_uv_secondary_high = osh.vec2(
+        (reflection_uv_secondary.x + environment_level_high) * 0.25,
+        reflection_uv_secondary.y,
+    )
+    refraction_uv_secondary_low = osh.vec2(
+        (refraction_uv_secondary.x + environment_level_low) * 0.25,
+        refraction_uv_secondary.y,
+    )
+    refraction_uv_secondary_high = osh.vec2(
+        (refraction_uv_secondary.x + environment_level_high) * 0.25,
+        refraction_uv_secondary.y,
+    )
     reflected_encoded_low = base_color_atlas.sample_with(
         base_color_sampler,
         environment_rect.xy + reflection_uv_low * environment_rect.zw,
@@ -637,6 +849,26 @@ def scene_fragment(
         base_color_sampler,
         environment_rect.xy + refraction_uv_high * environment_rect.zw,
     ).xyz
+    reflected_secondary_low = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect_secondary.xy
+        + reflection_uv_secondary_low * environment_rect_secondary.zw,
+    ).xyz
+    reflected_secondary_high = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect_secondary.xy
+        + reflection_uv_secondary_high * environment_rect_secondary.zw,
+    ).xyz
+    refracted_secondary_low = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect_secondary.xy
+        + refraction_uv_secondary_low * environment_rect_secondary.zw,
+    ).xyz
+    refracted_secondary_high = base_color_atlas.sample_with(
+        base_color_sampler,
+        environment_rect_secondary.xy
+        + refraction_uv_secondary_high * environment_rect_secondary.zw,
+    ).xyz
     reflected_encoded = osh.mix(
         reflected_encoded_low, reflected_encoded_high,
         environment_level_mix,
@@ -645,6 +877,14 @@ def scene_fragment(
         refracted_encoded_low, refracted_encoded_high,
         environment_level_mix,
     ).xyz
+    reflected_secondary_encoded = osh.mix(
+        reflected_secondary_low, reflected_secondary_high,
+        environment_level_mix,
+    )
+    refracted_secondary_encoded = osh.mix(
+        refracted_secondary_low, refracted_secondary_high,
+        environment_level_mix,
+    )
     reflected_environment = (
         osh.power(
             osh.vec3(2.0),
@@ -657,6 +897,36 @@ def scene_fragment(
             refracted_encoded * environment_rotation_log_range.y,
         ) - osh.vec3(1.0)
     ) * environment_color_intensity.xyz * environment_color_intensity.w
+    secondary_enabled = (
+        1.0 if environment_rect_secondary.z > 0.0 else 0.0
+    )
+    secondary_reflected_environment = (
+        osh.power(
+            osh.vec3(2.0),
+            reflected_secondary_encoded
+            * environment_rotation_log_range_secondary.y,
+        ) - osh.vec3(1.0)
+    )
+    secondary_refracted_environment = (
+        osh.power(
+            osh.vec3(2.0),
+            refracted_secondary_encoded
+            * environment_rotation_log_range_secondary.y,
+        ) - osh.vec3(1.0)
+    )
+    primary_weight = (
+        probe_box_max_blend.w if secondary_enabled > 0.5 else 1.0
+    )
+    secondary_weight = probe_box_max_blend_secondary.w * secondary_enabled
+    weight_sum = osh.maximum(primary_weight + secondary_weight, 0.000001)
+    reflected_environment = (
+        reflected_environment * primary_weight
+        + secondary_reflected_environment * secondary_weight
+    ) / weight_sum
+    refracted_environment = (
+        refracted_environment * primary_weight
+        + secondary_refracted_environment * secondary_weight
+    ) / weight_sum
     screen_clip = camera.view_projection * osh.vec4(world_position, 1.0)
     screen_ndc = screen_clip.xyz / osh.maximum(
         osh.absolute(screen_clip.w), 0.000001,

@@ -53,6 +53,15 @@ python -m tests.gates.renderer_visual_parity
 python -m tests.gates.renderer_visual_parity --scene modifier
 ```
 
+The opt-in GPU suite additionally evaluates the refraction scene from every
+camera in `tests/gates/poses/refraction_parity.json`. These fixed oblique,
+front, and reverse views prevent a probe/refraction fix from overfitting a
+single camera pose. Nested dielectric composition is likewise checked from
+the fixed front and oblique views in
+`tests/gates/poses/nested_dielectric_parity.json`. Those checks include an
+object-local edge correlation inside the outer shell, so losing the inner
+boundary cannot be hidden by otherwise similar room pixels.
+
 For interactive inspection, render the same evidence into a side-by-side Qt
 viewer. The raster half is exposure-matched and the metric summary remains
 visible above both images:

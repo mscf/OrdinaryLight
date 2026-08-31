@@ -36,6 +36,14 @@ class VulkanRasterRenderer(RendererImplementation):
         name="vulkan-raster", family="raster", graphics_api="vulkan",
     )
 
+    def request_probe_refresh(self, probe):
+        """Request recapture of an ``on-demand`` reflection probe."""
+        self.probe_capture.request(probe)
+
+    def refresh_reflection_probes(self, scene, *, force=False):
+        """Capture due probes immediately and return their replacements."""
+        return self.probe_capture.refresh(self, scene, force=force)
+
     def __init__(
         self, program, *, config=None, state=None, device_name=None,
         instance=None, surface=None,
@@ -58,6 +66,8 @@ class VulkanRasterRenderer(RendererImplementation):
         self._post = RasterPostProcessor(self.config)
         self.available_outputs = ("color", "depth", "normal", "object_id")
         self.last_timings = {}
+        from ...probes import ProbeCaptureManager
+        self.probe_capture = ProbeCaptureManager()
         app = vk.VkApplicationInfo(
             sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             pApplicationName="Ordinary Light Raster", applicationVersion=1,
@@ -2582,6 +2592,7 @@ class VulkanRasterRenderer(RendererImplementation):
         """Render directly to the external Vulkan surface without readback."""
         import time
         started = time.perf_counter()
+        self.probe_capture.refresh(self, scene)
         # Diagnostic captures intentionally serialize the whole device. This
         # distinguishes resource-lifetime/synchronization faults from
         # deterministic shader or input-data faults without affecting normal
@@ -2655,6 +2666,7 @@ class VulkanRasterRenderer(RendererImplementation):
     def render_frame(self, scene, camera, width, height, *, samples=None, frame_index=0):
         import time
         started = time.perf_counter()
+        self.probe_capture.refresh(self, scene)
         mesh = scene_mesh(
             scene, camera, width, height, self.config,
             native_shadow_maps=True, gpu_camera=True,

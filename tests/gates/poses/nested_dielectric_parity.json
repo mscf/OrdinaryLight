@@ -1,0 +1,30 @@
+[
+  {
+    "name": "front",
+    "position": [0.0, 3.2, 10.0],
+    "target": [0.0, 1.0, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_log_color_rmse": 0.38,
+      "max_object_log_luminance_error": 0.95,
+      "min_edge_correlation": 0.32,
+      "min_coverage_iou": 0.63,
+      "min_object_edge_correlation": 0.20
+    }
+  },
+  {
+    "name": "oblique",
+    "position": [7.4, 4.1, 6.8],
+    "target": [0.0, 1.45, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "vertical_fov_degrees": 45.0,
+    "thresholds": {
+      "max_log_color_rmse": 0.35,
+      "max_object_log_luminance_error": 0.60,
+      "min_edge_correlation": 0.32,
+      "min_coverage_iou": 0.62,
+      "min_object_edge_correlation": 0.20
+    }
+  }
+]

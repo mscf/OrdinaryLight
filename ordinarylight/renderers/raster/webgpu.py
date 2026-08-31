@@ -27,6 +27,14 @@ class WebGpuRasterRenderer(RendererImplementation):
         name="webgpu-raster", family="raster", graphics_api="webgpu",
     )
 
+    def request_probe_refresh(self, probe):
+        """Request recapture of an ``on-demand`` reflection probe."""
+        self.probe_capture.request(probe)
+
+    def refresh_reflection_probes(self, scene, *, force=False):
+        """Capture due probes immediately and return their replacements."""
+        return self.probe_capture.refresh(self, scene, force=force)
+
     @staticmethod
     def _opaque_camera_payload(payload):
         camera = np.frombuffer(payload, dtype=CAMERA_DTYPE).copy()
@@ -54,6 +62,8 @@ class WebGpuRasterRenderer(RendererImplementation):
         self._post = RasterPostProcessor(self.config)
         self.available_outputs = ("color", "depth", "normal", "object_id")
         self.last_timings = {}
+        from ...probes import ProbeCaptureManager
+        self.probe_capture = ProbeCaptureManager()
         self.adapter = wgpu.gpu.request_adapter_sync(
             power_preference=power_preference,
         )
@@ -531,6 +541,7 @@ class WebGpuRasterRenderer(RendererImplementation):
     def render_frame(self, scene, camera, width, height, *, samples=None, frame_index=0):
         import time
         started = time.perf_counter()
+        self.probe_capture.refresh(self, scene)
         mesh = scene_mesh(
             scene, camera, width, height, self.config,
             native_shadow_maps=True, gpu_camera=True,

@@ -83,6 +83,10 @@ def main():
         "--object-prefix",
         help="limit per-object luminance enforcement to matching mesh names",
     )
+    parser.add_argument(
+        "--min-object-edge-correlation", type=float,
+        help="minimum edge correlation inside each matching object crop",
+    )
     parser.add_argument("--min-edge-correlation", type=float, default=0.35)
     parser.add_argument("--min-coverage-iou", type=float, default=0.65)
     parser.add_argument(
@@ -105,7 +109,10 @@ def main():
     advanced_baseline = Path(__file__).with_name("baselines").joinpath(
         "advanced_material_parity.json"
     )
-    if advanced_baseline.is_file():
+    # Scene-wide accepted thresholds describe the default camera. Explicit
+    # camera poses carry their own baselines because coverage and projected
+    # edge correlation legitimately change with viewpoint.
+    if advanced_baseline.is_file() and not args.camera_pose:
         accepted = json.loads(advanced_baseline.read_text())["scenes"].get(
             args.scene
         )
@@ -207,12 +214,19 @@ def main():
             max(candidate_luminance, 1e-6) /
             max(reference_luminance, 1e-6)
         )))
+        ys, xs = np.nonzero(mask)
+        crop_metrics = ol.renderer_visual_metrics(
+            gi.color[ys.min():ys.max() + 1, xs.min():xs.max() + 1],
+            raster.color[ys.min():ys.max() + 1, xs.min():xs.max() + 1],
+        )
         object_metrics[str(int(object_id))] = {
             "name": object_names.get(int(object_id), ""),
             "pixels": int(np.count_nonzero(mask)),
             "reference_mean_luminance": reference_luminance,
             "candidate_mean_luminance": candidate_luminance,
             "absolute_log_luminance_error": log_error,
+            "crop_edge_correlation": crop_metrics["edge_correlation"],
+            "crop_log_color_rmse": crop_metrics["log_color_rmse"],
         }
     report = {
         "extent": list(extent),
@@ -228,6 +242,9 @@ def main():
             "min_coverage_iou": args.min_coverage_iou,
             "max_object_log_luminance_error": (
                 args.max_object_log_luminance_error
+            ),
+            "min_object_edge_correlation": (
+                args.min_object_edge_correlation
             ),
         },
     }
@@ -256,6 +273,13 @@ def main():
             or item["name"].startswith(args.object_prefix))
     ):
         failures.append("per-object luminance")
+    if args.min_object_edge_correlation is not None and any(
+        item["crop_edge_correlation"] < args.min_object_edge_correlation
+        for item in object_metrics.values()
+        if (args.object_prefix is None
+            or item["name"].startswith(args.object_prefix))
+    ):
+        failures.append("per-object edge correlation")
     if failures and not args.capture_only:
         raise SystemExit("FAIL: raster/GI parity: " + ", ".join(failures))
     print(

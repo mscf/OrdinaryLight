@@ -1454,7 +1454,14 @@ Optical materials add `thickness`, `thickness_texture`, `opacity`,
 `alpha_mode`, and `alpha_cutoff` without introducing a renderer-specific
 material type. `EnvironmentLight` supplies global image-based reflection and
 refraction; `ReflectionProbe` supplies a local raster fallback while GI traces
-the represented geometry. Raster transmission uses Fresnel, total-internal-
+the represented geometry. Probes may be image-backed or renderer-captured,
+use spherical or box-projected parallax, and choose `static`, `on-demand`,
+`scene-change`, or `always` refresh policies. Raster resource preparation
+selects and blends the two strongest overlapping probes for each object; the
+same resulting radiance fallback is used for reflection and refraction.
+`renderer.refresh_reflection_probes(scene)` forces capture, while
+`renderer.request_probe_refresh(probe)` marks an on-demand probe. Raster
+transmission uses Fresnel, total-internal-
 reflection fallback, directional environment refraction, and Beer--Lambert
 attenuation. GI uses the same authored IOR, thickness, and attenuation data
 with its nested medium stack and true path distance. Opaque geometry is emitted
@@ -1463,15 +1470,20 @@ source-alpha blending for those records. Alpha masking, blending, and glTF
 `KHR_materials_volume`/base-color-alpha import share these semantics.
 
 The **Optics:** entries in `tools/raster_feature_viewer.py` demonstrate global
-IBL, a local reflection probe, varying IOR, absorption distances, nested
-dielectrics, and overlapping transparency. The advanced-material parity gate
+IBL, a local reflection probe, varying IOR, absorption distances, and
+overlapping transparency. Automatic multi-probe capture and blending remains
+an experimental API and is intentionally absent from the public showcase
+catalog until its room-scale parallax quality is release-ready. The
+advanced-material parity gate
 also captures the renderer-comparable scenes. `RasterConfig(optical_quality=
 "screen-space")` enables a portable two-phase optical tier: an opaque
 color/depth prepass followed by a synchronized reflection/refraction composite
 for reflective, transmissive, and blended draws. Missed projected rays retain
 the roughness-filtered environment or reflection-probe result. The
 **Optics (screen-space):** viewer entries exercise rough reflection,
-refraction, and nested dielectrics on Vulkan and WebGPU. The default
+refraction, and nested dielectrics on Vulkan and WebGPU. This layered tier is
+the canonical raster nested-dielectric path; the single-pass environment tier
+does not claim nested-boundary composition. The default
 `"environment"` tier deliberately retains the original single-pass,
 lower-cost behavior. Order-independent transparency remains a later quality
 tier; the baseline continues to use deterministic camera-relative sorting.

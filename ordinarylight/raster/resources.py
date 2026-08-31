@@ -33,6 +33,13 @@ MATERIAL_DTYPE = np.dtype([
     ("environment_color_intensity", np.float32, (4,)),
     ("environment_rotation_log_range", np.float32, (4,)),
     ("probe_position_radius", np.float32, (4,)),
+    ("probe_box_min_mode", np.float32, (4,)),
+    ("probe_box_max_blend", np.float32, (4,)),
+    ("environment_rect_secondary", np.float32, (4,)),
+    ("environment_rotation_log_range_secondary", np.float32, (4,)),
+    ("probe_position_radius_secondary", np.float32, (4,)),
+    ("probe_box_min_mode_secondary", np.float32, (4,)),
+    ("probe_box_max_blend_secondary", np.float32, (4,)),
 ], align=True)
 
 LIGHT_DTYPE = np.dtype([
@@ -102,6 +109,9 @@ def pack_raster_gpu_scene(
     scene, camera, width, height, *, exposure=1.0, default_program=None,
     environment_rectangle=None, environment_log_range=0.0,
     environment_parameters=None, probe_parameters=None,
+    environment_rectangle_secondary=None,
+    environment_log_range_secondary=0.0,
+    probe_parameters_secondary=None,
 ):
     """Pack one scene revision into the shared Vulkan/WebGPU raster ABI."""
     from ._core import camera_matrix
@@ -185,17 +195,33 @@ def pack_raster_gpu_scene(
             alpha_modes[material.alpha_mode],
         )
         environment = scene.environment
-        if environment_rectangle is not None:
-            x, y, rect_width, rect_height, atlas_width, atlas_height = environment_rectangle
+        rectangle = environment_rectangle
+        if isinstance(environment_rectangle, (tuple, list)) and environment_rectangle and isinstance(environment_rectangle[0], (tuple, list, type(None))):
+            rectangle = environment_rectangle[index]
+        if rectangle is not None:
+            x, y, rect_width, rect_height, atlas_width, atlas_height = rectangle
             materials["environment_rect"][index] = (
                 x / atlas_width, y / atlas_height,
                 rect_width / atlas_width, rect_height / atlas_height,
             )
-        if environment_parameters is not None:
-            color_intensity, rotation = environment_parameters
+        rectangle2 = environment_rectangle_secondary
+        if isinstance(rectangle2, (tuple, list)) and rectangle2 and isinstance(rectangle2[0], (tuple, list, type(None))):
+            rectangle2 = rectangle2[index]
+        if rectangle2 is not None:
+            x, y, rect_width, rect_height, atlas_width, atlas_height = rectangle2
+            materials["environment_rect_secondary"][index] = (
+                x / atlas_width, y / atlas_height,
+                rect_width / atlas_width, rect_height / atlas_height,
+            )
+        parameters = environment_parameters
+        if isinstance(environment_parameters, (tuple, list)) and environment_parameters and isinstance(environment_parameters[0], (tuple, list)) and len(environment_parameters) == len(scene.visible_meshes):
+            parameters = environment_parameters[index]
+        log_range = environment_log_range[index] if isinstance(environment_log_range, (tuple, list)) else environment_log_range
+        if parameters is not None:
+            color_intensity, rotation = parameters
             materials["environment_color_intensity"][index] = color_intensity
             materials["environment_rotation_log_range"][index] = (
-                rotation, environment_log_range, 1.0, 0.0,
+                rotation, log_range, 1.0, 0.0,
             )
         elif environment is not None:
             materials["environment_color_intensity"][index] = (
@@ -204,10 +230,34 @@ def pack_raster_gpu_scene(
             materials["environment_rotation_log_range"][index] = (
                 environment.rotation, environment_log_range, 1.0, 0.0,
             )
-        if probe_parameters is not None:
-            probe_position, probe_radius = probe_parameters
+        probe = probe_parameters[index] if isinstance(probe_parameters, (tuple, list)) else probe_parameters
+        if probe is not None:
+            probe_position, probe_radius, projection, box_min, box_max, weights = probe
             materials["probe_position_radius"][index] = (
                 *probe_position, probe_radius,
+            )
+            materials["probe_box_min_mode"][index] = (
+                *((box_min or (0.0, 0.0, 0.0))),
+                1.0 if projection == "box" else 0.0,
+            )
+            materials["probe_box_max_blend"][index] = (
+                *((box_max or (0.0, 0.0, 0.0))),
+                float(weights[0]) if weights else 1.0,
+            )
+        probe2 = probe_parameters_secondary[index] if isinstance(probe_parameters_secondary, (tuple, list)) else probe_parameters_secondary
+        if probe2 is not None:
+            probe_position, probe_radius, projection, box_min, box_max, rotation, weight = probe2
+            materials["probe_position_radius_secondary"][index] = (*probe_position, probe_radius)
+            materials["probe_box_min_mode_secondary"][index] = (
+                *((box_min or (0.0, 0.0, 0.0))),
+                1.0 if projection == "box" else 0.0,
+            )
+            materials["probe_box_max_blend_secondary"][index] = (
+                *((box_max or (0.0, 0.0, 0.0))), float(weight),
+            )
+            log2 = environment_log_range_secondary[index] if isinstance(environment_log_range_secondary, (tuple, list)) else environment_log_range_secondary
+            materials["environment_rotation_log_range_secondary"][index] = (
+                rotation, log2, 1.0, 0.0,
             )
         draws["model"][index] = mesh.transform.matrix
         normal = np.eye(4, dtype=np.float32)

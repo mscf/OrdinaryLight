@@ -403,6 +403,38 @@ class Renderer:
             self._last_statistics = None
             return config
 
+    def request_probe_refresh(self, probe):
+        """Mark an on-demand reflection probe for capture on the next frame."""
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._implementation is None:
+                    raise RuntimeError("renderer is closed")
+            operation = getattr(self._implementation, "request_probe_refresh", None)
+            if not callable(operation):
+                raise RuntimeError(
+                    "the active renderer does not support reflection-probe capture"
+                )
+            self._executor.submit(operation, probe).result()
+
+    def refresh_reflection_probes(self, scene, *, force=False):
+        """Synchronously capture due probes without recreating the renderer."""
+        if not isinstance(scene, Scene):
+            raise TypeError("scene must be a Scene")
+        with self._submission_lock:
+            with self._state_lock:
+                if not self._accepting_jobs or self._implementation is None:
+                    raise RuntimeError("renderer is closed")
+            operation = getattr(
+                self._implementation, "refresh_reflection_probes", None,
+            )
+            if not callable(operation):
+                raise RuntimeError(
+                    "the active renderer does not support reflection-probe capture"
+                )
+            return self._executor.submit(
+                operation, scene, force=bool(force),
+            ).result()
+
     def _reset_implementation_history(self):
         with self._implementation_lock:
             reset_history = getattr(self._implementation, "reset_output_history", None)

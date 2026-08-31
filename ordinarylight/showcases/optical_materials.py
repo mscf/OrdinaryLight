@@ -193,6 +193,32 @@ def build_reflection_probe_scene():
     return scene
 
 
+def build_automatic_probe_scene():
+    """A room with two renderer-captured, overlapping box probes."""
+    scene = _base_scene(environment=False)
+    scene.add_reflection_probe(ReflectionProbe(
+        # Keep capture origins in free space.  The former origins coincided
+        # with the outer demonstration spheres, so the cubemap captured the
+        # inside of those spheres instead of the surrounding room.
+        position=(-2.8, 2.4, 2.2), radius=6.0,
+        projection="box", box_min=(-5.0, 0.0, -3.0),
+        box_max=(0.6, 4.5, 3.0), blend_distance=2.5,
+        refresh_policy="scene-change", capture_resolution=128,
+    ))
+    scene.add_reflection_probe(ReflectionProbe(
+        position=(2.8, 2.4, 2.2), radius=6.0,
+        projection="box", box_min=(-0.6, 0.0, -3.0),
+        box_max=(5.0, 4.5, 3.0), blend_distance=2.5,
+        refresh_policy="scene-change", capture_resolution=128,
+    ))
+    for index, x in enumerate((-2.4, 0.0, 2.4)):
+        _add_sphere(scene, (x, 1.15, 0), 1.08, Material(
+            base_color=(.72, .76, .82), metallic=1.0,
+            roughness=(.04, .16, .32)[index],
+        ), f"automatic-probe-{index}")
+    return scene
+
+
 def build_refraction_scene():
     # A common checkerboard receiver makes the three samples an IOR
     # comparison. Colored panels behind only the outside subjects confounded
@@ -259,5 +285,6 @@ def build_transparency_scene():
 __all__ = [
     "build_absorption_scene", "build_environment_reflection_scene",
     "build_nested_dielectric_scene", "build_reflection_probe_scene",
+    "build_automatic_probe_scene",
     "build_refraction_scene", "build_transparency_scene",
 ]

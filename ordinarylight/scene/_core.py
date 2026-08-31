@@ -1113,7 +1113,15 @@ class Scene:
                 {
                     "position": list(probe.position), "radius": probe.radius,
                     "intensity": probe.intensity, "rotation": probe.rotation,
-                    "image_shape": list(probe.image.shape),
+                    "projection": probe.projection,
+                    "box_min": probe.box_min, "box_max": probe.box_max,
+                    "blend_distance": probe.blend_distance,
+                    "priority": probe.priority,
+                    "refresh_policy": probe.refresh_policy,
+                    "capture_resolution": probe.capture_resolution,
+                    "image_shape": (
+                        None if probe.image is None else list(probe.image.shape)
+                    ),
                 }
                 for probe in self.reflection_probes
             ],

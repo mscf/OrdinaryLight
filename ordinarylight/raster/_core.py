@@ -540,19 +540,34 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
                 if texture is not None and key not in lookup:
                     lookup[key] = len(textures)
                     textures.append((texture, linear))
-        environment_image = (
-            scene.reflection_probes[0].image if scene.reflection_probes else
-            scene.environment.image if scene.environment is not None else None
-        )
-        environment_texture = (
-            _prefiltered_environment_texture(environment_image)
-            if environment_image is not None else None
-        )
-        if environment_texture is not None:
-            key = (id(environment_texture), True)
-            if key not in lookup:
-                lookup[key] = len(textures)
-                textures.append((environment_texture, True))
+        environment_textures = {}
+        probe_texture_cache = {}
+        captured_probes = [probe for probe in scene.reflection_probes if probe.captured]
+        if captured_probes:
+            from ..probes import select_reflection_probes
+            for mesh_index, mesh in enumerate(scene.visible_meshes):
+                center = np.asarray(mesh.world_vertices, np.float32).mean(axis=0)
+                selected = select_reflection_probes(captured_probes, center, limit=2)
+                if not selected:
+                    continue
+                selected_textures = []
+                for probe, weight in selected:
+                    texture = probe_texture_cache.get(id(probe))
+                    if texture is None:
+                        texture = _prefiltered_environment_texture(
+                            probe.image[..., :3] * probe.intensity,
+                        )
+                        probe_texture_cache[id(probe)] = texture
+                        textures.append((texture, True))
+                    selected_textures.append(texture)
+                environment_textures[mesh_index] = (
+                    tuple(selected_textures), selected,
+                )
+        elif scene.environment is not None and scene.environment.image is not None:
+            texture = _prefiltered_environment_texture(scene.environment.image)
+            environment_textures[None] = ((texture,), ())
+            lookup[("environment", None)] = len(textures)
+            textures.append((texture, True))
     color_height = max((item.pixels.shape[0] for item, _ in textures), default=1)
     shadow_height = 0 if shadow_depth is None else shadow_depth.shape[0]
     shadow_width = 0 if shadow_depth is None else shadow_depth.shape[1]
@@ -579,8 +594,13 @@ def _material_atlas(scene, enabled=True, shadow_depth=None):
         atlas[:h, x:x + w] = image
         rectangles[(id(texture), linear)] = (x, 0, w, h, width, height)
         x += w
-    if environment_texture is not None:
-        rectangles["environment"] = rectangles[(id(environment_texture), True)]
+    for mesh_index, (selected_textures, selected) in environment_textures.items():
+        for slot, texture in enumerate(selected_textures):
+            rectangles[("environment", mesh_index, slot)] = rectangles[(id(texture), True)]
+        rectangles[("environment", mesh_index)] = rectangles[("environment", mesh_index, 0)]
+        rectangles[("probe_selection", mesh_index)] = selected
+    if ("environment", None) in rectangles:
+        rectangles["environment"] = rectangles[("environment", None)]
     shadow_rectangle = None
     if shadow_depth is not None:
         y = color_height
@@ -1139,6 +1159,9 @@ def scene_mesh(
         environment_log_range=prepared_resources["environment_log_range"],
         environment_parameters=prepared_resources["environment_parameters"],
         probe_parameters=prepared_resources["probe_parameters"],
+        environment_rectangle_secondary=prepared_resources["environment_rectangle_secondary"],
+        environment_log_range_secondary=prepared_resources["environment_log_range_secondary"],
+        probe_parameters_secondary=prepared_resources["probe_parameters_secondary"],
     )
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
@@ -1204,29 +1227,51 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
         "shadow_request": shadow_request,
         "base_color_atlas": atlas,
         "atlas_rectangles": rectangles,
-        "environment_rectangle": rectangles.get("environment"),
-        "environment_log_range": (
-            scene._pack_environment_texture(EnvironmentLight(
-                image=scene.reflection_probes[0].image,
-            ))[1] if scene.reflection_probes else (
+        "environment_rectangle": tuple(
+            rectangles.get(("environment", index), rectangles.get("environment"))
+            for index, _mesh in enumerate(scene.visible_meshes)
+        ),
+        "environment_rectangle_secondary": tuple(
+            rectangles.get(("environment", index, 1))
+            for index, _mesh in enumerate(scene.visible_meshes)
+        ),
+        "environment_log_range": tuple(
+            max(float(np.log2(1.0 + float(np.max(
+                rectangles[("probe_selection", index)][0][0].image
+            )) * rectangles[("probe_selection", index)][0][0].intensity)), 1e-6) if rectangles.get(("probe_selection", index)) else (
                 scene._pack_environment_texture(scene.environment)[1]
                 if scene.environment is not None else 0.0
-            )
+            ) for index, _mesh in enumerate(scene.visible_meshes)
         ),
-        "environment_parameters": (
-            ((1.0, 1.0, 1.0, scene.reflection_probes[0].intensity),
-             scene.reflection_probes[0].rotation)
-            if scene.reflection_probes else (
-                ((*scene.environment.color, scene.environment.intensity),
-                 scene.environment.rotation)
-                if scene.environment is not None else
-                ((0.0, 0.0, 0.0, 0.0), 0.0)
-            )
+        "environment_log_range_secondary": tuple(
+            (max(float(np.log2(1.0 + float(np.max(selected[1][0].image))
+                 * selected[1][0].intensity)), 1e-6) if len(selected) > 1 else 0.0)
+            for index, _mesh in enumerate(scene.visible_meshes)
+            for selected in (rectangles.get(("probe_selection", index), ()),)
         ),
-        "probe_parameters": (
-            (scene.reflection_probes[0].position,
-             scene.reflection_probes[0].radius)
-            if scene.reflection_probes else None
+        "environment_parameters": tuple(
+            (((1.0, 1.0, 1.0, 1.0),
+              rectangles[("probe_selection", index)][0][0].rotation)
+             if rectangles.get(("probe_selection", index)) else
+             (((*scene.environment.color, scene.environment.intensity),
+               scene.environment.rotation) if scene.environment is not None else
+              ((0.0, 0.0, 0.0, 0.0), 0.0)))
+            for index, _mesh in enumerate(scene.visible_meshes)
+        ),
+        "probe_parameters": tuple(
+            ((selected[0][0].position, selected[0][0].radius,
+              selected[0][0].projection, selected[0][0].box_min,
+              selected[0][0].box_max, tuple(weight for _probe, weight in selected))
+             if (selected := rectangles.get(("probe_selection", index))) else None)
+            for index, _mesh in enumerate(scene.visible_meshes)
+        ),
+        "probe_parameters_secondary": tuple(
+            ((selected[1][0].position, selected[1][0].radius,
+              selected[1][0].projection, selected[1][0].box_min,
+              selected[1][0].box_max, selected[1][0].rotation,
+              selected[1][1]) if len(selected) > 1 else None)
+            for index, _mesh in enumerate(scene.visible_meshes)
+            for selected in (rectangles.get(("probe_selection", index), ()),)
         ),
         "shadow_rectangle": shadow_rectangle,
         "shadow_vertices": shadow_vertices,

@@ -164,6 +164,19 @@ class RasterBackendTests(unittest.TestCase):
         self.assertEqual(len(native.reflection.varyings), 24)
         self.assertIn("@location(1)", web.vertex.source)
 
+    def test_builtin_sheen_is_a_grazing_angle_lobe(self):
+        web = ol.RasterProgram.scene(target="wgsl", validate=False)
+        fragment = web.fragment.source
+        self.assertIn("pow((1.0 - vdoth), 5.0)", fragment)
+        self.assertIn(
+            "let sheen: vec3<f32> = (surface_sheen_color * sheen_weight)",
+            fragment,
+        )
+        self.assertNotIn(
+            "let surface_sheen: vec3<f32> = (hooked.sheen_color *",
+            fragment,
+        )
+
     def test_material_shader_variants_are_cached_by_program_set(self):
         from ordinarylight.showcases.materials import mirror
         first = ol.RasterProgram.scene(

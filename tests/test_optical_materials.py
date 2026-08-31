@@ -1,11 +1,13 @@
 from pathlib import Path
+import json
 
 import numpy as np
 import pytest
 
 import ordinarylight as ol
 from ordinarylight.showcases.optical_materials import (
-    build_absorption_scene, build_environment_reflection_scene,
+    build_absorption_scene, build_automatic_probe_scene,
+    build_environment_reflection_scene,
     build_nested_dielectric_scene, build_reflection_probe_scene,
     build_refraction_scene, build_transparency_scene,
 )
@@ -50,6 +52,114 @@ def test_reflection_probe_is_scene_owned_and_validated():
         ol.ReflectionProbe(image, radius=0)
     with pytest.raises(ValueError):
         ol.ReflectionProbe(np.ones((4, 8), np.float32))
+
+
+def test_reflection_probe_capture_policies_box_projection_and_selection():
+    uncaptured = ol.ReflectionProbe(
+        position=(0, 1, 0), radius=4, projection="box",
+        box_min=(-2, 0, -2), box_max=(2, 3, 2),
+        refresh_policy="scene-change", capture_resolution=8,
+    )
+    assert not uncaptured.captured
+    captured = uncaptured.with_image(np.ones((4, 8, 3), np.float32))
+    assert captured.captured and not uncaptured.captured
+    second = ol.ReflectionProbe(
+        np.full((4, 8, 3), 2.0, np.float32), position=(1, 1, 0),
+        radius=4, blend_distance=2,
+    )
+    selected = ol.select_reflection_probes((captured, second), (0.5, 1, 0))
+    assert len(selected) == 2
+    assert sum(weight for _probe, weight in selected) == pytest.approx(1.0)
+    with pytest.raises(ValueError):
+        ol.ReflectionProbe(projection="box")
+    with pytest.raises(ValueError):
+        ol.ReflectionProbe(refresh_policy="sometimes")
+
+
+def test_automatic_probe_showcase_capture_origins_are_outside_subjects():
+    scene = build_automatic_probe_scene()
+    subjects = [
+        mesh for mesh in scene.meshes
+        if mesh.name.startswith("automatic-probe-")
+    ]
+    assert len(subjects) == 3
+    for probe in scene.reflection_probes:
+        origin = np.asarray(probe.position, np.float32)
+        for subject in subjects:
+            vertices = np.asarray(subject.world_vertices, np.float32)
+            center = vertices.mean(axis=0)
+            radius = np.linalg.norm(vertices - center, axis=1).max()
+            assert np.linalg.norm(origin - center) > radius
+
+
+def test_probe_capture_manager_captures_six_faces_and_tracks_scene_revision():
+    class FakeRenderer:
+        def __init__(self):
+            self.calls = []
+
+        def render_frame(self, scene, camera, width, height):
+            direction = np.asarray(camera.target) - np.asarray(camera.position)
+            direction = direction / np.linalg.norm(direction)
+            self.calls.append(tuple(direction))
+            color = np.abs(direction)[None, None, :]
+            return np.broadcast_to(color, (height, width, 3)).copy()
+
+    scene = ol.Scene()
+    probe = scene.add_reflection_probe(ol.ReflectionProbe(
+        position=(0, 1, 0), capture_resolution=8,
+        refresh_policy="scene-change",
+    ))
+    renderer = FakeRenderer()
+    manager = ol.ProbeCaptureManager()
+    captures = manager.refresh(renderer, scene)
+    assert len(captures) == 1 and len(renderer.calls) == 6
+    assert scene.reflection_probes[0].image.shape == (8, 16, 3)
+    assert manager.refresh(renderer, scene) == ()
+    scene._changed(geometry=True)
+    assert len(manager.refresh(renderer, scene)) == 1
+    assert len(renderer.calls) == 12
+
+    on_demand_scene = ol.Scene()
+    original = on_demand_scene.add_reflection_probe(ol.ReflectionProbe(
+        np.ones((4, 8, 3), np.float32), refresh_policy="on-demand",
+        capture_resolution=8,
+    ))
+    manager.request(original)
+    assert len(manager.refresh(renderer, on_demand_scene)) == 1
+    # The originally returned immutable handle remains a valid refresh token
+    # after the scene installs a newly captured probe value.
+    manager.request(original)
+    assert len(manager.refresh(renderer, on_demand_scene)) == 1
+
+
+def test_multiple_probe_images_are_blended_per_mesh_and_box_data_is_packed():
+    scene = ol.Scene()
+    scene.add_mesh(*_triangle(), ol.Material(metallic=1.0))
+    scene.add_reflection_probe(ol.ReflectionProbe(
+        np.ones((4, 8, 3), np.float32), position=(0, 0, 0), radius=3,
+        projection="box", box_min=(-2, -1, -2), box_max=(2, 2, 2),
+        blend_distance=2,
+    ))
+    scene.add_reflection_probe(ol.ReflectionProbe(
+        np.full((4, 8, 3), 2.0, np.float32), position=(1, 0, 0),
+        radius=3, blend_distance=2,
+    ))
+    mesh = ol.scene_mesh(
+        scene, ol.PerspectiveCamera((0, 2, 6), (0, 0, 0)), 64, 64,
+    )
+    material = np.frombuffer(
+        mesh.resources["material_buffer"], ol.MATERIAL_DTYPE,
+    )[0]
+    assert material["environment_rect"][2] > 0
+    assert material["environment_rect_secondary"][2] > 0
+    assert material["probe_box_min_mode"][3] == pytest.approx(1.0)
+    assert material["probe_box_min_mode_secondary"][3] == pytest.approx(0.0)
+    assert 0.0 < material["probe_box_max_blend"][3] < 1.0
+    assert 0.0 < material["probe_box_max_blend_secondary"][3] < 1.0
+    assert (
+        material["probe_box_max_blend"][3]
+        + material["probe_box_max_blend_secondary"][3]
+    ) == pytest.approx(1.0)
 
 
 def test_raster_scene_packs_environment_and_transparency():
@@ -296,6 +406,35 @@ def test_nested_dielectric_shell_order_is_stable_under_camera_motion():
     assert orders[0] == orders[1] == orders[2]
 
 
+def test_nested_dielectric_showcase_uses_layered_screen_space_optics_only():
+    from ordinarylight.showcases.catalog.raster import SHOWCASES
+
+    nested = tuple(
+        showcase for showcase in SHOWCASES
+        if "nested-dielectric" in showcase.id
+    )
+    assert len(nested) == 1
+    assert nested[0].renderer["optical_quality"] == "screen-space"
+    assert nested[0].renderer["screen_space_ray_steps"] == 24
+
+
+def test_nested_dielectric_visual_gate_has_multiple_fixed_pose_baselines():
+    path = Path(__file__).parent / "gates" / "poses" / (
+        "nested_dielectric_parity.json"
+    )
+    entries = json.loads(path.read_text())
+    assert len(entries) >= 2
+    assert len({entry["name"] for entry in entries}) == len(entries)
+    required = {
+        "max_log_color_rmse", "max_object_log_luminance_error",
+        "min_edge_correlation", "min_coverage_iou",
+        "min_object_edge_correlation",
+    }
+    for entry in entries:
+        assert len(entry["position"]) == len(entry["target"]) == 3
+        assert required <= entry["thresholds"].keys()
+
+
 def test_opaque_reflectors_are_available_to_neighboring_screen_rays():
     scene = ol.Scene()
     reflector = ol.Material(metallic=1.0, roughness=0.1)
@@ -315,7 +454,8 @@ def test_opaque_reflectors_are_available_to_neighboring_screen_rays():
 def test_screen_space_resources_are_portable_shader_bindings():
     program = ol.RasterProgram.scene(target="wgsl", validate=False)
     bindings = {
-        resource["name"]: resource["binding"]
+        (resource.name if hasattr(resource, "name") else resource["name"]):
+        (resource.binding if hasattr(resource, "binding") else resource["binding"])
         for resource in program.fragment.reflection.resources
     }
     assert bindings["scene_color"] == 6
