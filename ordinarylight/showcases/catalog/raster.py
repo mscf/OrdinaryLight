@@ -3,7 +3,8 @@
 from ordinarylight.integrations.workbench import OrbitCamera, Showcase
 from ordinarylight.showcases.raster_features import (
     build_advanced_material_scene, build_directional_shadow_scene,
-    build_material_program_parity_scene, build_spot_shadow_scene,
+    build_material_program_parity_scene, build_multi_light_shadow_scene,
+    build_point_shadow_scene, build_spot_shadow_scene,
 )
 
 from ordinarylight.showcases.raster_material_hooks import (
@@ -101,6 +102,25 @@ SHOWCASES = (
         camera=_CAMERA,
         renderer={"shadows": True, "shadow_map_size": 512},
         tags=("raster-feature", "lighting", "shadows"),
+    ),
+    Showcase(
+        "raster-point-shadows", "Raster: point-light cube shadows",
+        build_point_shadow_scene,
+        description="Six-face point-light shadow atlas generation and sampling.",
+        camera=_CAMERA,
+        renderer={"shadows": True, "shadow_map_size": 512},
+        tags=("raster-feature", "lighting", "shadows", "point-light"),
+    ),
+    Showcase(
+        "raster-multi-light-shadows", "Raster: mixed multi-light shadows",
+        build_multi_light_shadow_scene,
+        description=(
+            "Point, spot, and directional lights accumulate while retaining "
+            "independent shadow-map records."
+        ),
+        camera=_CAMERA,
+        renderer={"shadows": True, "shadow_map_size": 512},
+        tags=("raster-feature", "lighting", "shadows", "multi-light"),
     ),
     Showcase(
         "raster-advanced-materials", "Raster: advanced material textures",

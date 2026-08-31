@@ -43,6 +43,16 @@ captures, difference images, and a JSON report outside the source tree:
 python -m tests.gates.raster_parity
 ```
 
+Native analytic-light coverage separately verifies directional and spot
+shadows, point-light cube shadows at an oblique long-shadow regression pose,
+multiple simultaneous shadow-casting lights, and GPU light-array accumulation.
+It writes the shadowed/unshadowed evidence for visual inspection:
+
+```bash
+PYTHONPATH=../ordinaryshade python -m tests.gates.raster_lighting --target vulkan
+PYTHONPATH=../ordinaryshade python -m tests.gates.raster_lighting --target webgpu
+```
+
 Raster/GI approximate visual parity uses a path-traced reference while
 separately measuring exposure-normalized color, edge structure, and foreground
 coverage. This intentionally does not demand numerical identity for indirect

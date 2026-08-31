@@ -379,6 +379,16 @@ def test_screen_space_projection_uses_attachment_y_orientation():
     assert "middle_ndc.y * 0.5 + 0.5" not in shader
 
 
+def test_point_shadow_compare_bias_preserves_distant_occluders():
+    """Perspective cube depth must not erase long point-light shadows."""
+    shader = (
+        Path(ol.__file__).parent / "shaders" / "raster_scene.frag.wgsl"
+    ).read_text()
+    assert "select(receiver_bias, 2e-05" in shader
+    assert "select(5e-05, 2e-05" in shader
+    assert "select(receiver_bias, 0.0015" not in shader
+
+
 def test_screen_space_optics_does_not_require_an_environment_map():
     source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
     shader = source.read_text()

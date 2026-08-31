@@ -24,6 +24,19 @@ struct RasterMaterial {
     probe_box_max_blend_secondary: vec4<f32>,
 }
 
+struct RasterLight {
+    position_type: vec4<f32>,
+    direction_range: vec4<f32>,
+    color_intensity: vec4<f32>,
+    spot: vec4<f32>,
+}
+
+struct RasterShadow {
+    view_projection: mat4x4<f32>,
+    atlas: vec4<f32>,
+    parameters: vec4<f32>,
+}
+
 struct RasterCamera {
     view_projection: mat4x4<f32>,
     position_exposure: vec4<f32>,
@@ -66,6 +79,8 @@ struct SurfaceContext {
 @group(0) @binding(7) var scene_depth: texture_depth_2d;
 @group(0) @binding(8) var scene_sampler: sampler;
 @group(0) @binding(9) var scene_depth_sampler: sampler;
+@group(0) @binding(10) var<storage, read> lights: array<RasterLight>;
+@group(0) @binding(11) var<storage, read> shadows: array<RasterShadow>;
 @group(0) @binding(3) var<uniform> camera: RasterCamera;
 
 fn blend_surface_parameters(base: SurfaceParameters, layer: SurfaceParameters, weight: f32) -> SurfaceParameters {
@@ -179,20 +194,64 @@ fn main(
     let surface_thin_walled: f32 = max(0.0, min(1.0, hooked.thin_walled));
     let surface_subsurface: f32 = max(0.0, min(1.0, hooked.subsurface));
     let surface_subsurface_radius: f32 = max(0.0, min(1.0, hooked.subsurface_radius));
-    let light_delta: vec3<f32> = (light_position_type.xyz - world_position);
+    let first_packed_light: RasterLight = lights[u32(0)];
+    let first_has_packed_light: bool = (camera.optical_diagnostic.y > 0.5);
+    let first_light_type: f32 = select(light_position_type.w, first_packed_light.position_type.w, first_has_packed_light);
+    let first_light_position: vec3<f32> = select(light_position_type.xyz, first_packed_light.position_type.xyz, first_has_packed_light);
+    let first_light_direction: vec3<f32> = select(light_position_type.xyz, first_packed_light.direction_range.xyz, first_has_packed_light);
+    let first_light_radiance: vec3<f32> = select(light_color_ambient.xyz, (first_packed_light.color_intensity.xyz * first_packed_light.color_intensity.w), first_has_packed_light);
+    let light_delta: vec3<f32> = (first_light_position - world_position);
     let point_distance: f32 = max(length(light_delta), 1e-06);
     let point_incoming: vec3<f32> = (light_delta / point_distance);
-    let direction: vec3<f32> = (-light_position_type.xyz);
+    let direction: vec3<f32> = (-first_light_direction);
     let directional_incoming: vec3<f32> = (direction / max(length(direction), 1e-06));
-    let incoming: vec3<f32> = select(point_incoming, directional_incoming, (light_position_type.w > 0.5));
-    let distance: f32 = select(point_distance, 1.0, (light_position_type.w > 0.5));
+    let incoming: vec3<f32> = select(point_incoming, directional_incoming, ((first_light_type > 0.5) && (first_light_type < 1.5)));
+    let distance: f32 = select(point_distance, 1.0, ((first_light_type > 0.5) && (first_light_type < 1.5)));
     let half_delta: vec3<f32> = (incoming + view);
     let half_vector: vec3<f32> = (half_delta / max(length(half_delta), 1e-06));
     let signed_ndotl: f32 = (((surface_normal.x * incoming.x) + (surface_normal.y * incoming.y)) + (surface_normal.z * incoming.z));
     let ndotl: f32 = max(signed_ndotl, 0.0);
     let receiver_bias: f32 = max(2e-05, ((1.0 - ndotl) * 0.0001));
     let pcf_visibility: f32 = textureSampleCompare(shadow_map, shadow_sampler, projected_shadow.xy, (projected_shadow.z - receiver_bias));
-    let shadow_map_visibility: f32 = select(pcf_visibility, 1.0, (abs(shadow_coordinate.w) < 1e-06));
+    var shadow_map_visibility: f32 = select(pcf_visibility, 1.0, (abs(shadow_coordinate.w) < 1e-06));
+    if ((camera.optical_diagnostic.z > 0.5)) {
+        shadow_map_visibility = 1.0;
+        for (var shadow_index: i32 = 0; shadow_index < 24; shadow_index += 1) {
+            if ((shadow_index < i32(camera.optical_diagnostic.z))) {
+                let shadow_record: RasterShadow = shadows[u32(shadow_index)];
+                if ((abs(shadow_record.parameters.x) < 0.25)) {
+                    var shadow_face_matches: bool = true;
+                    if ((shadow_record.parameters.w > 1.5)) {
+                        let point_shadow_delta: vec3<f32> = (world_position - first_light_position);
+                        let point_shadow_axis: vec3<f32> = abs(point_shadow_delta);
+                        var point_shadow_face: f32 = 0.0;
+                        if (((point_shadow_axis.y >= point_shadow_axis.x) && (point_shadow_axis.y >= point_shadow_axis.z))) {
+                            point_shadow_face = select(3.0, 2.0, (point_shadow_delta.y >= 0.0));
+                        } else {
+                            if ((point_shadow_axis.z >= point_shadow_axis.x)) {
+                                point_shadow_face = select(5.0, 4.0, (point_shadow_delta.z >= 0.0));
+                            } else {
+                                point_shadow_face = select(1.0, 0.0, (point_shadow_delta.x >= 0.0));
+                            }
+                        }
+                        shadow_face_matches = (abs((shadow_record.parameters.y - point_shadow_face)) < 0.25);
+                    }
+                    if ((!shadow_face_matches)) {
+                        continue;
+                    }
+                    let biased_shadow_position: vec3<f32> = (world_position + (incoming * shadow_record.parameters.z));
+                    let shadow_clip: vec4<f32> = (shadow_record.view_projection * vec4<f32>(biased_shadow_position, 1.0));
+                    let shadow_clip_w: f32 = max(abs(shadow_clip.w), 1e-06);
+                    let shadow_ndc: vec3<f32> = (shadow_clip.xyz / shadow_clip_w);
+                    if ((((((shadow_clip.w > 0.0) && (abs(shadow_ndc.x) <= 1.0001)) && (abs(shadow_ndc.y) <= 1.0001)) && (shadow_ndc.z >= 0.0)) && (shadow_ndc.z <= 1.0))) {
+                        let shadow_uv: vec2<f32> = vec2<f32>((shadow_record.atlas.x + (shadow_record.atlas.y * shadow_ndc.x)), (shadow_record.atlas.z - (shadow_record.atlas.w * shadow_ndc.y)));
+                        let shadow_compare_bias: f32 = select(receiver_bias, 2e-05, (shadow_record.parameters.w > 1.5));
+                        shadow_map_visibility = textureSampleCompare(shadow_map, shadow_sampler, shadow_uv, (shadow_ndc.z - shadow_compare_bias));
+                    }
+                }
+            }
+        }
+    }
     let ndotv: f32 = max((((surface_normal.x * view.x) + (surface_normal.y * view.y)) + (surface_normal.z * view.z)), 0.0);
     let ndoth: f32 = max((((surface_normal.x * half_vector.x) + (surface_normal.y * half_vector.y)) + (surface_normal.z * half_vector.z)), 0.0);
     let vdoth: f32 = max((((view.x * half_vector.x) + (view.y * half_vector.y)) + (view.z * half_vector.z)), 0.0);
@@ -232,12 +291,112 @@ fn main(
     let diffuse: vec3<f32> = mix(diffuse_base, (diffuse_base * hooked.subsurface_color), surface_subsurface);
     let wrapped_ndotl: f32 = max(0.0, ((signed_ndotl + surface_subsurface_radius) / (1.0 + surface_subsurface_radius)));
     let diffuse_ndotl: f32 = mix(ndotl, wrapped_ndotl, surface_subsurface);
-    let attenuation: f32 = (1.0 / (distance * distance));
+    var attenuation: f32 = (1.0 / (distance * distance));
+    if ((first_has_packed_light && (first_packed_light.direction_range.w > 0.0))) {
+        let first_range_ratio: f32 = (point_distance / first_packed_light.direction_range.w);
+        let first_range_falloff: f32 = max((1.0 - first_range_ratio), 0.0);
+        attenuation = ((attenuation * first_range_falloff) * first_range_falloff);
+    }
+    if ((first_has_packed_light && (first_light_type > 1.5))) {
+        let first_spot_axis: vec3<f32> = (first_light_direction / max(length(first_light_direction), 1e-06));
+        let first_spot_cosine: f32 = (-(((incoming.x * first_spot_axis.x) + (incoming.y * first_spot_axis.y)) + (incoming.z * first_spot_axis.z)));
+        let first_spot_outer: f32 = cos(first_packed_light.spot.y);
+        let first_spot_inner: f32 = cos(first_packed_light.spot.x);
+        attenuation = (attenuation * max(0.0, min(1.0, ((first_spot_cosine - first_spot_outer) / max((first_spot_inner - first_spot_outer), 1e-05)))));
+    }
     let visibility: f32 = (attenuation * shadow_visibility);
     let wrapped_contribution: f32 = max((diffuse_ndotl - ndotl), 0.0);
     let scattered_shadow_visibility: f32 = mix(shadow_map_visibility, 1.0, surface_subsurface);
     let diffuse_visibility: f32 = ((ndotl * shadow_map_visibility) + (wrapped_contribution * scattered_shadow_visibility));
-    let direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * light_color_ambient.xyz) * (diffuse_visibility * visibility)) + ((((specular * base_energy) + clearcoat_specular) * light_color_ambient.xyz) * ((ndotl * shadow_map_visibility) * visibility)));
+    var direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * first_light_radiance) * (diffuse_visibility * visibility)) + ((((specular * base_energy) + clearcoat_specular) * first_light_radiance) * ((ndotl * shadow_map_visibility) * visibility)));
+    for (var light_index: i32 = 1; light_index < 8; light_index += 1) {
+        if ((light_index < i32(camera.optical_diagnostic.y))) {
+            let packed_light: RasterLight = lights[u32(light_index)];
+            let packed_type: f32 = packed_light.position_type.w;
+            let packed_delta: vec3<f32> = (packed_light.position_type.xyz - world_position);
+            let packed_distance: f32 = max(length(packed_delta), 1e-06);
+            let packed_point_incoming: vec3<f32> = (packed_delta / packed_distance);
+            let packed_direction: vec3<f32> = (-packed_light.direction_range.xyz);
+            let packed_directional_incoming: vec3<f32> = (packed_direction / max(length(packed_direction), 1e-06));
+            let packed_incoming: vec3<f32> = select(packed_point_incoming, packed_directional_incoming, ((packed_type > 0.5) && (packed_type < 1.5)));
+            let packed_light_distance: f32 = select(packed_distance, 1.0, ((packed_type > 0.5) && (packed_type < 1.5)));
+            var packed_attenuation: f32 = (1.0 / (packed_light_distance * packed_light_distance));
+            if ((packed_light.direction_range.w > 0.0)) {
+                let range_ratio: f32 = (packed_distance / packed_light.direction_range.w);
+                let range_falloff: f32 = max((1.0 - range_ratio), 0.0);
+                packed_attenuation = ((packed_attenuation * range_falloff) * range_falloff);
+            }
+            if ((packed_type > 1.5)) {
+                let spot_axis: vec3<f32> = (packed_light.direction_range.xyz / max(length(packed_light.direction_range.xyz), 1e-06));
+                let spot_cosine: f32 = (-(((packed_incoming.x * spot_axis.x) + (packed_incoming.y * spot_axis.y)) + (packed_incoming.z * spot_axis.z)));
+                let spot_outer: f32 = cos(packed_light.spot.y);
+                let spot_inner: f32 = cos(packed_light.spot.x);
+                packed_attenuation = (packed_attenuation * max(0.0, min(1.0, ((spot_cosine - spot_outer) / max((spot_inner - spot_outer), 1e-05)))));
+            }
+            let packed_half_delta: vec3<f32> = (packed_incoming + view);
+            let packed_half: vec3<f32> = (packed_half_delta / max(length(packed_half_delta), 1e-06));
+            let packed_signed_ndotl: f32 = (((surface_normal.x * packed_incoming.x) + (surface_normal.y * packed_incoming.y)) + (surface_normal.z * packed_incoming.z));
+            let packed_ndotl: f32 = max(packed_signed_ndotl, 0.0);
+            let packed_ndoth: f32 = max((((surface_normal.x * packed_half.x) + (surface_normal.y * packed_half.y)) + (surface_normal.z * packed_half.z)), 0.0);
+            let packed_vdoth: f32 = max((((view.x * packed_half.x) + (view.y * packed_half.y)) + (view.z * packed_half.z)), 0.0);
+            let packed_fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - packed_vdoth)), vec3<f32>(5.0))));
+            let packed_tangent_dot_half: f32 = (((tangent.x * packed_half.x) + (tangent.y * packed_half.y)) + (tangent.z * packed_half.z));
+            let packed_bitangent_dot_half: f32 = (((bitangent.x * packed_half.x) + (bitangent.y * packed_half.y)) + (bitangent.z * packed_half.z));
+            let packed_anisotropic_denominator: f32 = ((((packed_tangent_dot_half * packed_tangent_dot_half) / (alpha_x * alpha_x)) + ((packed_bitangent_dot_half * packed_bitangent_dot_half) / (alpha_y * alpha_y))) + (packed_ndoth * packed_ndoth));
+            let packed_distribution: f32 = (1.0 / max(((((3.14159265 * alpha_x) * alpha_y) * packed_anisotropic_denominator) * packed_anisotropic_denominator), 1e-06));
+            let packed_geometry_l: f32 = (packed_ndotl / max(((packed_ndotl * (1.0 - k)) + k), 1e-06));
+            let packed_specular: vec3<f32> = ((((packed_distribution * geometry_v) * packed_geometry_l) * packed_fresnel) / max(((4.0 * ndotv) * packed_ndotl), 1e-06));
+            let packed_coat_denominator: f32 = (((packed_ndoth * packed_ndoth) * (coat_alpha2 - 1.0)) + 1.0);
+            let packed_coat_distribution: f32 = (coat_alpha2 / max(((3.14159265 * packed_coat_denominator) * packed_coat_denominator), 1e-06));
+            let packed_coat_fresnel: f32 = (0.04 + (0.96 * pow((1.0 - packed_vdoth), 5.0)));
+            let packed_coat_geometry_l: f32 = (packed_ndotl / max(((packed_ndotl * (1.0 - coat_k)) + coat_k), 1e-06));
+            let packed_clearcoat: vec3<f32> = vec3<f32>((((((surface_clearcoat * packed_coat_distribution) * coat_geometry_v) * packed_coat_geometry_l) * packed_coat_fresnel) / max(((4.0 * ndotv) * packed_ndotl), 1e-06)));
+            let packed_base_energy: f32 = (1.0 - (surface_clearcoat * packed_coat_fresnel));
+            let packed_diffuse_base: vec3<f32> = ((((vec3<f32>(1.0) - packed_fresnel) * surface_base_color) * diffuse_weight) / 3.14159265);
+            let packed_diffuse: vec3<f32> = mix(packed_diffuse_base, (packed_diffuse_base * hooked.subsurface_color), surface_subsurface);
+            let packed_wrapped_ndotl: f32 = max(0.0, ((packed_signed_ndotl + surface_subsurface_radius) / (1.0 + surface_subsurface_radius)));
+            let packed_diffuse_ndotl: f32 = mix(packed_ndotl, packed_wrapped_ndotl, surface_subsurface);
+            let packed_sheen: vec3<f32> = (surface_sheen_color * ((1.0 - surface_sheen_roughness) * pow((1.0 - packed_vdoth), 5.0)));
+            let packed_radiance: vec3<f32> = (packed_light.color_intensity.xyz * packed_light.color_intensity.w);
+            var packed_shadow_visibility: f32 = 1.0;
+            for (var packed_shadow_index: i32 = 0; packed_shadow_index < 24; packed_shadow_index += 1) {
+                if ((packed_shadow_index < i32(camera.optical_diagnostic.z))) {
+                    let packed_shadow: RasterShadow = shadows[u32(packed_shadow_index)];
+                    if ((abs((packed_shadow.parameters.x - f32(light_index))) < 0.25)) {
+                        var packed_shadow_face_matches: bool = true;
+                        if ((packed_shadow.parameters.w > 1.5)) {
+                            let packed_point_shadow_delta: vec3<f32> = (world_position - packed_light.position_type.xyz);
+                            let packed_point_shadow_axis: vec3<f32> = abs(packed_point_shadow_delta);
+                            var packed_point_shadow_face: f32 = 0.0;
+                            if (((packed_point_shadow_axis.y >= packed_point_shadow_axis.x) && (packed_point_shadow_axis.y >= packed_point_shadow_axis.z))) {
+                                packed_point_shadow_face = select(3.0, 2.0, (packed_point_shadow_delta.y >= 0.0));
+                            } else {
+                                if ((packed_point_shadow_axis.z >= packed_point_shadow_axis.x)) {
+                                    packed_point_shadow_face = select(5.0, 4.0, (packed_point_shadow_delta.z >= 0.0));
+                                } else {
+                                    packed_point_shadow_face = select(1.0, 0.0, (packed_point_shadow_delta.x >= 0.0));
+                                }
+                            }
+                            packed_shadow_face_matches = (abs((packed_shadow.parameters.y - packed_point_shadow_face)) < 0.25);
+                        }
+                        if ((!packed_shadow_face_matches)) {
+                            continue;
+                        }
+                        let packed_shadow_position: vec3<f32> = (world_position + (packed_incoming * packed_shadow.parameters.z));
+                        let packed_shadow_clip: vec4<f32> = (packed_shadow.view_projection * vec4<f32>(packed_shadow_position, 1.0));
+                        let packed_shadow_w: f32 = max(abs(packed_shadow_clip.w), 1e-06);
+                        let packed_shadow_ndc: vec3<f32> = (packed_shadow_clip.xyz / packed_shadow_w);
+                        if ((((((packed_shadow_clip.w > 0.0) && (abs(packed_shadow_ndc.x) <= 1.0001)) && (abs(packed_shadow_ndc.y) <= 1.0001)) && (packed_shadow_ndc.z >= 0.0)) && (packed_shadow_ndc.z <= 1.0))) {
+                            let packed_shadow_uv: vec2<f32> = vec2<f32>((packed_shadow.atlas.x + (packed_shadow.atlas.y * packed_shadow_ndc.x)), (packed_shadow.atlas.z - (packed_shadow.atlas.w * packed_shadow_ndc.y)));
+                            let packed_shadow_compare_bias: f32 = select(5e-05, 2e-05, (packed_shadow.parameters.w > 1.5));
+                            packed_shadow_visibility = textureSampleCompare(shadow_map, shadow_sampler, packed_shadow_uv, (packed_shadow_ndc.z - packed_shadow_compare_bias));
+                        }
+                    }
+                }
+            }
+            direct = (direct + (((((((packed_diffuse + packed_sheen) * packed_base_energy) * packed_radiance) * packed_diffuse_ndotl) + ((((packed_specular * packed_base_energy) + packed_clearcoat) * packed_radiance) * packed_ndotl)) * packed_attenuation) * packed_shadow_visibility));
+        }
+    }
     let optical_thickness: f32 = (advanced1.w * thickness_sample);
     let absorption_exponent: f32 = (optical_thickness / max(ior_distance_program_flags.y, 1e-06));
     let transmission_tint: vec3<f32> = mix(pow(max(attenuation_transmission.xyz, vec3<f32>(1e-06)), vec3<f32>(absorption_exponent)), surface_base_color, surface_thin_walled);

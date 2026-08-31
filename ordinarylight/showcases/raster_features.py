@@ -92,6 +92,36 @@ def build_spot_shadow_scene():
     return scene
 
 
+def build_point_shadow_scene():
+    """Show all six point-light shadow directions in one compact scene."""
+    scene = _shadow_receivers()
+    scene.add_light(PointLight(
+        position=(-4.2, 3.6, 0.2), color=(1.0, 0.78, 0.56),
+        intensity=115.0, range=13.0,
+    ))
+    return scene
+
+
+def build_multi_light_shadow_scene():
+    """Exercise accumulation and independent shadowing for mixed lights."""
+    scene = _shadow_receivers()
+    scene.add_light(PointLight(
+        position=(-3.2, 3.8, 2.8), color=(1.0, 0.24, 0.12),
+        intensity=82.0, range=12.0,
+    ))
+    scene.add_light(SpotLight(
+        position=(3.4, 5.0, 2.4), direction=(-0.45, -1.0, -0.35),
+        color=(0.16, 0.42, 1.0), intensity=76.0,
+        inner_cone_angle=math.radians(16),
+        outer_cone_angle=math.radians(32), range=13.0,
+    ))
+    scene.add_light(DirectionalLight(
+        direction=(0.3, -1.0, -0.55), color=(0.38, 1.0, 0.42),
+        intensity=1.8,
+    ))
+    return scene
+
+
 def _checker_texture(first, second, size=64, cells=8):
     y, x = np.indices((size, size))
     mask = ((x // (size // cells)) + (y // (size // cells))) % 2
@@ -186,5 +216,6 @@ def build_material_program_parity_scene():
 
 __all__ = [
     "build_advanced_material_scene", "build_directional_shadow_scene",
-    "build_material_program_parity_scene", "build_spot_shadow_scene",
+    "build_material_program_parity_scene", "build_multi_light_shadow_scene",
+    "build_point_shadow_scene", "build_spot_shadow_scene",
 ]

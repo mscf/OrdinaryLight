@@ -63,7 +63,7 @@ def _render_gi(
 
 def _render_raster(
     scene, camera, extent, material_modifier=None,
-    optical_quality="environment", optical_debug_view="off",
+    optical_quality="environment", optical_debug_view="off", *, shadows=True,
 ):
     program = ol.RasterProgram.scene(
         target="spirv",
@@ -79,6 +79,7 @@ def _render_raster(
             tone_mapping="none",
             optical_quality=optical_quality,
             optical_debug_view=optical_debug_view,
+            shadows=shadows,
         ),
     )
     with ol.Renderer(implementation=implementation) as renderer:
@@ -101,6 +102,7 @@ def main():
         "--scene", choices=(
             "feature", "materials", "modifier", "clearcoat", "sheen",
             "anisotropy", "thin-transmission", "subsurface",
+            "point-shadows",
             "environment-reflection", "refraction", "absorption",
             "nested-dielectric", "transparency",
         ), default="feature",
@@ -141,6 +143,10 @@ def main():
         ),
         default="off",
         help="capture a raster optical diagnostic instead of final shading",
+    )
+    parser.add_argument(
+        "--disable-raster-shadows", action="store_true",
+        help="capture the raster candidate without native shadow maps",
     )
     parser.add_argument(
         "--output", type=Path,
@@ -220,6 +226,12 @@ def main():
         }
         scene = advanced_builders[args.scene]()
         camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+    elif args.scene == "point-shadows":
+        from ordinarylight.showcases.raster_features import (
+            build_point_shadow_scene,
+        )
+        scene = build_point_shadow_scene()
+        camera = ol.PerspectiveCamera((0.0, 4.2, 8.5), (0.0, 0.9, 0.0))
     elif args.scene in {"materials", "modifier"}:
         from ordinarylight.showcases.raster_features import (
             build_material_program_parity_scene,
@@ -249,6 +261,7 @@ def main():
     raster = _render_raster(
         scene, camera, extent, material_modifier, args.raster_optics,
         args.raster_optical_debug_view,
+        shadows=not args.disable_raster_shadows,
     )
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,

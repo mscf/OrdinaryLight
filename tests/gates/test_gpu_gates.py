@@ -74,6 +74,13 @@ class VulkanGateTests(unittest.TestCase):
     def test_raster_backend_parity(self):
         self._run("tests.gates.raster_parity")
 
+    def test_native_raster_lighting_and_shadows(self):
+        for target in ("vulkan", "webgpu"):
+            self._run(
+                "tests.gates.raster_lighting", "--target", target,
+                "--output", f"/tmp/ordinarylight_raster_lighting_{target}",
+            )
+
     def test_raster_gi_visual_parity(self):
         self._run("tests.gates.renderer_visual_parity")
         self._run(

@@ -10,6 +10,7 @@ PYTHON_GATES = (
     "indirect_quality",
     "noise_quality",
     "path_termination_quality",
+    "raster_lighting",
     "restir_matrix",
     "restir_quality",
     "ser_quality",
@@ -47,6 +48,11 @@ class GateContractTests(unittest.TestCase):
                 path = directory / name
                 self.assertTrue(path.is_file())
                 self.assertTrue(path.stat().st_mode & 0o100)
+
+    def test_raster_lighting_baseline_is_checked_in(self):
+        path = Path(__file__).parent / "baselines" / "raster_lighting.json"
+        self.assertTrue(path.is_file())
+        self.assertIn("point", path.read_text())
 
 
 if __name__ == "__main__":

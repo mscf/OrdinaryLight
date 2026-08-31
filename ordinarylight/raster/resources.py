@@ -49,6 +49,12 @@ LIGHT_DTYPE = np.dtype([
     ("spot", np.float32, (4,)),
 ], align=True)
 
+SHADOW_DTYPE = np.dtype([
+    ("view_projection", np.float32, (4, 4)),
+    ("atlas", np.float32, (4,)),
+    ("parameters", np.float32, (4,)),
+], align=True)
+
 DRAW_DTYPE = np.dtype([
     ("model", np.float32, (4, 4)),
     ("normal", np.float32, (4, 4)),
@@ -299,5 +305,6 @@ def pack_raster_gpu_scene(
 
 __all__ = [
     "CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
+    "SHADOW_DTYPE",
     "RasterGpuScene", "pack_raster_gpu_scene",
 ]

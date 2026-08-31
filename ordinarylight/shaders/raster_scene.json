@@ -357,11 +357,11 @@
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "3cba1bf2cad552537a568f965d3e139bccac6ed1caf6e0ad0e7a66a22f3d1baf",
+  "source_sha256": "341cc3ab291dde4c1fe493bba3931061379cfacc5e58df45e38b92bf87359256",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "e0f7fc7f7f29689097a09ce3c8a175220187c69c5a35825ae4d0e40ff59ba0e7",
+        "cache_key": "4cc52b422850f6ac122555cf8e03554d937ef1e42847931cd754f60ec088b4e5",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -619,6 +619,22 @@
             },
             {
               "access": "read",
+              "binding": 10,
+              "format": "RasterLight",
+              "kind": "storage_buffer",
+              "name": "lights",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 11,
+              "format": "RasterShadow",
+              "kind": "storage_buffer",
+              "name": "shadows",
+              "set": 0
+            },
+            {
+              "access": "read",
               "binding": 3,
               "format": "RasterCamera",
               "kind": "uniform_buffer",
@@ -633,7 +649,7 @@
             1
           ]
         },
-        "sha256": "2a306f286cdaefd4d2ace61cd7270f020403e422f855e4199cdc68838f7e21aa"
+        "sha256": "91566850590f4f7df7aedd59259f3b1fb03b7119d1d8fa3b9289e380e3fea312"
       },
       "vertex": {
         "cache_key": "d5d4c61125defbdee4703592009d2ff0a31091dcfe36acd067cc0cfa18abcbc6",
@@ -1016,7 +1032,7 @@
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "a5a120c18a0e7cf835439632f63114fc54ab6e66bd278bd2de4363ec5460c8bd",
+        "cache_key": "bc670f4f69831c182232e07d962c3934e66652a226108fe609992e504624df13",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -1274,6 +1290,22 @@
             },
             {
               "access": "read",
+              "binding": 10,
+              "format": "RasterLight",
+              "kind": "storage_buffer",
+              "name": "lights",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 11,
+              "format": "RasterShadow",
+              "kind": "storage_buffer",
+              "name": "shadows",
+              "set": 0
+            },
+            {
+              "access": "read",
               "binding": 3,
               "format": "RasterCamera",
               "kind": "uniform_buffer",
@@ -1288,7 +1320,7 @@
             1
           ]
         },
-        "sha256": "3bfe5f7686154d480347008422fcafc8c9ee0c34175b9cc57f62753912f8cefb"
+        "sha256": "6fe0b8f682b5e92187d231b14c9867dd1a80db2bf523c2f124b96ee00463720e"
       },
       "vertex": {
         "cache_key": "80849a18d79d16fe3d63776c37d5b2a18ac79af16c6686f008fcb49b545beb79",

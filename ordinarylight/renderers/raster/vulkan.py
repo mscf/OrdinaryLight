@@ -16,7 +16,7 @@ _OPTICAL_DEBUG_MODES = {
 from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
-    CAMERA_DTYPE, MATERIAL_DTYPE, camera_matrix, create_raster_pipeline,
+    CAMERA_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE, SHADOW_DTYPE, camera_matrix, create_raster_pipeline,
     rasterize_geometry_products, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
@@ -139,7 +139,7 @@ class VulkanRasterRenderer(RendererImplementation):
             self._descriptor_set_layout = vk.vkCreateDescriptorSetLayout(
                 self.device, vk.VkDescriptorSetLayoutCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                    bindingCount=10,
+                    bindingCount=12,
                     pBindings=[
                         vk.VkDescriptorSetLayoutBinding(
                             binding=0,
@@ -199,6 +199,18 @@ class VulkanRasterRenderer(RendererImplementation):
                         vk.VkDescriptorSetLayoutBinding(
                             binding=9,
                             descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
+                            descriptorCount=1,
+                            stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                        ),
+                        vk.VkDescriptorSetLayoutBinding(
+                            binding=10,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                            descriptorCount=1,
+                            stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                        ),
+                        vk.VkDescriptorSetLayoutBinding(
+                            binding=11,
+                            descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                             descriptorCount=1,
                             stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
                         ),
@@ -1007,6 +1019,27 @@ class VulkanRasterRenderer(RendererImplementation):
             resources.extend((
                 ("buffer", material_buffer), ("memory", material_memory),
             ))
+        light_payload = mesh.resources.get("light_buffer", b"")
+        if not light_payload:
+            light_payload = bytes(LIGHT_DTYPE.itemsize)
+        light_buffer, light_memory = self._buffer(
+            len(light_payload), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            host_flags, light_payload,
+        )
+        resources.extend((
+            ("buffer", light_buffer), ("memory", light_memory),
+        ))
+        shadow_payload = mesh.resources.get("shadow_buffer", b"")
+        if not shadow_payload:
+            shadow_payload = bytes(SHADOW_DTYPE.itemsize)
+        shadow_record_buffer, shadow_record_memory = self._buffer(
+            len(shadow_payload), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            host_flags, shadow_payload,
+        )
+        resources.extend((
+            ("buffer", shadow_record_buffer),
+            ("memory", shadow_record_memory),
+        ))
         atlas_image = None
         atlas_view = None
         atlas_staging = None
@@ -1125,7 +1158,7 @@ class VulkanRasterRenderer(RendererImplementation):
                         ),
                         vk.VkDescriptorPoolSize(
                             type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                            descriptorCount=4,
+                            descriptorCount=12,
                         ),
                     ],
                 ), None,
@@ -1245,6 +1278,30 @@ class VulkanRasterRenderer(RendererImplementation):
                         )],
                     ),
                 ], 0, None)
+            vk.vkUpdateDescriptorSets(self.device, 1, [
+                vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=descriptor_set, dstBinding=10,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    pBufferInfo=[vk.VkDescriptorBufferInfo(
+                        buffer=light_buffer, offset=0,
+                        range=len(light_payload),
+                    )],
+                ),
+            ], 0, None)
+            vk.vkUpdateDescriptorSets(self.device, 1, [
+                vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=descriptor_set, dstBinding=11,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    pBufferInfo=[vk.VkDescriptorBufferInfo(
+                        buffer=shadow_record_buffer, offset=0,
+                        range=len(shadow_payload),
+                    )],
+                ),
+            ], 0, None)
             # Keep an immutable fallback set for the opaque prepass and a
             # second set whose scene-color binding can safely reference the
             # completed opaque attachment during the optical pass.
@@ -1256,7 +1313,7 @@ class VulkanRasterRenderer(RendererImplementation):
             ) for target in (
                 optical_descriptor_set, optical_ping_descriptor_set,
                 optical_immutable_descriptor_set,
-            ) for binding in range(10)]
+            ) for binding in range(12)]
             vk.vkUpdateDescriptorSets(
                 self.device, 0, None, len(copies), copies,
             )
@@ -1962,14 +2019,17 @@ class VulkanRasterRenderer(RendererImplementation):
             )
         if shadow_bundle is not None:
             shadow_render_pass, shadow_framebuffer, shadow_pipeline, shadow_vb, shadow_ib, _shadow_view = shadow_bundle
+            _sx, _sy, shadow_width, shadow_height, _aw, _ah = (
+                mesh.resources["shadow_rectangle"]
+            )
             vk.vkCmdBeginRenderPass(command, vk.VkRenderPassBeginInfo(
                 sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                 renderPass=shadow_render_pass, framebuffer=shadow_framebuffer,
                 renderArea=vk.VkRect2D(
                     offset=vk.VkOffset2D(x=0, y=0),
                     extent=vk.VkExtent2D(
-                        width=self.config.shadow_map_size,
-                        height=self.config.shadow_map_size,
+                        width=int(shadow_width),
+                        height=int(shadow_height),
                     ),
                 ),
                 clearValueCount=1,
@@ -2926,6 +2986,12 @@ class VulkanRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
             self.config.optical_debug_view
         ]
+        camera_data["optical_diagnostic"][0, 1] = mesh.resources.get(
+            "light_count", 0,
+        )
+        camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
+            "shadow_count", 0,
+        )
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         pack_ms = (time.perf_counter() - pack_started) * 1000.0
         camera_order_token = mesh.resources.get("camera_order_token", ())
@@ -2963,6 +3029,12 @@ class VulkanRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
             self.config.optical_debug_view
         ]
+        camera_data["optical_diagnostic"][0, 1] = mesh.resources.get(
+            "light_count", 0,
+        )
+        camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
+            "shadow_count", 0,
+        )
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
@@ -2988,6 +3060,12 @@ class VulkanRasterRenderer(RendererImplementation):
             camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
                 self.config.optical_debug_view
             ]
+            camera_data["optical_diagnostic"][0, 1] = color_mesh.resources.get(
+                "light_count", 0,
+            )
+            camera_data["optical_diagnostic"][0, 2] = color_mesh.resources.get(
+                "shadow_count", 0,
+            )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)

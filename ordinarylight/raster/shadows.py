@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..lights import DirectionalLight, SpotLight
+from ..lights import DirectionalLight, PointLight, SpotLight
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,20 +22,25 @@ class ShadowMapRequest:
     extent: tuple[int, int] = (1024, 1024)
     depth_bias: float = 0.001
     normal_bias: float = 0.0
+    face_index: int = -1
     view_projection: np.ndarray = field(
         default_factory=lambda: np.eye(4, dtype=np.float32),
         compare=False, repr=False,
     )
 
     def __post_init__(self):
-        if self.kind not in {"directional", "spot"}:
-            raise ValueError("shadow-map kind must be directional or spot")
+        if self.kind not in {"directional", "spot", "point"}:
+            raise ValueError("shadow-map kind must be directional, spot, or point")
         if self.light_index < 0:
             raise ValueError("shadow-map light index cannot be negative")
         if len(self.extent) != 2 or min(self.extent) < 1:
             raise ValueError("shadow-map extent must be positive")
         if self.depth_bias < 0.0 or self.normal_bias < 0.0:
             raise ValueError("shadow-map bias cannot be negative")
+        if self.kind == "point" and not 0 <= self.face_index < 6:
+            raise ValueError("point shadow maps require a cube face in [0, 5]")
+        if self.kind != "point" and self.face_index != -1:
+            raise ValueError("only point shadow maps have cube faces")
         matrix = np.ascontiguousarray(self.view_projection, dtype=np.float32)
         if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
             raise ValueError("shadow-map view_projection must be a finite mat4")
@@ -97,10 +102,34 @@ def _light_matrix(scene, light):
     return projection @ view
 
 
+_CUBE_DIRECTIONS = (
+    (1.0, 0.0, 0.0), (-1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0), (0.0, -1.0, 0.0),
+    (0.0, 0.0, 1.0), (0.0, 0.0, -1.0),
+)
+
+
+def _point_light_matrix(scene, light, face_index):
+    center, radius = _scene_bounds(scene)
+    position = np.asarray(light.position, np.float32)
+    direction = np.asarray(_CUBE_DIRECTIONS[face_index], np.float32)
+    view = _look_at(position, position + direction)
+    near = 0.01
+    far = float(light.range) if light.range is not None else max(
+        float(np.linalg.norm(center - position)) + radius, 1.0,
+    )
+    projection = np.array((
+        (1, 0, 0, 0), (0, 1, 0, 0),
+        (0, 0, far / (near - far), far * near / (near - far)),
+        (0, 0, -1, 0),
+    ), np.float32)
+    return projection @ view
+
+
 def plan_shadow_maps(
     scene, *, extent=(1024, 1024), max_maps=4, normal_bias_texels=1.5,
 ):
-    """Select directional and spot lights supported by the first shadow tier."""
+    """Plan a portable shadow atlas, including six faces per point light."""
     if max_maps < 0:
         raise ValueError("max_maps cannot be negative")
     if not np.isfinite(normal_bias_texels) or normal_bias_texels < 0.0:
@@ -108,19 +137,34 @@ def plan_shadow_maps(
     _center, radius = _scene_bounds(scene)
     world_texel = (2.0 * radius) / float(max(extent))
     requests = []
+    selected_lights = 0
     for index, light in enumerate(scene.lights):
         if isinstance(light, DirectionalLight):
             kind = "directional"
         elif isinstance(light, SpotLight):
             kind = "spot"
+        elif isinstance(light, PointLight):
+            kind = "point"
         else:
             continue
-        requests.append(ShadowMapRequest(
-            index, kind, tuple(extent),
-            normal_bias=float(normal_bias_texels) * world_texel,
-            view_projection=_light_matrix(scene, light),
-        ))
-        if len(requests) == max_maps:
+        if kind == "point":
+            for face_index in range(6):
+                requests.append(ShadowMapRequest(
+                    index, kind, tuple(extent),
+                    normal_bias=float(normal_bias_texels) * world_texel,
+                    face_index=face_index,
+                    view_projection=_point_light_matrix(
+                        scene, light, face_index,
+                    ),
+                ))
+        else:
+            requests.append(ShadowMapRequest(
+                index, kind, tuple(extent),
+                normal_bias=float(normal_bias_texels) * world_texel,
+                view_projection=_light_matrix(scene, light),
+            ))
+        selected_lights += 1
+        if selected_lights == max_maps:
             break
     return tuple(requests)
 

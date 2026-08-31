@@ -1,0 +1,25 @@
+{
+  "description": "Accepted native raster shadow and multi-light response floors.",
+  "scenes": {
+    "point": {
+      "min_changed_fraction": 0.045,
+      "min_mean_absolute_difference": 0.003
+    },
+    "directional": {
+      "min_changed_fraction": 0.05,
+      "min_mean_absolute_difference": 0.035
+    },
+    "spot": {
+      "min_changed_fraction": 0.015,
+      "min_mean_absolute_difference": 0.00018
+    },
+    "mixed": {
+      "min_changed_fraction": 0.045,
+      "min_mean_absolute_difference": 0.0016
+    }
+  },
+  "multi_light_accumulation": {
+    "min_changed_fraction": 0.52,
+    "min_mean_absolute_difference": 0.095
+  }
+}

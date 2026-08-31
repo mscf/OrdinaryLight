@@ -84,6 +84,23 @@ class RasterMaterial:
     probe_box_max_blend_secondary: osh.vec4
 
 
+@osh.structure
+class RasterLight:
+    """Portable analytic-light record shared by Vulkan and WebGPU."""
+
+    position_type: osh.vec4
+    direction_range: osh.vec4
+    color_intensity: osh.vec4
+    spot: osh.vec4
+
+
+@osh.structure
+class RasterShadow:
+    view_projection: osh.mat4
+    atlas: osh.vec4
+    parameters: osh.vec4
+
+
 @osh.vertex
 def shadow_vertex(
     position: osh.location(osh.vec4, 0),
@@ -179,6 +196,8 @@ def scene_fragment(
     scene_depth: osh.sampled_depth_texture_2d(binding=7),
     scene_sampler: osh.sampler(binding=8),
     scene_depth_sampler: osh.sampler(binding=9),
+    lights: osh.storage_buffer(RasterLight, access="read", binding=10),
+    shadows: osh.storage_buffer(RasterShadow, access="read", binding=11),
     camera: osh.uniform_buffer(RasterCamera, binding=3),
 ) -> osh.location(osh.vec4, 0):
     if material_index < -0.5:
@@ -341,15 +360,40 @@ def scene_fragment(
     surface_subsurface_radius = osh.maximum(
         0.0, osh.minimum(1.0, hooked.subsurface_radius),
     )
-    light_delta = light_position_type.xyz - world_position
+    first_packed_light = lights[osh.u32(0)]
+    first_has_packed_light = camera.optical_diagnostic.y > 0.5
+    first_light_type = (
+        first_packed_light.position_type.w
+        if first_has_packed_light else light_position_type.w
+    )
+    first_light_position = (
+        first_packed_light.position_type.xyz
+        if first_has_packed_light else light_position_type.xyz
+    )
+    first_light_direction = (
+        first_packed_light.direction_range.xyz
+        if first_has_packed_light else light_position_type.xyz
+    )
+    first_light_radiance = (
+        first_packed_light.color_intensity.xyz
+        * first_packed_light.color_intensity.w
+        if first_has_packed_light else light_color_ambient.xyz
+    )
+    light_delta = first_light_position - world_position
     point_distance = osh.maximum(osh.length(light_delta), 0.000001)
     point_incoming = light_delta / point_distance
-    direction = -light_position_type.xyz
+    direction = -first_light_direction
     directional_incoming = direction / osh.maximum(osh.length(direction), 0.000001)
     incoming = (
-        directional_incoming if light_position_type.w > 0.5 else point_incoming
+        directional_incoming
+        if first_light_type > 0.5 and first_light_type < 1.5
+        else point_incoming
     )
-    distance = 1.0 if light_position_type.w > 0.5 else point_distance
+    distance = (
+        1.0
+        if first_light_type > 0.5 and first_light_type < 1.5
+        else point_distance
+    )
     half_delta = incoming + view
     half_vector = half_delta / osh.maximum(osh.length(half_delta), 0.000001)
     signed_ndotl = (
@@ -366,6 +410,74 @@ def scene_fragment(
         1.0 if osh.absolute(shadow_coordinate.w) < 0.000001 else
         pcf_visibility
     )
+    if camera.optical_diagnostic.z > 0.5:
+        shadow_map_visibility = 1.0
+        for shadow_index in range(24):
+            if shadow_index < osh.i32(camera.optical_diagnostic.z):
+                shadow_record = shadows[osh.u32(shadow_index)]
+                if osh.absolute(shadow_record.parameters.x) < 0.25:
+                    shadow_face_matches = True
+                    if shadow_record.parameters.w > 1.5:
+                        point_shadow_delta = (
+                            world_position - first_light_position
+                        )
+                        point_shadow_axis = osh.absolute(point_shadow_delta)
+                        point_shadow_face = 0.0
+                        if (
+                            point_shadow_axis.y >= point_shadow_axis.x
+                            and point_shadow_axis.y >= point_shadow_axis.z
+                        ):
+                            point_shadow_face = (
+                                2.0 if point_shadow_delta.y >= 0.0 else 3.0
+                            )
+                        elif point_shadow_axis.z >= point_shadow_axis.x:
+                            point_shadow_face = (
+                                4.0 if point_shadow_delta.z >= 0.0 else 5.0
+                            )
+                        else:
+                            point_shadow_face = (
+                                0.0 if point_shadow_delta.x >= 0.0 else 1.0
+                            )
+                        shadow_face_matches = osh.absolute(
+                            shadow_record.parameters.y - point_shadow_face
+                        ) < 0.25
+                    if not shadow_face_matches:
+                        continue
+                    biased_shadow_position = world_position + (
+                        incoming * shadow_record.parameters.z
+                    )
+                    shadow_clip = shadow_record.view_projection * osh.vec4(
+                        biased_shadow_position, 1.0,
+                    )
+                    shadow_clip_w = osh.maximum(
+                        osh.absolute(shadow_clip.w), 0.000001,
+                    )
+                    shadow_ndc = shadow_clip.xyz / shadow_clip_w
+                    if (
+                        shadow_clip.w > 0.0
+                        and osh.absolute(shadow_ndc.x) <= 1.0001
+                        and osh.absolute(shadow_ndc.y) <= 1.0001
+                        and shadow_ndc.z >= 0.0 and shadow_ndc.z <= 1.0
+                    ):
+                        shadow_uv = osh.vec2(
+                            shadow_record.atlas.x
+                            + shadow_record.atlas.y * shadow_ndc.x,
+                            shadow_record.atlas.z
+                            - shadow_record.atlas.w * shadow_ndc.y,
+                        )
+                        # Point-light perspective depth becomes tightly packed
+                        # near one. A large fixed projected-depth bias erases
+                        # valid long shadows, so rely primarily on the
+                        # world-space receiver offset and retain only a small
+                        # comparison epsilon here.
+                        shadow_compare_bias = (
+                            0.00002 if shadow_record.parameters.w > 1.5
+                            else receiver_bias
+                        )
+                        shadow_map_visibility = shadow_map.sample_compare_with(
+                            shadow_sampler, shadow_uv,
+                            shadow_ndc.z - shadow_compare_bias,
+                        )
     ndotv = osh.maximum(
         surface_normal.x * view.x + surface_normal.y * view.y
         + surface_normal.z * view.z, 0.0,
@@ -472,6 +584,30 @@ def scene_fragment(
     )
     diffuse_ndotl = osh.mix(ndotl, wrapped_ndotl, surface_subsurface)
     attenuation = 1.0 / (distance * distance)
+    if first_has_packed_light and first_packed_light.direction_range.w > 0.0:
+        first_range_ratio = (
+            point_distance / first_packed_light.direction_range.w
+        )
+        first_range_falloff = osh.maximum(1.0 - first_range_ratio, 0.0)
+        attenuation = attenuation * first_range_falloff * first_range_falloff
+    if first_has_packed_light and first_light_type > 1.5:
+        first_spot_axis = first_light_direction / osh.maximum(
+            osh.length(first_light_direction), 0.000001,
+        )
+        first_spot_cosine = -(
+            incoming.x * first_spot_axis.x
+            + incoming.y * first_spot_axis.y
+            + incoming.z * first_spot_axis.z
+        )
+        first_spot_outer = osh.cosine(first_packed_light.spot.y)
+        first_spot_inner = osh.cosine(first_packed_light.spot.x)
+        attenuation = attenuation * osh.maximum(
+            0.0, osh.minimum(
+                1.0,
+                (first_spot_cosine - first_spot_outer)
+                / osh.maximum(first_spot_inner - first_spot_outer, 0.00001),
+            ),
+        )
     visibility = attenuation * shadow_visibility
     # Keep the ordinary surface response fully shadowed, but allow the added
     # wrapped component to cross the geometric/self-shadow terminator. This is
@@ -486,11 +622,251 @@ def scene_fragment(
         + wrapped_contribution * scattered_shadow_visibility
     )
     direct = (
-        (diffuse + sheen) * base_energy * light_color_ambient.xyz
+        (diffuse + sheen) * base_energy * first_light_radiance
         * (diffuse_visibility * visibility)
-        + (specular * base_energy + clearcoat_specular) * light_color_ambient.xyz
+        + (specular * base_energy + clearcoat_specular) * first_light_radiance
         * (ndotl * shadow_map_visibility * visibility)
     )
+    # The legacy first-light attributes remain in the vertex ABI while wheel
+    # consumers migrate, but every further analytic light is evaluated from
+    # the renderer-neutral GPU light array.  Shadow visibility for these
+    # additional lights is introduced by the shadow-array pass; until then
+    # they are deliberately unshadowed rather than silently ignored.
+    for light_index in range(1, 8):
+        if light_index < osh.i32(camera.optical_diagnostic.y):
+            packed_light = lights[osh.u32(light_index)]
+            packed_type = packed_light.position_type.w
+            packed_delta = packed_light.position_type.xyz - world_position
+            packed_distance = osh.maximum(osh.length(packed_delta), 0.000001)
+            packed_point_incoming = packed_delta / packed_distance
+            packed_direction = -packed_light.direction_range.xyz
+            packed_directional_incoming = packed_direction / osh.maximum(
+                osh.length(packed_direction), 0.000001,
+            )
+            packed_incoming = (
+                packed_directional_incoming
+                if packed_type > 0.5 and packed_type < 1.5
+                else packed_point_incoming
+            )
+            packed_light_distance = (
+                1.0 if packed_type > 0.5 and packed_type < 1.5
+                else packed_distance
+            )
+            packed_attenuation = 1.0 / (
+                packed_light_distance * packed_light_distance
+            )
+            if packed_light.direction_range.w > 0.0:
+                range_ratio = packed_distance / packed_light.direction_range.w
+                range_falloff = osh.maximum(1.0 - range_ratio, 0.0)
+                packed_attenuation = (
+                    packed_attenuation * range_falloff * range_falloff
+                )
+            if packed_type > 1.5:
+                spot_axis = packed_light.direction_range.xyz / osh.maximum(
+                    osh.length(packed_light.direction_range.xyz), 0.000001,
+                )
+                spot_cosine = -(
+                    packed_incoming.x * spot_axis.x
+                    + packed_incoming.y * spot_axis.y
+                    + packed_incoming.z * spot_axis.z
+                )
+                spot_outer = osh.cosine(packed_light.spot.y)
+                spot_inner = osh.cosine(packed_light.spot.x)
+                packed_attenuation = packed_attenuation * osh.maximum(
+                    0.0, osh.minimum(
+                        1.0,
+                        (spot_cosine - spot_outer)
+                        / osh.maximum(spot_inner - spot_outer, 0.00001),
+                    ),
+                )
+            packed_half_delta = packed_incoming + view
+            packed_half = packed_half_delta / osh.maximum(
+                osh.length(packed_half_delta), 0.000001,
+            )
+            packed_signed_ndotl = (
+                surface_normal.x * packed_incoming.x
+                + surface_normal.y * packed_incoming.y
+                + surface_normal.z * packed_incoming.z
+            )
+            packed_ndotl = osh.maximum(packed_signed_ndotl, 0.0)
+            packed_ndoth = osh.maximum(
+                surface_normal.x * packed_half.x
+                + surface_normal.y * packed_half.y
+                + surface_normal.z * packed_half.z,
+                0.0,
+            )
+            packed_vdoth = osh.maximum(
+                view.x * packed_half.x + view.y * packed_half.y
+                + view.z * packed_half.z,
+                0.0,
+            )
+            packed_fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
+                osh.vec3(1.0 - packed_vdoth), osh.vec3(5.0),
+            )
+            packed_tangent_dot_half = (
+                tangent.x * packed_half.x + tangent.y * packed_half.y
+                + tangent.z * packed_half.z
+            )
+            packed_bitangent_dot_half = (
+                bitangent.x * packed_half.x + bitangent.y * packed_half.y
+                + bitangent.z * packed_half.z
+            )
+            packed_anisotropic_denominator = (
+                packed_tangent_dot_half * packed_tangent_dot_half
+                / (alpha_x * alpha_x)
+                + packed_bitangent_dot_half * packed_bitangent_dot_half
+                / (alpha_y * alpha_y)
+                + packed_ndoth * packed_ndoth
+            )
+            packed_distribution = 1.0 / osh.maximum(
+                3.14159265 * alpha_x * alpha_y
+                * packed_anisotropic_denominator
+                * packed_anisotropic_denominator,
+                0.000001,
+            )
+            packed_geometry_l = packed_ndotl / osh.maximum(
+                packed_ndotl * (1.0 - k) + k, 0.000001,
+            )
+            packed_specular = (
+                packed_distribution * geometry_v * packed_geometry_l
+                * packed_fresnel / osh.maximum(
+                    4.0 * ndotv * packed_ndotl, 0.000001,
+                )
+            )
+            packed_coat_denominator = (
+                packed_ndoth * packed_ndoth * (coat_alpha2 - 1.0) + 1.0
+            )
+            packed_coat_distribution = coat_alpha2 / osh.maximum(
+                3.14159265 * packed_coat_denominator
+                * packed_coat_denominator,
+                0.000001,
+            )
+            packed_coat_fresnel = (
+                0.04 + 0.96 * osh.power(1.0 - packed_vdoth, 5.0)
+            )
+            packed_coat_geometry_l = packed_ndotl / osh.maximum(
+                packed_ndotl * (1.0 - coat_k) + coat_k, 0.000001,
+            )
+            packed_clearcoat = osh.vec3(
+                surface_clearcoat * packed_coat_distribution
+                * coat_geometry_v * packed_coat_geometry_l
+                * packed_coat_fresnel / osh.maximum(
+                    4.0 * ndotv * packed_ndotl, 0.000001,
+                )
+            )
+            packed_base_energy = 1.0 - surface_clearcoat * packed_coat_fresnel
+            packed_diffuse_base = (
+                (osh.vec3(1.0) - packed_fresnel) * surface_base_color
+                * diffuse_weight / 3.14159265
+            )
+            packed_diffuse = osh.mix(
+                packed_diffuse_base,
+                packed_diffuse_base * hooked.subsurface_color,
+                surface_subsurface,
+            )
+            packed_wrapped_ndotl = osh.maximum(
+                0.0, (packed_signed_ndotl + surface_subsurface_radius)
+                / (1.0 + surface_subsurface_radius),
+            )
+            packed_diffuse_ndotl = osh.mix(
+                packed_ndotl, packed_wrapped_ndotl, surface_subsurface,
+            )
+            packed_sheen = surface_sheen_color * (
+                (1.0 - surface_sheen_roughness)
+                * osh.power(1.0 - packed_vdoth, 5.0)
+            )
+            packed_radiance = (
+                packed_light.color_intensity.xyz
+                * packed_light.color_intensity.w
+            )
+            packed_shadow_visibility = 1.0
+            for packed_shadow_index in range(24):
+                if packed_shadow_index < osh.i32(camera.optical_diagnostic.z):
+                    packed_shadow = shadows[osh.u32(packed_shadow_index)]
+                    if osh.absolute(
+                        packed_shadow.parameters.x - osh.f32(light_index)
+                    ) < 0.25:
+                        packed_shadow_face_matches = True
+                        if packed_shadow.parameters.w > 1.5:
+                            packed_point_shadow_delta = (
+                                world_position - packed_light.position_type.xyz
+                            )
+                            packed_point_shadow_axis = osh.absolute(
+                                packed_point_shadow_delta
+                            )
+                            packed_point_shadow_face = 0.0
+                            if (
+                                packed_point_shadow_axis.y
+                                >= packed_point_shadow_axis.x
+                                and packed_point_shadow_axis.y
+                                >= packed_point_shadow_axis.z
+                            ):
+                                packed_point_shadow_face = (
+                                    2.0 if packed_point_shadow_delta.y >= 0.0
+                                    else 3.0
+                                )
+                            elif (
+                                packed_point_shadow_axis.z
+                                >= packed_point_shadow_axis.x
+                            ):
+                                packed_point_shadow_face = (
+                                    4.0 if packed_point_shadow_delta.z >= 0.0
+                                    else 5.0
+                                )
+                            else:
+                                packed_point_shadow_face = (
+                                    0.0 if packed_point_shadow_delta.x >= 0.0
+                                    else 1.0
+                                )
+                            packed_shadow_face_matches = osh.absolute(
+                                packed_shadow.parameters.y
+                                - packed_point_shadow_face
+                            ) < 0.25
+                        if not packed_shadow_face_matches:
+                            continue
+                        packed_shadow_position = world_position + (
+                            packed_incoming * packed_shadow.parameters.z
+                        )
+                        packed_shadow_clip = (
+                            packed_shadow.view_projection
+                            * osh.vec4(packed_shadow_position, 1.0)
+                        )
+                        packed_shadow_w = osh.maximum(
+                            osh.absolute(packed_shadow_clip.w), 0.000001,
+                        )
+                        packed_shadow_ndc = (
+                            packed_shadow_clip.xyz / packed_shadow_w
+                        )
+                        if (
+                            packed_shadow_clip.w > 0.0
+                            and osh.absolute(packed_shadow_ndc.x) <= 1.0001
+                            and osh.absolute(packed_shadow_ndc.y) <= 1.0001
+                            and packed_shadow_ndc.z >= 0.0
+                            and packed_shadow_ndc.z <= 1.0
+                        ):
+                            packed_shadow_uv = osh.vec2(
+                                packed_shadow.atlas.x
+                                + packed_shadow.atlas.y * packed_shadow_ndc.x,
+                                packed_shadow.atlas.z
+                                - packed_shadow.atlas.w * packed_shadow_ndc.y,
+                            )
+                            packed_shadow_compare_bias = (
+                                0.00002 if packed_shadow.parameters.w > 1.5
+                                else 0.00005
+                            )
+                            packed_shadow_visibility = (
+                                shadow_map.sample_compare_with(
+                                    shadow_sampler, packed_shadow_uv,
+                                    packed_shadow_ndc.z
+                                    - packed_shadow_compare_bias,
+                                )
+                            )
+            direct = direct + (
+                (packed_diffuse + packed_sheen) * packed_base_energy
+                * packed_radiance * packed_diffuse_ndotl
+                + (packed_specular * packed_base_energy + packed_clearcoat)
+                * packed_radiance * packed_ndotl
+            ) * packed_attenuation * packed_shadow_visibility
     optical_thickness = advanced1.w * thickness_sample
     absorption_exponent = optical_thickness / osh.maximum(
         ior_distance_program_flags.y, 0.000001,

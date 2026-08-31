@@ -713,6 +713,112 @@ def _shadow_geometry(scene, matrix):
     return vertices, index_data
 
 
+def _clip_shadow_geometry(vertices, indices):
+    """Clip triangles to Vulkan/WebGPU homogeneous clip volume.
+
+    Atlas placement happens after clipping.  Without this step, geometry that
+    lies outside one point-light cube face can cross the artificial tile edge
+    and overwrite a neighboring face's depth values.
+    """
+    planes = (
+        lambda value: value[0] + value[3],
+        lambda value: value[3] - value[0],
+        lambda value: value[1] + value[3],
+        lambda value: value[3] - value[1],
+        lambda value: value[2],
+        lambda value: value[3] - value[2],
+    )
+    output_vertices = []
+    output_indices = []
+    for triangle in np.asarray(indices, np.uint32).reshape(-1, 3):
+        polygon = [np.asarray(vertices[index], np.float32) for index in triangle]
+        for distance in planes:
+            if not polygon:
+                break
+            clipped = []
+            previous = polygon[-1]
+            previous_distance = float(distance(previous))
+            for current in polygon:
+                current_distance = float(distance(current))
+                previous_inside = previous_distance >= 0.0
+                current_inside = current_distance >= 0.0
+                if previous_inside != current_inside:
+                    denominator = previous_distance - current_distance
+                    t = previous_distance / denominator if denominator else 0.0
+                    clipped.append(previous + (current - previous) * t)
+                if current_inside:
+                    clipped.append(current)
+                previous = current
+                previous_distance = current_distance
+            polygon = clipped
+        if len(polygon) < 3:
+            continue
+        base = len(output_vertices)
+        output_vertices.extend(polygon)
+        for index in range(1, len(polygon) - 1):
+            output_indices.extend((base, base + index, base + index + 1))
+    return (
+        np.ascontiguousarray(output_vertices, np.float32).reshape(-1, 4),
+        np.ascontiguousarray(output_indices, np.uint32),
+    )
+
+
+def _shadow_atlas_geometry(scene, requests, tile_size):
+    """Pack independently projected shadow draws into one depth atlas."""
+    if not requests:
+        return (
+            np.empty((0, 4), np.float32), np.empty(0, np.uint32),
+            (), None,
+        )
+    columns = int(np.ceil(np.sqrt(len(requests))))
+    rows = int(np.ceil(len(requests) / columns))
+    atlas_width, atlas_height = columns * tile_size, rows * tile_size
+    packed_vertices, packed_indices, records = [], [], []
+    base = 0
+    for index, request in enumerate(requests):
+        vertices, indices = _shadow_geometry(scene, request.view_projection)
+        vertices, indices = _clip_shadow_geometry(vertices, indices)
+        tile_x = (index % columns) * tile_size
+        tile_y = (index // columns) * tile_size
+        if len(vertices):
+            center_x = (2.0 * tile_x + tile_size) / atlas_width - 1.0
+            center_y = 1.0 - (2.0 * tile_y + tile_size) / atlas_height
+            vertices = vertices.copy()
+            vertices[:, 0] = (
+                center_x * vertices[:, 3]
+                + (tile_size / atlas_width) * vertices[:, 0]
+            )
+            vertices[:, 1] = (
+                center_y * vertices[:, 3]
+                + (tile_size / atlas_height) * vertices[:, 1]
+            )
+            packed_vertices.append(vertices)
+            packed_indices.append(indices + base)
+            base += len(vertices)
+        records.append({
+            "view_projection": request.view_projection,
+            "atlas": (
+                (tile_x + tile_size * 0.5) / atlas_width,
+                0.5 * tile_size / atlas_width,
+                (tile_y + tile_size * 0.5) / atlas_height,
+                0.5 * tile_size / atlas_height,
+            ),
+            "parameters": (
+                request.light_index, request.face_index,
+                request.normal_bias,
+                {"directional": 0.0, "spot": 1.0, "point": 2.0}[request.kind],
+            ),
+        })
+    return (
+        np.ascontiguousarray(np.concatenate(packed_vertices), np.float32)
+        if packed_vertices else np.empty((0, 4), np.float32),
+        np.ascontiguousarray(np.concatenate(packed_indices), np.uint32)
+        if packed_indices else np.empty(0, np.uint32),
+        tuple(records),
+        (0, 0, atlas_width, atlas_height, atlas_width, atlas_height),
+    )
+
+
 def _atlas_uv(
     mesh, rectangles, atlas_shape, texture=None, transform=None,
     *, enabled=True, neutral=0,
@@ -1058,7 +1164,10 @@ def scene_mesh(
             metallic.fill(0.0); roughness.fill(1.0); transmission.fill(0.0)
             emission.fill(0.0)
         shadow_visibility = np.ones(len(world), np.float32)
-        if config.shadows and shadow_request is None and np.any(light_color):
+        if (
+            config.shadows and not native_shadow_maps
+            and shadow_request is None and np.any(light_color)
+        ):
             if light_position_type[3] > 0.5:
                 direction = -light_position_type[:3]
                 direction /= max(float(np.linalg.norm(direction)), 1e-8)
@@ -1183,7 +1292,7 @@ def scene_mesh(
     ))
     shadow_vertices = prepared_resources["shadow_vertices"]
     shadow_indices = prepared_resources["shadow_indices"]
-    from .resources import pack_raster_gpu_scene
+    from .resources import SHADOW_DTYPE, pack_raster_gpu_scene
     gpu_scene = pack_raster_gpu_scene(
         scene, camera, width, height,
         default_program=config.material_program,
@@ -1195,6 +1304,18 @@ def scene_mesh(
         environment_log_range_secondary=prepared_resources["environment_log_range_secondary"],
         probe_parameters_secondary=prepared_resources["probe_parameters_secondary"],
     )
+    if not config.direct_lighting and len(gpu_scene.lights):
+        gpu_scene.lights["color_intensity"][:, 3] = 0.0
+    shadow_records = prepared_resources.get("shadow_records", ())
+    shadow_data = np.zeros(len(shadow_records), SHADOW_DTYPE)
+    for shadow_index, record in enumerate(shadow_records):
+        # Shader storage matrices are column-major. NumPy's row-major matrix
+        # must be transposed before it is copied into the portable ABI.
+        shadow_data["view_projection"][shadow_index] = record[
+            "view_projection"
+        ].T
+        shadow_data["atlas"][shadow_index] = record["atlas"]
+        shadow_data["parameters"][shadow_index] = record["parameters"]
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
         "shadow_vertices": shadow_vertices,
@@ -1202,6 +1323,10 @@ def scene_mesh(
         "shadow_rectangle": shadow_rectangle,
         "gpu_camera": bool(gpu_camera),
         "material_buffer": gpu_scene.materials.tobytes(),
+        "light_buffer": gpu_scene.lights.tobytes(),
+        "light_count": min(len(gpu_scene.lights), 8),
+        "shadow_buffer": shadow_data.tobytes(),
+        "shadow_count": min(len(shadow_data), 24),
         "material_programs": gpu_scene.programs,
         "transparent": bool(authored_transparent_meshes),
         "opaque_index_count": int(opaque_index_count),
@@ -1234,14 +1359,32 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
     config = config or RasterConfig()
     from ..lights import EnvironmentLight
     from .shadows import plan_shadow_maps
+    requested_shadow_size = int(config.shadow_map_size)
     shadow_requests = plan_shadow_maps(
         scene, extent=(config.shadow_map_size, config.shadow_map_size),
-        max_maps=1, normal_bias_texels=config.shadow_normal_bias,
+        max_maps=4, normal_bias_texels=config.shadow_normal_bias,
     ) if config.shadows else ()
-    shadow_request = (
-        shadow_requests[0]
-        if shadow_requests and shadow_requests[0].light_index == 0 else None
-    )
+    # A point light consumes six atlas tiles. Keep the complete attachment
+    # within the portable 8192-pixel texture limit; ``shadow_map_size`` is a
+    # preferred per-light resolution rather than an unbounded atlas size.
+    effective_shadow_size = requested_shadow_size
+    if native_shadow_maps and shadow_requests:
+        columns = int(np.ceil(np.sqrt(len(shadow_requests))))
+        rows = int(np.ceil(len(shadow_requests) / columns))
+        effective_shadow_size = min(
+            requested_shadow_size, 8192 // max(columns, rows),
+        )
+        if effective_shadow_size != requested_shadow_size:
+            shadow_requests = plan_shadow_maps(
+                scene,
+                extent=(effective_shadow_size, effective_shadow_size),
+                max_maps=4,
+                normal_bias_texels=config.shadow_normal_bias,
+            )
+    shadow_request = next((
+        request for request in shadow_requests
+        if request.light_index == 0 and request.kind != "point"
+    ), None)
     shadow_depth = (
         _rasterize_shadow_depth(
             scene, shadow_request.view_projection, config.shadow_map_size,
@@ -1250,16 +1393,24 @@ def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False
     atlas, rectangles, shadow_rectangle = _base_color_atlas(
         scene, config.textures, shadow_depth,
     )
-    if native_shadow_maps and shadow_request is not None:
-        size = int(config.shadow_map_size)
-        shadow_rectangle = (0, 0, size, size, size, size)
-    shadow_vertices, shadow_indices = (
-        _shadow_geometry(scene, shadow_request.view_projection)
-        if shadow_request is not None else
-        (np.empty((0, 4), np.float32), np.empty(0, np.uint32))
-    )
+    shadow_records = ()
+    if native_shadow_maps and shadow_requests:
+        shadow_vertices, shadow_indices, shadow_records, shadow_rectangle = (
+            _shadow_atlas_geometry(
+                scene, shadow_requests, effective_shadow_size,
+            )
+        )
+    else:
+        shadow_vertices, shadow_indices = (
+            _shadow_geometry(scene, shadow_request.view_projection)
+            if shadow_request is not None else
+            (np.empty((0, 4), np.float32), np.empty(0, np.uint32))
+        )
     return {
         "shadow_request": shadow_request,
+        "shadow_requests": shadow_requests,
+        "shadow_map_size": effective_shadow_size,
+        "shadow_records": shadow_records,
         "base_color_atlas": atlas,
         "atlas_rectangles": rectangles,
         "environment_rectangle": tuple(

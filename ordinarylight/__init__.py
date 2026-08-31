@@ -35,6 +35,7 @@ from .raster import (
     RasterVertexAttribute, RasterVertexLayout, camera_matrix,
     create_raster_pipeline, rasterize_geometry_products, scene_mesh,
     triangle_mesh, CAMERA_DTYPE, DRAW_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE,
+    SHADOW_DTYPE,
     RasterGpuScene, pack_raster_gpu_scene, ShadowMapRequest, plan_shadow_maps,
 )
 from . import loaders
@@ -243,6 +244,7 @@ __all__ = [
     "RenderSurface",
     "RasterMesh", "RasterProgram", "triangle_mesh",
     "CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
+    "SHADOW_DTYPE",
     "RasterGpuScene", "pack_raster_gpu_scene", "ShadowMapRequest", "plan_shadow_maps",
     "RendererConfig",
     "Renderer",

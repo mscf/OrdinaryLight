@@ -14,7 +14,7 @@ _OPTICAL_DEBUG_MODES = {
 from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
-    CAMERA_DTYPE, MATERIAL_DTYPE, camera_matrix, create_raster_pipeline,
+    CAMERA_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE, SHADOW_DTYPE, camera_matrix, create_raster_pipeline,
     rasterize_geometry_products, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
@@ -334,6 +334,36 @@ class WebGpuRasterRenderer(RendererImplementation):
                         "size": len(material_payload),
                     },
                 })
+            light_payload = mesh.resources.get("light_buffer", b"")
+            if not light_payload:
+                light_payload = bytes(LIGHT_DTYPE.itemsize)
+            light_buffer = self.device.create_buffer_with_data(
+                data=light_payload,
+                usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
+            )
+            entries.append({
+                "binding": 10,
+                "resource": {
+                    "buffer": light_buffer,
+                    "offset": 0,
+                    "size": len(light_payload),
+                },
+            })
+            shadow_payload = mesh.resources.get("shadow_buffer", b"")
+            if not shadow_payload:
+                shadow_payload = bytes(SHADOW_DTYPE.itemsize)
+            shadow_buffer = self.device.create_buffer_with_data(
+                data=shadow_payload,
+                usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST,
+            )
+            entries.append({
+                "binding": 11,
+                "resource": {
+                    "buffer": shadow_buffer,
+                    "offset": 0,
+                    "size": len(shadow_payload),
+                },
+            })
             bind_group = self.device.create_bind_group(
                 layout=self._pipeline(mesh.layout).get_bind_group_layout(0),
                 entries=tuple(entries),
@@ -553,6 +583,12 @@ class WebGpuRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
             self.config.optical_debug_view
         ]
+        camera_data["optical_diagnostic"][0, 1] = mesh.resources.get(
+            "light_count", 0,
+        )
+        camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
+            "shadow_count", 0,
+        )
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
@@ -578,6 +614,12 @@ class WebGpuRasterRenderer(RendererImplementation):
             camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
                 self.config.optical_debug_view
             ]
+            camera_data["optical_diagnostic"][0, 1] = color_mesh.resources.get(
+                "light_count", 0,
+            )
+            camera_data["optical_diagnostic"][0, 2] = color_mesh.resources.get(
+                "shadow_count", 0,
+            )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)
