@@ -18,6 +18,7 @@ _FORMATS = {
 }
 
 _SCENE_PROGRAM_CACHE = {}
+_GEOMETRY_PRODUCT_PROGRAM_CACHE = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +311,54 @@ def _load_shadow_artifact(target):
     return RasterProgram(stages["vertex"], stages["fragment"], reflection)
 
 
+def _load_named_artifact(target, name):
+    """Load a packaged auxiliary raster program from the shared manifest."""
+    root = Path(__file__).resolve().parents[1] / "shaders"
+    manifest_path = root / "raster_scene.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    source_path = root / "raster_programs.py"
+    if (
+        source_path.is_file()
+        and hashlib.sha256(source_path.read_bytes()).hexdigest()
+        != manifest.get("source_sha256")
+    ):
+        return None
+    records = manifest.get("programs", {}).get(target, {}).get(name)
+    if records is None:
+        return None
+    stages = {}
+    for stage_name in ("vertex", "fragment"):
+        record = records[stage_name]
+        artifact_path = root / record["file"]
+        payload = artifact_path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != record["sha256"]:
+            raise RuntimeError(
+                f"built-in raster artifact checksum mismatch: {artifact_path.name}"
+            )
+        stages[stage_name] = _ArtifactShader(
+            target=target,
+            source=payload.decode("utf-8") if target == "wgsl" else "",
+            binary=payload if target == "spirv" else None,
+            reflection=_artifact_stage(record["reflection"]),
+            cache_key=record["cache_key"],
+        )
+    varying_records = manifest.get("program_reflection", {}).get(
+        target, {},
+    ).get(name, {}).get("varyings", ())
+    reflection = _ArtifactReflection(
+        stages["vertex"].reflection, stages["fragment"].reflection,
+        tuple(
+            _ArtifactIO(
+                item["name"], item["type"], item.get("location"),
+                item.get("builtin"),
+            ) for item in varying_records
+        ),
+    )
+    return RasterProgram(stages["vertex"], stages["fragment"], reflection)
+
+
 @dataclass(frozen=True, slots=True)
 class RasterProgram:
     """A linked vertex/fragment pair produced by Ordinary Shade."""
@@ -425,6 +474,30 @@ class RasterProgram:
         return cls.compile(
             shadow_vertex, shadow_fragment, target=target, validate=validate,
         )
+
+    @classmethod
+    def geometry_products(cls, *, target: str, validate: bool = True):
+        """Load the native depth/normal/object-ID/motion MRT program."""
+        key = (target, bool(validate))
+        cached = _GEOMETRY_PRODUCT_PROGRAM_CACHE.get(key)
+        if cached is not None:
+            return cached
+        result = _load_named_artifact(target, "geometry_products")
+        if result is None:
+            try:
+                from ..shaders.raster_programs import (
+                    geometry_product_fragment, geometry_product_vertex,
+                )
+            except ImportError as error:
+                raise RuntimeError(
+                    "built-in raster shaders require the ordinaryshade package"
+                ) from error
+            result = cls.compile(
+                geometry_product_vertex, geometry_product_fragment,
+                target=target, validate=validate,
+            )
+        _GEOMETRY_PRODUCT_PROGRAM_CACHE[key] = result
+        return result
 
     @property
     def cache_key(self) -> str:
@@ -1101,6 +1174,31 @@ def scene_mesh(
             for second in optical_screen_bounds[index + 1:]
         )
     )
+    optical_world_bounds = tuple(
+        (
+            np.min(mesh.world_vertices, axis=0),
+            np.max(mesh.world_vertices, axis=0),
+        )
+        for mesh in optical_transmissive_draw_meshes
+    )
+    # Contained dielectric interfaces need the preceding optical layer as a
+    # same-pixel fallback when the single opaque depth buffer cannot describe
+    # their interior boundary. Merely overlapping silhouettes are not enough:
+    # enabling this for neighboring refractors degrades ordinary refraction.
+    nested_outer_mesh_ids = set()
+    nested_inner_mesh_ids = set()
+    for index, (first_min, first_max) in enumerate(optical_world_bounds):
+        first_mesh = optical_transmissive_draw_meshes[index]
+        for second_index in range(index + 1, len(optical_world_bounds)):
+            second_min, second_max = optical_world_bounds[second_index]
+            second_mesh = optical_transmissive_draw_meshes[second_index]
+            if np.all(first_min <= second_min) and np.all(first_max >= second_max):
+                nested_outer_mesh_ids.add(id(first_mesh))
+                nested_inner_mesh_ids.add(id(second_mesh))
+            elif np.all(second_min <= first_min) and np.all(second_max >= first_max):
+                nested_outer_mesh_ids.add(id(second_mesh))
+                nested_inner_mesh_ids.add(id(first_mesh))
+    optical_transmissive_layers_nested = bool(nested_outer_mesh_ids)
     authored_transparent_draw_meshes = tuple(sorted(
         authored_transparent_meshes,
         # Source-alpha composition is order dependent. Camera-space depth,
@@ -1304,6 +1402,17 @@ def scene_mesh(
         environment_log_range_secondary=prepared_resources["environment_log_range_secondary"],
         probe_parameters_secondary=prepared_resources["probe_parameters_secondary"],
     )
+    # ``sheen_color.w`` is reserved in the portable material ABI.  Use it as
+    # a per-draw optical nesting role: +1 is a containing shell and -1 is a
+    # contained interface.  A scene-wide nesting flag is insufficient because
+    # it makes the inner interface consume its own accumulated result and can
+    # erase it before the outer shell is composited.
+    for mesh in optical_transmissive_draw_meshes:
+        material_index = material_indices[id(mesh)]
+        if id(mesh) in nested_outer_mesh_ids:
+            gpu_scene.materials["sheen_color"][material_index, 3] = 1.0
+        elif id(mesh) in nested_inner_mesh_ids:
+            gpu_scene.materials["sheen_color"][material_index, 3] = -1.0
     if not config.direct_lighting and len(gpu_scene.lights):
         gpu_scene.lights["color_intensity"][:, 3] = 0.0
     shadow_records = prepared_resources.get("shadow_records", ())
@@ -1344,10 +1453,82 @@ def scene_mesh(
         "optical_transmissive_layers_overlap": bool(
             optical_transmissive_layers_overlap
         ),
+        "optical_transmissive_layers_nested": bool(
+            optical_transmissive_layers_nested
+        ),
         "camera_order_token": tuple(
             material_indices[id(mesh)] for mesh in optical_draw_meshes
         ),
     })
+
+
+def geometry_product_mesh(scene, camera, width, height, previous=None):
+    """Build the compact native MRT stream and the next history snapshot.
+
+    The stream contains only world-space geometry data needed by the product
+    shader.  Previous positions are matched by stable mesh ID and vertex/index
+    topology, so camera and object motion share the same GPU pass.  A changed
+    scene, extent, or topology intentionally produces zero motion.
+    """
+    current_matrix = camera_matrix(camera, width, height)
+    compatible = (
+        previous is not None
+        and previous.get("scene") is scene
+        and previous.get("size") == (width, height)
+    )
+    previous_matrix = (
+        previous["view_projection"] if compatible else current_matrix
+    )
+    rows, indices, base = [], [], 0
+    snapshot_meshes = {}
+    for mesh in scene.visible_meshes:
+        world = np.asarray(mesh.world_vertices, np.float32)
+        normals = np.asarray(mesh.world_normals, np.float32)
+        object_ids = np.full((len(world), 1), float(mesh.id or 0), np.float32)
+        old_world = world
+        old = previous.get("meshes", {}).get(mesh.id) if compatible else None
+        if old is not None:
+            old_vertices, old_indices = old
+            if (
+                old_vertices.shape == world.shape
+                and old_indices.shape == mesh.indices.shape
+                and np.array_equal(old_indices, mesh.indices)
+            ):
+                old_world = old_vertices
+        rows.append(np.column_stack((world, normals, object_ids, old_world)))
+        indices.append(mesh.indices.reshape(-1) + base)
+        base += len(world)
+        snapshot_meshes[mesh.id] = (world.copy(), mesh.indices.copy())
+    vertices = (
+        np.concatenate(rows).astype(np.float32)
+        if rows else np.empty((0, 10), np.float32)
+    )
+    index_data = (
+        np.concatenate(indices).astype(np.uint32)
+        if indices else np.empty(0, np.uint32)
+    )
+    layout = RasterVertexLayout(40, (
+        RasterVertexAttribute(0, "float32x3", 0, "world_position"),
+        RasterVertexAttribute(1, "float32x3", 12, "world_normal"),
+        RasterVertexAttribute(2, "float32", 24, "object_id"),
+        RasterVertexAttribute(3, "float32x3", 28, "previous_world_position"),
+    ))
+    from .resources import GEOMETRY_PRODUCT_CAMERA_DTYPE
+    uniform = np.zeros(1, GEOMETRY_PRODUCT_CAMERA_DTYPE)
+    uniform["current_view_projection"][0] = current_matrix.T
+    uniform["previous_view_projection"][0] = previous_matrix.T
+    uniform["viewport"][0] = (float(width), float(height), 0.0, 0.0)
+    uniform["camera_position"][0] = (*camera.position, 1.0)
+    snapshot = {
+        "scene": scene,
+        "size": (width, height),
+        "view_projection": current_matrix.copy(),
+        "meshes": snapshot_meshes,
+    }
+    return RasterMesh(
+        vertices, index_data, layout,
+        {"geometry_product_camera": uniform.tobytes()},
+    ), snapshot
 
 
 def prepare_scene_mesh_resources(scene, config=None, *, native_shadow_maps=False):
@@ -1600,4 +1781,4 @@ def triangle_mesh() -> RasterMesh:
     return RasterMesh(np.array(((-0.7, -0.6), (0.7, -0.6), (0.0, 0.7)), np.float32))
 
 
-__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "prepare_scene_mesh_resources", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]
+__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "geometry_product_mesh", "prepare_scene_mesh_resources", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]

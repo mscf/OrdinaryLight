@@ -1,0 +1,731 @@
+{
+  "schema": 1,
+  "source": "ordinarylight/denoising/kernels.py",
+  "source_sha256": "e8b40590259134789a1a19b8e3d5ef3076865f4db66a6e46efd90aefa95a51e2",
+  "targets": {
+    "spirv": {
+      "atrous": {
+        "cache_key": "80a646be4c7ac82657ac3c9daf18198d68c8e41197e2b0d75c6941a9ee2a7a1b",
+        "file": "denoiser_relax_atrous.comp.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "input_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "AtrousConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "ed0ba4340fce18bc5c21f7d3481c88313a1b33daa0d82c18e79c6d887937515a"
+      },
+      "compose": {
+        "cache_key": "82810efe094eae1c01ab1474d55295aefff518405a6242a481b0ea8e88b225c9",
+        "file": "denoiser_relax_compose.comp.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "diffuse",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 3,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_hdr",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "ComposeConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "a5f73c231602a541a6bdd7fbce82ffc2260c188415d0916f5c198cec323e1847"
+      },
+      "prepare": {
+        "cache_key": "735e4069b3288f71d4720129fdc4875d8d1520205ca0adf00626c42b0971b853",
+        "file": "denoiser_relax_prepare.comp.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "WavePathState",
+              "kind": "storage_buffer",
+              "name": "paths",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "SecondaryPathState",
+              "kind": "storage_buffer",
+              "name": "secondary_paths",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "packed_normal",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "packed_material",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "diffuse_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 7,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 8,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "motion_output",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "PrepareCamera",
+              "kind": "storage_buffer",
+              "name": "current_camera",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 10,
+              "format": "PrepareCamera",
+              "kind": "storage_buffer",
+              "name": "previous_camera",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 11,
+              "format": "PrepareConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            64,
+            1,
+            1
+          ]
+        },
+        "sha256": "2d0a9ee2d715b8ba29d61c44cd4b410cc27159a20099c3d4b63713aee99a4f44"
+      },
+      "temporal": {
+        "cache_key": "22db2fd86c34eda94f2a81dbe8cc72863db5b73e31cfc977908dbd95d939c349",
+        "file": "denoiser_relax_temporal.comp.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "current_radiance_hit_distance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "motion",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "previous_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "previous_normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 7,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "previous_view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 8,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "previous_material_id",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "previous_history_length",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 10,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 11,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "output_history_length",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 12,
+              "format": "TemporalConstants",
+              "kind": "uniform_buffer",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "4a5eb6c2cbede24df99f03251220ab48e948e771bd4588321b198fd4fb432b75"
+      }
+    },
+    "wgsl": {
+      "atrous": {
+        "cache_key": "66303ca023e3101398ed288e0b3f49b5d8f2088c761c04c760c65f147e5c2cc4",
+        "file": "denoiser_relax_atrous.comp.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "input_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "AtrousConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "3f5d076b3b6928e755166025d93f55dc041822e868500a9cb3fb4c85b11e457a"
+      },
+      "compose": {
+        "cache_key": "4a66918b7ee25fc3ca121558d11d1f22971ee5a20f3abda2ba6d3990c708bbb1",
+        "file": "denoiser_relax_compose.comp.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "diffuse",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 3,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_hdr",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "ComposeConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "af46e18f29772d05fa9fa41a865aa97c2b479d10e196c4a0d458b6c4a55f2e9f"
+      },
+      "prepare": {
+        "cache_key": "ed7f20818b62f7109ebe7eafe79cb69f0d73f2713c53f066adaac867c0f50c30",
+        "file": "denoiser_relax_prepare.comp.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "WavePathState",
+              "kind": "storage_buffer",
+              "name": "paths",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "SecondaryPathState",
+              "kind": "storage_buffer",
+              "name": "secondary_paths",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "packed_normal",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "packed_material",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "diffuse_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 7,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z_output",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 8,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "motion_output",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "PrepareCamera",
+              "kind": "storage_buffer",
+              "name": "current_camera",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 10,
+              "format": "PrepareCamera",
+              "kind": "storage_buffer",
+              "name": "previous_camera",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 11,
+              "format": "PrepareConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            64,
+            1,
+            1
+          ]
+        },
+        "sha256": "8c72885e92774aede2411c899cf79d88393da8815fda34f457e79db8e656f41c"
+      },
+      "temporal": {
+        "cache_key": "ad1e346c03fcda75da05645611f79dbc190b6a43ac88598d1e57891936844b6b",
+        "file": "denoiser_relax_temporal.comp.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "current_radiance_hit_distance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "motion",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 4,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "previous_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "previous_normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 7,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "previous_view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 8,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "previous_material_id",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 9,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "previous_history_length",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 10,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 11,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "output_history_length",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 12,
+              "format": "TemporalConstants",
+              "kind": "uniform_buffer",
+              "name": "constants",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "f84e2f221a1ce2d30c4e7f0adf64002322e9afe66d16587b488c7078a5390f39"
+      }
+    }
+  }
+}

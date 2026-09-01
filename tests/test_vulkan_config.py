@@ -14,10 +14,45 @@ from ordinarylight.targets.vulkan.core import (
     _camera_angular_motion_pixels,
     _effect_screen_rect,
     _motion_adaptive_history_limit,
+    _wavefront_history_semaphore_plan,
 )
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_wavefront_history_semaphore_plan_forms_one_ping_pong_chain(self):
+        self.assertEqual(
+            _wavefront_history_semaphore_plan(
+                current_pending=False,
+                previous_pending=False,
+                history_enabled=True,
+            ),
+            (False, True),
+        )
+        self.assertEqual(
+            _wavefront_history_semaphore_plan(
+                current_pending=False,
+                previous_pending=True,
+                history_enabled=True,
+            ),
+            (True, True),
+        )
+
+    def test_wavefront_history_chain_consumes_stale_signal_when_disabled(self):
+        self.assertEqual(
+            _wavefront_history_semaphore_plan(
+                current_pending=False,
+                previous_pending=True,
+                history_enabled=False,
+            ),
+            (True, False),
+        )
+        with self.assertRaisesRegex(RuntimeError, "not consumed"):
+            _wavefront_history_semaphore_plan(
+                current_pending=True,
+                previous_pending=False,
+                history_enabled=True,
+            )
+
     def test_pipeline_cache_configuration(self):
         default = RendererConfig()
         self.assertTrue(default.vulkan_pipeline_cache)
@@ -779,6 +814,7 @@ class RendererConfigTests(unittest.TestCase):
         config = RendererConfig(
             samples_per_pixel=1,
             wavefront_restir_di=True,
+            wavefront_restir_reservoirs=8,
             wavefront_restir_candidates=2,
             wavefront_restir_history_limit=24,
             wavefront_restir_spatial_reuse=True,
@@ -790,6 +826,7 @@ class RendererConfigTests(unittest.TestCase):
             wavefront_restir_specialization=False,
         )
         self.assertTrue(config.wavefront_restir_di)
+        self.assertEqual(config.wavefront_restir_reservoirs, 8)
         self.assertEqual(config.wavefront_restir_candidates, 2)
         self.assertEqual(config.wavefront_restir_history_limit, 24)
         self.assertTrue(config.wavefront_restir_spatial_reuse)
@@ -803,6 +840,12 @@ class RendererConfigTests(unittest.TestCase):
             RendererConfig(wavefront_restir_specialization=1)
         with self.assertRaises(ValueError):
             RendererConfig(samples_per_pixel=2, wavefront_restir_di=True)
+        with self.assertRaises(TypeError):
+            RendererConfig(wavefront_restir_reservoirs=1.5)
+        with self.assertRaises(ValueError):
+            RendererConfig(wavefront_restir_reservoirs=0)
+        with self.assertRaises(ValueError):
+            RendererConfig(wavefront_restir_reservoirs=9)
         with self.assertRaises(ValueError):
             RendererConfig(wavefront_restir_candidates=5)
         with self.assertRaises(ValueError):

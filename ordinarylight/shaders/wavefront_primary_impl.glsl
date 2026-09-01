@@ -52,6 +52,9 @@ struct SecondaryPathState {
     vec4 normal_pdf;
     vec4 primary_throughput;
     vec4 primary_radiance;
+    vec4 diffuse_radiance_hit_distance;
+    vec4 specular_radiance_hit_distance;
+    vec4 primary_position;
 };
 
 uint pathRng(WavePathState path) { return path.metadata.z; }
@@ -918,8 +921,9 @@ bool ordinarylightSecondaryBounce(
 #endif
             }
             vec3 bsdf_weight;
+            float sampled_specular;
             samplePbr(material, normal, direction, rng,
-                next_direction, bsdf_weight, bsdf_pdf);
+                next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
 #if WAVE_ORDINARYSHADE_SECONDARY_TRANSPORT
             path.throughput.rgb = ordinarylight_secondary_scatter_throughput(
                 path.throughput.rgb, bsdf_weight);
@@ -1035,21 +1039,31 @@ void processPrimaryPixel(uvec2 local_pixel)
         return;
 
     uint pixel_index = pixel.y * push.image_tile.x + pixel.x;
+    // ReSTIR quality uses independent reservoir streams. tile_frame.z used
+    // to carry the frame index; live frame sequencing now comes from the
+    // camera buffer, leaving this ABI slot available for the stream count.
+    uint restir_reservoir_count = max(push.tile_frame.z, 1u);
+    uint restir_stream = min(
+        push.tile_frame.w, restir_reservoir_count - 1u);
+    uint restir_reservoir_index =
+        pixel_index * restir_reservoir_count + restir_stream;
+    // Resident command buffers retain their push constants.  The camera
+    // buffer is refreshed before every submission, so it is the authoritative
+    // source for the monotonically increasing stochastic frame sequence.
+    uint frame_index = uint(camera.origin.w + 0.5);
     if (push.restir_di != 0u)
         storeCurrentDirectLightReservoir(
-            pixel_index, emptyDirectLightReservoir());
-    // camera.origin.w duplicates tile_frame.z. Including both XOR terms
-    // cancels frame variation and leaves a fixed screen-space noise pattern.
+            restir_reservoir_index, emptyDirectLightReservoir());
 #if WAVE_ORDINARYSHADE_PRIMARY_STATE
     uint rng = ordinarylight_primary_rng_seed(
-        pixel_index, push.tile_frame.z, push.tile_frame.w);
+        pixel_index, frame_index, push.tile_frame.w);
     rng = ordinarylight_primary_rng_step(rng);
     float jitter_x = ordinarylight_primary_rng_value(rng);
     rng = ordinarylight_primary_rng_step(rng);
     float jitter_y = ordinarylight_primary_rng_value(rng);
     vec2 jitter = vec2(jitter_x, jitter_y);
 #else
-    uint rng = hashValue(pixel_index ^ hashValue(push.tile_frame.z)
+    uint rng = hashValue(pixel_index ^ hashValue(frame_index)
                          ^ hashValue(push.tile_frame.w + 1u));
     vec2 jitter = vec2(randomFloat(rng), randomFloat(rng));
 #endif
@@ -1096,12 +1110,12 @@ void processPrimaryPixel(uvec2 local_pixel)
     path.metadata = uvec4(
         pixel_index,
         ordinarylight_primary_path_identity(
-            push.tile_frame.z, push.tile_frame.w),
+            frame_index, push.tile_frame.w),
         rng, ordinarylight_primary_path_flags(indirect_capture_pixel));
 #else
     path.metadata = uvec4(
         pixel_index,
-        (push.tile_frame.z << 8u) | (push.tile_frame.w & 255u),
+        (frame_index << 8u) | (push.tile_frame.w & 255u),
         rng, 257u | (indirect_capture_pixel ? PATH_INDIRECT_CAPTURE_BIT : 0u));
 #endif
     setPathBounce(path, 0u);
@@ -1121,6 +1135,9 @@ void processPrimaryPixel(uvec2 local_pixel)
         secondary_paths[path_index].normal_pdf = vec4(0.0);
         secondary_paths[path_index].primary_throughput = vec4(0.0);
         secondary_paths[path_index].primary_radiance = vec4(0.0);
+        secondary_paths[path_index].diffuse_radiance_hit_distance = vec4(0.0);
+        secondary_paths[path_index].specular_radiance_hit_distance = vec4(0.0);
+        secondary_paths[path_index].primary_position = vec4(0.0);
 #endif
     }
 
@@ -1384,6 +1401,7 @@ void processPrimaryPixel(uvec2 local_pixel)
     float transmission = material.attenuation_transmission.a;
 #endif
     uint medium_depth = 1u;
+    float sampled_specular = 0.0;
     if (transmission > 0.001) {
 #if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
         float target_ior = ordinarylight_primary_target_ior(
@@ -1444,7 +1462,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                     uint spatial_count = push.restir_spatial_reuse != 0u
                         ? clamp(push.restir_spatial_neighbors, 1u, 8u) : 0u;
                     uint spatial_rotation = hashValue(
-                        pixel_index ^ push.tile_frame.z) & 7u;
+                        pixel_index ^ frame_index) & 7u;
                     for (uint reuse_index = 0u;
                             reuse_index <= spatial_count; ++reuse_index) {
                         ivec2 history_pixel = previous_pixel;
@@ -1464,7 +1482,8 @@ void processPrimaryPixel(uvec2 local_pixel)
                             uint previous_index = uint(history_pixel.y)
                                 * push.image_tile.x + uint(history_pixel.x);
                             history = loadPreviousDirectLightReservoir(
-                                previous_index);
+                                previous_index * restir_reservoir_count
+                                    + restir_stream);
                             history_source_present =
                                 history.data.x != 0xffffffffu;
                             if (history_source_present) {
@@ -1554,7 +1573,9 @@ void processPrimaryPixel(uvec2 local_pixel)
                                             + uint(proposal_pixel.x);
                                     DirectLightReservoir proposal =
                                         loadPreviousDirectLightReservoir(
-                                            proposal_flat_index);
+                                            proposal_flat_index
+                                                * restir_reservoir_count
+                                                + restir_stream);
                                     if (proposal.data.x == 0xffffffffu)
                                         continue;
                                     vec4 proposal_position;
@@ -1659,7 +1680,8 @@ void processPrimaryPixel(uvec2 local_pixel)
                     }
                 }
             }
-            storeCurrentDirectLightReservoir(pixel_index, reservoir);
+            storeCurrentDirectLightReservoir(
+                restir_reservoir_index, reservoir);
             if (reservoir.data.x != 0xffffffffu) {
                 AreaLightCandidate selected;
                 selected.light_index = reservoir.data.x;
@@ -1695,7 +1717,8 @@ void processPrimaryPixel(uvec2 local_pixel)
         if (push.restir_di != 0u
                 && WAVE_STRATIFIED_PRIMARY_RESTIR != 0u
                 && push.environment_samples > 0u) {
-            uint reservoir_pixel_count = push.image_tile.x * push.image_tile.y;
+            uint reservoir_pixel_count = push.image_tile.x
+                * push.image_tile.y * restir_reservoir_count;
             DirectLightReservoir environment_reservoir =
                 emptyDirectLightReservoir();
             uint environment_candidates = clamp(
@@ -1733,7 +1756,9 @@ void processPrimaryPixel(uvec2 local_pixel)
                             * push.image_tile.x + uint(history_pixel.x);
                         DirectLightReservoir history =
                             loadPreviousEnvironmentReservoir(
-                                history_index, reservoir_pixel_count);
+                                history_index * restir_reservoir_count
+                                    + restir_stream,
+                                reservoir_pixel_count);
                         history = limitDirectLightReservoir(
                             history, max(float(push.restir_history_limit)
                                 - unpackHalf2x16(
@@ -1762,7 +1787,8 @@ void processPrimaryPixel(uvec2 local_pixel)
                 }
             }
             storeCurrentEnvironmentReservoir(
-                pixel_index, reservoir_pixel_count, environment_reservoir);
+                restir_reservoir_index, reservoir_pixel_count,
+                environment_reservoir);
             if (environment_reservoir.data.x != 0xffffffffu) {
                 vec3 selected_direction;
                 float selected_distance;
@@ -1795,7 +1821,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         }
         vec3 bsdf_weight;
         samplePbr(material, normal, incoming, rng,
-            next_direction, bsdf_weight, bsdf_pdf);
+            next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
 #if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
         path.throughput.rgb = ordinarylight_primary_apply_bsdf_weight(
             path.throughput.rgb, bsdf_weight);
@@ -1839,13 +1865,17 @@ void processPrimaryPixel(uvec2 local_pixel)
 #endif
 #if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
         ordinarylight_store_secondary_primary(
-            path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf);
+            path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf,
+            sampled_specular, pbrSpecularProbability(material), position,
+            material.base_roughness.a);
 #else
         secondary_paths[path_index].primary_throughput =
-            vec4(path.throughput.rgb, 1.0);
+            vec4(path.throughput.rgb, 1.0 + sampled_specular);
         secondary_paths[path_index].primary_radiance =
-            vec4(path.radiance.rgb, 1.0);
+            vec4(path.radiance.rgb, pbrSpecularProbability(material));
         secondary_paths[path_index].normal_pdf.w = bsdf_pdf;
+        secondary_paths[path_index].primary_position = vec4(
+            position, 1.0 + clamp(material.base_roughness.a, 0.0, 1.0));
 #endif
     }
     WAVE_STORE_PATH(path_index, path);

@@ -132,6 +132,7 @@ fn main(
     let advanced0: vec4<f32> = materials[material_id].advanced0;
     let advanced1: vec4<f32> = materials[material_id].advanced1;
     let advanced_sheen_color: vec3<f32> = materials[material_id].sheen_color.xyz;
+    let optical_layer_role: f32 = materials[material_id].sheen_color.w;
     let advanced_subsurface_color: vec3<f32> = materials[material_id].subsurface_color.xyz;
     let advanced_texture_indices: vec4<f32> = materials[material_id].advanced_texture_indices;
     let optical: vec4<f32> = materials[material_id].optical;
@@ -265,6 +266,7 @@ fn main(
     let dielectric_f0: f32 = (dielectric_f0_ratio * dielectric_f0_ratio);
     let f0: vec3<f32> = mix(vec3<f32>(dielectric_f0), surface_base_color, vec3<f32>(surface_metallic));
     let fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - vdoth)), vec3<f32>(5.0))));
+    let optical_fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - ndotv)), vec3<f32>(5.0))));
     let alpha: f32 = (surface_roughness * surface_roughness);
     let alpha_x: f32 = max(0.02, (alpha * (1.0 - (0.7 * surface_anisotropy))));
     let alpha_y: f32 = max(0.02, (alpha * (1.0 + (0.7 * surface_anisotropy))));
@@ -304,11 +306,11 @@ fn main(
         let first_spot_inner: f32 = cos(first_packed_light.spot.x);
         attenuation = (attenuation * max(0.0, min(1.0, ((first_spot_cosine - first_spot_outer) / max((first_spot_inner - first_spot_outer), 1e-05)))));
     }
-    let visibility: f32 = (attenuation * shadow_visibility);
     let wrapped_contribution: f32 = max((diffuse_ndotl - ndotl), 0.0);
-    let scattered_shadow_visibility: f32 = mix(shadow_map_visibility, 1.0, surface_subsurface);
-    let diffuse_visibility: f32 = ((ndotl * shadow_map_visibility) + (wrapped_contribution * scattered_shadow_visibility));
-    var direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * first_light_radiance) * (diffuse_visibility * visibility)) + ((((specular * base_energy) + clearcoat_specular) * first_light_radiance) * ((ndotl * shadow_map_visibility) * visibility)));
+    let hard_shadow_visibility: f32 = (shadow_map_visibility * shadow_visibility);
+    let scattered_shadow_visibility: f32 = mix(hard_shadow_visibility, 1.0, surface_subsurface);
+    let diffuse_visibility: f32 = ((ndotl * hard_shadow_visibility) + (wrapped_contribution * scattered_shadow_visibility));
+    var direct: vec3<f32> = (((((diffuse + sheen) * base_energy) * first_light_radiance) * (diffuse_visibility * attenuation)) + ((((specular * base_energy) + clearcoat_specular) * first_light_radiance) * ((ndotl * hard_shadow_visibility) * attenuation)));
     for (var light_index: i32 = 1; light_index < 8; light_index += 1) {
         if ((light_index < i32(camera.optical_diagnostic.y))) {
             let packed_light: RasterLight = lights[u32(light_index)];
@@ -394,7 +396,10 @@ fn main(
                     }
                 }
             }
-            direct = (direct + (((((((packed_diffuse + packed_sheen) * packed_base_energy) * packed_radiance) * packed_diffuse_ndotl) + ((((packed_specular * packed_base_energy) + packed_clearcoat) * packed_radiance) * packed_ndotl)) * packed_attenuation) * packed_shadow_visibility));
+            let packed_wrapped_contribution: f32 = max((packed_diffuse_ndotl - packed_ndotl), 0.0);
+            let packed_scattered_visibility: f32 = mix(packed_shadow_visibility, 1.0, surface_subsurface);
+            let packed_diffuse_visibility: f32 = ((packed_ndotl * packed_shadow_visibility) + (packed_wrapped_contribution * packed_scattered_visibility));
+            direct = (direct + ((((((packed_diffuse + packed_sheen) * packed_base_energy) * packed_radiance) * packed_diffuse_visibility) + (((((packed_specular * packed_base_energy) + packed_clearcoat) * packed_radiance) * packed_ndotl) * packed_shadow_visibility)) * packed_attenuation));
         }
     }
     let optical_thickness: f32 = (advanced1.w * thickness_sample);
@@ -604,6 +609,55 @@ fn main(
     let refraction_origin: vec3<f32> = (closed_exit_position + (closed_refracted * 0.03));
     let refraction_extent: f32 = max(8.0, (length(view_delta) * 3.0));
     var refraction_screen_uv: vec2<f32> = screen_uv;
+    let nested_outer_layer: f32 = max(0.0, min(1.0, (camera.optical_diagnostic.w * max(optical_layer_role, 0.0))));
+    var nested_internal_uv: vec2<f32> = screen_uv;
+    var nested_internal_hit: f32 = 0.0;
+    var nested_previous_delta: f32 = (-1.0);
+    var nested_previous_fraction: f32 = 0.0;
+    if ((nested_outer_layer > 0.5)) {
+        for (var nested_step: i32 = 1; nested_step < 25; nested_step += 1) {
+            let nested_fraction: f32 = (f32(nested_step) / 24.0);
+            let nested_distance: f32 = (0.02 + ((nested_fraction * nested_fraction) * max((proxy_exit_distance - 0.04), 0.04)));
+            let nested_world: vec3<f32> = (world_position + (refracted * nested_distance));
+            let nested_clip: vec4<f32> = (camera.view_projection * vec4<f32>(nested_world, 1.0));
+            if ((nested_clip.w <= 1e-06)) {
+                break;
+            }
+            let nested_ndc: vec3<f32> = (nested_clip.xyz / nested_clip.w);
+            let nested_uv_candidate: vec2<f32> = vec2<f32>(((nested_ndc.x * 0.5) + 0.5), (0.5 - (nested_ndc.y * 0.5)));
+            if (((((nested_uv_candidate.x <= 0.001) || (nested_uv_candidate.x >= 0.999)) || (nested_uv_candidate.y <= 0.001)) || (nested_uv_candidate.y >= 0.999))) {
+                break;
+            }
+            let nested_scene_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, nested_uv_candidate, 0);
+            let nested_delta: f32 = (nested_ndc.z - nested_scene_depth);
+            if (((nested_previous_delta <= 1e-05) && (nested_delta > 1e-05))) {
+                var nested_lower: f32 = nested_previous_fraction;
+                var nested_upper: f32 = nested_fraction;
+                var nested_refined_uv: vec2<f32> = nested_uv_candidate;
+                for (var nested_refine_step: i32 = 0; nested_refine_step < 4; nested_refine_step += 1) {
+                    let nested_middle: f32 = ((nested_lower + nested_upper) * 0.5);
+                    let nested_middle_distance: f32 = (0.02 + ((nested_middle * nested_middle) * max((proxy_exit_distance - 0.04), 0.04)));
+                    let nested_middle_world: vec3<f32> = (world_position + (refracted * nested_middle_distance));
+                    let nested_middle_clip: vec4<f32> = (camera.view_projection * vec4<f32>(nested_middle_world, 1.0));
+                    let nested_middle_ndc: vec3<f32> = (nested_middle_clip.xyz / max(nested_middle_clip.w, 1e-06));
+                    let nested_middle_uv: vec2<f32> = vec2<f32>(((nested_middle_ndc.x * 0.5) + 0.5), (0.5 - (nested_middle_ndc.y * 0.5)));
+                    let nested_middle_depth: f32 = textureSampleLevel(scene_depth, scene_depth_sampler, nested_middle_uv, 0);
+                    let nested_middle_delta: f32 = (nested_middle_ndc.z - nested_middle_depth);
+                    if ((nested_middle_delta > 1e-05)) {
+                        nested_upper = nested_middle;
+                        nested_refined_uv = nested_middle_uv;
+                    } else {
+                        nested_lower = nested_middle;
+                    }
+                }
+                nested_internal_uv = nested_refined_uv;
+                nested_internal_hit = 1.0;
+                break;
+            }
+            nested_previous_fraction = nested_fraction;
+            nested_previous_delta = nested_delta;
+        }
+    }
     var refraction_hit: f32 = 0.0;
     var previous_refraction_fraction: f32 = 0.0;
     var previous_refraction_delta: f32 = (-1.0);
@@ -659,19 +713,25 @@ fn main(
     let reflection_offset: vec2<f32> = (reflection_texel * reflection_radius);
     let screen_reflected: vec3<f32> = ((((((textureSampleLevel(scene_color, scene_sampler, reflection_screen_uv, 0.0).xyz * 4.0) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv + vec2<f32>(reflection_offset.x, 0.0)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv - vec2<f32>(reflection_offset.x, 0.0)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv + vec2<f32>(0.0, reflection_offset.y)), 0.0).xyz) + textureSampleLevel(scene_color, scene_sampler, (reflection_screen_uv - vec2<f32>(0.0, reflection_offset.y)), 0.0).xyz) * 0.125);
     let screen_refracted: vec3<f32> = textureSampleLevel(scene_color, scene_sampler, refraction_screen_uv, 0.0).xyz;
+    let nested_internal_refracted: vec3<f32> = textureSampleLevel(scene_color, scene_sampler, nested_internal_uv, 0.0).xyz;
     let reflected_source: vec3<f32> = mix(reflected_environment, screen_reflected, ((reflection_hit * screen_enabled) * (1.0 - surface_roughness)));
     let refraction_edge_distance: f32 = min(min(refraction_screen_uv.x, (1.0 - refraction_screen_uv.x)), min(refraction_screen_uv.y, (1.0 - refraction_screen_uv.y)));
     let refraction_edge_confidence: f32 = max(0.0, min(1.0, (refraction_edge_distance * 16.0)));
     let refraction_angle_confidence: f32 = max(0.0, min(1.0, ((ndotv - 0.08) * 2.5)));
     let refraction_confidence: f32 = ((refraction_hit * refraction_edge_confidence) * refraction_angle_confidence);
-    let refracted_source: vec3<f32> = mix(refracted_environment, screen_refracted, ((refraction_confidence * screen_enabled) * (1.0 - surface_roughness)));
+    var screen_transmitted_source: vec3<f32> = mix(refracted_environment, screen_refracted, refraction_confidence);
+    screen_transmitted_source = mix(screen_transmitted_source, nested_internal_refracted, (nested_internal_hit * nested_outer_layer));
+    let screen_transmission_confidence: f32 = max(refraction_confidence, (nested_internal_hit * nested_outer_layer));
+    let refracted_source: vec3<f32> = mix(refracted_environment, screen_transmitted_source, ((screen_transmission_confidence * screen_enabled) * (1.0 - surface_roughness)));
     let environment_enabled: f32 = environment_rotation_log_range.z;
     let reflection_source_enabled: f32 = max(environment_enabled, (reflection_hit * screen_enabled));
-    let refraction_source_enabled: f32 = max(environment_enabled, (refraction_confidence * screen_enabled));
+    let refraction_source_enabled: f32 = max(environment_enabled, (screen_transmission_confidence * screen_enabled));
     let ambient: vec3<f32> = (((((surface_base_color * diffuse_weight) + (f0 * (1.0 - (0.5 * surface_roughness)))) + ((transmission_tint * surface_transmission) * (vec3<f32>(1.0) - f0))) * light_color_ambient.w) * surface_occlusion);
     let base_shaded: vec3<f32> = ((ambient + direct) + surface_emission);
-    let transmitted_shaded: vec3<f32> = mix(base_shaded, (refracted_source * transmission_tint), (surface_transmission * refraction_source_enabled));
-    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_source * fresnel) * reflection_source_enabled));
+    let transmission_weight: f32 = (surface_transmission * refraction_source_enabled);
+    let dielectric_refracted: vec3<f32> = ((refracted_source * transmission_tint) * (vec3<f32>(1.0) - optical_fresnel));
+    let transmitted_shaded: vec3<f32> = mix(base_shaded, dielectric_refracted, transmission_weight);
+    let shaded: vec3<f32> = (transmitted_shaded + ((reflected_source * optical_fresnel) * reflection_source_enabled));
     let prepass_alpha: f32 = select(surface_alpha, object_tag, (abs(camera.viewport_optics.z) > 1.5));
     let result: vec4<f32> = vec4<f32>(select(shaded, surface_base_color, unlit_program), prepass_alpha);
     let diagnostic_mode: f32 = camera.optical_diagnostic.x;

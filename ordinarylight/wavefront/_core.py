@@ -74,13 +74,20 @@ MEDIUM_STACK_DTYPE = np.dtype({
 SECONDARY_PATH_STATE_DTYPE = np.dtype({
     "names": (
         "position_valid", "normal_pdf", "primary_throughput",
-        "primary_radiance",
+        "primary_radiance", "diffuse_radiance_hit_distance",
+        "specular_radiance_hit_distance", "primary_position",
     ),
-    "formats": ((np.float32, 4),) * 4,
-    "offsets": (0, 16, 32, 48),
-    "itemsize": 64,
+    "formats": ((np.float32, 4),) * 7,
+    "offsets": (0, 16, 32, 48, 64, 80, 96),
+    "itemsize": 112,
 })
-"""Optional first-indirect-vertex state kept out of the hot path ABI."""
+"""Optional cold path state kept out of the hot path ABI.
+
+The final three vectors are dormant unless denoiser-signal capture is enabled.
+Their RGB lanes accumulate demodulated diffuse/specular radiance and their W
+lanes retain the corresponding first-event hit distance.  Keeping these
+signals here preserves the 48-byte hot path state used by every bounce.
+"""
 
 
 QUEUE_HEADER_DTYPE = np.dtype({

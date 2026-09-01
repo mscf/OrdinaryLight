@@ -17,7 +17,7 @@ from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
     CAMERA_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE, SHADOW_DTYPE, camera_matrix, create_raster_pipeline,
-    rasterize_geometry_products, scene_mesh,
+    geometry_product_mesh, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
 from ._diagnostics import frame_difference
@@ -64,7 +64,8 @@ class VulkanRasterRenderer(RendererImplementation):
         self.state = self.config.state
         self.pipeline_graph = create_raster_pipeline(self.config)
         self._post = RasterPostProcessor(self.config)
-        self.available_outputs = ("color", "depth", "normal", "object_id")
+        self.available_outputs = ("color", "depth", "normal", "object_id", "motion")
+        self._output_history = None
         self.last_timings = {}
         from ...probes import ProbeCaptureManager
         self.probe_capture = ProbeCaptureManager()
@@ -238,6 +239,29 @@ class VulkanRasterRenderer(RendererImplementation):
             ), None,
         )
         self._shadow_pipelines = {}
+        product_program = type(program).geometry_products(target="spirv")
+        self._product_vertex_module = self._shader(product_program.vertex.binary)
+        self._product_fragment_module = self._shader(product_program.fragment.binary)
+        self._product_descriptor_layout = vk.vkCreateDescriptorSetLayout(
+            self.device, vk.VkDescriptorSetLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                bindingCount=1,
+                pBindings=[vk.VkDescriptorSetLayoutBinding(
+                    binding=0,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    descriptorCount=1,
+                    stageFlags=(vk.VK_SHADER_STAGE_VERTEX_BIT
+                                | vk.VK_SHADER_STAGE_FRAGMENT_BIT),
+                )],
+            ), None,
+        )
+        self._product_pipeline_layout = vk.vkCreatePipelineLayout(
+            self.device, vk.VkPipelineLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                setLayoutCount=1, pSetLayouts=[self._product_descriptor_layout],
+            ), None,
+        )
+        self._product_pipelines = {}
         self.capabilities = RendererCapabilities(
             renderer="vulkan-raster", features=frozenset(
                 {"raster", "offscreen", "depth"}
@@ -2992,6 +3016,9 @@ class VulkanRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
             "shadow_count", 0,
         )
+        camera_data["optical_diagnostic"][0, 3] = float(mesh.resources.get(
+            "optical_transmissive_layers_nested", False,
+        ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         pack_ms = (time.perf_counter() - pack_started) * 1000.0
         camera_order_token = mesh.resources.get("camera_order_token", ())
@@ -3035,17 +3062,427 @@ class VulkanRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
             "shadow_count", 0,
         )
+        camera_data["optical_diagnostic"][0, 3] = float(mesh.resources.get(
+            "optical_transmissive_layers_nested", False,
+        ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
         return self._post.process(image, scene, camera)
 
-    def render_products(self, scene, camera, width, height, *, outputs, samples=None, frame_index=0):
-        mesh = scene_mesh(
-            scene, camera, width, height, self.config,
-            native_shadow_maps=True,
+    def _product_pipeline(self, render_pass, layout, width, height):
+        vk = self.vk
+        key = (layout, int(width), int(height))
+        pipeline = self._product_pipelines.get(key)
+        if pipeline is not None:
+            return pipeline
+        format_map = {
+            "float32": vk.VK_FORMAT_R32_SFLOAT,
+            "float32x2": vk.VK_FORMAT_R32G32_SFLOAT,
+            "float32x3": vk.VK_FORMAT_R32G32B32_SFLOAT,
+            "float32x4": vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+        }
+        stages = [
+            vk.VkPipelineShaderStageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                stage=vk.VK_SHADER_STAGE_VERTEX_BIT,
+                module=self._product_vertex_module, pName="main",
+            ),
+            vk.VkPipelineShaderStageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                module=self._product_fragment_module, pName="main",
+            ),
+        ]
+        pipeline = vk.vkCreateGraphicsPipelines(
+            self.device, vk.VK_NULL_HANDLE, 1,
+            [vk.VkGraphicsPipelineCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                stageCount=2,
+                pStages=stages,
+                pVertexInputState=vk.VkPipelineVertexInputStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+                    vertexBindingDescriptionCount=1,
+                    pVertexBindingDescriptions=[vk.VkVertexInputBindingDescription(
+                        binding=0, stride=layout.stride,
+                        inputRate=vk.VK_VERTEX_INPUT_RATE_VERTEX,
+                    )],
+                    vertexAttributeDescriptionCount=len(layout.attributes),
+                    pVertexAttributeDescriptions=[
+                        vk.VkVertexInputAttributeDescription(
+                            location=item.location, binding=0,
+                            format=format_map[item.format], offset=item.offset,
+                        ) for item in layout.attributes
+                    ],
+                ),
+                pInputAssemblyState=vk.VkPipelineInputAssemblyStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+                    topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                ),
+                pViewportState=vk.VkPipelineViewportStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+                    viewportCount=1, pViewports=[vk.VkViewport(
+                        x=0.0, y=float(height), width=float(width),
+                        height=-float(height), minDepth=0.0, maxDepth=1.0,
+                    )],
+                    scissorCount=1, pScissors=[vk.VkRect2D(
+                        offset=vk.VkOffset2D(x=0, y=0),
+                        extent=vk.VkExtent2D(width=width, height=height),
+                    )],
+                ),
+                pRasterizationState=vk.VkPipelineRasterizationStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                    polygonMode=vk.VK_POLYGON_MODE_FILL,
+                    cullMode={
+                        "none": vk.VK_CULL_MODE_NONE,
+                        "front": vk.VK_CULL_MODE_FRONT_BIT,
+                        "back": vk.VK_CULL_MODE_BACK_BIT,
+                    }[self.state.cull_mode],
+                    frontFace=(
+                        vk.VK_FRONT_FACE_COUNTER_CLOCKWISE
+                        if self.state.front_face == "ccw"
+                        else vk.VK_FRONT_FACE_CLOCKWISE
+                    ), lineWidth=1.0,
+                ),
+                pMultisampleState=vk.VkPipelineMultisampleStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                    rasterizationSamples=vk.VK_SAMPLE_COUNT_1_BIT,
+                ),
+                pDepthStencilState=vk.VkPipelineDepthStencilStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                    depthTestEnable=vk.VK_TRUE, depthWriteEnable=vk.VK_TRUE,
+                    depthCompareOp=vk.VK_COMPARE_OP_LESS,
+                ),
+                pColorBlendState=vk.VkPipelineColorBlendStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                    attachmentCount=2,
+                    pAttachments=[vk.VkPipelineColorBlendAttachmentState(
+                        blendEnable=vk.VK_FALSE,
+                        srcColorBlendFactor=vk.VK_BLEND_FACTOR_ONE,
+                        dstColorBlendFactor=vk.VK_BLEND_FACTOR_ZERO,
+                        colorBlendOp=vk.VK_BLEND_OP_ADD,
+                        srcAlphaBlendFactor=vk.VK_BLEND_FACTOR_ONE,
+                        dstAlphaBlendFactor=vk.VK_BLEND_FACTOR_ZERO,
+                        alphaBlendOp=vk.VK_BLEND_OP_ADD,
+                        colorWriteMask=(vk.VK_COLOR_COMPONENT_R_BIT
+                                        | vk.VK_COLOR_COMPONENT_G_BIT
+                                        | vk.VK_COLOR_COMPONENT_B_BIT
+                                        | vk.VK_COLOR_COMPONENT_A_BIT),
+                    ) for _ in range(2)],
+                ),
+                layout=self._product_pipeline_layout, renderPass=render_pass,
+                subpass=0,
+            )], None,
+        )[0]
+        self._product_pipelines[key] = pipeline
+        return pipeline
+
+    def _render_native_products(self, mesh, width, height):
+        """Rasterize typed geometry products in one Vulkan MRT pass."""
+        if not len(mesh.vertices):
+            return {
+                "depth": np.ones((height, width), np.float32),
+                "normal": np.zeros((height, width, 3), np.float32),
+                "object_id": np.zeros((height, width), np.uint32),
+                "motion": np.zeros((height, width, 2), np.float32),
+            }
+        vk = self.vk
+        width, height = int(width), int(height)
+        resources = []
+        def remember(kind, handle):
+            resources.append((kind, handle))
+            return handle
+
+        def image(format_name, aspect):
+            handle = remember("image", vk.vkCreateImage(
+                self.device, vk.VkImageCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                    imageType=vk.VK_IMAGE_TYPE_2D, format=format_name,
+                    extent=vk.VkExtent3D(width=width, height=height, depth=1),
+                    mipLevels=1, arrayLayers=1,
+                    samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                    tiling=vk.VK_IMAGE_TILING_OPTIMAL,
+                    usage=(
+                        (vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                         if aspect == vk.VK_IMAGE_ASPECT_DEPTH_BIT
+                         else vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+                        | (0 if aspect == vk.VK_IMAGE_ASPECT_DEPTH_BIT
+                           else vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+                    ),
+                    sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+                    initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+                ), None,
+            ))
+            requirements = vk.vkGetImageMemoryRequirements(self.device, handle)
+            memory = remember("memory", vk.vkAllocateMemory(
+                self.device, vk.VkMemoryAllocateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                    allocationSize=requirements.size,
+                    memoryTypeIndex=self._memory_type(
+                        requirements.memoryTypeBits,
+                        vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    ),
+                ), None,
+            ))
+            vk.vkBindImageMemory(self.device, handle, memory, 0)
+            view = remember("image_view", vk.vkCreateImageView(
+                self.device, vk.VkImageViewCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                    image=handle, viewType=vk.VK_IMAGE_VIEW_TYPE_2D,
+                    format=format_name,
+                    subresourceRange=vk.VkImageSubresourceRange(
+                        aspectMask=aspect, baseMipLevel=0, levelCount=1,
+                        baseArrayLayer=0, layerCount=1,
+                    ),
+                ), None,
+            ))
+            return handle, view
+
+        formats = (
+            vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            vk.VK_FORMAT_R32G32B32A32_SFLOAT,
         )
-        products = rasterize_geometry_products(mesh, width, height)
+        color_images = [image(item, vk.VK_IMAGE_ASPECT_COLOR_BIT) for item in formats]
+        depth_image, depth_view = image(
+            vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_ASPECT_DEPTH_BIT,
+        )
+        attachments = [vk.VkAttachmentDescription(
+            format=item, samples=vk.VK_SAMPLE_COUNT_1_BIT,
+            loadOp=vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            storeOp=vk.VK_ATTACHMENT_STORE_OP_STORE,
+            stencilLoadOp=vk.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            stencilStoreOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            finalLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        ) for item in formats]
+        attachments.append(vk.VkAttachmentDescription(
+            format=vk.VK_FORMAT_D32_SFLOAT,
+            samples=vk.VK_SAMPLE_COUNT_1_BIT,
+            loadOp=vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            storeOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            stencilLoadOp=vk.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            stencilStoreOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            finalLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        ))
+        color_references = [vk.VkAttachmentReference(
+            attachment=index,
+            layout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        ) for index in range(2)]
+        depth_reference = vk.VkAttachmentReference(
+            attachment=2,
+            layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        )
+        subpass = vk.VkSubpassDescription(
+            pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            colorAttachmentCount=2,
+            pColorAttachments=color_references,
+            pDepthStencilAttachment=depth_reference,
+        )
+        render_pass = remember("render_pass", vk.vkCreateRenderPass(
+            self.device, vk.VkRenderPassCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                attachmentCount=3, pAttachments=attachments,
+                subpassCount=1, pSubpasses=[subpass],
+                dependencyCount=0, pDependencies=None,
+            ), None,
+        ))
+        framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(
+            self.device, vk.VkFramebufferCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                renderPass=render_pass, attachmentCount=3,
+                pAttachments=[item[1] for item in color_images] + [depth_view],
+                width=width, height=height, layers=1,
+            ), None,
+        ))
+        vertex, vertex_memory = self._buffer(
+            mesh.vertices.nbytes, vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            mesh.vertices.tobytes(),
+        )
+        resources.extend((("buffer", vertex), ("memory", vertex_memory)))
+        index = None
+        if mesh.indices is not None and mesh.indices.size:
+            index, index_memory = self._buffer(
+                mesh.indices.nbytes, vk.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                mesh.indices.tobytes(),
+            )
+            resources.extend((("buffer", index), ("memory", index_memory)))
+        uniform_payload = mesh.resources["geometry_product_camera"]
+        uniform, uniform_memory = self._buffer(
+            len(uniform_payload), vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            uniform_payload,
+        )
+        resources.extend((("buffer", uniform), ("memory", uniform_memory)))
+        descriptor_pool = remember("descriptor_pool", vk.vkCreateDescriptorPool(
+            self.device, vk.VkDescriptorPoolCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                maxSets=1, poolSizeCount=1,
+                pPoolSizes=[vk.VkDescriptorPoolSize(
+                    type=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    descriptorCount=1,
+                )],
+            ), None,
+        ))
+        descriptor = vk.vkAllocateDescriptorSets(
+            self.device, vk.VkDescriptorSetAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                descriptorPool=descriptor_pool, descriptorSetCount=1,
+                pSetLayouts=[self._product_descriptor_layout],
+            ),
+        )[0]
+        vk.vkUpdateDescriptorSets(self.device, 1, [vk.VkWriteDescriptorSet(
+            sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            dstSet=descriptor, dstBinding=0, descriptorCount=1,
+            descriptorType=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            pBufferInfo=[vk.VkDescriptorBufferInfo(
+                buffer=uniform, offset=0, range=len(uniform_payload),
+            )],
+        )], 0, None)
+        specs = (
+            (color_images[0][0], vk.VK_IMAGE_ASPECT_COLOR_BIT, 16, np.float32, 4),
+            (color_images[1][0], vk.VK_IMAGE_ASPECT_COLOR_BIT, 16, np.float32, 4),
+        )
+        readbacks = []
+        for _image, _aspect, bytes_per_pixel, dtype, components in specs:
+            size = width * height * bytes_per_pixel
+            buffer, memory = self._buffer(
+                size, vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            )
+            resources.extend((("buffer", buffer), ("memory", memory)))
+            readbacks.append((buffer, memory, size, dtype, components))
+        command = vk.vkAllocateCommandBuffers(
+            self.device, vk.VkCommandBufferAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                commandPool=self.command_pool,
+                level=vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                commandBufferCount=1,
+            ),
+        )[0]
+        vk.vkBeginCommandBuffer(command, vk.VkCommandBufferBeginInfo(
+            sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            flags=vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        ))
+        vk.vkCmdBeginRenderPass(command, vk.VkRenderPassBeginInfo(
+            sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            renderPass=render_pass, framebuffer=framebuffer,
+            renderArea=vk.VkRect2D(
+                offset=vk.VkOffset2D(x=0, y=0),
+                extent=vk.VkExtent2D(width=width, height=height),
+            ), clearValueCount=3,
+            pClearValues=[
+                vk.VkClearValue(color=vk.VkClearColorValue(float32=[0, 0, 0, 0])),
+                vk.VkClearValue(color=vk.VkClearColorValue(float32=[0, 0, 0, 0])),
+                vk.VkClearValue(depthStencil=vk.VkClearDepthStencilValue(depth=1.0, stencil=0)),
+            ],
+        ), vk.VK_SUBPASS_CONTENTS_INLINE)
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self._product_pipeline(render_pass, mesh.layout, width, height),
+        )
+        vk.vkCmdBindDescriptorSets(
+            command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self._product_pipeline_layout, 0, 1, [descriptor], 0, None,
+        )
+        vk.vkCmdBindVertexBuffers(command, 0, 1, [vertex], [0])
+        if index is not None:
+            vk.vkCmdBindIndexBuffer(command, index, 0, vk.VK_INDEX_TYPE_UINT32)
+            vk.vkCmdDrawIndexed(command, mesh.indices.size, 1, 0, 0, 0)
+        else:
+            vk.vkCmdDraw(command, len(mesh.vertices), 1, 0, 0)
+        vk.vkCmdEndRenderPass(command)
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, None, 0, None, len(color_images), [vk.VkImageMemoryBarrier(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                srcAccessMask=vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                dstAccessMask=vk.VK_ACCESS_TRANSFER_READ_BIT,
+                oldLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                image=source,
+                subresourceRange=vk.VkImageSubresourceRange(
+                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                    baseMipLevel=0, levelCount=1,
+                    baseArrayLayer=0, layerCount=1,
+                ),
+            ) for source, _view in color_images],
+        )
+        for (source, aspect, _bpp, _dtype, _components), (buffer, *_rest) in zip(specs, readbacks):
+            vk.vkCmdCopyImageToBuffer(
+                command, source, vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                buffer, 1, [vk.VkBufferImageCopy(
+                    bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
+                    imageSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=aspect, mipLevel=0,
+                        baseArrayLayer=0, layerCount=1,
+                    ), imageOffset=vk.VkOffset3D(x=0, y=0, z=0),
+                    imageExtent=vk.VkExtent3D(width=width, height=height, depth=1),
+                )],
+            )
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vk.VK_PIPELINE_STAGE_HOST_BIT, 0,
+            0, None, len(readbacks), [vk.VkBufferMemoryBarrier(
+                sType=vk.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                dstAccessMask=vk.VK_ACCESS_HOST_READ_BIT,
+                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                buffer=buffer, offset=0, size=size,
+            ) for buffer, _memory, size, _dtype, _components in readbacks],
+            0, None,
+        )
+        vk.vkEndCommandBuffer(command)
+        fence = vk.vkCreateFence(self.device, vk.VkFenceCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        ), None)
+        try:
+            vk.vkQueueSubmit(self.queue, 1, [vk.VkSubmitInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                commandBufferCount=1, pCommandBuffers=[command],
+            )], fence)
+            vk.vkWaitForFences(
+                self.device, 1, [fence], vk.VK_TRUE, 10_000_000_000,
+            )
+            arrays = []
+            for _buffer, memory, size, dtype, components in readbacks:
+                mapped = vk.vkMapMemory(self.device, memory, 0, size, 0)
+                values = np.frombuffer(bytes(mapped[:size]), dtype)
+                vk.vkUnmapMemory(self.device, memory)
+                values = values.reshape(
+                    (height, width, components) if components > 1
+                    else (height, width)
+                )
+                arrays.append(values)
+        finally:
+            vk.vkDestroyFence(self.device, fence, None)
+            vk.vkFreeCommandBuffers(self.device, self.command_pool, 1, [command])
+            self._destroy_frame_resources(resources)
+        normal_depth, motion_object = arrays
+        object_ids = np.rint(motion_object[..., 2]).astype(np.uint32)
+        depth_output = normal_depth[..., 3].astype(np.float32)
+        depth_output[object_ids == 0] = np.inf
+        motion = motion_object[..., :2].astype(np.float32)
+        motion[np.abs(motion) < 1e-6] = 0.0
+        return {
+            "depth": depth_output,
+            "normal": normal_depth[..., :3].astype(np.float32),
+            "object_id": object_ids,
+            "motion": motion,
+        }
+
+    def render_products(self, scene, camera, width, height, *, outputs, samples=None, frame_index=0):
+        mesh, next_history = geometry_product_mesh(
+            scene, camera, width, height, self._output_history,
+        )
+        products = self._render_native_products(mesh, width, height)
+        self._output_history = next_history
         if "color" in outputs:
             color_mesh = scene_mesh(
                 scene, camera, width, height, self.config,
@@ -3066,6 +3503,11 @@ class VulkanRasterRenderer(RendererImplementation):
             camera_data["optical_diagnostic"][0, 2] = color_mesh.resources.get(
                 "shadow_count", 0,
             )
+            camera_data["optical_diagnostic"][0, 3] = float(
+                color_mesh.resources.get(
+                    "optical_transmissive_layers_nested", False,
+                )
+            )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)
@@ -3077,6 +3519,7 @@ class VulkanRasterRenderer(RendererImplementation):
 
     def reset_output_history(self):
         self._post.reset()
+        self._output_history = None
 
     def close(self):
         if self._closed:
@@ -3101,6 +3544,21 @@ class VulkanRasterRenderer(RendererImplementation):
         for pipeline in self._shadow_pipelines.values():
             self.vk.vkDestroyPipeline(self.device, pipeline, None)
         self._shadow_pipelines.clear()
+        for pipeline in self._product_pipelines.values():
+            self.vk.vkDestroyPipeline(self.device, pipeline, None)
+        self._product_pipelines.clear()
+        self.vk.vkDestroyPipelineLayout(
+            self.device, self._product_pipeline_layout, None,
+        )
+        self.vk.vkDestroyDescriptorSetLayout(
+            self.device, self._product_descriptor_layout, None,
+        )
+        self.vk.vkDestroyShaderModule(
+            self.device, self._product_fragment_module, None,
+        )
+        self.vk.vkDestroyShaderModule(
+            self.device, self._product_vertex_module, None,
+        )
         self.vk.vkDestroyPipelineLayout(
             self.device, self._shadow_pipeline_layout, None,
         )

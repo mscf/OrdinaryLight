@@ -3,7 +3,8 @@
 from ordinarylight.integrations.workbench import OrbitCamera, Showcase
 from ordinarylight.showcases.raster_features import (
     build_advanced_material_scene, build_directional_shadow_scene,
-    build_material_program_parity_scene, build_multi_light_shadow_scene,
+    build_material_program_parity_scene, build_material_program_room_scene,
+    build_multi_light_shadow_scene,
     build_point_shadow_scene, build_spot_shadow_scene,
 )
 
@@ -143,6 +144,26 @@ SHOWCASES = (
         camera=OrbitCamera(target=(0.0, 1.0, 0.0), radius=10.0, height=3.4),
         renderer={"shadows": False, "shadow_map_size": 1024},
         tags=("raster-feature", "materials", "shaders", "parity"),
+    ),
+    Showcase(
+        "raster-material-program-room",
+        "Raster/GI material programs: emitter room",
+        build_material_program_room_scene,
+        description=(
+            "Diffuse, mirror, Fresnel-glass, and unlit programs in a closed "
+            "room where the unlit sphere is the emitter and the analytic "
+            "fill light can be disabled."
+        ),
+        camera=OrbitCamera(target=(0.0, 1.3, 0.0), radius=10.0, height=3.6),
+        renderer={
+            "shadows": False, "shadow_map_size": 1024,
+            "ambient_light": 0.015,
+            "scene_light_toggle": True,
+        },
+        tags=(
+            "raster-feature", "materials", "shaders", "parity",
+            "emitter", "room",
+        ),
     ),
     Showcase(
         "portable-surface-modifier", "Raster/GI: portable surface modifier",

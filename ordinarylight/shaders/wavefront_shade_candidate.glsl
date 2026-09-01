@@ -116,6 +116,9 @@ struct SecondaryPathState
     vec4 normal_pdf;
     vec4 primary_throughput;
     vec4 primary_radiance;
+    vec4 diffuse_radiance_hit_distance;
+    vec4 specular_radiance_hit_distance;
+    vec4 primary_position;
 };
 
 struct VolumeHeader
@@ -218,12 +221,19 @@ struct ShadeEnqueueResult
     bool enqueued;
 };
 
+struct PbrLobeResult
+{
+    vec3 diffuse;
+    vec3 specular;
+};
+
 struct PbrSampleResult
 {
     vec3 outgoing;
     vec3 weight;
     float pdf;
     uint random_state;
+    bool sampled_specular;
 };
 
 struct ShadeOpaqueScatterResult
@@ -233,6 +243,7 @@ struct ShadeOpaqueScatterResult
     float pdf;
     uint random_state;
     float cone_spread;
+    bool sampled_specular;
 };
 
 struct ShadePointLightSample
@@ -481,6 +492,7 @@ vec3 shadePbrFresnel(vec3 f0, float cosine);
 float shadeGgxDistribution(float normal_half, float roughness);
 float shadeGgxSmithComponent(float normal_direction, float roughness);
 float shadePbrSpecularProbability(MaterialData material);
+PbrLobeResult shadeEvaluatePbrLobes(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 float shadePbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 vec3 shadeSampleGgxHalfVector(vec3 normal, float roughness, float random_u, float random_v);
@@ -1346,13 +1358,13 @@ float shadePbrSpecularProbability(MaterialData material)
     return clamp((max(f0.r, max(f0.g, f0.b)) + (material.advanced0.x * 0.15)), 0.1, 0.95);
 }
 
-vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
+PbrLobeResult shadeEvaluatePbrLobes(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
 {
     float normal_view = max(dot(normal, view), 0.0);
     float normal_light = max(dot(normal, outgoing), 0.0);
     if (((normal_view <= 0.0) || (normal_light <= 0.0)))
     {
-        return vec3(0.0);
+        return PbrLobeResult(vec3(0.0), vec3(0.0));
     }
     vec3 half_vector = normalize((view + outgoing));
     float normal_half = max(dot(normal, half_vector), 0.0);
@@ -1374,7 +1386,14 @@ vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoi
     float coat_geometry = (shadeGgxSmithComponent(normal_view, coat_roughness) * shadeGgxSmithComponent(normal_light, coat_roughness));
     float coat_fresnel = (0.04 + (0.96 * pow((1.0 - view_half), 5.0)));
     vec3 coat = vec3(((((clearcoat * coat_distribution) * coat_geometry) * coat_fresnel) / max(((4.0 * normal_view) * normal_light), 1e-06)));
-    return ((((diffuse + specular) + sheen) * (1.0 - (clearcoat * coat_fresnel))) + coat);
+    float layer_scale = (1.0 - (clearcoat * coat_fresnel));
+    return PbrLobeResult((diffuse * layer_scale), (((specular + sheen) * layer_scale) + coat));
+}
+
+vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
+{
+    PbrLobeResult lobes = shadeEvaluatePbrLobes(material, normal, view, outgoing);
+    return (lobes.diffuse + lobes.specular);
 }
 
 float shadePbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
@@ -1438,7 +1457,7 @@ PbrSampleResult shadeSamplePbr(MaterialData material, vec3 normal, vec3 incoming
     float pdf = max(shadePbrPdf(material, normal, view, outgoing), 1e-06);
     vec3 weight = ((shadeEvaluatePbr(material, normal, view, outgoing) * max(dot(normal, outgoing), 0.0)) / pdf);
     weight = (weight * mix(material.texture_parameters.w, 1.0, material.emission_metallic.a));
-    return PbrSampleResult(outgoing, weight, pdf, random_state);
+    return PbrSampleResult(outgoing, weight, pdf, random_state, specular);
 }
 
 ShadeOpaqueScatterResult shadeScatterOpaquePath(WavePathState input_path, MaterialData material, vec3 normal, vec3 incoming, uint initial_random_state, float input_cone_spread)
@@ -1446,7 +1465,7 @@ ShadeOpaqueScatterResult shadeScatterOpaquePath(WavePathState input_path, Materi
     WavePathState path = input_path;
     PbrSampleResult sampled = shadeSamplePbr(material, normal, incoming, initial_random_state);
     path.throughput = vec4((path.throughput.rgb * sampled.weight), path.throughput.w);
-    return ShadeOpaqueScatterResult(path, sampled.outgoing, sampled.pdf, sampled.random_state, (input_cone_spread + (material.base_roughness.a * 0.25)));
+    return ShadeOpaqueScatterResult(path, sampled.outgoing, sampled.pdf, sampled.random_state, (input_cone_spread + (material.base_roughness.a * 0.25)), sampled.sampled_specular);
 }
 
 ShadePointLightSample shadePreparePointLight(PointLightData light, vec3 hit, vec3 normal)
@@ -2517,7 +2536,7 @@ void main()
         evaluated = evaluateMaterial(surface.material, surface.normal, surface.uv, incoming, surface.entering, random_u, random_v, float(shadePathBounce(path)), current_ior, exterior_ior);
     }
     surface.material = shadeApplyMaterialEvaluation(surface.material, evaluated);
-    if (((((path.metadata.w & uint(8)) != uint(0)) && (shadePathBounce(path) == uint(1))) && (secondary_paths[path_index].primary_throughput.w > 0.5)))
+    if ((((push.indirect_secondary_capture != uint(0)) && (shadePathBounce(path) == uint(1))) && (secondary_paths[path_index].primary_throughput.w > 0.5)))
     {
         SecondaryPathState secondary = secondary_paths[path_index];
         secondary.position_valid = vec4(loaded.hit.position_t.xyz, 1.0);
@@ -2537,6 +2556,7 @@ void main()
     vec3 next_direction = vec3(0.0);
     float bsdf_pdf = 0.0;
     float cone_spread = cone.y;
+    bool sampled_specular = false;
     if ((evaluated.custom_scattering > 0.5))
     {
         int event = int((evaluated.event + 0.5));
@@ -2549,6 +2569,7 @@ void main()
         next_direction = normalize(evaluated.next_direction);
         bsdf_pdf = max(evaluated.pdf, 1e-06);
         path.throughput = vec4(((path.throughput.rgb * evaluated.weight) / bsdf_pdf), path.throughput.w);
+        sampled_specular = (event != 1);
         transmission = 0.0;
         if ((event == 3))
         {
@@ -2568,6 +2589,7 @@ void main()
             stacks[path_index] = transmitted.stack;
             next_direction = transmitted.direction;
             medium_depth = transmitted.medium_depth;
+            sampled_specular = true;
         }
         else
         {
@@ -2664,7 +2686,17 @@ void main()
             bsdf_pdf = scattered.pdf;
             random_state = scattered.random_state;
             cone_spread = scattered.cone_spread;
+            sampled_specular = scattered.sampled_specular;
         }
+    }
+    if (((push.indirect_secondary_capture != uint(0)) && (shadePathBounce(path) == uint(0))))
+    {
+        SecondaryPathState secondary = secondary_paths[path_index];
+        secondary.primary_throughput = vec4(path.throughput.rgb, (sampled_specular ? 2.0 : 1.0));
+        secondary.primary_radiance = vec4(path.radiance.rgb, shadePbrSpecularProbability(surface.material));
+        secondary.normal_pdf.w = bsdf_pdf;
+        secondary.primary_position = vec4(loaded.hit.position_t.xyz, (1.0 + clamp(surface.material.base_roughness.a, 0.0, 1.0)));
+        secondary_paths[path_index] = secondary;
     }
     ShadeRouletteResult roulette = shadeApplyRussianRoulette(path, random_state, next_bounce, transmission, push.russian_roulette_start, push.russian_roulette_min_survival);
     paths[path_index] = roulette.path;

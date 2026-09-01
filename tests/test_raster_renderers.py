@@ -389,6 +389,27 @@ class RasterBackendTests(unittest.TestCase):
                     )
                     self.assertEqual(products["depth"].shape, (32, 48))
                     self.assertGreater(np.count_nonzero(products["object_id"]), 10)
+                    mask = products["object_id"] != 0
+                    self.assertTrue(np.isfinite(products["depth"][mask]).all())
+                    self.assertTrue(np.isinf(products["depth"][~mask]).all())
+                    self.assertGreater(
+                        float(np.linalg.norm(
+                            products["normal"][mask], axis=1,
+                        ).mean()), 0.9,
+                    )
+                    first_motion = renderer.render(
+                        scene, camera, (48, 32), outputs=("motion",),
+                    )["motion"]
+                    moved = ol.PerspectiveCamera((0.2, 0, 4), (0, 0, 0))
+                    moved_products = renderer.render(
+                        scene, moved, (48, 32),
+                        outputs=("motion", "object_id"),
+                    )
+                    self.assertEqual(float(np.max(np.abs(first_motion))), 0.0)
+                    moved_mask = moved_products["object_id"] != 0
+                    self.assertGreater(float(np.max(np.abs(
+                        moved_products["motion"][moved_mask]
+                    ))), 0.01)
                 finally:
                     renderer.close()
 

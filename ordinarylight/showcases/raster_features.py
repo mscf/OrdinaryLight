@@ -8,7 +8,7 @@ import numpy as np
 from ..lights import DirectionalLight, PointLight, SpotLight
 from ..materials import unlit_material
 from ..scene import Material, Scene, Texture
-from .materials import diffuse, fresnel_glass, mirror, sphere
+from .materials import diffuse, fresnel_glass, mirror, quad, sphere
 
 
 def _box(center, size, material):
@@ -214,8 +214,78 @@ def build_material_program_parity_scene():
     return scene
 
 
+def build_material_program_room_scene():
+    """Place the material-program subjects in an emitter-lit closed room.
+
+    The point light is deliberately marked as optional showcase illumination.
+    Workbenches can disable it without removing the emissive sphere, allowing
+    the same scene to compare analytic lighting with emitter-only GI.
+    """
+    scene = Scene(metadata={"optional_scene_light": True})
+    room_materials = (
+        (((-12,0,-12),(12,0,-12),(12,0,12),(-12,0,12)),
+         (0.58, 0.62, 0.68)),
+        (((-12,8,12),(12,8,12),(12,8,-12),(-12,8,-12)),
+         (0.52, 0.55, 0.62)),
+        (((-12,0,12),(12,0,12),(12,8,12),(-12,8,12)),
+         (0.62, 0.64, 0.70)),
+        (((-12,0,-12),(-12,0,12),(-12,8,12),(-12,8,-12)),
+         (0.42, 0.16, 0.14)),
+        (((12,0,12),(12,0,-12),(12,8,-12),(12,8,12)),
+         (0.14, 0.22, 0.44)),
+        (((12,0,-12),(-12,0,-12),(-12,8,-12),(12,8,-12)),
+         (0.48, 0.50, 0.56)),
+    )
+    for corners, color in room_materials:
+        vertices, indices = quad(*corners)
+        # The camera and both light sources are inside this enclosure.  Keep
+        # the geometric normals inward-facing so direct lighting evaluates
+        # the visible side of every room surface even when culling is off.
+        indices = indices[:, (0, 2, 1)]
+        scene.add_mesh(vertices, indices, Material(
+            # The enclosure is reference geometry, not a fifth material-
+            # program subject.  Use the renderer's standard PBR material so
+            # analytic and emissive lighting remain directly comparable.
+            base_color=color, roughness=0.82,
+        ))
+
+    fill = scene.add_light(PointLight(
+        (-3.5, 5.0, 3.5), color=(1.0, 0.88, 0.74), intensity=240.0,
+    ))
+    scene.metadata["optional_scene_lights"] = ({
+        "id": int(fill.id), "intensity": float(fill.intensity),
+    },)
+
+    definitions = (
+        ((-3.0,1.15,0), Material(
+            base_color=(0.18,0.52,0.92), roughness=0.65, program=diffuse,
+        )),
+        ((-1.0,1.15,0), Material(
+            base_color=(0.94,0.68,0.18), metallic=1.0, program=mirror,
+        )),
+        ((1.0,1.15,0), Material(
+            base_color=(0.75,0.9,1.0), transmission=1.0,
+            program=fresnel_glass,
+        )),
+        ((3.0,1.15,0), Material(
+            base_color=(0.9,0.16,0.48), emission=(8.0,0.75,2.5),
+            program=unlit_material,
+        )),
+    )
+    for index, (center, material) in enumerate(definitions):
+        vertices, indices = sphere(center, 1.05, rings=20, segments=40)
+        subject = scene.add_mesh(vertices, indices, material)
+        subject.name = (
+            "material-program-emitter"
+            if material.program is unlit_material else
+            f"material-program-subject-{index}"
+        )
+    return scene
+
+
 __all__ = [
     "build_advanced_material_scene", "build_directional_shadow_scene",
-    "build_material_program_parity_scene", "build_multi_light_shadow_scene",
+    "build_material_program_parity_scene", "build_material_program_room_scene",
+    "build_multi_light_shadow_scene",
     "build_point_shadow_scene", "build_spot_shadow_scene",
 ]

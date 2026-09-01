@@ -113,7 +113,8 @@ void main()
         return;
     }
     uint pixel_index = ((pixel.y * push.image_tile.x) + pixel.x);
-    uint rng = waveHash(((pixel_index ^ waveHash(push.tile_frame.z)) ^ waveHash((push.tile_frame.w + uint(1)))));
+    uint frame_index = uint((camera.camera_origin.w + 0.5));
+    uint rng = waveHash(((pixel_index ^ waveHash(frame_index)) ^ waveHash((push.tile_frame.w + uint(1)))));
     rng = waveHash(rng);
     float jitter_x = waveRandomFloat(rng);
     rng = waveHash(rng);
@@ -150,7 +151,13 @@ void main()
     ray_queue.rays[path_index].padding_c = uint(0);
     paths[path_index].throughput = vec4(1.0);
     paths[path_index].radiance = vec4(0.0);
-    paths[path_index].metadata = uvec4(pixel_index, ((push.tile_frame.z << uint(8)) | (push.tile_frame.w & uint(255))), rng, uint(257));
+    bool capture_secondary = ((push.tile_frame.z & uint(2147483648)) != uint(0));
+    uint path_flags = uint(257);
+    if (capture_secondary)
+    {
+        path_flags = (path_flags | uint(8));
+    }
+    paths[path_index].metadata = uvec4(pixel_index, ((frame_index << uint(8)) | (push.tile_frame.w & uint(255))), rng, path_flags);
     paths[path_index].throughput.w = 0.0;
     stacks[(path_index * uint(16))] = 1.0;
 }

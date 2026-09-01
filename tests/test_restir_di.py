@@ -5,9 +5,22 @@ from ordinarylight.integrations.restir_di import (
     DirectLightReservoir,
     DirectLightSample,
 )
+from ordinarylight.targets.vulkan.core import _restir_reservoir_storage_bytes
 
 
 class DirectLightReservoirTests(unittest.TestCase):
+    def test_independent_reservoir_storage_scales_by_stream_count(self):
+        self.assertEqual(
+            _restir_reservoir_storage_bytes(10, 20, 4),
+            10 * 20 * 4 * 12,
+        )
+        self.assertEqual(
+            _restir_reservoir_storage_bytes(
+                10, 20, 4, stratified=True,
+            ),
+            10 * 20 * 4 * 20,
+        )
+
     def test_weighted_stream_tracks_sum_count_and_normalization(self):
         reservoir = DirectLightReservoir()
         first = DirectLightSample(0, 0.2, 0.3, 2.0)
@@ -118,8 +131,19 @@ class DirectLightReservoirTests(unittest.TestCase):
         self.assertIn("AreaLightCandidate generateAreaLightCandidate", lighting)
         self.assertIn("float areaLightCandidateVisibility", lighting)
         self.assertIn("volumeShadowTransmittance", lighting)
+        self.assertIn("uint restir_reservoir_count", primary)
+        self.assertIn("uint restir_reservoir_index", primary)
         self.assertIn(
-            "storeCurrentDirectLightReservoir(pixel_index, reservoir)", primary
+            "storeCurrentDirectLightReservoir(\n"
+            "                restir_reservoir_index, reservoir)", primary
+        )
+        self.assertIn(
+            "previous_index * restir_reservoir_count", primary
+        )
+        self.assertIn(
+            "proposal_flat_index\n"
+            "                                                * restir_reservoir_count",
+            primary,
         )
         self.assertIn("directLightReservoirNormalization(reservoir)", primary)
         self.assertIn("reprojectRestir(position, previous_pixel)", primary)

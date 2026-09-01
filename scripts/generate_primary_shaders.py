@@ -96,6 +96,9 @@ class SecondaryPathState:
         "normal_pdf": osh.vec4,
         "primary_throughput": osh.vec4,
         "primary_radiance": osh.vec4,
+        "diffuse_radiance_hit_distance": osh.vec4,
+        "specular_radiance_hit_distance": osh.vec4,
+        "primary_position": osh.vec4,
     }
 
 
@@ -354,6 +357,13 @@ def ordinarylight_clear_secondary_path(path_index: osh.u32) -> osh.void:
     ordinarylight_secondary_paths[path_index].normal_pdf = osh.vec4(0.0)
     ordinarylight_secondary_paths[path_index].primary_throughput = osh.vec4(0.0)
     ordinarylight_secondary_paths[path_index].primary_radiance = osh.vec4(0.0)
+    ordinarylight_secondary_paths[
+        path_index
+    ].diffuse_radiance_hit_distance = osh.vec4(0.0)
+    ordinarylight_secondary_paths[
+        path_index
+    ].specular_radiance_hit_distance = osh.vec4(0.0)
+    ordinarylight_secondary_paths[path_index].primary_position = osh.vec4(0.0)
 
 
 @osh.function
@@ -375,14 +385,21 @@ def ordinarylight_store_secondary_primary(
     throughput: osh.vec3,
     radiance: osh.vec3,
     pdf: osh.f32,
+    sampled_specular: osh.f32,
+    specular_probability: osh.f32,
+    position: osh.vec3,
+    roughness: osh.f32,
 ) -> osh.void:
     ordinarylight_secondary_paths[path_index].primary_throughput = osh.vec4(
-        throughput, 1.0
+        throughput, 1.0 + sampled_specular
     )
     ordinarylight_secondary_paths[path_index].primary_radiance = osh.vec4(
-        radiance, 1.0
+        radiance, specular_probability
     )
     ordinarylight_secondary_paths[path_index].normal_pdf.w = pdf
+    ordinarylight_secondary_paths[path_index].primary_position = osh.vec4(
+        position, 1.0 + osh.clamp(roughness, 0.0, 1.0)
+    )
 
 
 @osh.function

@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 import ordinaryshade as osh
 from ordinarylight.shaders.raster_programs import (
     blend_raster_surfaces, default_raster_material_hook,
+    geometry_product_fragment, geometry_product_vertex,
     scene_fragment, scene_vertex,
     shadow_fragment, shadow_vertex,
 )
@@ -110,6 +111,34 @@ def build_artifacts():
             "shadow": {
                 "varyings": [asdict(item) for item in shadow_reflection.varyings],
             },
+        }
+        product_vertex, product_fragment, product_reflection = _compile(
+            target, geometry_product_vertex, geometry_product_fragment,
+        )
+        product_records = {}
+        for name, shader, suffix in (
+            ("vertex", product_vertex, "vert"),
+            ("fragment", product_fragment, "frag"),
+        ):
+            filename = (
+                f"raster_geometry_products.{suffix}.spv"
+                if target == "spirv"
+                else f"raster_geometry_products.{suffix}.wgsl"
+            )
+            payload = (
+                bytes(shader.binary) if target == "spirv"
+                else shader.source.encode("utf-8")
+            )
+            files[filename] = payload
+            product_records[name] = {
+                "file": filename,
+                "sha256": _digest(payload),
+                "cache_key": shader.cache_key,
+                "reflection": asdict(shader.reflection),
+            }
+        manifest["programs"][target]["geometry_products"] = product_records
+        manifest["program_reflection"][target]["geometry_products"] = {
+            "varyings": [asdict(item) for item in product_reflection.varyings],
         }
     manifest["reflection"] = {
         "varyings": [asdict(item) for item in linked_reflection.varyings],

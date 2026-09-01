@@ -298,6 +298,12 @@ successive calls that request motion. The first compatible call, background,
 new objects, and topology changes produce zero motion. `reset_sequence()` also
 clears motion history.
 
+The Vulkan and WebGPU raster implementations produce depth, world normal,
+object ID, and motion in a dedicated native multiple-render-target pass. The
+geometry is rasterized on the GPU; only the requested typed images are copied
+back for NumPy-facing calls. Raster depth follows the same public contract as
+the GI renderer: positive camera-to-surface distance with `inf` background.
+
 Use `renderer.capabilities` for renderer-neutral feature and limit discovery:
 
 ```python
@@ -2519,7 +2525,7 @@ be inserted between `trace_temporal` and `tone_map` without changing tracing or
 swapchain presentation. Temporal reconstruction remains fused with tracing and
 is the next candidate for extraction.
 
-### À-trous denoising
+### Ordinary Shade ReLAX-style denoising
 
 Enable the edge-aware HDR denoiser with:
 
@@ -2532,21 +2538,47 @@ config = ol.RendererConfig(
 )
 ```
 
-The GLFW equivalents are `WAVE_RENDER_DENOISER=1` and
-`WAVE_RENDER_DENOISER_ITERATIONS=1..5`. Set the relative-variance activation
-threshold with `RendererConfig(denoiser_variance_threshold=...)` or
-`WAVE_RENDER_DENOISER_VARIANCE` (default `0.01`). Stable diffuse pixels remain
-raw, moderately noisy pixels blend partially, and only high-variance pixels
-receive the full filter. The filter uses temporal luminance
-variance plus depth, normal, and primary-surface-class guidance between
-temporal tracing and tone mapping. Mirror, transmissive, and emissive primary
-surfaces bypass spatial filtering. It allocates two additional RGBA32F
-ping-pong images (about 253 MiB total at 4K). The area-light showcase defaults
-to two passes and the `D` key toggles raw/denoised presentation for immediate
-quality and performance comparison. Separable kernels and per-stage timestamps
-are planned optimizations.
-Set `WAVE_RENDER_DENOISER_START_RAW=1` to launch with the denoiser configured
-but raw HDR selected.
+The Wavefront GI presentation path runs a Python-authored Ordinary Shade
+pipeline entirely on the GPU before reconstruction and tone mapping:
+
+1. split linear path radiance into diffuse and specular signals with hit
+   distance, normal/roughness, view depth, motion, and material identity;
+2. reproject compatible history, rejecting disocclusions, normal/depth changes,
+   material changes, and camera cuts;
+3. run one to five edge-aware A-trous iterations independently per lobe; and
+4. compose the filtered lobes back into the HDR image.
+
+The Qt parity viewer exposes **Ordinary Shade ReLAX** and its iteration count
+when **Wavefront GI** is selected, and defaults the denoiser on. Uncheck it for
+an immediate raw-GI comparison. The GLFW equivalents are
+`WAVE_RENDER_DENOISER=1` and `WAVE_RENDER_DENOISER_ITERATIONS=1..5`.
+
+Scene replacement, resize, camera-model changes, and incompatible camera
+motion invalidate denoiser history. The two in-flight Vulkan frame slots are
+explicitly synchronized before either slot consumes the other's history.
+
+This is a ReLAX-style implementation, not NVIDIA NRD. The canonical signal
+contract is public as `DenoiserSignals`, which lets the same captures feed the
+portable implementation and an independent reference denoiser.
+
+### Optional NVIDIA NRD reference
+
+NRD is intentionally a secondary validation path rather than a package or
+runtime dependency. The pinned SDK revision and reproducible build helper live
+under `tools/nrd_reference`. After installing a separately built
+`ordinarylight_nrd` bridge, compare both implementations against the same
+high-sample reference with:
+
+```bash
+python -m tests.gates.denoiser_reference_quality CAPTURE_DIRECTORY --with-nrd
+```
+
+The adapter fails explicitly when the bridge is absent; it never labels the
+portable result as NRD. See `tools/nrd_reference/README.md` for the pinned SDK
+build and bridge contract. The current bridge contract is an offline/reference
+interface. A zero-copy native Vulkan NRD backend remains separate work because
+it must share Ordinary Light's device, command queue, images, synchronization,
+and history lifetime rather than round-trip through NumPy.
 
 Select **Python-authored materials** in the workbench:
 

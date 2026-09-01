@@ -41,6 +41,9 @@ struct SecondaryPathState {
     vec4 normal_pdf;
     vec4 primary_throughput;
     vec4 primary_radiance;
+    vec4 diffuse_radiance_hit_distance;
+    vec4 specular_radiance_hit_distance;
+    vec4 primary_position;
 };
 
 uint pathRng(WavePathState path) { return path.metadata.z; }
@@ -346,7 +349,7 @@ void main()
             shading_normal = -shading_normal;
         normal = entering ? shading_normal : -shading_normal;
     }
-    if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u
+    if (push.indirect_secondary_capture != 0u
             && pathBounce(path) == 1u
             && secondary_paths[path_index].primary_throughput.w > 0.5) {
         secondary_paths[path_index].position_valid = vec4(
@@ -393,6 +396,7 @@ void main()
     uint rng = pathRng(path);
     vec3 next_direction;
     float bsdf_pdf = 0.0;
+    float sampled_specular = 0.0;
     float transmission = material.attenuation_transmission.a;
     uint medium_depth = max(path.metadata.w >> 8u, 1u);
     if (transmission > 0.001) {
@@ -449,9 +453,19 @@ void main()
         }
         vec3 bsdf_weight;
         samplePbr(material, normal, incoming, rng,
-            next_direction, bsdf_weight, bsdf_pdf);
+            next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
         path.throughput.rgb *= bsdf_weight;
         cone_spread += material.base_roughness.a * 0.25;
+    }
+    if (push.indirect_secondary_capture != 0u
+            && pathBounce(path) == 0u && transmission <= 0.001) {
+        secondary_paths[path_index].primary_throughput = vec4(
+            path.throughput.rgb, 1.0 + sampled_specular);
+        secondary_paths[path_index].primary_radiance = vec4(
+            path.radiance.rgb, pbrSpecularProbability(material));
+        secondary_paths[path_index].normal_pdf.w = bsdf_pdf;
+        secondary_paths[path_index].primary_position = vec4(
+            hit.position_t.xyz, 1.0);
     }
     next_direction = normalize(next_direction);
     setPathBounce(path, next_bounce);

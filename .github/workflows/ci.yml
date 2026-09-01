@@ -65,6 +65,8 @@ jobs:
         run: |
           python scripts/generate_raster_artifacts.py
           python scripts/generate_raster_artifacts.py --check
+          python scripts/generate_denoiser_artifacts.py
+          python scripts/generate_denoiser_artifacts.py --check
           git diff --exit-code -- ordinarylight/shaders/raster_scene.vert.spv ordinarylight/shaders/raster_scene.frag.spv ordinarylight/shaders/raster_scene.vert.wgsl ordinarylight/shaders/raster_scene.frag.wgsl ordinarylight/shaders/raster_scene.json
       - name: Build distributions
         run: python -m build

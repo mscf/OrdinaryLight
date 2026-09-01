@@ -1,0 +1,7 @@
+{
+  "nrd": {
+    "repository": "https://github.com/NVIDIA-RTX/NRD.git",
+    "revision": "1ff6d32dd0ba7212911368d6f4cd05f8ab62df28",
+    "reported_version": "4.18.0"
+  }
+}

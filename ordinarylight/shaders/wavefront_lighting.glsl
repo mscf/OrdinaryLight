@@ -185,13 +185,15 @@ vec3 sampleGgxHalfVector(
 
 void samplePbr(
     MaterialData material, vec3 normal, vec3 incoming, inout uint rng,
-    out vec3 outgoing, out vec3 weight, out float pdf)
+    out vec3 outgoing, out vec3 weight, out float pdf,
+    out float sampled_specular)
 {
 #if WAVE_ORDINARYSHADE_PBR
     vec3 view = -incoming;
     float probability = ordinarylight_pbr_specular_probability(
         material.base_roughness.rgb, material.emission_metallic.a);
     bool specular = randomFloat(rng) < probability;
+    sampled_specular = specular ? 1.0 : 0.0;
     float random_u = randomFloat(rng);
     float random_v = randomFloat(rng);
     outgoing = ordinarylight_pbr_cosine_hemisphere(
@@ -219,6 +221,7 @@ void samplePbr(
     vec3 view = -incoming;
     float probability = pbrSpecularProbability(material);
     bool specular = randomFloat(rng) < probability;
+    sampled_specular = specular ? 1.0 : 0.0;
     if (specular) {
         vec3 half_vector = sampleGgxHalfVector(
             normal, material.base_roughness.a,

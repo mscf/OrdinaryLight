@@ -91,9 +91,11 @@ class VulkanGateTests(unittest.TestCase):
             "clearcoat", "sheen", "anisotropy", "thin-transmission",
             "subsurface",
         ):
+            extra = ("--object-prefix", "material-") if scene == "anisotropy" else ()
             self._run(
                 "tests.gates.renderer_visual_parity", "--scene", scene,
                 "--output", f"/tmp/ordinarylight_{scene}_parity",
+                *extra,
             )
         for scene in (
             "environment-reflection", "refraction", "absorption",

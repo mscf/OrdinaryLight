@@ -13,7 +13,7 @@ from ordinarylight.showcases.optical_materials import (
 )
 from ordinarylight.showcases.advanced_materials import (
     build_anisotropy_scene, build_clearcoat_scene,
-    build_subsurface_scene,
+    build_sheen_scene, build_subsurface_scene, build_thin_transmission_scene,
 )
 
 
@@ -22,6 +22,23 @@ def _triangle(z=0.0):
         np.asarray(((-1, 0, z), (1, 0, z), (0, 1, z)), np.float32),
         np.asarray(((0, 1, 2),), np.uint32),
     )
+
+
+def test_advanced_material_showcases_enclose_subject_and_camera():
+    required = {
+        "room-floor", "room-ceiling", "room-left", "room-right",
+        "room-back", "room-front",
+    }
+    for builder in (
+        build_clearcoat_scene, build_sheen_scene, build_anisotropy_scene,
+        build_thin_transmission_scene, build_subsurface_scene,
+    ):
+        scene = builder()
+        room = {
+            mesh.name for mesh in scene.visible_meshes
+            if (mesh.name or "").startswith("room-")
+        }
+        assert room == required
 
 
 def test_anisotropy_showcase_has_shared_hdr_incident_radiance():
@@ -395,9 +412,12 @@ def test_screen_space_optics_does_not_require_an_environment_map():
     assert "reflection_source_enabled = osh.maximum(" in shader
     assert "environment_enabled, reflection_hit * screen_enabled," in shader
     assert "refraction_source_enabled = osh.maximum(" in shader
-    assert "environment_enabled, refraction_confidence * screen_enabled," in shader
+    assert "screen_transmission_confidence * screen_enabled," in shader
     assert "surface_transmission * refraction_source_enabled" in shader
-    assert "reflected_source * fresnel * reflection_source_enabled" in shader
+    assert (
+        "reflected_source * optical_fresnel * reflection_source_enabled"
+        in shader
+    )
 
 
 def test_screen_space_optics_is_explicit_and_preserves_environment_default():
@@ -559,6 +579,65 @@ def test_nested_dielectric_visual_gate_has_multiple_fixed_pose_baselines():
     for entry in entries:
         assert len(entry["position"]) == len(entry["target"]) == 3
         assert required <= entry["thresholds"].keys()
+
+
+def test_absorption_showcase_has_a_scene_radiance_probe():
+    from ordinarylight.showcases.optical_materials import build_absorption_scene
+
+    scene = build_absorption_scene()
+    assert scene.reflection_probes
+
+
+def test_screen_transmission_preserves_composited_nested_layers():
+    source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
+    shader = source.read_text()
+    assert "nested_internal_uv" in shader
+    assert "nested_internal_hit" in shader
+    assert "world_position + refracted * nested_distance" in shader
+    assert "proxy_exit_distance - 0.04" in shader
+    assert "nested_internal_refracted" in shader
+    assert "optical_layer_role" in shader
+    assert "nested_outer_layer" in shader
+    assert "screen_transmitted_source" in shader
+    assert "screen_transmission_confidence * screen_enabled," in shader
+
+
+def test_dielectric_composition_splits_reflection_and_refraction_energy():
+    source = Path(ol.__file__).parent / "shaders" / "raster_programs.py"
+    shader = source.read_text()
+    assert "optical_fresnel" in shader
+    assert "1.0 - ndotv" in shader
+    assert "dielectric_refracted" in shader
+    assert "osh.vec3(1.0) - optical_fresnel" in shader
+    assert "reflected_source * optical_fresnel" in shader
+    assert "refracted_source * transmission_tint," not in shader
+
+
+def test_nested_dielectric_fallback_is_not_enabled_for_neighboring_glass():
+    nested = build_nested_dielectric_scene()
+    assert len(nested.reflection_probes) == 1
+    nested_mesh = ol.scene_mesh(
+        nested, ol.PerspectiveCamera((0, 3.2, 10), (0, 1, 0)), 640, 360,
+        ol.RasterConfig(optical_quality="screen-space"),
+    )
+    assert nested_mesh.resources["optical_transmissive_layers_nested"] is True
+    nested_materials = np.frombuffer(
+        nested_mesh.resources["material_buffer"], dtype=ol.MATERIAL_DTYPE,
+    )
+    nested_roles = nested_materials["sheen_color"][:, 3]
+    assert np.count_nonzero(nested_roles > 0.5) == 1
+    assert np.count_nonzero(nested_roles < -0.5) == 1
+
+    refraction = build_refraction_scene()
+    refraction_mesh = ol.scene_mesh(
+        refraction, ol.PerspectiveCamera((0, 3.2, 10), (0, 1, 0)),
+        640, 360, ol.RasterConfig(optical_quality="screen-space"),
+    )
+    assert refraction_mesh.resources["optical_transmissive_layers_nested"] is False
+    refraction_materials = np.frombuffer(
+        refraction_mesh.resources["material_buffer"], dtype=ol.MATERIAL_DTYPE,
+    )
+    assert np.all(refraction_materials["sheen_color"][:, 3] == 0.0)
 
 
 def test_opaque_reflectors_are_available_to_neighboring_screen_rays():

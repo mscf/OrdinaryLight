@@ -15,7 +15,7 @@ from ...capabilities import RendererCapabilities
 from ...raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterState,
     CAMERA_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE, SHADOW_DTYPE, camera_matrix, create_raster_pipeline,
-    rasterize_geometry_products, scene_mesh,
+    geometry_product_mesh, scene_mesh,
 )
 from ..base import RendererImplementation, RendererImplementationInfo
 
@@ -60,7 +60,8 @@ class WebGpuRasterRenderer(RendererImplementation):
         self.state = self.config.state
         self.pipeline_graph = create_raster_pipeline(self.config)
         self._post = RasterPostProcessor(self.config)
-        self.available_outputs = ("color", "depth", "normal", "object_id")
+        self.available_outputs = ("color", "depth", "normal", "object_id", "motion")
+        self._output_history = None
         self.last_timings = {}
         from ...probes import ProbeCaptureManager
         self.probe_capture = ProbeCaptureManager()
@@ -79,6 +80,16 @@ class WebGpuRasterRenderer(RendererImplementation):
         self._shadow_fragment_module = self.device.create_shader_module(
             code=shadow_program.fragment.source,
         )
+        product_program = type(program).geometry_products(
+            target="wgsl", validate=False,
+        )
+        self._product_vertex_module = self.device.create_shader_module(
+            code=product_program.vertex.source,
+        )
+        self._product_fragment_module = self.device.create_shader_module(
+            code=product_program.fragment.source,
+        )
+        self._product_pipelines = {}
         self._pipelines = {}
         self._shadow_pipeline = None
         info = self.adapter.info
@@ -87,6 +98,146 @@ class WebGpuRasterRenderer(RendererImplementation):
             outputs=self.available_outputs,
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
+
+    def _product_pipeline(self, layout):
+        pipeline = self._product_pipelines.get(layout)
+        if pipeline is not None:
+            return pipeline
+        pipeline = self.device.create_render_pipeline(
+            layout="auto",
+            vertex={
+                "module": self._product_vertex_module,
+                "entry_point": "main",
+                "buffers": ({
+                    "array_stride": layout.stride,
+                    "step_mode": "vertex",
+                    "attributes": tuple({
+                        "format": item.format, "offset": item.offset,
+                        "shader_location": item.location,
+                    } for item in layout.attributes),
+                },),
+            },
+            primitive={
+                "topology": "triangle-list", "cull_mode": self.state.cull_mode,
+                "front_face": self.state.front_face,
+            },
+            depth_stencil={
+                "format": "depth32float", "depth_write_enabled": True,
+                "depth_compare": "less",
+            },
+            fragment={
+                "module": self._product_fragment_module,
+                "entry_point": "main",
+                "targets": (
+                    {"format": "rgba32float"},
+                    {"format": "rgba32float"},
+                ),
+            },
+        )
+        self._product_pipelines[layout] = pipeline
+        return pipeline
+
+    def _render_native_products(self, mesh, width, height):
+        """Rasterize depth/normal/object-ID/motion into native MRTs."""
+        if not len(mesh.vertices):
+            return {
+                "depth": np.ones((height, width), np.float32),
+                "normal": np.zeros((height, width, 3), np.float32),
+                "object_id": np.zeros((height, width), np.uint32),
+                "motion": np.zeros((height, width, 2), np.float32),
+            }
+        wgpu = self._wgpu
+        formats = ("rgba32float", "rgba32float")
+        textures = tuple(self.device.create_texture(
+            size=(width, height, 1), format=format_name,
+            usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC,
+        ) for format_name in formats)
+        depth = self.device.create_texture(
+            size=(width, height, 1), format="depth32float",
+            usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC,
+        )
+        vertex = self.device.create_buffer_with_data(
+            data=mesh.vertices, usage=wgpu.BufferUsage.VERTEX,
+        )
+        index = self.device.create_buffer_with_data(
+            data=mesh.indices, usage=wgpu.BufferUsage.INDEX,
+        ) if mesh.indices is not None and mesh.indices.size else None
+        uniform = self.device.create_buffer_with_data(
+            data=mesh.resources["geometry_product_camera"],
+            usage=wgpu.BufferUsage.UNIFORM,
+        )
+        pipeline = self._product_pipeline(mesh.layout)
+        bind_group = self.device.create_bind_group(
+            layout=pipeline.get_bind_group_layout(0),
+            entries=({
+                "binding": 0,
+                "resource": {"buffer": uniform, "offset": 0,
+                             "size": len(mesh.resources["geometry_product_camera"])},
+            },),
+        )
+        encoder = self.device.create_command_encoder()
+        render_pass = encoder.begin_render_pass(
+            color_attachments=tuple({
+                "view": texture.create_view(), "resolve_target": None,
+                "load_op": "clear", "store_op": "store",
+                "clear_value": (0, 0, 0, 0),
+            } for index, texture in enumerate(textures)),
+            depth_stencil_attachment={
+                "view": depth.create_view(), "depth_load_op": "clear",
+                "depth_store_op": "store", "depth_clear_value": 1.0,
+            },
+        )
+        render_pass.set_pipeline(pipeline)
+        render_pass.set_bind_group(0, bind_group, (), 0, 0)
+        render_pass.set_vertex_buffer(0, vertex, 0, mesh.vertices.nbytes)
+        if index is not None:
+            render_pass.set_index_buffer(index, "uint32", 0, mesh.indices.nbytes)
+            render_pass.draw_indexed(mesh.indices.size, 1, 0, 0, 0)
+        else:
+            render_pass.draw(len(mesh.vertices), 1, 0, 0)
+        render_pass.end()
+        specs = (
+            (textures[0], 16, np.float32, 4),
+            (textures[1], 16, np.float32, 4),
+        )
+        readbacks = []
+        for texture, bytes_per_pixel, _dtype, _components in specs:
+            row_bytes = width * bytes_per_pixel
+            padded = (row_bytes + 255) & ~255
+            buffer = self.device.create_buffer(
+                size=padded * height,
+                usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.COPY_SRC,
+            )
+            encoder.copy_texture_to_buffer(
+                {"texture": texture},
+                {"buffer": buffer, "bytes_per_row": padded,
+                 "rows_per_image": height},
+                (width, height, 1),
+            )
+            readbacks.append((buffer, padded, row_bytes, _dtype, _components))
+        self.device.queue.submit((encoder.finish(),))
+        arrays = []
+        for buffer, padded, row_bytes, dtype, components in readbacks:
+            raw = np.frombuffer(self.device.queue.read_buffer(buffer), np.uint8)
+            packed = raw.reshape(height, padded)[:, :row_bytes].copy()
+            values = packed.view(dtype)
+            if components > 1:
+                values = values.reshape(height, width, components)
+            else:
+                values = values.reshape(height, width)
+            arrays.append(values)
+        normal_depth, motion_object = arrays
+        object_ids = np.rint(motion_object[..., 2]).astype(np.uint32)
+        depth_output = normal_depth[..., 3].astype(np.float32)
+        depth_output[object_ids == 0] = np.inf
+        motion = motion_object[..., :2].astype(np.float32)
+        motion[np.abs(motion) < 1e-6] = 0.0
+        return {
+            "depth": depth_output,
+            "normal": normal_depth[..., :3].astype(np.float32),
+            "object_id": object_ids,
+            "motion": motion,
+        }
 
     def _pipeline(self, layout, *, pass_kind="opaque"):
         optical = pass_kind in {
@@ -589,17 +740,20 @@ class WebGpuRasterRenderer(RendererImplementation):
         camera_data["optical_diagnostic"][0, 2] = mesh.resources.get(
             "shadow_count", 0,
         )
+        camera_data["optical_diagnostic"][0, 3] = float(mesh.resources.get(
+            "optical_transmissive_layers_nested", False,
+        ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
         return self._post.process(image, scene, camera)
 
     def render_products(self, scene, camera, width, height, *, outputs, samples=None, frame_index=0):
-        mesh = scene_mesh(
-            scene, camera, width, height, self.config,
-            native_shadow_maps=True,
+        mesh, next_history = geometry_product_mesh(
+            scene, camera, width, height, self._output_history,
         )
-        products = rasterize_geometry_products(mesh, width, height)
+        products = self._render_native_products(mesh, width, height)
+        self._output_history = next_history
         if "color" in outputs:
             color_mesh = scene_mesh(
                 scene, camera, width, height, self.config,
@@ -620,6 +774,11 @@ class WebGpuRasterRenderer(RendererImplementation):
             camera_data["optical_diagnostic"][0, 2] = color_mesh.resources.get(
                 "shadow_count", 0,
             )
+            camera_data["optical_diagnostic"][0, 3] = float(
+                color_mesh.resources.get(
+                    "optical_transmissive_layers_nested", False,
+                )
+            )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)
@@ -631,9 +790,11 @@ class WebGpuRasterRenderer(RendererImplementation):
 
     def reset_output_history(self):
         self._post.reset()
+        self._output_history = None
 
     def close(self):
         self._pipelines.clear()
+        self._product_pipelines.clear()
         self._shadow_pipeline = None
         self.device = None
         self.adapter = None

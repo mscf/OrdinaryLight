@@ -105,6 +105,13 @@ from .selection import (
     PickOptions, PickResult, ViewportMapping, camera_ray, pick, pick_ray,
 )
 from . import effects
+from . import denoising
+from .denoising import (
+    DenoiserFrameInfo, DenoiserSignals, PortableDenoiser,
+    PortableDenoiserConfig, PortableDenoiserResult, DenoiserQualityBaseline,
+    DenoiserQualityMetrics, DenoiserSequenceEvaluation,
+    evaluate_denoiser_sequence, SignalValidationError,
+)
 from . import outputs
 from . import renderers
 from . import targets
@@ -176,6 +183,17 @@ __all__ = [
     "pick",
     "pick_ray",
     "effects",
+    "denoising",
+    "DenoiserFrameInfo",
+    "DenoiserSignals",
+    "PortableDenoiser",
+    "PortableDenoiserConfig",
+    "PortableDenoiserResult",
+    "DenoiserQualityBaseline",
+    "DenoiserQualityMetrics",
+    "DenoiserSequenceEvaluation",
+    "evaluate_denoiser_sequence",
+    "SignalValidationError",
     "outputs",
     "renderers",
     "targets",

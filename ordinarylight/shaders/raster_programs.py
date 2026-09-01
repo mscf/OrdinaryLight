@@ -50,11 +50,39 @@ class ShadowVertexOutput:
 
 
 @osh.structure
+class GeometryProductVertexOutput:
+    """Varyings for the renderer-neutral native geometry-product pass."""
+
+    position: osh.invariant(osh.builtin(osh.vec4, "position"))
+    world_normal: osh.location(osh.vec3, 0)
+    object_id: osh.location(osh.f32, 1)
+    current_clip: osh.location(osh.vec4, 2)
+    previous_clip: osh.location(osh.vec4, 3)
+    world_position: osh.location(osh.vec3, 4)
+
+
+@osh.structure
+class GeometryProductOutput:
+    """Native MRT products shared by Vulkan and WebGPU raster targets."""
+
+    normal_depth: osh.location(osh.vec4, 0)
+    motion_object: osh.location(osh.vec4, 1)
+
+
+@osh.structure
 class RasterCamera:
     view_projection: osh.mat4
     position_exposure: osh.vec4
     viewport_optics: osh.vec4
     optical_diagnostic: osh.vec4
+
+
+@osh.structure
+class GeometryProductCamera:
+    current_view_projection: osh.mat4
+    previous_view_projection: osh.mat4
+    viewport: osh.vec4
+    camera_position: osh.vec4
 
 
 @osh.structure
@@ -118,6 +146,54 @@ def shadow_fragment(
         osh.maximum(1.0 - normalized_depth, 0.0), 0.25,
     )
     return osh.vec4(1.0, 1.0, 1.0, encoded_depth)
+
+
+@osh.vertex
+def geometry_product_vertex(
+    world_position: osh.location(osh.vec3, 0),
+    world_normal: osh.location(osh.vec3, 1),
+    object_id: osh.location(osh.f32, 2),
+    previous_world_position: osh.location(osh.vec3, 3),
+    camera: osh.uniform_buffer(GeometryProductCamera, binding=0),
+) -> GeometryProductVertexOutput:
+    current_clip = camera.current_view_projection * osh.vec4(
+        world_position, 1.0,
+    )
+    previous_clip = camera.previous_view_projection * osh.vec4(
+        previous_world_position, 1.0,
+    )
+    return GeometryProductVertexOutput(
+        current_clip, world_normal, object_id, current_clip, previous_clip,
+        world_position,
+    )
+
+
+@osh.fragment
+def geometry_product_fragment(
+    world_normal: osh.location(osh.vec3, 0),
+    object_id: osh.location(osh.f32, 1),
+    current_clip: osh.location(osh.vec4, 2),
+    previous_clip: osh.location(osh.vec4, 3),
+    world_position: osh.location(osh.vec3, 4),
+    camera: osh.uniform_buffer(GeometryProductCamera, binding=0),
+) -> GeometryProductOutput:
+    current_ndc = current_clip.xy / osh.maximum(
+        osh.absolute(current_clip.w), 0.000001,
+    )
+    previous_ndc = previous_clip.xy / osh.maximum(
+        osh.absolute(previous_clip.w), 0.000001,
+    )
+    # Public motion vectors use image-space pixels (+x right, +y down).
+    motion = (current_ndc - previous_ndc) * osh.vec2(
+        camera.viewport.x * 0.5, -camera.viewport.y * 0.5,
+    )
+    return GeometryProductOutput(
+        osh.vec4(
+            osh.normalize(world_normal),
+            osh.length(world_position - camera.camera_position.xyz),
+        ),
+        osh.vec4(motion, osh.round(object_id), 0.0),
+    )
 
 
 @osh.vertex
@@ -219,6 +295,7 @@ def scene_fragment(
     advanced0 = materials[material_id].advanced0
     advanced1 = materials[material_id].advanced1
     advanced_sheen_color = materials[material_id].sheen_color.xyz
+    optical_layer_role = materials[material_id].sheen_color.w
     advanced_subsurface_color = materials[material_id].subsurface_color.xyz
     advanced_texture_indices = materials[material_id].advanced_texture_indices
     optical = materials[material_id].optical
@@ -515,6 +592,13 @@ def scene_fragment(
     fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
         osh.vec3(1.0 - vdoth), osh.vec3(5.0),
     )
+    # Direct-light microfacet Fresnel uses V.H above.  Environment reflection
+    # versus transmission is an interface-energy split and therefore uses
+    # the view incidence V.N.  Reusing the direct-light term here makes the
+    # split depend on light direction and can leave a strong unrefracted lobe.
+    optical_fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
+        osh.vec3(1.0 - ndotv), osh.vec3(5.0),
+    )
     alpha = surface_roughness * surface_roughness
     alpha_x = osh.maximum(0.02, alpha * (1.0 - 0.7 * surface_anisotropy))
     alpha_y = osh.maximum(0.02, alpha * (1.0 + 0.7 * surface_anisotropy))
@@ -608,24 +692,24 @@ def scene_fragment(
                 / osh.maximum(first_spot_inner - first_spot_outer, 0.00001),
             ),
         )
-    visibility = attenuation * shadow_visibility
     # Keep the ordinary surface response fully shadowed, but allow the added
     # wrapped component to cross the geometric/self-shadow terminator. This is
     # the portable approximation of local subsurface diffusion; treating that
     # component as opaque direct light produces a serrated shadow-map fringe.
     wrapped_contribution = osh.maximum(diffuse_ndotl - ndotl, 0.0)
+    hard_shadow_visibility = shadow_map_visibility * shadow_visibility
     scattered_shadow_visibility = osh.mix(
-        shadow_map_visibility, 1.0, surface_subsurface,
+        hard_shadow_visibility, 1.0, surface_subsurface,
     )
     diffuse_visibility = (
-        ndotl * shadow_map_visibility
+        ndotl * hard_shadow_visibility
         + wrapped_contribution * scattered_shadow_visibility
     )
     direct = (
         (diffuse + sheen) * base_energy * first_light_radiance
-        * (diffuse_visibility * visibility)
+        * (diffuse_visibility * attenuation)
         + (specular * base_energy + clearcoat_specular) * first_light_radiance
-        * (ndotl * shadow_map_visibility * visibility)
+        * (ndotl * hard_shadow_visibility * attenuation)
     )
     # The legacy first-light attributes remain in the vertex ABI while wheel
     # consumers migrate, but every further analytic light is evaluated from
@@ -861,12 +945,22 @@ def scene_fragment(
                                     - packed_shadow_compare_bias,
                                 )
                             )
+            packed_wrapped_contribution = osh.maximum(
+                packed_diffuse_ndotl - packed_ndotl, 0.0,
+            )
+            packed_scattered_visibility = osh.mix(
+                packed_shadow_visibility, 1.0, surface_subsurface,
+            )
+            packed_diffuse_visibility = (
+                packed_ndotl * packed_shadow_visibility
+                + packed_wrapped_contribution * packed_scattered_visibility
+            )
             direct = direct + (
                 (packed_diffuse + packed_sheen) * packed_base_energy
-                * packed_radiance * packed_diffuse_ndotl
+                * packed_radiance * packed_diffuse_visibility
                 + (packed_specular * packed_base_energy + packed_clearcoat)
-                * packed_radiance * packed_ndotl
-            ) * packed_attenuation * packed_shadow_visibility
+                * packed_radiance * packed_ndotl * packed_shadow_visibility
+            ) * packed_attenuation
     optical_thickness = advanced1.w * thickness_sample
     absorption_exponent = optical_thickness / osh.maximum(
         ior_distance_program_flags.y, 0.000001,
@@ -1514,6 +1608,92 @@ def scene_fragment(
     refraction_origin = closed_exit_position + closed_refracted * 0.03
     refraction_extent = osh.maximum(8.0, osh.length(view_delta) * 3.0)
     refraction_screen_uv = screen_uv
+    nested_outer_layer = osh.maximum(
+        0.0, osh.minimum(
+            1.0,
+            camera.optical_diagnostic.w
+            * osh.maximum(optical_layer_role, 0.0),
+        ),
+    )
+    # The accumulated source depth contains the already-rendered inner
+    # interface.  It lies *inside* the current outer shell, so an outgoing ray
+    # starting at ``closed_exit_position`` can never discover it.  March the
+    # entry refraction through the bounded interior first; pixels that miss
+    # the inner interface continue to use the ordinary outgoing march below.
+    nested_internal_uv = screen_uv
+    nested_internal_hit = 0.0
+    nested_previous_delta = -1.0
+    nested_previous_fraction = 0.0
+    if nested_outer_layer > 0.5:
+        for nested_step in range(1, 25):
+            nested_fraction = osh.f32(nested_step) / 24.0
+            nested_distance = (
+                0.02 + nested_fraction * nested_fraction
+                * osh.maximum(proxy_exit_distance - 0.04, 0.04)
+            )
+            nested_world = world_position + refracted * nested_distance
+            nested_clip = (
+                camera.view_projection * osh.vec4(nested_world, 1.0)
+            )
+            if nested_clip.w <= 0.000001:
+                break
+            nested_ndc = nested_clip.xyz / nested_clip.w
+            nested_uv_candidate = osh.vec2(
+                nested_ndc.x * 0.5 + 0.5,
+                0.5 - nested_ndc.y * 0.5,
+            )
+            if (
+                nested_uv_candidate.x <= 0.001
+                or nested_uv_candidate.x >= 0.999
+                or nested_uv_candidate.y <= 0.001
+                or nested_uv_candidate.y >= 0.999
+            ):
+                break
+            nested_scene_depth = scene_depth.sample_depth_level_with(
+                scene_depth_sampler, nested_uv_candidate, 0,
+            )
+            nested_delta = nested_ndc.z - nested_scene_depth
+            if nested_previous_delta <= 0.00001 and nested_delta > 0.00001:
+                nested_lower = nested_previous_fraction
+                nested_upper = nested_fraction
+                nested_refined_uv = nested_uv_candidate
+                for nested_refine_step in range(4):
+                    nested_middle = (nested_lower + nested_upper) * 0.5
+                    nested_middle_distance = (
+                        0.02 + nested_middle * nested_middle
+                        * osh.maximum(proxy_exit_distance - 0.04, 0.04)
+                    )
+                    nested_middle_world = (
+                        world_position + refracted * nested_middle_distance
+                    )
+                    nested_middle_clip = (
+                        camera.view_projection
+                        * osh.vec4(nested_middle_world, 1.0)
+                    )
+                    nested_middle_ndc = (
+                        nested_middle_clip.xyz
+                        / osh.maximum(nested_middle_clip.w, 0.000001)
+                    )
+                    nested_middle_uv = osh.vec2(
+                        nested_middle_ndc.x * 0.5 + 0.5,
+                        0.5 - nested_middle_ndc.y * 0.5,
+                    )
+                    nested_middle_depth = scene_depth.sample_depth_level_with(
+                        scene_depth_sampler, nested_middle_uv, 0,
+                    )
+                    nested_middle_delta = (
+                        nested_middle_ndc.z - nested_middle_depth
+                    )
+                    if nested_middle_delta > 0.00001:
+                        nested_upper = nested_middle
+                        nested_refined_uv = nested_middle_uv
+                    else:
+                        nested_lower = nested_middle
+                nested_internal_uv = nested_refined_uv
+                nested_internal_hit = 1.0
+                break
+            nested_previous_fraction = nested_fraction
+            nested_previous_delta = nested_delta
     refraction_hit = 0.0
     previous_refraction_fraction = 0.0
     previous_refraction_delta = -1.0
@@ -1640,6 +1820,9 @@ def scene_fragment(
     screen_refracted = scene_color.sample_level_with(
         scene_sampler, refraction_screen_uv, 0.0,
     ).xyz
+    nested_internal_refracted = scene_color.sample_level_with(
+        scene_sampler, nested_internal_uv, 0.0,
+    ).xyz
     reflected_source = osh.mix(
         reflected_environment, screen_reflected,
         reflection_hit * screen_enabled * (1.0 - surface_roughness),
@@ -1658,16 +1841,30 @@ def scene_fragment(
         refraction_hit * refraction_edge_confidence
         * refraction_angle_confidence
     )
-    refracted_source = osh.mix(
+    screen_transmitted_source = osh.mix(
         refracted_environment, screen_refracted,
-        refraction_confidence * screen_enabled * (1.0 - surface_roughness),
+        refraction_confidence,
+    )
+    screen_transmitted_source = osh.mix(
+        screen_transmitted_source, nested_internal_refracted,
+        nested_internal_hit * nested_outer_layer,
+    )
+    screen_transmission_confidence = osh.maximum(
+        refraction_confidence,
+        nested_internal_hit * nested_outer_layer,
+    )
+    refracted_source = osh.mix(
+        refracted_environment, screen_transmitted_source,
+        screen_transmission_confidence * screen_enabled
+        * (1.0 - surface_roughness),
     )
     environment_enabled = environment_rotation_log_range.z
     reflection_source_enabled = osh.maximum(
         environment_enabled, reflection_hit * screen_enabled,
     )
     refraction_source_enabled = osh.maximum(
-        environment_enabled, refraction_confidence * screen_enabled,
+        environment_enabled,
+        screen_transmission_confidence * screen_enabled,
     )
     ambient = (
         surface_base_color * diffuse_weight
@@ -1675,14 +1872,26 @@ def scene_fragment(
         + transmission_tint * surface_transmission * (osh.vec3(1.0) - f0)
     ) * light_color_ambient.w * surface_occlusion
     base_shaded = ambient + direct + surface_emission
+    transmission_weight = (
+        surface_transmission * refraction_source_enabled
+    )
+    # Transmission is not an additional straight-through color for a
+    # dielectric.  It selects the refracted radiance path, whose remaining
+    # energy is 1-F after the reflected interface lobe is accounted for.
+    # Thin-walled and closed materials differ in how ``refracted_source`` is
+    # constructed above, but share this energy-conserving composition.
+    dielectric_refracted = (
+        refracted_source * transmission_tint
+        * (osh.vec3(1.0) - optical_fresnel)
+    )
     transmitted_shaded = osh.mix(
         base_shaded,
-        refracted_source * transmission_tint,
-        surface_transmission * refraction_source_enabled,
+        dielectric_refracted,
+        transmission_weight,
     )
     shaded = (
         transmitted_shaded
-        + reflected_source * fresnel * reflection_source_enabled
+        + reflected_source * optical_fresnel * reflection_source_enabled
     )
     prepass_alpha = (
         object_tag if osh.absolute(camera.viewport_optics.z) > 1.5

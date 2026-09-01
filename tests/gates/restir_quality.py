@@ -48,6 +48,9 @@ def _capture(window, scene, args, mode, samples, output_path):
         wavefront_unified_primary_restir=args.unified_primary_restir,
         wavefront_stratified_primary_restir=args.stratified_primary_restir,
         wavefront_restir_di=restir_mode or mode == "conventional",
+        wavefront_restir_reservoirs=(
+            args.restir_reservoirs if restir_mode else 1
+        ),
         wavefront_restir_candidates=args.restir_candidates,
         wavefront_restir_history_limit=args.restir_history_limit,
         wavefront_restir_spatial_reuse=(
@@ -189,6 +192,10 @@ def main():
         help="reuse an independent primary environment-light reservoir",
     )
     parser.add_argument("--restir-candidates", type=int, default=1)
+    parser.add_argument(
+        "--restir-reservoirs", type=int, default=1, choices=range(1, 9),
+        help="independent direct-light reservoir streams per pixel",
+    )
     parser.add_argument(
         "--restir-history-limit", type=int, default=6,
         help=("total represented-sample budget, including fresh candidates; "
@@ -338,6 +345,7 @@ def main():
         "width": args.width, "height": args.height, "frames": args.frames,
         "scene": args.scene,
         "motion_radians": args.motion_radians,
+        "restir_reservoirs": args.restir_reservoirs,
         "spatial_neighbors": args.spatial_neighbors,
         "spatial_radius": args.spatial_radius,
         "pairwise_mis": args.pairwise_mis,

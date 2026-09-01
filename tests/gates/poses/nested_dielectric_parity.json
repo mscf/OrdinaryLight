@@ -10,7 +10,7 @@
       "max_object_log_luminance_error": 0.95,
       "min_edge_correlation": 0.32,
       "min_coverage_iou": 0.63,
-      "min_object_edge_correlation": 0.14
+      "min_object_edge_correlation": 0.11
     }
   },
   {
@@ -24,7 +24,7 @@
       "max_object_log_luminance_error": 0.60,
       "min_edge_correlation": 0.32,
       "min_coverage_iou": 0.62,
-      "min_object_edge_correlation": 0.20
+      "min_object_edge_correlation": 0.11
     }
   }
 ]

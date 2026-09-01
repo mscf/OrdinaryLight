@@ -97,6 +97,9 @@ void ordinarylight_clear_secondary_path(uint path_index)
     ordinarylight_secondary_paths[path_index].normal_pdf = vec4(0.0);
     ordinarylight_secondary_paths[path_index].primary_throughput = vec4(0.0);
     ordinarylight_secondary_paths[path_index].primary_radiance = vec4(0.0);
+    ordinarylight_secondary_paths[path_index].diffuse_radiance_hit_distance = vec4(0.0);
+    ordinarylight_secondary_paths[path_index].specular_radiance_hit_distance = vec4(0.0);
+    ordinarylight_secondary_paths[path_index].primary_position = vec4(0.0);
 }
 float ordinarylight_secondary_primary_valid(uint path_index)
 {
@@ -107,11 +110,12 @@ void ordinarylight_store_secondary_hit(uint path_index, vec4 position_valid, vec
     ordinarylight_secondary_paths[path_index].position_valid = position_valid;
     ordinarylight_secondary_paths[path_index].normal_pdf.xyz = normal;
 }
-void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf)
+void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf, float sampled_specular, float specular_probability, vec3 position, float roughness)
 {
-    ordinarylight_secondary_paths[path_index].primary_throughput = vec4(throughput, 1.0);
-    ordinarylight_secondary_paths[path_index].primary_radiance = vec4(radiance, 1.0);
+    ordinarylight_secondary_paths[path_index].primary_throughput = vec4(throughput, (1.0 + sampled_specular));
+    ordinarylight_secondary_paths[path_index].primary_radiance = vec4(radiance, specular_probability);
     ordinarylight_secondary_paths[path_index].normal_pdf.w = pdf;
+    ordinarylight_secondary_paths[path_index].primary_position = vec4(position, (1.0 + clamp(roughness, 0.0, 1.0)));
 }
 #endif
 #if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION

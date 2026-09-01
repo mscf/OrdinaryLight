@@ -52,6 +52,34 @@ RECONSTRUCT_BASE_FORMAT = "f3If2IfIfIfIIf"
 RECONSTRUCT_PUSH_SIZE = 256
 
 
+def _restir_reservoir_storage_bytes(
+    width, height, reservoir_count, *, stratified=False,
+):
+    """Return storage for independent direct-light reservoir streams."""
+    bytes_per_reservoir = 12 + (8 if stratified else 0)
+    return (
+        int(width) * int(height) * int(reservoir_count)
+        * bytes_per_reservoir
+    )
+
+
+def _wavefront_history_semaphore_plan(
+    *, current_pending, previous_pending, history_enabled,
+):
+    """Describe one binary-semaphore history hand-off.
+
+    A pending signal from the preceding slot must always be consumed, even
+    when history was disabled between frames.  The current slot is signaled
+    only while a temporal consumer can use it on the next submission.
+    """
+    if current_pending:
+        raise RuntimeError(
+            "wavefront history semaphore was not consumed before its frame "
+            "slot was reused"
+        )
+    return bool(previous_pending), bool(history_enabled)
+
+
 def _camera_projection(camera):
     if isinstance(camera, OrthographicCamera):
         return 1
@@ -263,6 +291,10 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_layout = None
         self.wavefront_image_layout = None
         self.reconstruct_layout = None
+        self.relax_prepare_layout = None
+        self.relax_temporal_layout = None
+        self.relax_atrous_layout = None
+        self.relax_compose_layout = None
         self.indirect_reuse_clear_layout = None
         self.indirect_reuse_candidate_layout = None
         self.indirect_reuse_debug_layout = None
@@ -276,6 +308,10 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_pipeline_layout = None
         self.wavefront_image_pipeline_layout = None
         self.reconstruct_pipeline_layout = None
+        self.relax_prepare_pipeline_layout = None
+        self.relax_temporal_pipeline_layout = None
+        self.relax_atrous_pipeline_layout = None
+        self.relax_compose_pipeline_layout = None
         self.indirect_reuse_clear_pipeline_layout = None
         self.indirect_reuse_candidate_pipeline_layout = None
         self.indirect_reuse_debug_pipeline_layout = None
@@ -313,6 +349,10 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_module = None
         self.wavefront_image_module = None
         self.reconstruct_module = None
+        self.relax_prepare_module = None
+        self.relax_temporal_module = None
+        self.relax_atrous_module = None
+        self.relax_compose_module = None
         self.reconstruct_bgra_module = None
         self.indirect_reuse_clear_module = None
         self.indirect_reuse_candidate_module = None
@@ -355,6 +395,10 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_pipeline = None
         self.wavefront_image_pipeline = None
         self.reconstruct_pipeline = None
+        self.relax_prepare_pipeline = None
+        self.relax_temporal_pipeline = None
+        self.relax_atrous_pipeline = None
+        self.relax_compose_pipeline = None
         self.reconstruct_bgra_pipeline = None
         self.indirect_reuse_clear_pipeline = None
         self.indirect_reuse_candidate_pipeline = None
@@ -369,6 +413,10 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_set = None
         self.wavefront_image_sets = []
         self.reconstruct_sets = []
+        self.relax_prepare_sets = []
+        self.relax_temporal_sets = []
+        self.relax_atrous_sets = []
+        self.relax_compose_sets = []
         self.indirect_reuse_clear_sets = []
         self.indirect_reuse_candidate_sets = []
         self.indirect_reuse_debug_sets = []
@@ -415,10 +463,15 @@ class VulkanWavefrontExecutor:
             usage, device_flags,
         )
         self.secondary_path_buffer = core._create_buffer(
-            (capacity if core.config.wavefront_indirect_reuse_candidates else 1)
+            (capacity if (
+                core.config.wavefront_indirect_reuse_candidates
+                or core.config.denoiser_signal_capture
+                or core.config.denoiser_enabled
+            ) else 1)
             * SECONDARY_PATH_STATE_DTYPE.itemsize,
             usage, device_flags,
         )
+        self.secondary_path_itemsize = SECONDARY_PATH_STATE_DTYPE.itemsize
         self.resolve_buffer = core._create_buffer(
             capacity * RESOLVED_PIXEL_DTYPE.itemsize, usage, device_flags
         )
@@ -441,6 +494,11 @@ class VulkanWavefrontExecutor:
         self.camera_buffers = [core._create_buffer(
             64, camera_usage, staging_flags
         ) for _ in range(WINDOW_FRAMES_IN_FLIGHT)]
+        self.relax_temporal_constant_buffers = [core._create_buffer(
+            32, vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, staging_flags
+        ) for _ in range(WINDOW_FRAMES_IN_FLIGHT)] if (
+            core.config.denoiser_enabled
+        ) else []
         self.work_counter_buffers = [core._create_buffer(
             160,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
@@ -466,6 +524,13 @@ class VulkanWavefrontExecutor:
         )
         self.packed_readback = core._create_buffer(
             capacity * 4, staging_usage, staging_flags
+        )
+        self.secondary_path_readback = (
+            core._create_buffer(
+                capacity * SECONDARY_PATH_STATE_DTYPE.itemsize,
+                staging_usage, staging_flags,
+            )
+            if core.config.denoiser_signal_capture else None
         )
         self.primary_hit_snapshot = None
         self.primary_hit_readback = None
@@ -610,6 +675,7 @@ class VulkanWavefrontExecutor:
             self.core.config.wavefront_ordinaryshade_shade,
             self.core.native_textures_enabled,
             self.core.config.wavefront_profiling,
+            self._denoiser_signals_active(),
             self.core.config.material_modifier,
         )
         if signature == self.custom_material_signature:
@@ -636,6 +702,7 @@ class VulkanWavefrontExecutor:
                 volume_empty_space_skipping=volume_empty_space_skipping,
                 native_textures=self.core.native_textures_enabled,
                 profiling=self.core.config.wavefront_profiling,
+                denoiser_signal_capture=self._denoiser_signals_active(),
                 material_modifier=self.core.config.material_modifier,
             )
             shade = compile_wavefront_material_shader(
@@ -651,6 +718,7 @@ class VulkanWavefrontExecutor:
                 volume_empty_space_skipping=volume_empty_space_skipping,
                 native_textures=self.core.native_textures_enabled,
                 profiling=self.core.config.wavefront_profiling,
+                denoiser_signal_capture=self._denoiser_signals_active(),
                 material_modifier=self.core.config.material_modifier,
             )
             self.custom_primary_module, self.custom_primary_pipeline = (
@@ -937,6 +1005,12 @@ class VulkanWavefrontExecutor:
         return stride if stride in (1, 2, 4) and abs(
             inverse_scale - stride) < 1e-6 else 0
 
+    def _denoiser_signals_active(self):
+        return bool(
+            self.core.config.denoiser_signal_capture
+            or self.core.config.denoiser_enabled
+        )
+
     def _create_pipelines(self):
         shader_stages = vk.VK_SHADER_STAGE_COMPUTE_BIT
         if self.core.config.wavefront_ser:
@@ -947,6 +1021,10 @@ class VulkanWavefrontExecutor:
         )
         storage_image = lambda binding: vk.VkDescriptorSetLayoutBinding(
             binding=binding, descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            descriptorCount=1, stageFlags=shader_stages,
+        )
+        uniform = lambda binding: vk.VkDescriptorSetLayoutBinding(
+            binding=binding, descriptorType=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             descriptorCount=1, stageFlags=shader_stages,
         )
         acceleration = vk.VkDescriptorSetLayoutBinding(
@@ -1019,6 +1097,22 @@ class VulkanWavefrontExecutor:
         self.reconstruct_layout = self._layout(
             reconstruct_bindings + [storage(8), storage(9), storage_image(10)]
         )
+        if self.core.config.denoiser_enabled:
+            self.relax_prepare_layout = self._layout(
+                [storage(0), storage(1)]
+                + [storage_image(binding) for binding in range(2, 9)]
+                + [storage(9), storage(10)]
+            )
+            self.relax_temporal_layout = self._layout(
+                [storage_image(binding) for binding in range(12)]
+                + [uniform(12)]
+            )
+            self.relax_atrous_layout = self._layout(
+                [storage_image(binding) for binding in range(5)]
+            )
+            self.relax_compose_layout = self._layout(
+                [storage_image(binding) for binding in range(4)]
+            )
         if self.core.config.wavefront_indirect_reuse_storage:
             self.indirect_reuse_clear_layout = self._layout([storage(0)])
         if self.core.config.wavefront_indirect_reuse_candidates:
@@ -1060,6 +1154,22 @@ class VulkanWavefrontExecutor:
         self.reconstruct_pipeline_layout = self._pipeline_layout(
             self.reconstruct_layout, RECONSTRUCT_PUSH_SIZE
         )
+        if self.relax_prepare_layout:
+            self.relax_prepare_pipeline_layout = self._pipeline_layout(
+                self.relax_prepare_layout, 16
+            )
+        if self.relax_temporal_layout:
+            self.relax_temporal_pipeline_layout = self._pipeline_layout(
+                self.relax_temporal_layout
+            )
+        if self.relax_atrous_layout:
+            self.relax_atrous_pipeline_layout = self._pipeline_layout(
+                self.relax_atrous_layout, 32
+            )
+        if self.relax_compose_layout:
+            self.relax_compose_pipeline_layout = self._pipeline_layout(
+                self.relax_compose_layout, 16
+            )
         if self.indirect_reuse_clear_layout:
             self.indirect_reuse_clear_pipeline_layout = self._pipeline_layout(
                 self.indirect_reuse_clear_layout, 4
@@ -1268,6 +1378,26 @@ class VulkanWavefrontExecutor:
         self.reconstruct_module, self.reconstruct_pipeline = self._pipeline(
             "wavefront_reconstruct.comp", self.reconstruct_pipeline_layout
         )
+        if self.relax_prepare_pipeline_layout:
+            self.relax_prepare_module, self.relax_prepare_pipeline = self._pipeline(
+                "denoiser_relax_prepare.comp",
+                self.relax_prepare_pipeline_layout,
+            )
+        if self.relax_temporal_pipeline_layout:
+            self.relax_temporal_module, self.relax_temporal_pipeline = self._pipeline(
+                "denoiser_relax_temporal.comp",
+                self.relax_temporal_pipeline_layout,
+            )
+        if self.relax_atrous_pipeline_layout:
+            self.relax_atrous_module, self.relax_atrous_pipeline = self._pipeline(
+                "denoiser_relax_atrous.comp",
+                self.relax_atrous_pipeline_layout,
+            )
+        if self.relax_compose_pipeline_layout:
+            self.relax_compose_module, self.relax_compose_pipeline = self._pipeline(
+                "denoiser_relax_compose.comp",
+                self.relax_compose_pipeline_layout,
+            )
         if self.core.formatless_storage_write_supported:
             (
                 self.reconstruct_bgra_module,
@@ -1328,8 +1458,8 @@ class VulkanWavefrontExecutor:
             self.core.device,
             vk.VkDescriptorPoolCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                maxSets=42,
-                poolSizeCount=4,
+                maxSets=66,
+                poolSizeCount=5,
                 pPoolSizes=[
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptorCount=240
@@ -1340,7 +1470,11 @@ class VulkanWavefrontExecutor:
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                        descriptorCount=64,
+                        descriptorCount=240,
+                    ),
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        descriptorCount=8,
                     ),
                 ] + [vk.VkDescriptorPoolSize(
                     type=vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1368,6 +1502,17 @@ class VulkanWavefrontExecutor:
             fixed_layouts += [self.indirect_reuse_candidate_layout] * 2
         if self.indirect_reuse_debug_layout:
             fixed_layouts += [self.indirect_reuse_debug_layout] * 2
+        if self.relax_prepare_layout:
+            fixed_layouts += [self.relax_prepare_layout] * 2
+        if self.relax_temporal_layout:
+            # Two frame slots, with independent diffuse and specular histories.
+            fixed_layouts += [self.relax_temporal_layout] * 4
+        if self.relax_atrous_layout:
+            # Two frame slots, two lobes, and first/reverse/forward paths.
+            fixed_layouts += [self.relax_atrous_layout] * 12
+        if self.relax_compose_layout:
+            # Compose from either side of the A-trous ping-pong pair.
+            fixed_layouts += [self.relax_compose_layout] * 4
         allocated = vk.vkAllocateDescriptorSets(
             self.core.device,
             vk.VkDescriptorSetAllocateInfo(
@@ -1387,26 +1532,31 @@ class VulkanWavefrontExecutor:
         self.wavefront_tone_set = allocated[shade_end + 3]
         self.wavefront_image_sets = list(allocated[shade_end + 4:shade_end + 6])
         self.reconstruct_sets = list(allocated[shade_end + 6:shade_end + 8])
+        cursor = shade_end + 8
         if self.indirect_reuse_clear_layout:
-            self.indirect_reuse_clear_sets = list(
-                allocated[shade_end + 8:shade_end + 10]
-            )
+            self.indirect_reuse_clear_sets = list(allocated[cursor:cursor + 2])
+            cursor += 2
         if self.indirect_reuse_candidate_layout:
-            candidate_start = shade_end + 8 + (
-                2 if self.indirect_reuse_clear_layout else 0
-            )
             self.indirect_reuse_candidate_sets = list(
-                allocated[candidate_start:candidate_start + 2]
+                allocated[cursor:cursor + 2]
             )
+            cursor += 2
         if self.indirect_reuse_debug_layout:
-            debug_start = shade_end + 8
-            if self.indirect_reuse_clear_layout:
-                debug_start += 2
-            if self.indirect_reuse_candidate_layout:
-                debug_start += 2
             self.indirect_reuse_debug_sets = list(
-                allocated[debug_start:debug_start + 2]
+                allocated[cursor:cursor + 2]
             )
+            cursor += 2
+        if self.relax_prepare_layout:
+            self.relax_prepare_sets = list(allocated[cursor:cursor + 2])
+            cursor += 2
+        if self.relax_temporal_layout:
+            self.relax_temporal_sets = list(allocated[cursor:cursor + 4])
+            cursor += 4
+        if self.relax_atrous_layout:
+            self.relax_atrous_sets = list(allocated[cursor:cursor + 12])
+            cursor += 12
+        if self.relax_compose_layout:
+            self.relax_compose_sets = list(allocated[cursor:cursor + 4])
         if self.bucket_intersect_layout:
             coherent_layouts = (
                 [self.shade_layout] * (
@@ -1492,7 +1642,29 @@ class VulkanWavefrontExecutor:
                     (5, self.secondary_path_buffer),
                 )
             )
-
+        for slot, descriptor_set in enumerate(self.relax_prepare_sets):
+            self._write_storage_set(
+                descriptor_set, (
+                    (0, self.path_buffer), (1, self.secondary_path_buffer),
+                    (9, self.camera_buffers[slot]),
+                    (10, self.camera_buffers[1 - slot]),
+                )
+            )
+        for index, descriptor_set in enumerate(self.relax_temporal_sets):
+            slot = index // 2
+            info = self._buffer_info(
+                self.relax_temporal_constant_buffers[slot]
+            )
+            write = vk.VkWriteDescriptorSet(
+                sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                dstSet=descriptor_set, dstBinding=12,
+                descriptorCount=1,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                pBufferInfo=[info],
+            )
+            vk.vkUpdateDescriptorSets(
+                self.core.device, 1, [write], 0, None
+            )
     def bind_output_image(
         self, slot, hdr_view, position_view, normal_view, material_view,
         output_view,
@@ -1557,6 +1729,116 @@ class VulkanWavefrontExecutor:
             pImageInfo=[material_info],
         ))
         vk.vkUpdateDescriptorSets(self.core.device, len(writes), writes, 0, None)
+
+        if self.relax_prepare_sets:
+            relax_views = (
+                normal_view, material_view,
+                current["wavefront_relax_diffuse_view"],
+                current["wavefront_relax_specular_view"],
+                current["wavefront_relax_normal_roughness_view"],
+                current["wavefront_relax_view_z_view"],
+                current["wavefront_relax_motion_view"],
+            )
+            relax_infos = [vk.VkDescriptorImageInfo(
+                imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
+            ) for view in relax_views]
+            relax_writes = [vk.VkWriteDescriptorSet(
+                sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                dstSet=self.relax_prepare_sets[slot], dstBinding=2 + index,
+                descriptorCount=1,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                pImageInfo=[info],
+            ) for index, info in enumerate(relax_infos)]
+            vk.vkUpdateDescriptorSets(
+                self.core.device, len(relax_writes), relax_writes, 0, None
+            )
+
+        if self.relax_temporal_sets:
+            for lobe, name in enumerate(("diffuse", "specular")):
+                descriptor_set = self.relax_temporal_sets[slot * 2 + lobe]
+                temporal_views = (
+                    current[f"wavefront_relax_{name}_view"],
+                    current["wavefront_relax_normal_roughness_view"],
+                    current["wavefront_relax_view_z_view"],
+                    current["wavefront_relax_motion_view"],
+                    material_view,
+                    previous[f"wavefront_relax_temporal_{name}_view"],
+                    previous["wavefront_relax_normal_roughness_view"],
+                    previous["wavefront_relax_view_z_view"],
+                    previous["wavefront_material_view"],
+                    previous[f"wavefront_relax_{name}_history_view"],
+                    current[f"wavefront_relax_temporal_{name}_view"],
+                    current[f"wavefront_relax_{name}_history_view"],
+                )
+                infos = [vk.VkDescriptorImageInfo(
+                    imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
+                ) for view in temporal_views]
+                writes = [vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=descriptor_set, dstBinding=binding,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    pImageInfo=[info],
+                ) for binding, info in enumerate(infos)]
+                vk.vkUpdateDescriptorSets(
+                    self.core.device, len(writes), writes, 0, None
+                )
+
+        if self.relax_atrous_sets:
+            for lobe, name in enumerate(("diffuse", "specular")):
+                for direction, (source, target) in enumerate((
+                    (current[f"wavefront_relax_temporal_{name}_view"],
+                     current[f"wavefront_relax_atrous_{name}_view"]),
+                    (current[f"wavefront_relax_atrous_{name}_view"],
+                     current[f"wavefront_relax_{name}_view"]),
+                    (current[f"wavefront_relax_{name}_view"],
+                     current[f"wavefront_relax_atrous_{name}_view"]),
+                )):
+                    descriptor_set = self.relax_atrous_sets[
+                        slot * 6 + lobe * 3 + direction
+                    ]
+                    views = (
+                        source,
+                        current["wavefront_relax_normal_roughness_view"],
+                        current["wavefront_relax_view_z_view"], material_view,
+                        target,
+                    )
+                    infos = [vk.VkDescriptorImageInfo(
+                        imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
+                    ) for view in views]
+                    writes = [vk.VkWriteDescriptorSet(
+                        sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        dstSet=descriptor_set, dstBinding=binding,
+                        descriptorCount=1,
+                        descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                        pImageInfo=[info],
+                    ) for binding, info in enumerate(infos)]
+                    vk.vkUpdateDescriptorSets(
+                        self.core.device, len(writes), writes, 0, None
+                    )
+
+        if self.relax_compose_sets:
+            for side, prefix in enumerate((
+                "wavefront_relax_atrous", "wavefront_relax",
+            )):
+                views = (
+                    current[f"{prefix}_diffuse_view"],
+                    current[f"{prefix}_specular_view"],
+                    current["wavefront_relax_view_z_view"], hdr_view,
+                )
+                infos = [vk.VkDescriptorImageInfo(
+                    imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
+                ) for view in views]
+                writes = [vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=self.relax_compose_sets[slot * 2 + side],
+                    dstBinding=binding, descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    pImageInfo=[info],
+                ) for binding, info in enumerate(infos)]
+                vk.vkUpdateDescriptorSets(
+                    self.core.device, len(writes), writes, 0, None
+                )
 
         primary_infos = [vk.VkDescriptorImageInfo(
             imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
@@ -1933,7 +2215,10 @@ class VulkanWavefrontExecutor:
         constants = bytearray(struct.pack(
             "8I", path_count, image_width, image_height,
             sample_index, sample_count,
-            int(self.core.config.wavefront_indirect_reuse_candidates),
+            int(
+                self.core.config.wavefront_indirect_reuse_candidates
+                or self._denoiser_signals_active()
+            ),
             reservoir_extent[0], reservoir_extent[1],
         ))
         vk.vkCmdPushConstants(
@@ -1942,6 +2227,222 @@ class VulkanWavefrontExecutor:
             vk.ffi.from_buffer(constants),
         )
         vk.vkCmdDispatch(command, (path_count + 63) // 64, 1, 1)
+
+    def record_relax_prepare(
+        self, command, slot, path_count, image_width, image_height,
+    ):
+        """Scatter a completed path tile into full-frame ReLAX signal images."""
+        if not self.relax_prepare_pipeline:
+            return
+        current = self.core.window_frames[slot]
+        buffer_barriers = [self._buffer_barrier(
+            buffer, vk.VK_ACCESS_SHADER_WRITE_BIT,
+            vk.VK_ACCESS_SHADER_READ_BIT,
+        ) for buffer in (self.path_buffer, self.secondary_path_buffer)]
+        image_barriers = [self.core._image_barrier(
+            current[name], vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_ACCESS_SHADER_WRITE_BIT,
+            vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
+        ) for name in (
+            "wavefront_normal_image", "wavefront_material_image",
+            "wavefront_relax_diffuse_image",
+            "wavefront_relax_specular_image",
+            "wavefront_relax_normal_roughness_image",
+            "wavefront_relax_view_z_image",
+            "wavefront_relax_motion_image",
+        )]
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+            0, None, len(buffer_barriers), buffer_barriers,
+            len(image_barriers), image_barriers,
+        )
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_prepare_pipeline,
+        )
+        vk.vkCmdBindDescriptorSets(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_prepare_pipeline_layout, 0, 1,
+            [self.relax_prepare_sets[slot]], 0, None,
+        )
+        constants = bytearray(struct.pack(
+            "4I", image_width, image_height, path_count, 0
+        ))
+        vk.vkCmdPushConstants(
+            command, self.relax_prepare_pipeline_layout,
+            vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
+            vk.ffi.from_buffer(constants),
+        )
+        vk.vkCmdDispatch(command, (path_count + 63) // 64, 1, 1)
+
+    def update_relax_temporal_constants(
+        self, slot, width, height, history_valid,
+    ):
+        """Upload stable temporal rejection settings for one frame slot."""
+        if not self.relax_temporal_constant_buffers:
+            return
+        values = np.asarray((
+            float(width), float(height), 32.0,
+            1.0 if history_valid else 0.0,
+            0.8, 0.02, 2.5, 0.0,
+        ), dtype=np.float32)
+        memory = self.relax_temporal_constant_buffers[slot].memory
+        mapped = vk.vkMapMemory(
+            self.core.device, memory, 0, values.nbytes, 0
+        )
+        mapped[:] = values.tobytes()
+        vk.vkUnmapMemory(self.core.device, memory)
+
+    def record_relax_temporal(self, command, slot, width, height):
+        """Temporally accumulate prepared diffuse and specular signals."""
+        if not self.relax_temporal_pipeline:
+            return
+        current = self.core.window_frames[slot]
+        previous = self.core.window_frames[1 - slot]
+        names = (
+            "wavefront_relax_diffuse_image",
+            "wavefront_relax_specular_image",
+            "wavefront_relax_normal_roughness_image",
+            "wavefront_relax_view_z_image",
+            "wavefront_relax_motion_image",
+            "wavefront_material_image",
+            "wavefront_relax_temporal_diffuse_image",
+            "wavefront_relax_temporal_specular_image",
+            "wavefront_relax_diffuse_history_image",
+            "wavefront_relax_specular_history_image",
+        )
+        barriers = [self.core._image_barrier(
+            current[name], vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_ACCESS_SHADER_WRITE_BIT,
+            vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
+        ) for name in names]
+        barriers.extend(self.core._image_barrier(
+            previous[name], vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_ACCESS_SHADER_WRITE_BIT,
+            vk.VK_ACCESS_SHADER_READ_BIT,
+        ) for name in (
+            "wavefront_relax_normal_roughness_image",
+            "wavefront_relax_view_z_image", "wavefront_material_image",
+            "wavefront_relax_temporal_diffuse_image",
+            "wavefront_relax_temporal_specular_image",
+            "wavefront_relax_diffuse_history_image",
+            "wavefront_relax_specular_history_image",
+        ))
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+            0, None, 0, None, len(barriers), barriers,
+        )
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_temporal_pipeline,
+        )
+        for lobe in range(2):
+            vk.vkCmdBindDescriptorSets(
+                command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+                self.relax_temporal_pipeline_layout, 0, 1,
+                [self.relax_temporal_sets[slot * 2 + lobe]], 0, None,
+            )
+            vk.vkCmdDispatch(
+                command, (width + 7) // 8, (height + 7) // 8, 1
+            )
+        atrous_barriers = [self.core._image_barrier(
+            current[name], vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_ACCESS_SHADER_WRITE_BIT,
+            vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
+        ) for name in (
+            "wavefront_relax_temporal_diffuse_image",
+            "wavefront_relax_temporal_specular_image",
+            "wavefront_relax_normal_roughness_image",
+            "wavefront_relax_view_z_image", "wavefront_material_image",
+            "wavefront_relax_atrous_diffuse_image",
+            "wavefront_relax_atrous_specular_image",
+        )]
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+            0, None, 0, None, len(atrous_barriers), atrous_barriers,
+        )
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_atrous_pipeline,
+        )
+        iteration_count = self.core.config.denoiser_iterations
+        for iteration in range(iteration_count):
+            direction = 0 if iteration == 0 else (1 if iteration & 1 else 2)
+            constants = bytearray(struct.pack(
+                "8f", float(width), float(height),
+                float(1 << iteration), 0.0, 32.0, 0.02, 4.0, 0.0,
+            ))
+            vk.vkCmdPushConstants(
+                command, self.relax_atrous_pipeline_layout,
+                vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
+                vk.ffi.from_buffer(constants),
+            )
+            for lobe in range(2):
+                vk.vkCmdBindDescriptorSets(
+                    command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+                    self.relax_atrous_pipeline_layout, 0, 1,
+                    [self.relax_atrous_sets[
+                        slot * 6 + lobe * 3 + direction
+                    ]], 0, None,
+                )
+                vk.vkCmdDispatch(
+                    command, (width + 7) // 8, (height + 7) // 8, 1
+                )
+            if iteration + 1 < iteration_count:
+                vk.vkCmdPipelineBarrier(
+                    command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+                    0, None, 0, None, len(atrous_barriers), atrous_barriers,
+                )
+        final_side = 0 if iteration_count & 1 else 1
+        final_prefix = (
+            "wavefront_relax_atrous" if final_side == 0
+            else "wavefront_relax"
+        )
+        compose_barriers = [self.core._image_barrier(
+            current[f"{final_prefix}_{name}_image"],
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_ACCESS_SHADER_WRITE_BIT, vk.VK_ACCESS_SHADER_READ_BIT,
+        ) for name in ("diffuse", "specular")]
+        compose_barriers.append(self.core._image_barrier(
+            current["wavefront_relax_view_z_image"],
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_ACCESS_SHADER_WRITE_BIT, vk.VK_ACCESS_SHADER_READ_BIT,
+        ))
+        compose_barriers.append(self.core._image_barrier(
+            current["wavefront_hdr_image"], vk.VK_IMAGE_LAYOUT_GENERAL,
+            vk.VK_IMAGE_LAYOUT_GENERAL, vk.VK_ACCESS_SHADER_READ_BIT,
+            vk.VK_ACCESS_SHADER_WRITE_BIT,
+        ))
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+            0, None, 0, None, len(compose_barriers), compose_barriers,
+        )
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_compose_pipeline,
+        )
+        vk.vkCmdBindDescriptorSets(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self.relax_compose_pipeline_layout, 0, 1,
+            [self.relax_compose_sets[slot * 2 + final_side]], 0, None,
+        )
+        constants = bytearray(struct.pack(
+            "4f", float(width), float(height), 0.0, 0.0
+        ))
+        vk.vkCmdPushConstants(
+            command, self.relax_compose_pipeline_layout,
+            vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
+            vk.ffi.from_buffer(constants),
+        )
+        vk.vkCmdDispatch(
+            command, (width + 7) // 8, (height + 7) // 8, 1
+        )
 
     def record_reconstruction(
         self, command, slot, source_width, source_height,
@@ -2493,6 +2994,12 @@ class VulkanWavefrontExecutor:
                     command, buffer.buffer, 4, 4, self.capacity
                 )
                 vk.vkCmdFillBuffer(command, buffer.buffer, 8, 4, 0)
+            if self._denoiser_signals_active():
+                vk.vkCmdFillBuffer(
+                    command, self.secondary_path_buffer.buffer, 0,
+                    tile_width * tile_height
+                    * self.secondary_path_itemsize, 0,
+                )
             reset_barriers = [self._buffer_barrier(
                 buffer, vk.VK_ACCESS_TRANSFER_WRITE_BIT,
                 vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
@@ -2503,7 +3010,13 @@ class VulkanWavefrontExecutor:
                 vk.VK_ACCESS_SHADER_WRITE_BIT,
             ) for buffer in (
                 self.path_buffer, self.medium_buffer,
+            ))
+            reset_barriers.append(self._buffer_barrier(
                 self.secondary_path_buffer,
+                (vk.VK_ACCESS_TRANSFER_WRITE_BIT
+                 if self._denoiser_signals_active() else
+                 vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT),
+                vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
             ))
             reset_barriers.extend(self._buffer_barrier(
                 buffer,
@@ -2708,7 +3221,10 @@ class VulkanWavefrontExecutor:
                     int(self.core.config.wavefront_unified_secondary_nee),
                     int(self.core.config.wavefront_unified_primary_restir),
                     int(self.core.config.wavefront_stratified_primary_restir),
-                    int(self.core.config.wavefront_indirect_reuse_candidates),
+                    int(
+                        self.core.config.wavefront_indirect_reuse_candidates
+                        or self._denoiser_signals_active()
+                    ),
                     self._indirect_capture_stride(),
                     *effect_ranges,
                 ))
@@ -2762,10 +3278,24 @@ class VulkanWavefrontExecutor:
                     self.generate_pipeline_layout, 0, 1,
                     [self.generate_sets[camera_slot]], 0, None,
                 )
+                generate_constants = constants
+                if self._denoiser_signals_active():
+                    # GenerateConstants.tile_frame.z is unused by the split
+                    # primary-ray stage. Reserve its high bit for the opt-in
+                    # cold-path signal capture flag without changing the
+                    # long-lived Vulkan push-constant ABI.
+                    generate_constants = bytearray(constants)
+                    encoded_sample_count = struct.unpack_from(
+                        "I", generate_constants, 24
+                    )[0] | 0x80000000
+                    struct.pack_into(
+                        "I", generate_constants, 24, encoded_sample_count
+                    )
                 vk.vkCmdPushConstants(
                     command, self.generate_pipeline_layout,
-                    vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
-                    vk.ffi.from_buffer(constants),
+                    vk.VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    len(generate_constants),
+                    vk.ffi.from_buffer(generate_constants),
                 )
                 vk.vkCmdDispatch(
                     command, (tile_width + 7) // 8,
@@ -2775,6 +3305,7 @@ class VulkanWavefrontExecutor:
                     timestamp(command, "generate")
                 generated_buffers = (
                     self.ray_buffer, self.path_buffer, self.medium_buffer,
+                    self.secondary_path_buffer,
                 )
                 first_bounce = 0
             generated = [self._buffer_barrier(
@@ -2808,7 +3339,10 @@ class VulkanWavefrontExecutor:
                     int(self.core.config.wavefront_subgroup_enqueue),
                     self.core.config.wavefront_secondary_nee_probability,
                     int(self.core.config.wavefront_unified_secondary_nee),
-                    int(self.core.config.wavefront_indirect_reuse_candidates),
+                    int(
+                        self.core.config.wavefront_indirect_reuse_candidates
+                        or self._denoiser_signals_active()
+                    ),
                 ))
             shade_constants_fused = make_shade_constants(
                 self.core.config.wavefront_fused_secondary
@@ -3193,6 +3727,10 @@ class VulkanWavefrontExecutor:
                     command, output_image_slot, tile_width * tile_height,
                     image_width, image_height, sample_index, sample_count,
                 )
+                self.record_relax_prepare(
+                    command, output_image_slot, tile_width * tile_height,
+                    image_width, image_height,
+                )
                 if timestamp:
                     timestamp(command, "resolve_hdr")
             if readback:
@@ -3210,6 +3748,13 @@ class VulkanWavefrontExecutor:
                         self.primary_hit_snapshot,
                         self.primary_hit_readback,
                         16 + tile_width * tile_height * self.hit_dtype.itemsize,
+                    ))
+                if self.secondary_path_readback is not None:
+                    copies.append((
+                        self.secondary_path_buffer,
+                        self.secondary_path_readback,
+                        tile_width * tile_height
+                        * self.secondary_path_itemsize,
                     ))
                 copy_ready = [self._buffer_barrier(
                     source,
@@ -3268,7 +3813,24 @@ class VulkanWavefrontExecutor:
             self._read_packed(primary_count),
         )
         if primary_hit_readback:
-            return result + (self._read_primary_hits(primary_count),)
+            result += (self._read_primary_hits(primary_count),)
+        if self.secondary_path_readback is not None:
+            result += (self._read_secondary_paths(primary_count),)
+        return result
+
+    def _read_secondary_paths(self, count):
+        from ...wavefront import SECONDARY_PATH_STATE_DTYPE
+
+        size = count * SECONDARY_PATH_STATE_DTYPE.itemsize
+        mapped = vk.vkMapMemory(
+            self.core.device, self.secondary_path_readback.memory, 0, size, 0
+        )
+        result = np.frombuffer(
+            bytes(mapped[:size]), dtype=SECONDARY_PATH_STATE_DTYPE, count=count,
+        ).copy()
+        vk.vkUnmapMemory(
+            self.core.device, self.secondary_path_readback.memory
+        )
         return result
 
     def _read_primary_hits(self, count):
@@ -3333,6 +3895,10 @@ class VulkanWavefrontExecutor:
             self.wavefront_image_pipeline,
             self.reconstruct_pipeline,
             self.reconstruct_bgra_pipeline,
+            self.relax_prepare_pipeline,
+            self.relax_temporal_pipeline,
+            self.relax_atrous_pipeline,
+            self.relax_compose_pipeline,
             self.indirect_reuse_clear_pipeline,
             self.indirect_reuse_candidate_pipeline,
             self.indirect_reuse_debug_pipeline,
@@ -3371,6 +3937,10 @@ class VulkanWavefrontExecutor:
             self.wavefront_image_module,
             self.reconstruct_module,
             self.reconstruct_bgra_module,
+            self.relax_prepare_module,
+            self.relax_temporal_module,
+            self.relax_atrous_module,
+            self.relax_compose_module,
             self.indirect_reuse_clear_module,
             self.indirect_reuse_candidate_module,
             self.indirect_reuse_debug_module,
@@ -3392,6 +3962,10 @@ class VulkanWavefrontExecutor:
             self.wavefront_tone_pipeline_layout,
             self.wavefront_image_pipeline_layout,
             self.reconstruct_pipeline_layout,
+            self.relax_prepare_pipeline_layout,
+            self.relax_temporal_pipeline_layout,
+            self.relax_atrous_pipeline_layout,
+            self.relax_compose_pipeline_layout,
             self.indirect_reuse_clear_pipeline_layout,
             self.indirect_reuse_candidate_pipeline_layout,
             self.indirect_reuse_debug_pipeline_layout,
@@ -3409,6 +3983,10 @@ class VulkanWavefrontExecutor:
             self.wavefront_tone_layout,
             self.wavefront_image_layout,
             self.reconstruct_layout,
+            self.relax_prepare_layout,
+            self.relax_temporal_layout,
+            self.relax_atrous_layout,
+            self.relax_compose_layout,
             self.indirect_reuse_clear_layout,
             self.indirect_reuse_candidate_layout,
             self.indirect_reuse_debug_layout,
@@ -5859,7 +6437,7 @@ class VulkanRayQueryCore:
         constants = bytearray(struct.pack(
             "8I",
             width, height, origin_x, origin_y,
-            tile_width, tile_height, int(frame_index), int(sample_index),
+            tile_width, tile_height, int(sample_count), int(sample_index),
         ))
         dispatched = self.wavefront_executor.dispatch(
             constants, tile_width, tile_height,
@@ -5941,6 +6519,9 @@ class VulkanRayQueryCore:
             result["primitive_id"] = primitive
             result["primary_position"] = position
             result["primary_barycentric"] = barycentric
+        if self.config.denoiser_signal_capture:
+            signal_index = 6 if primary_hit_readback else 5
+            result["denoiser_path_signals"] = dispatched[signal_index]
         return result
 
     def upload_window_scene(self, scene):
@@ -6035,6 +6616,8 @@ class VulkanRayQueryCore:
             self.wavefront_executor._bound_scene_key = None
         for frame in self.window_frames:
             frame["wavefront_command_key"] = None
+            frame["wavefront_history_valid"] = False
+            frame["wavefront_relax_history_valid"] = False
             frame["wavefront_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_valid"] = False
 
@@ -6166,6 +6749,7 @@ class VulkanRayQueryCore:
         self.reset_accumulation()
         for frame in self.window_frames:
             frame["wavefront_history_valid"] = False
+            frame["wavefront_relax_history_valid"] = False
             frame["wavefront_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_valid"] = False
             frame["wavefront_command_key"] = None
@@ -6234,6 +6818,15 @@ class VulkanRayQueryCore:
             for prefix in (
                 "wavefront_position", "wavefront_normal",
                 "wavefront_material", "wavefront_history_color",
+                "wavefront_relax_diffuse", "wavefront_relax_specular",
+                "wavefront_relax_normal_roughness",
+                "wavefront_relax_view_z", "wavefront_relax_motion",
+                "wavefront_relax_temporal_diffuse",
+                "wavefront_relax_temporal_specular",
+                "wavefront_relax_atrous_diffuse",
+                "wavefront_relax_atrous_specular",
+                "wavefront_relax_diffuse_history",
+                "wavefront_relax_specular_history",
             ):
                 if frame.get(f"{prefix}_view"):
                     vk.vkDestroyImageView(
@@ -6319,6 +6912,22 @@ class VulkanRayQueryCore:
             ),
         )
 
+    def _reset_wavefront_history_chain(self):
+        """Return the cross-frame history semaphores to an unsignaled state."""
+        if not self.window_frames:
+            return
+        semaphore_info = vk.VkSemaphoreCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+        )
+        for frame in self.window_frames:
+            semaphore = frame.get("wavefront_history_ready")
+            if semaphore is not None:
+                vk.vkDestroySemaphore(self.device, semaphore, None)
+            frame["wavefront_history_ready"] = vk.vkCreateSemaphore(
+                self.device, semaphore_info, None
+            )
+            frame["wavefront_history_ready_pending"] = False
+
     def create_window_swapchain(
         self, requested_width, requested_height, wavefront_only=False
     ):
@@ -6327,6 +6936,7 @@ class VulkanRayQueryCore:
             raise RuntimeError("A GLFW window is required")
         self._wait_external_releases()
         vk.vkDeviceWaitIdle(self.device)
+        self._reset_wavefront_history_chain()
         self._destroy_swapchain_resources()
         if self._headless_surface:
             capabilities = SimpleNamespace(
@@ -6547,6 +7157,7 @@ class VulkanRayQueryCore:
             or self.config.wavefront_restir_di
             or self.config.wavefront_indirect_reuse_storage
             or self.config.object_effects
+            or self.config.denoiser_enabled
         )
         wavefront_position_info = vk.VkImageCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -6588,11 +7199,13 @@ class VulkanRayQueryCore:
                 width=(render_width if (
                     self.config.wavefront_restir_di
                     or self.config.wavefront_indirect_reuse_storage
-                    or self.config.object_effects) else 1),
+                    or self.config.object_effects
+                    or self.config.denoiser_enabled) else 1),
                 height=(render_height if (
                     self.config.wavefront_restir_di
                     or self.config.wavefront_indirect_reuse_storage
-                    or self.config.object_effects) else 1),
+                    or self.config.object_effects
+                    or self.config.denoiser_enabled) else 1),
                 depth=1,
             ),
             mipLevels=1, arrayLayers=1,
@@ -6622,6 +7235,28 @@ class VulkanRayQueryCore:
             sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
             initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
         )
+        def relax_image_info(image_format):
+            enabled = wavefront_only and self.config.denoiser_enabled
+            return vk.VkImageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                imageType=vk.VK_IMAGE_TYPE_2D,
+                format=image_format,
+                extent=vk.VkExtent3D(
+                    width=render_width if enabled else 1,
+                    height=render_height if enabled else 1,
+                    depth=1,
+                ),
+                mipLevels=1, arrayLayers=1,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
+                usage=vk.VK_IMAGE_USAGE_STORAGE_BIT,
+                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            )
+        wavefront_relax_rgba_info = relax_image_info(
+            vk.VK_FORMAT_R16G16B16A16_SFLOAT
+        )
+        wavefront_relax_view_z_info = relax_image_info(vk.VK_FORMAT_R32_SFLOAT)
         accumulation_info = vk.VkImageCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             imageType=vk.VK_IMAGE_TYPE_2D,
@@ -6736,6 +7371,14 @@ class VulkanRayQueryCore:
                     "wavefront_render_extent": None,
                     "image_available": vk.vkCreateSemaphore(self.device, semaphore_info, None),
                     "render_finished": vk.vkCreateSemaphore(self.device, semaphore_info, None),
+                    # Temporal images and reservoir buffers cross frame-slot
+                    # submission boundaries. Swapchain acquisition orders
+                    # presentation only, so use a dedicated semaphore chain
+                    # to publish the preceding slot's compute writes.
+                    "wavefront_history_ready": vk.vkCreateSemaphore(
+                        self.device, semaphore_info, None
+                    ),
+                    "wavefront_history_ready_pending": False,
                     "external_ready": (
                         vk.vkCreateSemaphore(
                             self.device, export_semaphore_info, None
@@ -6779,6 +7422,40 @@ class VulkanRayQueryCore:
                     "wavefront_material_image": None,
                     "wavefront_material_memory": None,
                     "wavefront_material_view": None,
+                    "wavefront_relax_diffuse_image": None,
+                    "wavefront_relax_diffuse_memory": None,
+                    "wavefront_relax_diffuse_view": None,
+                    "wavefront_relax_specular_image": None,
+                    "wavefront_relax_specular_memory": None,
+                    "wavefront_relax_specular_view": None,
+                    "wavefront_relax_normal_roughness_image": None,
+                    "wavefront_relax_normal_roughness_memory": None,
+                    "wavefront_relax_normal_roughness_view": None,
+                    "wavefront_relax_view_z_image": None,
+                    "wavefront_relax_view_z_memory": None,
+                    "wavefront_relax_view_z_view": None,
+                    "wavefront_relax_motion_image": None,
+                    "wavefront_relax_motion_memory": None,
+                    "wavefront_relax_motion_view": None,
+                    "wavefront_relax_temporal_diffuse_image": None,
+                    "wavefront_relax_temporal_diffuse_memory": None,
+                    "wavefront_relax_temporal_diffuse_view": None,
+                    "wavefront_relax_temporal_specular_image": None,
+                    "wavefront_relax_temporal_specular_memory": None,
+                    "wavefront_relax_temporal_specular_view": None,
+                    "wavefront_relax_atrous_diffuse_image": None,
+                    "wavefront_relax_atrous_diffuse_memory": None,
+                    "wavefront_relax_atrous_diffuse_view": None,
+                    "wavefront_relax_atrous_specular_image": None,
+                    "wavefront_relax_atrous_specular_memory": None,
+                    "wavefront_relax_atrous_specular_view": None,
+                    "wavefront_relax_diffuse_history_image": None,
+                    "wavefront_relax_diffuse_history_memory": None,
+                    "wavefront_relax_diffuse_history_view": None,
+                    "wavefront_relax_specular_history_image": None,
+                    "wavefront_relax_specular_history_memory": None,
+                    "wavefront_relax_specular_history_view": None,
+                    "wavefront_relax_history_valid": False,
                     "wavefront_history_color_image": None,
                     "wavefront_history_color_memory": None,
                     "wavefront_history_color_view": None,
@@ -6878,6 +7555,7 @@ class VulkanRayQueryCore:
 
         for frame in self.window_frames:
             frame["wavefront_history_valid"] = False
+            frame["wavefront_relax_history_valid"] = False
             frame["wavefront_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_initialized"] = False
@@ -6910,6 +7588,38 @@ class VulkanRayQueryCore:
             ) = create_history_image(
                 wavefront_material_info, vk.VK_FORMAT_R32_UINT
             )
+            for prefix in (
+                "wavefront_relax_diffuse", "wavefront_relax_specular",
+                "wavefront_relax_normal_roughness", "wavefront_relax_motion",
+                "wavefront_relax_temporal_diffuse",
+                "wavefront_relax_temporal_specular",
+                "wavefront_relax_atrous_diffuse",
+                "wavefront_relax_atrous_specular",
+            ):
+                (
+                    frame[f"{prefix}_image"], frame[f"{prefix}_memory"],
+                    frame[f"{prefix}_view"],
+                ) = create_history_image(
+                    wavefront_relax_rgba_info,
+                    vk.VK_FORMAT_R16G16B16A16_SFLOAT,
+                )
+            (
+                frame["wavefront_relax_view_z_image"],
+                frame["wavefront_relax_view_z_memory"],
+                frame["wavefront_relax_view_z_view"],
+            ) = create_history_image(
+                wavefront_relax_view_z_info, vk.VK_FORMAT_R32_SFLOAT
+            )
+            for prefix in (
+                "wavefront_relax_diffuse_history",
+                "wavefront_relax_specular_history",
+            ):
+                (
+                    frame[f"{prefix}_image"], frame[f"{prefix}_memory"],
+                    frame[f"{prefix}_view"],
+                ) = create_history_image(
+                    wavefront_relax_view_z_info, vk.VK_FORMAT_R32_SFLOAT
+                )
             (
                 frame["wavefront_history_color_image"],
                 frame["wavefront_history_color_memory"],
@@ -6918,8 +7628,12 @@ class VulkanRayQueryCore:
                 wavefront_history_info, vk.VK_FORMAT_B10G11R11_UFLOAT_PACK32
             )
             reservoir_bytes = (
-                render_width * render_height * (
-                    12 + (8 if self.config.wavefront_stratified_primary_restir else 0)
+                _restir_reservoir_storage_bytes(
+                    render_width, render_height,
+                    self.config.wavefront_restir_reservoirs,
+                    stratified=(
+                        self.config.wavefront_stratified_primary_restir
+                    ),
                 ) if self.config.wavefront_restir_di else 12
             )
             frame["wavefront_reservoir_buffer"] = self._create_buffer(
@@ -7276,7 +7990,7 @@ class VulkanRayQueryCore:
                 vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 0, 0, None, 0, None,
-                len(self.window_frames) * 6 + len(self.accumulation_images)
+                len(self.window_frames) * 15 + len(self.accumulation_images)
                 + len(self.gbuffer_images) + len(self.moment_images)
                 + len(self.denoise_images),
                 [self._image_barrier(
@@ -7303,6 +8017,22 @@ class VulkanRayQueryCore:
                     vk.VK_IMAGE_LAYOUT_UNDEFINED, vk.VK_IMAGE_LAYOUT_GENERAL, 0,
                     vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
                 ) for frame in self.window_frames
+                ] + [self._image_barrier(
+                    frame[f"{prefix}_image"],
+                    vk.VK_IMAGE_LAYOUT_UNDEFINED,
+                    vk.VK_IMAGE_LAYOUT_GENERAL, 0,
+                    vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
+                ) for frame in self.window_frames for prefix in (
+                    "wavefront_relax_diffuse", "wavefront_relax_specular",
+                    "wavefront_relax_normal_roughness",
+                    "wavefront_relax_view_z", "wavefront_relax_motion",
+                    "wavefront_relax_temporal_diffuse",
+                    "wavefront_relax_temporal_specular",
+                    "wavefront_relax_atrous_diffuse",
+                    "wavefront_relax_atrous_specular",
+                    "wavefront_relax_diffuse_history",
+                    "wavefront_relax_specular_history",
+                )
                 ] + [self._image_barrier(
                     image, vk.VK_IMAGE_LAYOUT_UNDEFINED,
                     vk.VK_IMAGE_LAYOUT_GENERAL, 0,
@@ -7644,6 +8374,20 @@ class VulkanRayQueryCore:
             and temporal_motion_valid
             and perspective_history_compatible
         )
+        relax_history_valid = bool(
+            self.config.denoiser_enabled
+            and self.window_frames[1 - frame_slot].get(
+                "wavefront_relax_history_valid", False
+            )
+            and self.window_frames[1 - frame_slot].get(
+                "wavefront_render_extent"
+            ) == render_extent
+            and temporal_motion_valid
+            and perspective_history_compatible
+        )
+        self.wavefront_executor.update_relax_temporal_constants(
+            frame_slot, render_width, render_height, relax_history_valid
+        )
         restir_history_valid = bool(
             self.wavefront_restir_runtime_enabled
             and self.window_frames[1 - frame_slot]["wavefront_reservoir_valid"]
@@ -7678,11 +8422,12 @@ class VulkanRayQueryCore:
         render_key = (
             width, height, render_width, render_height,
             capacity, self.config.max_bounces,
-            effective_samples, history_valid, profiling,
+            effective_samples, history_valid, relax_history_valid, profiling,
             self.config.wavefront_fused_secondary,
             self.config.wavefront_subgroup_enqueue,
             self.resolved_execution_strategy,
             self.wavefront_restir_runtime_enabled,
+            self.config.wavefront_restir_reservoirs,
             restir_history_valid,
             indirect_needs_clear,
             indirect_history_valid,
@@ -7725,7 +8470,11 @@ class VulkanRayQueryCore:
                 )
                 frame["wavefront_indirect_reservoir_initialized"] = True
             tile_count = 0
-            sample_count = effective_samples
+            sample_count = (
+                self.config.wavefront_restir_reservoirs
+                if self.wavefront_restir_runtime_enabled
+                else effective_samples
+            )
             for sample_index in range(sample_count):
                 y = 0
                 while y < render_height:
@@ -7782,6 +8531,11 @@ class VulkanRayQueryCore:
                             if self.config.wavefront_indirect_reuse_debug_view
                             != "off" else "indirect_apply"
                         ))
+            self.wavefront_executor.record_relax_temporal(
+                secondary, frame_slot, render_width, render_height,
+            )
+            if profiling and self.config.denoiser_enabled:
+                timestamp_stage(secondary, "relax_temporal")
             self.wavefront_executor.record_reconstruction(
                 secondary, frame_slot, render_width, render_height,
                 width, height, history_valid=history_valid,
@@ -8033,6 +8787,35 @@ class VulkanRayQueryCore:
                 if self.swapchain_direct_storage
                 else vk.VK_PIPELINE_STAGE_TRANSFER_BIT
             ]
+        history_source_frame = self.window_frames[1 - frame_slot]
+        history_chain_enabled = bool(
+            self.wavefront_restir_runtime_enabled
+            or wavefront_temporal_enabled
+            or self.config.wavefront_indirect_reuse_temporal
+        )
+        history_wait_pending, history_signal_current = (
+            _wavefront_history_semaphore_plan(
+                current_pending=frame.get(
+                    "wavefront_history_ready_pending", False
+                ),
+                previous_pending=history_source_frame.get(
+                    "wavefront_history_ready_pending", False
+                ),
+                history_enabled=history_chain_enabled,
+            )
+        )
+        if history_wait_pending:
+            wait_semaphores.append(
+                history_source_frame["wavefront_history_ready"]
+            )
+            history_consumer_stage = vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+            if self.resolved_execution_strategy == "ser":
+                history_consumer_stage |= (
+                    vk.VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR
+                )
+            wait_stage_masks.append(history_consumer_stage)
+        if history_signal_current:
+            signal_semaphores.append(frame["wavefront_history_ready"])
         vk.vkQueueSubmit(
             self.queue, 1,
             [vk.VkSubmitInfo(
@@ -8045,6 +8828,9 @@ class VulkanRayQueryCore:
                 pSignalSemaphores=signal_semaphores,
             )], frame["fence"],
         )
+        if history_wait_pending:
+            history_source_frame["wavefront_history_ready_pending"] = False
+        frame["wavefront_history_ready_pending"] = history_signal_current
         if self._headless_surface and wait_semaphores:
             frame["external_release_wait"] = False
         submit_ms = (time.perf_counter() - submit_start) * 1000.0
@@ -8073,6 +8859,9 @@ class VulkanRayQueryCore:
         frame["wavefront_history_valid"] = bool(
             wavefront_temporal_enabled and accumulation_active
         )
+        frame["wavefront_relax_history_valid"] = bool(
+            self.config.denoiser_enabled
+        )
         frame["wavefront_reservoir_valid"] = bool(
             self.wavefront_restir_runtime_enabled
         )
@@ -8091,6 +8880,12 @@ class VulkanRayQueryCore:
             self.wavefront_cadence_ms = 0.0
             self.wavefront_last_frame_start = None
         self.last_timings = {
+            "wavefront_frame_slot": frame_slot,
+            "wavefront_history_source_slot": (
+                1 - frame_slot if history_wait_pending else None
+            ),
+            "wavefront_history_dependency_waited": history_wait_pending,
+            "wavefront_history_chain_enabled": history_chain_enabled,
             "wavefront_frame_ms": (time.perf_counter() - frame_start) * 1000.0,
             "wavefront_cadence_ms": self.wavefront_cadence_ms,
             "wavefront_fps": (
@@ -8181,6 +8976,10 @@ class VulkanRayQueryCore:
                 self.config.wavefront_material_bucketing_start_bounce
             ),
             "wavefront_restir_di": self.wavefront_restir_runtime_enabled,
+            "wavefront_restir_reservoirs": (
+                self.config.wavefront_restir_reservoirs
+                if self.wavefront_restir_runtime_enabled else 0
+            ),
             "wavefront_restir_spatial_reuse": (
                 self.wavefront_restir_runtime_enabled
                 and self.config.wavefront_restir_spatial_reuse
@@ -9075,6 +9874,7 @@ class VulkanRayQueryCore:
             return enabled
         if self.device:
             vk.vkDeviceWaitIdle(self.device)
+            self._reset_wavefront_history_chain()
         self.wavefront_restir_runtime_enabled = enabled
         for frame in self.window_frames:
             frame["wavefront_reservoir_valid"] = False
@@ -9111,6 +9911,9 @@ class VulkanRayQueryCore:
                 vk.vkDestroyFence(self.device, frame["fence"], None)
                 vk.vkDestroySemaphore(self.device, frame["image_available"], None)
                 vk.vkDestroySemaphore(self.device, frame["render_finished"], None)
+                vk.vkDestroySemaphore(
+                    self.device, frame["wavefront_history_ready"], None
+                )
                 if frame.get("external_ready") is not None:
                     vk.vkDestroySemaphore(
                         self.device, frame["external_ready"], None

@@ -37,6 +37,10 @@ REQUIRED_SUFFIXES = (
     "ordinarylight/shaders/raster_scene.frag.spv",
     "ordinarylight/shaders/raster_scene.vert.wgsl",
     "ordinarylight/shaders/raster_scene.frag.wgsl",
+    "ordinarylight/shaders/raster_geometry_products.vert.spv",
+    "ordinarylight/shaders/raster_geometry_products.frag.spv",
+    "ordinarylight/shaders/raster_geometry_products.vert.wgsl",
+    "ordinarylight/shaders/raster_geometry_products.frag.wgsl",
     "ordinarylight/shaders/raster_scene.json",
     "ordinarylight/shaders/manifest.json",
 )

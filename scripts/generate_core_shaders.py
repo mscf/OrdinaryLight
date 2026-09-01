@@ -63,6 +63,9 @@ class SecondaryPathState:
     normal_pdf: osh.vec4
     primary_throughput: osh.vec4
     primary_radiance: osh.vec4
+    diffuse_radiance_hit_distance: osh.vec4
+    specular_radiance_hit_distance: osh.vec4
+    primary_position: osh.vec4
 
 
 @osh.structure
@@ -480,6 +483,13 @@ class PbrSampleResult:
     weight: osh.vec3
     pdf: osh.f32
     random_state: osh.u32
+    sampled_specular: osh.boolean
+
+
+@osh.structure
+class PbrLobeResult:
+    diffuse: osh.vec3
+    specular: osh.vec3
 
 
 @osh.structure
@@ -597,6 +607,7 @@ class ShadeOpaqueScatterResult:
     pdf: osh.f32
     random_state: osh.u32
     cone_spread: osh.f32
+    sampled_specular: osh.boolean
 
 
 @osh.structure
@@ -721,10 +732,11 @@ def candidateLoadPreviousReservoir(
 
 @osh.function
 def candidateRandom(pixel: osh.uvec2, salt: osh.u32) -> osh.f32:
+    frame_index = osh.u32(camera.origin.w + 0.5)
     value = (
         pixel.x * osh.u32(0x9E3779B9)
         ^ pixel.y * osh.u32(0x85EBCA6B)
-        ^ push.frame_index * osh.u32(0xC2B2AE35)
+        ^ frame_index * osh.u32(0xC2B2AE35)
         ^ salt * osh.u32(0x27D4EB2D)
     )
     value = value ^ (value >> osh.u32(16))
@@ -1668,7 +1680,7 @@ def wavefront_path_to_hdr(
     paths: osh.storage_buffer(WavePathState, access="read", binding=0),
     hdr_image: osh.storage_image("rgba16f", binding=1),
     secondary_paths: osh.storage_buffer(
-        SecondaryPathState, access="read", binding=2
+        SecondaryPathState, binding=2
     ),
     indirect_reservoir_words: osh.storage_buffer(osh.u32, binding=3),
     camera: osh.storage_record(PathToHdrCamera, access="read", binding=4),
@@ -1694,9 +1706,45 @@ def wavefront_path_to_hdr(
     hdr_image.store(pixel, osh.vec4(accumulated + contribution, 1.0))
     if (
         push.indirect_secondary_capture == osh.u32(0)
-        or push.sample_index != osh.u32(0)
+        or push.sample_index + osh.u32(1) != push.sample_count
     ):
         return
+    secondary = secondary_paths[path_index]
+    specular_probability = osh.clamp(
+        secondary.primary_radiance.w, 0.0, 1.0
+    )
+    # Resolve from the complete multi-sample HDR value.  The secondary path
+    # buffer is deliberately reset for every sample, so resolving sample zero
+    # and then preparing later samples would replace valid signals with zeros.
+    # Partitioning the accumulated radiance also guarantees that composing the
+    # two denoised lobes starts energy-conserving before filtering.
+    resolved_radiance = osh.maximum(
+        accumulated + contribution, osh.vec3(0.0)
+    )
+    primary_radiance = osh.maximum(
+        secondary.primary_radiance.rgb, osh.vec3(0.0)
+    )
+    indirect_contribution = osh.maximum(
+        paths[path_index].radiance.rgb - primary_radiance,
+        osh.vec3(0.0),
+    )
+    diffuse_radiance = resolved_radiance * (1.0 - specular_probability)
+    specular_radiance = resolved_radiance * specular_probability
+    hit_distance = 0.0
+    if (
+        secondary.primary_position.w > 0.5
+        and secondary.position_valid.w > 0.5
+    ):
+        hit_distance = osh.length(
+            secondary.position_valid.xyz - secondary.primary_position.xyz
+        )
+    secondary.diffuse_radiance_hit_distance = osh.vec4(
+        diffuse_radiance, hit_distance
+    )
+    secondary.specular_radiance_hit_distance = osh.vec4(
+        specular_radiance, hit_distance
+    )
+    secondary_paths[path_index] = secondary
     reservoir_pixel = osh.minimum(
         osh.uvec2(
             (osh.vec2(pixel) + 0.5)
@@ -1717,11 +1765,6 @@ def wavefront_path_to_hdr(
         return
     reservoir_index = (
         reservoir_pixel.y * push.reservoir_width + reservoir_pixel.x
-    )
-    secondary = secondary_paths[path_index]
-    indirect_contribution = osh.maximum(
-        paths[path_index].radiance.rgb - secondary.primary_radiance.rgb,
-        osh.vec3(0.0),
     )
     target = osh.dot(
         indirect_contribution, osh.vec3(0.2126, 0.7152, 0.0722)
@@ -1874,11 +1917,13 @@ def wavefront_indirect_candidates(
                 sign_x = 1
                 sign_y = 1
                 if (
-                    (push.frame_index + reservoir_pixel.y) & osh.u32(1)
+                    (osh.u32(camera.origin.w + 0.5) + reservoir_pixel.y)
+                    & osh.u32(1)
                 ) == osh.u32(0):
                     sign_x = -1
                 if (
-                    (push.frame_index + reservoir_pixel.x) & osh.u32(1)
+                    (osh.u32(camera.origin.w + 0.5) + reservoir_pixel.x)
+                    & osh.u32(1)
                 ) == osh.u32(0):
                     sign_y = -1
                 for neighbor in range(4):
@@ -2607,14 +2652,14 @@ def shadePbrSpecularProbability(material: MaterialData) -> osh.f32:
 
 
 @osh.function
-def shadeEvaluatePbr(
+def shadeEvaluatePbrLobes(
     material: MaterialData, normal: osh.vec3, view: osh.vec3,
     outgoing: osh.vec3,
-) -> osh.vec3:
+) -> PbrLobeResult:
     normal_view = osh.maximum(osh.dot(normal, view), 0.0)
     normal_light = osh.maximum(osh.dot(normal, outgoing), 0.0)
     if normal_view <= 0.0 or normal_light <= 0.0:
-        return osh.vec3(0.0)
+        return PbrLobeResult(osh.vec3(0.0), osh.vec3(0.0))
     half_vector = osh.normalize(view + outgoing)
     normal_half = osh.maximum(osh.dot(normal, half_vector), 0.0)
     view_half = osh.maximum(osh.dot(view, half_vector), 0.0)
@@ -2656,9 +2701,20 @@ def shadeEvaluatePbr(
         clearcoat * coat_distribution * coat_geometry * coat_fresnel
         / osh.maximum(4.0 * normal_view * normal_light, 0.000001)
     )
-    return (diffuse + specular + sheen) * (
-        1.0 - clearcoat * coat_fresnel
-    ) + coat
+    layer_scale = 1.0 - clearcoat * coat_fresnel
+    return PbrLobeResult(
+        diffuse * layer_scale,
+        (specular + sheen) * layer_scale + coat,
+    )
+
+
+@osh.function
+def shadeEvaluatePbr(
+    material: MaterialData, normal: osh.vec3, view: osh.vec3,
+    outgoing: osh.vec3,
+) -> osh.vec3:
+    lobes = shadeEvaluatePbrLobes(material, normal, view, outgoing)
+    return lobes.diffuse + lobes.specular
 
 
 @osh.function
@@ -2745,7 +2801,7 @@ def shadeSamplePbr(
         material.texture_parameters.w, 1.0,
         material.emission_metallic.a,
     )
-    return PbrSampleResult(outgoing, weight, pdf, random_state)
+    return PbrSampleResult(outgoing, weight, pdf, random_state, specular)
 
 
 @osh.function
@@ -3973,6 +4029,7 @@ def shadeScatterOpaquePath(
     return ShadeOpaqueScatterResult(
         path, sampled.outgoing, sampled.pdf, sampled.random_state,
         input_cone_spread + material.base_roughness.a * 0.25,
+        sampled.sampled_specular,
     )
 
 
@@ -5351,7 +5408,7 @@ def wavefront_shade_candidate(
         surface.material, evaluated
     )
     if (
-        (path.metadata.w & osh.u32(8)) != osh.u32(0)
+        push.indirect_secondary_capture != osh.u32(0)
         and shadePathBounce(path) == osh.u32(1)
         and secondary_paths[path_index].primary_throughput.w > 0.5
     ):
@@ -5384,6 +5441,7 @@ def wavefront_shade_candidate(
     next_direction = osh.vec3(0.0)
     bsdf_pdf = 0.0
     cone_spread = cone.y
+    sampled_specular = False
     if evaluated.custom_scattering > 0.5:
         event = osh.i32(evaluated.event + 0.5)
         if event == 0:
@@ -5396,6 +5454,7 @@ def wavefront_shade_candidate(
             path.throughput.rgb * evaluated.weight / bsdf_pdf,
             path.throughput.w,
         )
+        sampled_specular = event != 1
         transmission = 0.0
         if event == 3:
             transmission = 1.0
@@ -5415,6 +5474,7 @@ def wavefront_shade_candidate(
         stacks[path_index] = transmitted.stack
         next_direction = transmitted.direction
         medium_depth = transmitted.medium_depth
+        sampled_specular = True
     else:
         nee_probability = osh.clamp(
             push.secondary_nee_probability, 0.000001, 1.0
@@ -5555,6 +5615,25 @@ def wavefront_shade_candidate(
         bsdf_pdf = scattered.pdf
         random_state = scattered.random_state
         cone_spread = scattered.cone_spread
+        sampled_specular = scattered.sampled_specular
+    if (
+        push.indirect_secondary_capture != osh.u32(0)
+        and shadePathBounce(path) == osh.u32(0)
+    ):
+        secondary = secondary_paths[path_index]
+        secondary.primary_throughput = osh.vec4(
+            path.throughput.rgb, 2.0 if sampled_specular else 1.0,
+        )
+        secondary.primary_radiance = osh.vec4(
+            path.radiance.rgb,
+            shadePbrSpecularProbability(surface.material),
+        )
+        secondary.normal_pdf.w = bsdf_pdf
+        secondary.primary_position = osh.vec4(
+            loaded.hit.position_t.xyz,
+            1.0 + osh.clamp(surface.material.base_roughness.a, 0.0, 1.0),
+        )
+        secondary_paths[path_index] = secondary
     roulette = shadeApplyRussianRoulette(
         path, random_state, next_bounce, transmission,
         push.russian_roulette_start, push.russian_roulette_min_survival,
@@ -5594,7 +5673,8 @@ WAVEFRONT_SHADE_CANDIDATE_HELPERS = (
     shadeApplyRussianRoulette, shadeBuildContinuation,
     shadeReserveOutputIndex, shadeEnqueueContinuation, shadeSmoothstep,
     shadePbrFresnel, shadeGgxDistribution, shadeGgxSmithComponent,
-    shadePbrSpecularProbability, shadeEvaluatePbr, shadePbrPdf,
+    shadePbrSpecularProbability, shadeEvaluatePbrLobes, shadeEvaluatePbr,
+    shadePbrPdf,
     shadeSampleGgxHalfVector, shadeSamplePbr, shadeScatterOpaquePath,
     shadePreparePointLight, shadePointLightVisible,
     shadePointLightContribution, shadeSelectAreaLight, shadePrepareAreaLight,
@@ -6478,8 +6558,9 @@ def wavefront_generate(
     if path_index >= ray_queue.capacity:
         return
     pixel_index = pixel.y * push.image_tile.x + pixel.x
+    frame_index = osh.u32(camera.camera_origin.w + 0.5)
     rng = waveHash(
-        pixel_index ^ waveHash(push.tile_frame.z)
+        pixel_index ^ waveHash(frame_index)
         ^ waveHash(push.tile_frame.w + osh.u32(1))
     )
     rng = waveHash(rng)
@@ -6523,10 +6604,16 @@ def wavefront_generate(
     ray_queue.rays[path_index].padding_c = osh.u32(0)
     paths[path_index].throughput = osh.vec4(1.0)
     paths[path_index].radiance = osh.vec4(0.0)
+    capture_secondary = (
+        push.tile_frame.z & osh.u32(0x80000000)
+    ) != osh.u32(0)
+    path_flags = osh.u32(257)
+    if capture_secondary:
+        path_flags = path_flags | osh.u32(8)
     paths[path_index].metadata = osh.uvec4(
         pixel_index,
-        (push.tile_frame.z << osh.u32(8)) | (push.tile_frame.w & osh.u32(255)),
-        rng, osh.u32(257),
+        (frame_index << osh.u32(8)) | (push.tile_frame.w & osh.u32(255)),
+        rng, path_flags,
     )
     paths[path_index].throughput.w = 0.0
     stacks[path_index * osh.u32(16)] = 1.0

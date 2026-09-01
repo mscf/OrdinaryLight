@@ -9,6 +9,61 @@ from ..scene import Material, Scene
 from .materials import sphere
 
 
+def _add_enclosed_room(scene):
+    """Enclose the subject and the complete showcase camera orbit.
+
+    Advanced optical lobes should reflect authored scene radiance rather than
+    an unbounded background.  The room is intentionally much larger than the
+    subject so it reads as a studio enclosure without crowding the default
+    camera or changing the material-comparison composition.
+    """
+    extent = 15.0
+    height = 10.0
+    surfaces = (
+        (
+            "room-floor",
+            ((-extent, 0.0, -extent), (extent, 0.0, -extent),
+             (extent, 0.0, extent), (-extent, 0.0, extent)),
+            (0.46, 0.50, 0.56),
+        ),
+        (
+            "room-ceiling",
+            ((-extent, height, extent), (extent, height, extent),
+             (extent, height, -extent), (-extent, height, -extent)),
+            (0.62, 0.64, 0.68),
+        ),
+        (
+            "room-left",
+            ((-extent, 0.0, extent), (-extent, 0.0, -extent),
+             (-extent, height, -extent), (-extent, height, extent)),
+            (0.52, 0.30, 0.26),
+        ),
+        (
+            "room-right",
+            ((extent, 0.0, -extent), (extent, 0.0, extent),
+             (extent, height, extent), (extent, height, -extent)),
+            (0.25, 0.34, 0.52),
+        ),
+        (
+            "room-back",
+            ((-extent, 0.0, -extent), (extent, 0.0, -extent),
+             (extent, height, -extent), (-extent, height, -extent)),
+            (0.42, 0.44, 0.48),
+        ),
+        (
+            "room-front",
+            ((extent, 0.0, extent), (-extent, 0.0, extent),
+             (-extent, height, extent), (extent, height, extent)),
+            (0.48, 0.45, 0.40),
+        ),
+    )
+    for name, vertices, color in surfaces:
+        scene.add_mesh(
+            vertices, ((0, 2, 1), (0, 3, 2)),
+            Material(base_color=color, roughness=0.86), name=name,
+        )
+
+
 def _scene(
     materials, *, lights=None, sphere_rings=24, sphere_segments=48,
 ):
@@ -26,11 +81,7 @@ def _scene(
         )
     for light in lights:
         scene.add_light(light)
-    scene.add_mesh(
-        ((-8, 0, -5), (8, 0, -5), (8, 0, 5), (-8, 0, 5)),
-        ((0, 2, 1), (0, 3, 2)),
-        Material(base_color=(0.46, 0.5, 0.56), roughness=0.72),
-    )
+    _add_enclosed_room(scene)
     count = len(materials)
     for index, material in enumerate(materials):
         x = (index - (count - 1) * 0.5) * 2.5

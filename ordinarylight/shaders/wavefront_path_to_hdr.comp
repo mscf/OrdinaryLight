@@ -18,6 +18,9 @@ struct SecondaryPathState
     vec4 normal_pdf;
     vec4 primary_throughput;
     vec4 primary_radiance;
+    vec4 diffuse_radiance_hit_distance;
+    vec4 specular_radiance_hit_distance;
+    vec4 primary_position;
 };
 
 struct PathToHdrCamera
@@ -63,7 +66,7 @@ layout(std430, set = 0, binding = 0) readonly buffer paths_Block
     WavePathState paths[];
 };
 layout(set = 0, binding = 1, rgba16f) uniform image2D hdr_image;
-layout(std430, set = 0, binding = 2) readonly buffer secondary_paths_Block
+layout(std430, set = 0, binding = 2) buffer secondary_paths_Block
 {
     SecondaryPathState secondary_paths[];
 };
@@ -175,10 +178,25 @@ void main()
         accumulated = imageLoad(hdr_image, pixel).rgb;
     }
     imageStore(hdr_image, pixel, vec4((accumulated + contribution), 1.0));
-    if (((push.indirect_secondary_capture == uint(0)) || (push.sample_index != uint(0))))
+    if (((push.indirect_secondary_capture == uint(0)) || ((push.sample_index + uint(1)) != push.sample_count)))
     {
         return;
     }
+    SecondaryPathState secondary = secondary_paths[path_index];
+    float specular_probability = clamp(secondary.primary_radiance.w, 0.0, 1.0);
+    vec3 resolved_radiance = max((accumulated + contribution), vec3(0.0));
+    vec3 primary_radiance = max(secondary.primary_radiance.rgb, vec3(0.0));
+    vec3 indirect_contribution = max((paths[path_index].radiance.rgb - primary_radiance), vec3(0.0));
+    vec3 diffuse_radiance = (resolved_radiance * (1.0 - specular_probability));
+    vec3 specular_radiance = (resolved_radiance * specular_probability);
+    float hit_distance = 0.0;
+    if (((secondary.primary_position.w > 0.5) && (secondary.position_valid.w > 0.5)))
+    {
+        hit_distance = length((secondary.position_valid.xyz - secondary.primary_position.xyz));
+    }
+    secondary.diffuse_radiance_hit_distance = vec4(diffuse_radiance, hit_distance);
+    secondary.specular_radiance_hit_distance = vec4(specular_radiance, hit_distance);
+    secondary_paths[path_index] = secondary;
     uvec2 reservoir_pixel = min(uvec2((((vec2(pixel) + 0.5) * vec2(push.reservoir_width, push.reservoir_height)) / vec2(push.image_width, push.image_height))), uvec2((push.reservoir_width - uint(1)), (push.reservoir_height - uint(1))));
     ivec2 representative = ivec2((((vec2(reservoir_pixel) + 0.5) * vec2(push.image_width, push.image_height)) / vec2(push.reservoir_width, push.reservoir_height)));
     if (((pixel.x != representative.x) || (pixel.y != representative.y)))
@@ -186,8 +204,6 @@ void main()
         return;
     }
     uint reservoir_index = ((reservoir_pixel.y * push.reservoir_width) + reservoir_pixel.x);
-    SecondaryPathState secondary = secondary_paths[path_index];
-    vec3 indirect_contribution = max((paths[path_index].radiance.rgb - secondary.primary_radiance.rgb), vec3(0.0));
     float target = dot(indirect_contribution, vec3(0.2126, 0.7152, 0.0722));
     indirect_seed_words[reservoir_index] = indirectPackRgb9e5(indirect_contribution);
     if ((((secondary.position_valid.w < 0.5) || (!(target > 0.0))) || (!(target <= 3.402823e+38))))

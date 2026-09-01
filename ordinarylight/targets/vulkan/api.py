@@ -50,6 +50,10 @@ class RendererConfig:
     wavefront_unified_primary_restir: bool = False
     wavefront_stratified_primary_restir: bool = False
     wavefront_restir_di: bool = False
+    # Independent direct-light histories per pixel. Unlike candidate_count,
+    # each stream performs its own selection, temporal/spatial reuse, and
+    # final visibility test; their radiance estimates are averaged.
+    wavefront_restir_reservoirs: int = 1
     wavefront_restir_candidates: int = 1
     wavefront_restir_history_limit: int = 20
     wavefront_restir_history_motion_pixels: float = 16.0
@@ -65,6 +69,9 @@ class RendererConfig:
     denoiser_enabled: bool = False
     denoiser_iterations: int = 3
     denoiser_variance_threshold: float = 0.01
+    # Offline/reference instrumentation. This allocates cold per-path signal
+    # storage and is deliberately separate from the interactive denoiser.
+    denoiser_signal_capture: bool = False
     wavefront_tile_capacity: int = 131072
     wavefront_exposure: float = 1.0
     wavefront_profiling: bool = False
@@ -139,6 +146,8 @@ class RendererConfig:
     def __post_init__(self):
         if not isinstance(self.object_effects, bool):
             raise TypeError("object_effects must be a bool")
+        if not isinstance(self.denoiser_signal_capture, bool):
+            raise TypeError("denoiser_signal_capture must be a bool")
         if not isinstance(self.external_image_interop, bool):
             raise TypeError("external_image_interop must be a bool")
         if not isinstance(self.volume_empty_space_skipping, bool):
@@ -251,6 +260,12 @@ class RendererConfig:
         if self.wavefront_restir_di and self.samples_per_pixel != 1:
             raise ValueError(
                 "wavefront_restir_di currently requires samples_per_pixel=1"
+            )
+        if not isinstance(self.wavefront_restir_reservoirs, int):
+            raise TypeError("wavefront_restir_reservoirs must be an int")
+        if not 1 <= self.wavefront_restir_reservoirs <= 8:
+            raise ValueError(
+                "wavefront_restir_reservoirs must be between 1 and 8"
             )
         if not 1 <= self.denoiser_iterations <= 5:
             raise ValueError("denoiser_iterations must be between 1 and 5")
@@ -1284,6 +1299,177 @@ class _VulkanGlobalIlluminationEngine:
                 scene, camera, (width, height)
             )
         return products
+
+    def capture_denoiser_raw(
+        self, scene, camera, width, height, *, frame_index=0,
+    ):
+        """Capture the native wavefront state used to build denoiser inputs.
+
+        This deliberately returns the cold path records and geometric guides
+        without labelling them as :class:`DenoiserSignals`.  The renderer only
+        promotes a capture to that semantic contract after diffuse/specular
+        lobe attribution has completed; doing so earlier would make an NRD
+        comparison look valid while feeding it combined radiance.
+
+        Signal capture is an offline/reference facility and therefore requires
+        ``RendererConfig(denoiser_signal_capture=True)``.
+        """
+        if not self.config.denoiser_signal_capture:
+            raise RuntimeError(
+                "capture_denoiser_raw requires denoiser_signal_capture=True"
+            )
+        width, height = int(width), int(height)
+        if width < 1 or height < 1:
+            raise ValueError("width and height must be positive")
+        self._core.upload_window_scene(scene)
+        from ...wavefront import SECONDARY_PATH_STATE_DTYPE
+
+        path_state = np.zeros((height, width), SECONDARY_PATH_STATE_DTYPE)
+        depth = np.full((height, width), np.inf, np.float32)
+        normal = np.zeros((height, width, 3), np.float32)
+        primitive = np.full(
+            (height, width), np.uint32(0xffffffff), np.uint32,
+        )
+        position = np.zeros((height, width, 3), np.float32)
+        barycentric = np.zeros((height, width, 2), np.float32)
+        radiance = np.zeros((height, width, 4), np.float32)
+        capacity = self.config.wavefront_tile_capacity
+        y = 0
+        while y < height:
+            tile_width = min(width, capacity)
+            tile_height = min(height - y, max(1, capacity // tile_width))
+            x = 0
+            while x < width:
+                current_width = min(tile_width, width - x)
+                current_height = min(
+                    tile_height, max(1, capacity // current_width), height - y
+                )
+                result = self._core.trace_wavefront_tile(
+                    camera, width, height, tile_origin=(x, y),
+                    tile_extent=(current_width, current_height),
+                    frame_index=int(frame_index), sample_index=0,
+                    sample_count=1, primary_hit_readback=True,
+                )
+                region = np.s_[y:y + current_height, x:x + current_width]
+                radiance[region] = result["radiance"]
+                depth[region] = result["depth"]
+                normal[region] = result["normal"]
+                primitive[region] = result["primitive_id"]
+                position[region] = result["primary_position"]
+                barycentric[region] = result["primary_barycentric"]
+                tile_state = result["denoiser_path_signals"].reshape(
+                    current_height, current_width,
+                ).copy()
+                primary = np.maximum(tile_state["primary_radiance"][..., :3], 0.0)
+                indirect = np.maximum(result["radiance"][..., :3] - primary, 0.0)
+                probability = np.clip(
+                    tile_state["primary_radiance"][..., 3:4], 0.0, 1.0
+                )
+                diffuse = primary * (1.0 - probability)
+                specular = primary * probability
+                sampled_specular = (
+                    tile_state["primary_throughput"][..., 3:4] >= 1.5
+                )
+                diffuse += indirect * (~sampled_specular)
+                specular += indirect * sampled_specular
+                hit_distance = np.zeros(
+                    (current_height, current_width), np.float32
+                )
+                secondary_valid = (
+                    tile_state["position_valid"][..., 3] > 0.5
+                ) & (tile_state["primary_position"][..., 3] > 0.5)
+                hit_distance[secondary_valid] = np.linalg.norm(
+                    tile_state["position_valid"][secondary_valid, :3]
+                    - tile_state["primary_position"][secondary_valid, :3],
+                    axis=-1,
+                )
+                tile_state["diffuse_radiance_hit_distance"][..., :3] = diffuse
+                tile_state["diffuse_radiance_hit_distance"][..., 3] = hit_distance
+                tile_state["specular_radiance_hit_distance"][..., :3] = specular
+                tile_state["specular_radiance_hit_distance"][..., 3] = hit_distance
+                path_state[region] = tile_state
+                x += current_width
+            y += tile_height
+        return {
+            "radiance": radiance,
+            "path_state": path_state,
+            "depth": depth,
+            "normal": normal,
+            "primitive_id": primitive,
+            "primary_position": position,
+            "primary_barycentric": barycentric,
+        }
+
+    def capture_denoiser_signals(
+        self, scene, camera, width, height, *, frame_index=0,
+    ):
+        """Capture one canonical diffuse/specular denoiser input frame."""
+        from ...denoising import DenoiserFrameInfo, DenoiserSignals
+        from ...raster import camera_matrix
+
+        raw = self.capture_denoiser_raw(
+            scene, camera, width, height, frame_index=frame_index,
+        )
+        width, height = int(width), int(height)
+        primitive = raw["primitive_id"]
+        foreground = primitive != np.uint32(0xffffffff)
+        triangle_material_ids = scene.triangle_material_ids()
+        material_id = np.full(
+            (height, width), np.uint32(0xffffffff), np.uint32,
+        )
+        material_id[foreground] = triangle_material_ids[primitive[foreground]]
+
+        roughness_by_id = {
+            scene.material_id(mesh.material): float(mesh.material.roughness)
+            for mesh in scene.render_meshes
+        }
+        normal_roughness = np.zeros((height, width, 4), np.float32)
+        normal_roughness[..., :3] = raw["normal"]
+        lengths = np.linalg.norm(normal_roughness[..., :3], axis=-1)
+        valid_normals = foreground & (lengths > 1e-12)
+        normal_roughness[valid_normals, :3] /= lengths[valid_normals, None]
+        for identifier, roughness in roughness_by_id.items():
+            normal_roughness[material_id == identifier, 3] = roughness
+
+        origin = np.asarray(camera.position, np.float64)
+        forward = np.asarray(camera.target, np.float64) - origin
+        forward /= np.linalg.norm(forward)
+        view_z = np.zeros((height, width), np.float32)
+        view_z[foreground] = (
+            (raw["primary_position"][foreground] - origin) @ forward
+        ).astype(np.float32)
+
+        previous = self._output_history
+        compatible_history = (
+            previous is not None and previous["scene"] is scene
+            and previous["size"] == (width, height)
+        )
+        motion = self._motion_product(
+            scene, camera, width, height, primitive,
+            raw["primary_position"], raw["primary_barycentric"],
+        )
+        current_matrix = camera_matrix(camera, width, height)
+        previous_matrix = (
+            camera_matrix(previous["camera"], width, height)
+            if compatible_history else current_matrix
+        )
+        self._output_history = self._capture_motion_state(
+            scene, camera, (width, height)
+        )
+        path_state = raw["path_state"]
+        return DenoiserSignals(
+            np.ascontiguousarray(
+                path_state["diffuse_radiance_hit_distance"], np.float32
+            ),
+            np.ascontiguousarray(
+                path_state["specular_radiance_hit_distance"], np.float32
+            ),
+            normal_roughness, view_z, motion, material_id,
+            DenoiserFrameInfo(
+                current_matrix, previous_matrix, int(frame_index),
+                camera_cut=not compatible_history,
+            ),
+        )
 
     @property
     def pipeline_statistics(self):

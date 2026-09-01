@@ -7,6 +7,63 @@ import ordinarylight as ol
 
 
 class WavefrontLayoutTests(unittest.TestCase):
+    def test_scene_history_invalidation_includes_relax_history(self):
+        source = (
+            Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
+        ).read_text()
+        start = source.index("    def _invalidate_scene_history(self):")
+        end = source.index("\n    def ", start + 5)
+        body = source[start:end]
+        self.assertIn('frame["wavefront_history_valid"] = False', body)
+        self.assertIn('frame["wavefront_relax_history_valid"] = False', body)
+
+    def test_path_resolve_populates_signals_for_denoiser_without_indirect_reuse(self):
+        source = (
+            Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
+        ).read_text()
+        start = source.index("    def record_path_to_hdr(")
+        end = source.index("\n    def ", start + 5)
+        body = source[start:end]
+        self.assertIn(
+            "self.core.config.wavefront_indirect_reuse_candidates\n"
+            "                or self._denoiser_signals_active()",
+            body,
+        )
+
+    def test_denoiser_signals_resolve_after_all_samples(self):
+        source = (
+            Path(__file__).parents[1]
+            / "scripts" / "generate_core_shaders.py"
+        ).read_text()
+        start = source.index("def wavefront_path_to_hdr(")
+        end = source.index("\n\n@osh.compute", start + 5)
+        body = source[start:end]
+        self.assertIn(
+            "push.sample_index + osh.u32(1) != push.sample_count", body,
+        )
+        self.assertIn("accumulated + contribution", body)
+
+    def test_raw_denoiser_capture_is_explicitly_opt_in(self):
+        from ordinarylight.targets.vulkan.api import (
+            RendererConfig, _VulkanGlobalIlluminationEngine,
+        )
+
+        engine = object.__new__(_VulkanGlobalIlluminationEngine)
+        engine.config = RendererConfig(denoiser_signal_capture=False)
+        with self.assertRaisesRegex(RuntimeError, "signal_capture=True"):
+            engine.capture_denoiser_raw(object(), object(), 1, 1)
+
+    def test_denoiser_capture_uses_cold_state_without_expanding_hot_paths(self):
+        backend = (
+            Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
+        ).read_text()
+        self.assertEqual(ol.HOT_PATH_STATE_DTYPE.itemsize, 48)
+        self.assertIn("core.config.denoiser_signal_capture", backend)
+        self.assertIn("diffuse_radiance_hit_distance", (
+            Path(__file__).parents[1]
+            / "scripts" / "generate_core_shaders.py"
+        ).read_text())
+
     def test_custom_attribute_storage_is_opt_in_and_scene_owned(self):
         backend = (Path(ol.__file__).parent / "targets" / "vulkan" / "core.py").read_text()
         self.assertIn("self.scene_custom_attribute_buffer = None", backend)
@@ -126,9 +183,9 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn("bool selectSecondaryNee(", lighting)
         self.assertIn("bitfieldReverse(frame_index)", lighting)
         self.assertIn("uint sample_index = frame_sample & 255u", lighting)
-        identity = "(push.tile_frame.z << 8u) | (push.tile_frame.w & 255u)"
+        identity = "(frame_index << 8u) | (push.tile_frame.w & 255u)"
         generated_identity = (
-            "(push.tile_frame.z << uint(8)) | "
+            "(frame_index << uint(8)) | "
             "(push.tile_frame.w & uint(255))"
         )
         self.assertTrue(
@@ -177,7 +234,7 @@ class WavefrontLayoutTests(unittest.TestCase):
             ol.PATH_STATE_DTYPE.fields["ior_stack"][0].shape,
             (ol.MAX_MEDIUM_STACK_DEPTH,),
         )
-        self.assertEqual(ol.SECONDARY_PATH_STATE_DTYPE.itemsize, 64)
+        self.assertEqual(ol.SECONDARY_PATH_STATE_DTYPE.itemsize, 112)
         self.assertEqual(
             ol.SECONDARY_PATH_STATE_DTYPE.fields["position_valid"][1], 0)
         self.assertEqual(
@@ -186,6 +243,16 @@ class WavefrontLayoutTests(unittest.TestCase):
             ol.SECONDARY_PATH_STATE_DTYPE.fields["primary_throughput"][1], 32)
         self.assertEqual(
             ol.SECONDARY_PATH_STATE_DTYPE.fields["primary_radiance"][1], 48)
+        self.assertEqual(
+            ol.SECONDARY_PATH_STATE_DTYPE.fields[
+                "diffuse_radiance_hit_distance"
+            ][1], 64)
+        self.assertEqual(
+            ol.SECONDARY_PATH_STATE_DTYPE.fields[
+                "specular_radiance_hit_distance"
+            ][1], 80)
+        self.assertEqual(
+            ol.SECONDARY_PATH_STATE_DTYPE.fields["primary_position"][1], 96)
         self.assertEqual(ol.RESOLVED_PIXEL_DTYPE.itemsize, 32)
         self.assertEqual(ol.RESOLVED_PIXEL_DTYPE.fields["metadata"][1], 16)
 

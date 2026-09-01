@@ -16,6 +16,13 @@ CAMERA_DTYPE = np.dtype([
     ("optical_diagnostic", np.float32, (4,)),
 ], align=True)
 
+GEOMETRY_PRODUCT_CAMERA_DTYPE = np.dtype([
+    ("current_view_projection", np.float32, (4, 4)),
+    ("previous_view_projection", np.float32, (4, 4)),
+    ("viewport", np.float32, (4,)),
+    ("camera_position", np.float32, (4,)),
+], align=True)
+
 MATERIAL_DTYPE = np.dtype([
     ("base_color_roughness", np.float32, (4,)),
     ("emission_metallic", np.float32, (4,)),
@@ -304,7 +311,7 @@ def pack_raster_gpu_scene(
 
 
 __all__ = [
-    "CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
+    "CAMERA_DTYPE", "GEOMETRY_PRODUCT_CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
     "SHADOW_DTYPE",
     "RasterGpuScene", "pack_raster_gpu_scene",
 ]

@@ -248,6 +248,22 @@ class MaterialProgramTests(unittest.TestCase):
             ),
             1,
         )
+        capture_source = wavefront_material_shader_source(
+            "wavefront_shade_candidate.glsl", colored,
+            attribute_layout=layout, attribute_binding=16,
+            denoiser_signal_capture=True,
+        )
+        self.assertNotIn(
+            "push.indirect_secondary_capture != uint(0)", capture_source,
+        )
+        self.assertEqual(
+            capture_source.count("secondary_paths[path_index] = secondary"),
+            2,
+        )
+        self.assertIn(
+            "secondary.primary_throughput = vec4(path.throughput.rgb",
+            capture_source,
+        )
         if find_glsl_compiler():
             candidate_spirv = compile_wavefront_material_shader(
                 "wavefront_shade_candidate.glsl", colored,

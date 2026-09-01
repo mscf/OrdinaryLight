@@ -276,7 +276,8 @@ IndirectLightReservoir candidateLoadPreviousReservoir(uint reservoir_index, vec3
 
 float candidateRandom(uvec2 pixel, uint salt)
 {
-    uint value = ((((pixel.x * uint(2654435769)) ^ (pixel.y * uint(2246822507))) ^ (push.frame_index * uint(3266489909))) ^ (salt * uint(668265261)));
+    uint frame_index = uint((camera.origin.w + 0.5));
+    uint value = ((((pixel.x * uint(2654435769)) ^ (pixel.y * uint(2246822507))) ^ (frame_index * uint(3266489909))) ^ (salt * uint(668265261)));
     value = (value ^ (value >> uint(16)));
     value = (value * uint(2146121005));
     value = (value ^ (value >> uint(15)));
@@ -478,11 +479,11 @@ void main()
                 uvec2 previous_center = uvec2((projection.reservoir_index % push.reservoir_width), (projection.reservoir_index / push.reservoir_width));
                 int sign_x = 1;
                 int sign_y = 1;
-                if ((((push.frame_index + reservoir_pixel.y) & uint(1)) == uint(0)))
+                if ((((uint((camera.origin.w + 0.5)) + reservoir_pixel.y) & uint(1)) == uint(0)))
                 {
                     sign_x = (-1);
                 }
-                if ((((push.frame_index + reservoir_pixel.x) & uint(1)) == uint(0)))
+                if ((((uint((camera.origin.w + 0.5)) + reservoir_pixel.x) & uint(1)) == uint(0)))
                 {
                     sign_y = (-1);
                 }

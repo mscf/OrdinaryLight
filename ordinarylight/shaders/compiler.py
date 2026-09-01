@@ -122,7 +122,8 @@ def wavefront_material_shader_source(
     shader_name, programs, *, attribute_layout, attribute_binding,
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
-    native_textures=False, profiling=False, material_modifier=None,
+    native_textures=False, profiling=False, denoiser_signal_capture=False,
+    material_modifier=None,
 ):
     """Generate a wavefront specialization for material or surface programs."""
     from ..materials import MaterialEvaluation, SurfaceResponse
@@ -173,6 +174,21 @@ def wavefront_material_shader_source(
             "#version 460\n#define WAVE_WORK_COUNTERS 1\n",
             1,
         )
+    if denoiser_signal_capture and shader_name in (
+        "wavefront_shade_candidate.glsl", "wavefront_shade.comp",
+    ):
+        anchors = (
+            "push.indirect_secondary_capture != uint(0)"
+            if shader_name == "wavefront_shade_candidate.glsl"
+            else "push.indirect_secondary_capture != 0u"
+        )
+        replacements = source.count(anchors)
+        if replacements != 2:
+            raise RuntimeError(
+                "denoiser signal-capture shader anchors changed: "
+                f"expected 2, found {replacements}"
+            )
+        source = source.replace(anchors, "true")
     if overlapping_volumes:
         source = source.replace(
             "#version 460\n",
@@ -412,7 +428,8 @@ MaterialEvaluation waveApplyMaterialProgram(
         source = source.replace(primary_scatter_anchor, custom_primary, 1)
     elif shader_name == "wavefront_shade.comp":
         shade_anchor = (
-            "    if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u"
+            "    if (push.indirect_secondary_capture != 0u"
+            if not denoiser_signal_capture else "    if (true"
         )
         shade_insert = (
             "    " + uv.replace("            ", "    ") + "\n"
@@ -485,7 +502,8 @@ def compile_wavefront_material_shader(
     shader_name, programs, *, attribute_layout, attribute_binding,
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
-    native_textures=False, profiling=False, material_modifier=None,
+    native_textures=False, profiling=False, denoiser_signal_capture=False,
+    material_modifier=None,
     compiler=None,
 ):
     compiler = compiler or find_glsl_compiler()
@@ -501,6 +519,7 @@ def compile_wavefront_material_shader(
             volume_empty_space_skipping=volume_empty_space_skipping,
             native_textures=native_textures,
             profiling=profiling,
+            denoiser_signal_capture=denoiser_signal_capture,
             material_modifier=material_modifier,
         ),
         compiler,

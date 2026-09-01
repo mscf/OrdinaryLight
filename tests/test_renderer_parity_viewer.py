@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import ordinarylight as ol
@@ -32,6 +33,20 @@ def test_parity_viewer_lists_all_three_rendering_targets():
     assert tuple(key for _title, key in viewer.TARGETS) == (
         "vulkan-raster", "wavefront-gi", "webgpu-raster",
     )
+
+
+def test_optional_scene_light_toggle_preserves_authored_intensity():
+    from ordinarylight.showcases.raster_features import (
+        build_material_program_room_scene,
+    )
+
+    scene = build_material_program_room_scene()
+    entry = scene.metadata["optional_scene_lights"][0]
+    light = scene.get_light(entry["id"])
+    viewer._set_optional_scene_lights(scene, False)
+    assert light.intensity == 0.0
+    viewer._set_optional_scene_lights(scene, True)
+    assert light.intensity == entry["intensity"]
 
 
 def test_target_switch_preserves_scene_and_camera_controller():
@@ -67,14 +82,61 @@ def test_feature_switch_replaces_scene_and_camera_controller():
     assert created == ["one", "two"]
 
 
-def test_gi_viewer_config_uses_interactive_single_sample_wavefront():
+def test_gi_viewer_config_uses_quality_wavefront_defaults():
     showcase = SimpleNamespace(renderer={})
     config = viewer._gi_config(showcase, present=True)
     assert config.samples_per_pixel == 1
     assert config.max_bounces == 8
-    assert config.progressive_accumulation is False
+    assert config.wavefront_restir_di is True
+    assert config.wavefront_restir_reservoirs == 4
+    assert config.wavefront_restir_candidates == 4
+    assert config.wavefront_restir_history_limit == 4
+    assert config.wavefront_restir_spatial_reuse is False
+    assert config.progressive_accumulation is True
+    assert config.temporal_history is True
+    assert config.denoiser_enabled is True
+    assert config.denoiser_iterations == 3
     assert config.present_mode == "mailbox"
     assert config.direct_swapchain_storage is True
+    assert config.wavefront_hdr_capture is False
+
+
+def test_gi_viewer_config_accepts_restir_reservoir_count():
+    showcase = SimpleNamespace(renderer={})
+    config = viewer._gi_config(showcase, restir_reservoirs=8)
+    assert config.wavefront_restir_reservoirs == 8
+
+
+def test_gi_viewer_config_can_present_raw_gi_without_denoiser_history():
+    showcase = SimpleNamespace(renderer={})
+    config = viewer._gi_config(
+        showcase, denoiser_enabled=False, denoiser_iterations=5,
+    )
+    assert config.denoiser_enabled is False
+    assert config.progressive_accumulation is False
+    assert config.temporal_history is False
+    assert config.denoiser_iterations == 5
+
+
+def test_gi_viewer_config_enables_explicit_hdr_capture():
+    showcase = SimpleNamespace(renderer={})
+    config = viewer._gi_config(showcase, present=True, capture=True)
+    assert config.wavefront_hdr_capture is True
+
+
+def test_gi_temporal_variance_report_detects_two_alternating_chains():
+    base = np.zeros((3, 4, 4), dtype=np.float32)
+    first = base.copy()
+    second = base.copy()
+    first[..., 0] = 0.25
+    second[..., 0] = 0.75
+    report = viewer._gi_temporal_variance_report(
+        [first, second, first, second, first, second]
+    )
+    assert report["mean_adjacent_rmse"] > 0.0
+    assert report["mean_lag_two_rmse"] == 0.0
+    assert report["lag_two_to_adjacent_rmse_ratio"] == 0.0
+    assert report["alternating_history_signature"] is True
 
 
 def test_gi_viewer_config_honors_showcase_bounce_count():

@@ -95,20 +95,133 @@ def _camera_pose_argument(value):
     return _camera_pose_from_json(text)
 
 
-def _gi_config(showcase, *, present=False):
+def _gi_config(
+    showcase, *, present=False, capture=False, restir_reservoirs=4,
+    denoiser_enabled=True, denoiser_iterations=3,
+):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
     return ol.RendererConfig(
         samples_per_pixel=1,
+
+        wavefront_restir_di=True,
+        wavefront_restir_reservoirs=int(restir_reservoirs),
+        wavefront_restir_candidates=4,
+        wavefront_restir_history_limit=4,
+        wavefront_restir_spatial_reuse=False,
+        # # Temporal reuse
+        # wavefront_restir_history_limit=4,
+        # wavefront_restir_history_motion_pixels=16.0,
+
+        # # Spatial reuse
+        # wavefront_restir_spatial_reuse=True,
+        # wavefront_restir_spatial_neighbors=4,
+        # wavefront_restir_spatial_radius=4,
+
+        # # Higher-quality neighbor weighting
+        # wavefront_restir_pairwise_mis=True,
+        # wavefront_restir_generalized_mis=True,
+        # wavefront_restir_generalized_balance_cap=8.0,
+
+        # # Keep area and environment lighting in separate reservoirs
+        # wavefront_stratified_primary_restir=True,
+        # wavefront_unified_primary_restir=False,
+
+        # wavefront_restir_di=True,
+        # wavefront_restir_candidates=4,
+        # wavefront_restir_history_limit=4,
+        # wavefront_restir_spatial_reuse=False,
+
         max_bounces=int(settings.get("max_bounces", 8)),
         present_mode="mailbox",
-        progressive_accumulation=False,
+        # The Ordinary Shade ReLAX stage owns a recurrent temporal history.
+        # Progressive history supplies the previous-frame guides while
+        # temporal_history permits camera reprojection instead of resetting on
+        # every arcball update.
+        progressive_accumulation=bool(denoiser_enabled),
+        temporal_history=bool(denoiser_enabled),
+        temporal_history_limit=32,
+        denoiser_enabled=bool(denoiser_enabled),
+        denoiser_iterations=int(denoiser_iterations),
         material_program=settings.get("material_program"),
         material_modifier=settings.get(
             "material_modifier", settings.get("material_hook")
         ),
         direct_swapchain_storage=bool(present),
+        wavefront_hdr_capture=bool(capture),
     )
+
+
+def _gi_temporal_variance_report(images):
+    """Summarize stationary GI variation at lags one and two.
+
+    A renderer alternating between two independent history chains has much
+    larger n-vs-(n-1) error than n-vs-(n-2) error.  Keeping this calculation
+    independent of Vulkan also makes the diagnostic itself unit-testable.
+    """
+    frames = [np.asarray(image, dtype=np.float32)[..., :3] for image in images]
+    if len(frames) < 3:
+        raise ValueError("GI temporal analysis requires at least three frames")
+    shape = frames[0].shape
+    if any(frame.shape != shape for frame in frames):
+        raise ValueError("all GI diagnostic frames must have the same shape")
+
+    def differences(lag):
+        result = []
+        for index in range(lag, len(frames)):
+            delta = frames[index] - frames[index - lag]
+            result.append({
+                "frame": index,
+                "previous_frame": index - lag,
+                "rmse": float(np.sqrt(np.mean(delta * delta, dtype=np.float64))),
+                "mean_absolute_error": float(
+                    np.mean(np.abs(delta), dtype=np.float64)
+                ),
+                "maximum_absolute_error": float(np.max(np.abs(delta))),
+            })
+        return result
+
+    adjacent = differences(1)
+    lag_two = differences(2)
+
+    def mean_metric(rows, key):
+        return float(np.mean([row[key] for row in rows], dtype=np.float64))
+
+    adjacent_rmse = mean_metric(adjacent, "rmse")
+    lag_two_rmse = mean_metric(lag_two, "rmse")
+    ratio = lag_two_rmse / adjacent_rmse if adjacent_rmse > 0.0 else 0.0
+    even_mean = np.mean(frames[0::2], axis=0, dtype=np.float64)
+    odd_mean = np.mean(frames[1::2], axis=0, dtype=np.float64)
+    parity_delta = even_mean - odd_mean
+    luminance = [
+        frame[..., 0] * 0.2126
+        + frame[..., 1] * 0.7152
+        + frame[..., 2] * 0.0722
+        for frame in frames
+    ]
+    return {
+        "frame_count": len(frames),
+        "shape": list(shape),
+        "frame_hashes": [
+            hashlib.sha256(np.ascontiguousarray(frame).tobytes()).hexdigest()[:16]
+            for frame in frames
+        ],
+        "adjacent": adjacent,
+        "lag_two": lag_two,
+        "mean_adjacent_rmse": adjacent_rmse,
+        "mean_lag_two_rmse": lag_two_rmse,
+        "lag_two_to_adjacent_rmse_ratio": ratio,
+        "even_odd_mean_rmse": float(
+            np.sqrt(np.mean(parity_delta * parity_delta, dtype=np.float64))
+        ),
+        "mean_luminance": float(np.mean(luminance, dtype=np.float64)),
+        "nonzero_luminance_fraction": float(np.mean(
+            np.stack(luminance) > 1.0e-6, dtype=np.float64,
+        )),
+        "alternating_history_signature": bool(
+            adjacent_rmse > 0.0 and ratio < 0.5
+        ),
+    }
 
 
 def _preserved_view(showcase, scene, controller, active_showcase_id):
@@ -120,6 +233,19 @@ def _preserved_view(showcase, scene, controller, active_showcase_id):
         showcase.camera.camera(scene, angle=-0.45),
     )
     return scene, controller, showcase.id
+
+
+def _set_optional_scene_lights(scene, enabled):
+    """Enable or mute analytic lights explicitly marked optional by a scene."""
+    for entry in scene.metadata.get("optional_scene_lights", ()):
+        light = scene.get_light(int(entry["id"]))
+        intensity = float(entry["intensity"]) if enabled else 0.0
+        if isinstance(light, ol.PointLight):
+            scene.update_point_light(light, intensity=intensity)
+        elif isinstance(light, ol.DirectionalLight):
+            scene.update_directional_light(light, intensity=intensity)
+        elif isinstance(light, ol.SpotLight):
+            scene.update_spot_light(light, intensity=intensity)
 
 
 def _direct_render_extent(target, selected_extent, surface_extent):
@@ -241,9 +367,32 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self._resolution_changed,
             )
             self.shadows = QtWidgets.QCheckBox(); self.shadows.setChecked(True)
+            self.scene_lights = QtWidgets.QCheckBox()
+            self.scene_lights.setChecked(True)
+            self.scene_lights.toggled.connect(self._scene_light_changed)
             self.map_size = QtWidgets.QComboBox()
             for size in (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
                 self.map_size.addItem(str(size), size)
+            self.restir_reservoirs = QtWidgets.QComboBox()
+            for count in (1, 2, 4, 8):
+                self.restir_reservoirs.addItem(str(count), count)
+            self.restir_reservoirs.setCurrentIndex(
+                self.restir_reservoirs.findData(4)
+            )
+            self.restir_reservoirs.setEnabled(
+                self.target.currentData() == "wavefront-gi"
+            )
+            self.denoiser = QtWidgets.QCheckBox()
+            self.denoiser.setChecked(True)
+            self.denoiser_iterations = QtWidgets.QComboBox()
+            for count in range(1, 6):
+                self.denoiser_iterations.addItem(str(count), count)
+            self.denoiser_iterations.setCurrentIndex(
+                self.denoiser_iterations.findData(3)
+            )
+            gi_selected = self.target.currentData() == "wavefront-gi"
+            self.denoiser.setEnabled(gi_selected)
+            self.denoiser_iterations.setEnabled(gi_selected)
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.slow_diagnostic = QtWidgets.QCheckBox()
@@ -271,7 +420,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Rendering target", self.target)
             form.addRow("Render resolution", self.resolution)
             form.addRow("Enable shadows", self.shadows)
+            form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
+            form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
+            form.addRow("Ordinary Shade ReLAX", self.denoiser)
+            form.addRow("ReLAX A-trous iterations", self.denoiser_iterations)
             form.addRow("Animate camera", self.animate)
             form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
@@ -301,6 +454,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.completed_frame_count = 0
             self.automatic_switch_requested = False
             self.diagnostic_frames = deque(maxlen=240)
+            self.gi_diagnostic_images = []
+            self.gi_diagnostic_metadata = []
+            self.gi_diagnostic_warmup = 0
             self._diagnostic_exit_requested = False
             self.last_tick = time.perf_counter()
             self.last_submission = 0.0
@@ -401,11 +557,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             item = self.feature.currentData()
             self.description.setText(item.description)
             self.shadows.setChecked(bool(item.renderer.get("shadows", True)))
+            supports_light_toggle = bool(
+                item.renderer.get("scene_light_toggle", False)
+            )
+            self.scene_lights.setEnabled(supports_light_toggle)
+            self.scene_lights.setChecked(True)
             value = int(item.renderer.get("shadow_map_size", 512))
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
 
         def _target_changed(self, _index=None):
+            gi_selected = self.target.currentData() == "wavefront-gi"
+            self.restir_reservoirs.setEnabled(gi_selected)
+            self.denoiser.setEnabled(gi_selected)
+            self.denoiser_iterations.setEnabled(gi_selected)
             if self.scene_value is not None:
                 self.restart_pending = True
                 self.status.setText(
@@ -413,6 +578,16 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 )
                 if self.future is None:
                     QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+
+        def _scene_light_changed(self, _enabled=None):
+            if self.scene_value is None:
+                return
+            self.restart_pending = True
+            self.status.setText(
+                "Finishing the active frame before updating scene lighting…"
+            )
+            if self.future is None:
+                QtCore.QTimer.singleShot(0, self._finish_pending_restart)
 
         def _finish_pending_restart(self):
             if not self.restart_pending:
@@ -465,6 +640,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     item, self.scene_value, self.controller,
                     self.active_showcase_id,
                 )
+                _set_optional_scene_lights(
+                    self.scene_value, self.scene_lights.isChecked(),
+                )
                 if self._startup_camera is not None:
                     self.controller = ol.ArcballCameraController.from_camera(
                         self._startup_camera,
@@ -474,7 +652,17 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 if target_key == "wavefront-gi":
                     self.renderer = ol.VulkanSurfacePresenter(
                         self.surface.instance, self.surface.surface,
-                        config=_gi_config(item, present=True),
+                        config=_gi_config(
+                            item, present=True,
+                            capture=args.diagnostic_frames > 0,
+                            restir_reservoirs=int(
+                                self.restir_reservoirs.currentData()
+                            ),
+                            denoiser_enabled=self.denoiser.isChecked(),
+                            denoiser_iterations=int(
+                                self.denoiser_iterations.currentData()
+                            ),
+                        ),
                     )
                     self.viewport_stack.setCurrentWidget(self.container)
                 elif target_key == "vulkan-raster":
@@ -494,6 +682,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         shadows=self.shadows.isChecked(),
                         shadow_map_size=int(self.map_size.currentData()),
                     )
+                    settings.pop("scene_light_toggle", None)
                     config = ol.RasterConfig(
                         state=ol.RasterState(cull_mode="none"),
                         ambient_light=float(settings.pop("ambient_light", 0.08)),
@@ -516,6 +705,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.presentation_failed = False
                 self.completed.clear()
                 self.diagnostic_frames.clear()
+                self.gi_diagnostic_images.clear()
+                self.gi_diagnostic_metadata.clear()
+                self.gi_diagnostic_warmup = 0
                 self.status.setText(
                     f"{self.target.currentText()} ready; scene and camera retained"
                 )
@@ -559,6 +751,48 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     )
                 width, height = self.extent
                 timings = self.renderer.last_timings
+                if (
+                    self.renderer_target == "wavefront-gi"
+                    and args.diagnostic_frames > 0
+                    and not self._diagnostic_exit_requested
+                ):
+                    if self.gi_diagnostic_warmup < args.diagnostic_warmup_frames:
+                        self.gi_diagnostic_warmup += 1
+                    else:
+                        image = self.renderer.capture_wavefront_hdr()
+                        self.gi_diagnostic_images.append(image)
+                        self.gi_diagnostic_metadata.append({
+                            key: timings.get(key) for key in (
+                                "wavefront_frame_slot",
+                                "wavefront_history_source_slot",
+                                "wavefront_history_dependency_waited",
+                                "wavefront_history_chain_enabled",
+                                "swapchain_image_index",
+                            ) if timings.get(key) is not None
+                        })
+                        if len(self.gi_diagnostic_images) >= args.diagnostic_frames:
+                            report = {
+                                "showcase": self.feature.currentData().id,
+                                "target": self.renderer_target,
+                                "extent": list(self.extent),
+                                "warmup_frames": self.gi_diagnostic_warmup,
+                                "frame_metadata": self.gi_diagnostic_metadata,
+                                "summary": _gi_temporal_variance_report(
+                                    self.gi_diagnostic_images,
+                                ),
+                            }
+                            report_path = Path(args.diagnostic_report)
+                            report_path.parent.mkdir(parents=True, exist_ok=True)
+                            report_path.write_text(
+                                json.dumps(report, indent=2) + "\n",
+                                encoding="utf-8",
+                            )
+                            self._diagnostic_exit_requested = True
+                            print(
+                                f"wrote GI temporal diagnostic report: {report_path}",
+                                flush=True,
+                            )
+                            QtCore.QTimer.singleShot(0, self.close)
                 ms = timings.get("total_ms", 0.0)
                 pack_ms = timings.get("scene_pack_ms", 0.0)
                 prepare_ms = timings.get("scene_prepare_ms", 0.0)
@@ -672,6 +906,16 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         " · pixels "
                         f"{diagnostic.get('present_hdr_changed_pixels', 0)}"
                         if diagnostic.get("present_hdr_hash") else ""
+                    )
+                    + (
+                        "\nOrdinary Shade ReLAX "
+                        + (
+                            f"enabled · {self.denoiser_iterations.currentData()} "
+                            "A-trous iteration(s)"
+                            if self.denoiser.isChecked()
+                            else "disabled (raw GI)"
+                        )
+                        if self.renderer_target == "wavefront-gi" else ""
                     ),
                 )
                 if (
@@ -788,13 +1032,20 @@ def _catalog():
     )
 
 
-def _renderer(showcase, scene, backend_name, shadows, shadow_map_size):
+def _renderer(
+    showcase, scene, backend_name, shadows, shadow_map_size,
+    restir_reservoirs=4,
+):
     if backend_name == "wavefront-gi":
         return ol.Renderer(
-            config=_gi_config(showcase), renderer_preference="gi",
+            config=_gi_config(
+                showcase, restir_reservoirs=restir_reservoirs,
+            ),
+            renderer_preference="gi",
         )
     target = "spirv" if backend_name == "vulkan-raster" else "wgsl"
     settings = dict(showcase.renderer)
+    settings.pop("scene_light_toggle", None)
     default_material = settings.get("material_program") or ol.builtin_material
     program = ol.RasterProgram.scene(
         target=target, validate=False,
@@ -842,6 +1093,10 @@ def main():
         help="capture this many direct HDR frames, write a report, and exit",
     )
     parser.add_argument(
+        "--diagnostic-warmup-frames", type=int, default=8,
+        help="completed frames to discard before direct HDR capture",
+    )
+    parser.add_argument(
         "--diagnostic-report",
         default="/tmp/ordinarylight-raster-diagnostic.json",
         help="output path used with --diagnostic-frames",
@@ -873,6 +1128,8 @@ def main():
             )
     if args.diagnostic_frames < 0:
         parser.error("--diagnostic-frames must not be negative")
+    if args.diagnostic_warmup_frames < 0:
+        parser.error("--diagnostic-warmup-frames must not be negative")
     if args.switch_target_after_frames < 0:
         parser.error("--switch-target-after-frames must not be negative")
     if args.diagnostic_frames and args.diagnostic_camera_pose is None:
@@ -1008,9 +1265,21 @@ def main():
                 if extent != custom:
                     self.resolution.addItem(f"{title} ({extent[0]} × {extent[1]})", extent)
             self.shadows = QtWidgets.QCheckBox(); self.shadows.setChecked(True)
+            self.scene_lights = QtWidgets.QCheckBox()
+            self.scene_lights.setChecked(True)
+            self.scene_lights.toggled.connect(self._scene_light_changed)
             self.map_size = QtWidgets.QComboBox()
             for size in (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
                 self.map_size.addItem(str(size), size)
+            self.restir_reservoirs = QtWidgets.QComboBox()
+            for count in (1, 2, 4, 8):
+                self.restir_reservoirs.addItem(str(count), count)
+            self.restir_reservoirs.setCurrentIndex(
+                self.restir_reservoirs.findData(4)
+            )
+            self.restir_reservoirs.setEnabled(
+                "wavefront-gi" in tuple(self.backend.currentData())
+            )
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.live = QtWidgets.QCheckBox(); self.live.setChecked(True)
@@ -1027,7 +1296,9 @@ def main():
             form.addRow("Rendering target", self.backend)
             form.addRow("Resolution", self.resolution)
             form.addRow("Enable shadows", self.shadows)
+            form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
+            form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
             form.addRow("Animate camera", self.animate)
             form.addRow("Live rendering", self.live)
             form.addRow(self.description); form.addRow(self.help)
@@ -1050,12 +1321,24 @@ def main():
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
             self.description.setText(item.description)
+            supports_light_toggle = bool(
+                item.renderer.get("scene_light_toggle", False)
+            )
+            self.scene_lights.setEnabled(supports_light_toggle)
+            self.scene_lights.setChecked(True)
             value = int(item.renderer.get("shadow_map_size", 512))
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
 
         def _target_changed(self, _index=None):
+            self.restir_reservoirs.setEnabled(
+                "wavefront-gi" in tuple(self.backend.currentData())
+            )
             if self.scene_value is not None:
+                self.restart()
+
+        def _scene_light_changed(self, _enabled=None):
+            if getattr(self, "scene_value", None) is not None:
                 self.restart()
 
         def _close_renderers(self):
@@ -1078,6 +1361,9 @@ def main():
                     item, self.scene_value, self.controller,
                     self.active_showcase_id,
                 )
+                _set_optional_scene_lights(
+                    self.scene_value, self.scene_lights.isChecked(),
+                )
                 if self._startup_camera is not None:
                     self.controller = ol.ArcballCameraController.from_camera(
                         self._startup_camera,
@@ -1087,6 +1373,7 @@ def main():
                     (name, _renderer(
                         item, self.scene_value, name, self.shadows.isChecked(),
                         int(self.map_size.currentData()),
+                        int(self.restir_reservoirs.currentData()),
                     ))
                     for name in names
                 ]

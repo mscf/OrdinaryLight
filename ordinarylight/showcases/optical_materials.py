@@ -242,6 +242,13 @@ def build_refraction_scene():
 
 def build_absorption_scene():
     scene = _base_scene()
+    # Make the dielectric interface legible in the raster approximation as
+    # well as the attenuation through the medium.  The GI target naturally
+    # sees this same authored room through traced reflection rays.
+    scene.add_reflection_probe(ReflectionProbe(
+        _diorama_radiance_probe(), position=(0.0, 1.2, 0.0),
+        radius=8.0, intensity=1.0,
+    ))
     for index, distance in enumerate((.35, 1.0, 3.0)):
         _add_sphere(scene, ((index - 1) * 2.6, 1.2, 0), 1.12, Material(
             base_color=(1, 1, 1), transmission=1.0, roughness=.02,
@@ -253,6 +260,14 @@ def build_absorption_scene():
 
 def build_nested_dielectric_scene():
     scene = _base_scene()
+    # Supply the portable raster target with the same room radiance that the
+    # GI target reaches with reflection rays.  Screen-space transmission still
+    # carries the nested interfaces; this probe only supplies reflection and
+    # off-screen fallback energy.
+    scene.add_reflection_probe(ReflectionProbe(
+        _diorama_radiance_probe(), position=(0.0, 1.45, 0.0),
+        radius=8.0, intensity=1.0,
+    ))
     _add_sphere(scene, (0, 1.45, 0), 1.4, Material(
         base_color=(1, 1, 1), transmission=1.0, roughness=.015,
         ior=1.52, attenuation_color=(.72, .92, 1.0),

@@ -332,6 +332,9 @@ def main():
         wavefront_restir_di=os.environ.get(
             "WAVE_RENDER_RESTIR_DI", "0"
         ).lower() not in {"0", "false", "no", "off"},
+        wavefront_restir_reservoirs=int(os.environ.get(
+            "WAVE_RENDER_RESTIR_RESERVOIRS", "1"
+        )),
         wavefront_restir_candidates=int(os.environ.get(
             "WAVE_RENDER_RESTIR_CANDIDATES", "1"
         )),

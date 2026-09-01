@@ -27,3 +27,5 @@ __pycache__/
 /artifacts/benchmarks/*.ppm
 /artifacts/benchmarks/*.spv
 /artifacts/benchmarks/hitch_trace*.csv
+# Optional, separately built NVIDIA NRD reference SDK
+tools/nrd_reference/_build/

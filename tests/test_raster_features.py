@@ -22,6 +22,48 @@ def _camera():
 
 
 class RasterFeatureTests(unittest.TestCase):
+    def test_material_program_room_has_emitter_and_optional_fill_light(self):
+        from ordinarylight.showcases.raster_features import (
+            build_material_program_room_scene,
+        )
+
+        scene = build_material_program_room_scene()
+        optional = scene.metadata["optional_scene_lights"]
+        self.assertEqual(len(optional), 1)
+        fill = scene.get_light(optional[0]["id"])
+        self.assertIsInstance(fill, ol.PointLight)
+        self.assertEqual(optional[0]["intensity"], fill.intensity)
+        emitters = [
+            mesh for mesh in scene.meshes
+            if mesh.name == "material-program-emitter"
+        ]
+        self.assertEqual(len(emitters), 1)
+        self.assertIs(emitters[0].material.program, ol.unlit_material)
+        self.assertGreater(
+            float(np.max(emitters[0].material.emission)), 1.0,
+            "the unlit subject must also be discoverable as emissive geometry",
+        )
+        room_center = np.asarray((0.0, 4.0, 0.0), np.float32)
+        for room_mesh in scene.meshes[:6]:
+            self.assertIsNone(
+                room_mesh.material.program,
+                "reference-room surfaces must use standard renderer lighting",
+            )
+            triangle = room_mesh.vertices[room_mesh.indices[0]]
+            normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+            toward_room = room_center - np.mean(triangle, axis=0)
+            self.assertGreater(
+                float(np.dot(normal, toward_room)), 0.0,
+                "closed-room surfaces must face the interior light sources",
+            )
+        self.assertEqual(
+            len([mesh for mesh in scene.meshes
+                 if (mesh.name or "").startswith(
+                     "material-program-subject-"
+                 )]),
+            3,
+        )
+
     def test_environment_reflection_filter_footprint_tracks_roughness(self):
         program = ol.RasterProgram.scene(target="wgsl", validate=False)
         source = program.fragment.source
@@ -342,6 +384,54 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertGreater(np.count_nonzero(mask), 10)
         self.assertTrue(np.all(products["object_id"][mask] == mesh.id))
         self.assertGreater(float(np.linalg.norm(products["normal"][mask], axis=1).mean()), 0.9)
+
+    def test_native_geometry_product_mesh_tracks_camera_and_object_history(self):
+        mesh = ol.Mesh(
+            [[-0.5, -0.5, 0], [0.5, -0.5, 0], [0, 0.5, 0]], [[0, 1, 2]],
+        )
+        scene = ol.Scene([mesh])
+        first, history = ol.raster.geometry_product_mesh(
+            scene, _camera(), 32, 24,
+        )
+        second, _ = ol.raster.geometry_product_mesh(
+            scene, ol.PerspectiveCamera((0.2, 0, 4), (0, 0, 0)),
+            32, 24, history,
+        )
+        self.assertEqual(first.layout.stride, 40)
+        self.assertEqual(first.vertices.shape, (3, 10))
+        self.assertEqual(
+            len(first.resources["geometry_product_camera"]),
+            ol.raster.GEOMETRY_PRODUCT_CAMERA_DTYPE.itemsize,
+        )
+        first_camera = np.frombuffer(
+            first.resources["geometry_product_camera"],
+            dtype=ol.raster.GEOMETRY_PRODUCT_CAMERA_DTYPE,
+        )
+        second_camera = np.frombuffer(
+            second.resources["geometry_product_camera"],
+            dtype=ol.raster.GEOMETRY_PRODUCT_CAMERA_DTYPE,
+        )
+        np.testing.assert_allclose(
+            first_camera["current_view_projection"],
+            first_camera["previous_view_projection"],
+        )
+        self.assertFalse(np.allclose(
+            second_camera["current_view_projection"],
+            second_camera["previous_view_projection"],
+        ))
+
+    def test_geometry_product_program_declares_all_native_outputs(self):
+        for target in ("spirv", "wgsl"):
+            program = ol.RasterProgram.geometry_products(
+                target=target, validate=False,
+            )
+            outputs = {
+                item.name: item.type
+                for item in program.fragment.reflection.outputs
+            }
+            self.assertEqual(outputs, {
+                "normal_depth": "vec4", "motion_object": "vec4",
+            })
 
     def test_volume_slice_geometry_uses_transfer_function_alpha(self):
         data = np.ones((2, 2, 2), np.float32)

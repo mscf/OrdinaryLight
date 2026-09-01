@@ -1,6 +1,45 @@
 {
   "program_reflection": {
     "spirv": {
+      "geometry_products": {
+        "varyings": [
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 0,
+            "name": "world_normal",
+            "type": "vec3"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 1,
+            "name": "object_id",
+            "type": "float"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 2,
+            "name": "current_clip",
+            "type": "vec4"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 3,
+            "name": "previous_clip",
+            "type": "vec4"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 4,
+            "name": "world_position",
+            "type": "vec3"
+          }
+        ]
+      },
       "shadow": {
         "varyings": [
           {
@@ -14,6 +53,45 @@
       }
     },
     "wgsl": {
+      "geometry_products": {
+        "varyings": [
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 0,
+            "name": "world_normal",
+            "type": "vec3"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 1,
+            "name": "object_id",
+            "type": "float"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 2,
+            "name": "current_clip",
+            "type": "vec4"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 3,
+            "name": "previous_clip",
+            "type": "vec4"
+          },
+          {
+            "builtin": null,
+            "invariant": false,
+            "location": 4,
+            "name": "world_position",
+            "type": "vec3"
+          }
+        ]
+      },
       "shadow": {
         "varyings": [
           {
@@ -29,6 +107,183 @@
   },
   "programs": {
     "spirv": {
+      "geometry_products": {
+        "fragment": {
+          "cache_key": "81cacee4a1b9f4042ac4426df8ae5d3f609154a8a82880321e6d10ac72a63b68",
+          "file": "raster_geometry_products.frag.spv",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "current_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 4,
+                "name": "world_position",
+                "type": "vec3"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "normal_depth",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "motion_object",
+                "type": "vec4"
+              }
+            ],
+            "resources": [
+              {
+                "access": "read",
+                "binding": 0,
+                "format": "GeometryProductCamera",
+                "kind": "uniform_buffer",
+                "name": "camera",
+                "set": 0
+              }
+            ],
+            "stage": "fragment",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "91ed477c9b892a392c6982a25246984c3956cf96421254fac4cc912b830f9763"
+        },
+        "vertex": {
+          "cache_key": "1c8db164f95bf4a2b65a9bfcd13b05d2b9e2a9b656923dea35a9dc04b527c5d1",
+          "file": "raster_geometry_products.vert.spv",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_position",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_world_position",
+                "type": "vec3"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": "position",
+                "invariant": true,
+                "location": null,
+                "name": "position",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "current_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 4,
+                "name": "world_position",
+                "type": "vec3"
+              }
+            ],
+            "resources": [
+              {
+                "access": "read",
+                "binding": 0,
+                "format": "GeometryProductCamera",
+                "kind": "uniform_buffer",
+                "name": "camera",
+                "set": 0
+              }
+            ],
+            "stage": "vertex",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "d674ad489be2528f910e75658ebee55bd2cef1ede60b959b5070144f55568176"
+        }
+      },
       "shadow": {
         "fragment": {
           "cache_key": "b658801e61e75122a2ad18b0a5c89e79ed7e21156fab4b74a93aae6339b59dec",
@@ -106,6 +361,183 @@
       }
     },
     "wgsl": {
+      "geometry_products": {
+        "fragment": {
+          "cache_key": "d5beb20a7b1d1a83e9f333cac9724d45f61116548eb1c8113d50105e78ed8e33",
+          "file": "raster_geometry_products.frag.wgsl",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "current_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 4,
+                "name": "world_position",
+                "type": "vec3"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "normal_depth",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "motion_object",
+                "type": "vec4"
+              }
+            ],
+            "resources": [
+              {
+                "access": "read",
+                "binding": 0,
+                "format": "GeometryProductCamera",
+                "kind": "uniform_buffer",
+                "name": "camera",
+                "set": 0
+              }
+            ],
+            "stage": "fragment",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "e2ebd12eeaff351b4a0ce69a65a4ef05d0120816a5cd25e5095feab2024b8137"
+        },
+        "vertex": {
+          "cache_key": "3cbd5dc43d6858de48ffa2d4d7f7ffea4981f6379624acc512e7f6d222b79b77",
+          "file": "raster_geometry_products.vert.wgsl",
+          "reflection": {
+            "entry_point": "main",
+            "inputs": [
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_position",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_world_position",
+                "type": "vec3"
+              }
+            ],
+            "outputs": [
+              {
+                "builtin": "position",
+                "invariant": true,
+                "location": null,
+                "name": "position",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 0,
+                "name": "world_normal",
+                "type": "vec3"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "object_id",
+                "type": "float"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 2,
+                "name": "current_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 3,
+                "name": "previous_clip",
+                "type": "vec4"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 4,
+                "name": "world_position",
+                "type": "vec3"
+              }
+            ],
+            "resources": [
+              {
+                "access": "read",
+                "binding": 0,
+                "format": "GeometryProductCamera",
+                "kind": "uniform_buffer",
+                "name": "camera",
+                "set": 0
+              }
+            ],
+            "stage": "vertex",
+            "workgroup_size": [
+              1,
+              1,
+              1
+            ]
+          },
+          "sha256": "5978005a705b77f70d3ec4c1bb034aaadb609e86fed59c3ed18e0891bb61e3c9"
+        }
+      },
       "shadow": {
         "fragment": {
           "cache_key": "8dc0be500634d2d39596437f736eff75aad475213b93af5fea5243f1800fec27",
@@ -357,11 +789,11 @@
   },
   "schema": 1,
   "source": "ordinarylight/shaders/raster_programs.py",
-  "source_sha256": "341cc3ab291dde4c1fe493bba3931061379cfacc5e58df45e38b92bf87359256",
+  "source_sha256": "d434eaabf9cf77c724cf08f28287a5774273a14df9661e2c2f7495d1a3f46663",
   "targets": {
     "spirv": {
       "fragment": {
-        "cache_key": "4cc52b422850f6ac122555cf8e03554d937ef1e42847931cd754f60ec088b4e5",
+        "cache_key": "f7b95ab6845e52b1e40f08a375b25546a84fa2194a4d88938720b14649fb14c4",
         "file": "raster_scene.frag.spv",
         "reflection": {
           "entry_point": "main",
@@ -649,7 +1081,7 @@
             1
           ]
         },
-        "sha256": "91566850590f4f7df7aedd59259f3b1fb03b7119d1d8fa3b9289e380e3fea312"
+        "sha256": "703235b4e5fc11681a118646c93614b9d9902b5faa12c570bb8b09cbc44cf3e4"
       },
       "vertex": {
         "cache_key": "d5d4c61125defbdee4703592009d2ff0a31091dcfe36acd067cc0cfa18abcbc6",
@@ -1032,7 +1464,7 @@
     },
     "wgsl": {
       "fragment": {
-        "cache_key": "bc670f4f69831c182232e07d962c3934e66652a226108fe609992e504624df13",
+        "cache_key": "c960baaa47a4e7ccfb7e792e1fe5e4fd9618e560a0c8660fd01b17ba461d94f3",
         "file": "raster_scene.frag.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -1320,7 +1752,7 @@
             1
           ]
         },
-        "sha256": "6fe0b8f682b5e92187d231b14c9867dd1a80db2bf523c2f124b96ee00463720e"
+        "sha256": "4e8b7bc4a9300ededa90628814027c296a249837e8de9cb09f11013b74f9ccc1"
       },
       "vertex": {
         "cache_key": "80849a18d79d16fe3d63776c37d5b2a18ac79af16c6686f008fcb49b545beb79",
