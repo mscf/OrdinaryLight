@@ -455,6 +455,28 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertEqual(len(np.unique(world_positions[:, 0])), 3)
         self.assertEqual(len(np.unique(world_positions[:, 2])), 2)
 
+    def test_volume_slice_opacity_tracks_world_distance_and_reference_step(self):
+        transfer = ol.Texture1D(((0.0, 0.0, 0.0, 0.2),) * 2)
+        volume = ol.Volume(
+            np.ones((2, 2, 2), np.float32),
+            ol.VolumeMaterial(
+                transfer, density_scale=1.0, step_size=0.1,
+            ),
+            transform=ol.Transform.scale((1.0, 1.0, 1.0)),
+        )
+        scene = ol.Scene(volumes=[volume])
+        camera = ol.PerspectiveCamera((0.0, 0.0, 4.0), (0.0, 0.0, 0.0))
+        mesh = ol.scene_mesh(
+            scene, camera, 64, 64, ol.RasterConfig(volume_slices=10),
+        )
+        # Ten planes cover a unit world-space traversal, so every plane
+        # represents exactly the transfer function's 0.1 reference step.
+        populated = mesh.vertices[:, 16] > 0.0
+        self.assertGreater(int(np.count_nonzero(populated)), 0)
+        np.testing.assert_allclose(
+            mesh.vertices[populated, 16], 0.2, rtol=1e-5, atol=1e-6,
+        )
+
     def test_resident_volume_vertices_are_not_view_projected_twice(self):
         volume = ol.Volume(np.ones((2, 2, 2), np.float32))
         mesh = ol.scene_mesh(
@@ -483,6 +505,74 @@ class RasterFeatureTests(unittest.TestCase):
             scene, _camera(), 64, 64, ol.RasterConfig(volume_slices=2),
         )
         self.assertGreater(float(mesh.vertices[:, 4:7].max()), 0.0)
+
+    def test_ray_marched_volumes_are_packed_without_proxy_geometry(self):
+        first = ol.Volume(np.ones((4, 3, 2), np.float32))
+        second = ol.Volume(np.zeros((3, 4, 5), np.float32))
+        mesh = ol.scene_mesh(
+            ol.Scene(volumes=[first, second]), _camera(), 64, 64,
+            ol.RasterConfig(
+                volume_rendering="ray-march", volume_slices=64,
+                volume_empty_space_skipping=True,
+            ),
+        )
+        resources = mesh.resources["volume_resources"]
+        self.assertEqual(mesh.vertices.shape[0], 0)
+        self.assertEqual(len(resources.scalar_fields), 2)
+        self.assertEqual(resources.scalar_fields[0].shape, (4, 3, 2))
+        self.assertEqual(len(resources.occupancy_fields), 2)
+        self.assertEqual(resources.headers[0]["render_parameters"][2], 2.0)
+        self.assertFalse(mesh.resources["transparent"])
+
+    def test_raster_volume_quality_controls_validate(self):
+        config = ol.RasterConfig(
+            volume_rendering="ray-march", volume_step_scale=0.5,
+            volume_max_steps=2048, volume_empty_space_skipping=False,
+        )
+        self.assertEqual(config.volume_rendering, "ray-march")
+        self.assertEqual(config.volume_step_scale, 0.5)
+        self.assertEqual(config.volume_max_steps, 2048)
+        with self.assertRaises(ValueError):
+            ol.RasterConfig(volume_rendering="magic")
+        with self.assertRaises(ValueError):
+            ol.RasterConfig(volume_step_scale=0.0)
+        with self.assertRaises(ValueError):
+            ol.RasterConfig(volume_max_steps=0)
+
+    def test_native_volume_program_has_portable_three_dimensional_resources(self):
+        expected = {
+            "camera": "uniform_buffer",
+            "headers": "storage_buffer",
+            "transfers": "storage_buffer",
+            "scene_color": "sampled_texture_2d",
+            "scene_depth": "sampled_depth_texture_2d",
+            "volume_0": "sampled_texture_3d",
+            "volume_1": "sampled_texture_3d",
+            "volume_2": "sampled_texture_3d",
+            "volume_3": "sampled_texture_3d",
+        }
+        for target in ("spirv", "wgsl"):
+            program = ol.RasterProgram.volume(target=target, validate=False)
+            reflected = {
+                item["name"]: item["kind"]
+                for item in program.fragment.reflection.resources
+            }
+            for name, kind in expected.items():
+                self.assertEqual(reflected[name], kind)
+
+    def test_native_volume_program_uses_canonical_unit_volume_domain(self):
+        source = ol.RasterProgram.volume(
+            target="wgsl", validate=False,
+        ).fragment.source
+        self.assertIn(
+            "(vec3<f32>(0.0) - local_origin)", source,
+        )
+        self.assertIn(
+            "(vec3<f32>(1.0) - local_origin)", source,
+        )
+        self.assertNotIn(
+            ").xyz + vec3<f32>(0.5)", source,
+        )
 
     def test_hybrid_implementation_composes_child_renderers(self):
         raster, lighting = _Backend(0.25), _Backend(0.5)

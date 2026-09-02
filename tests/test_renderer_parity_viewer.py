@@ -48,7 +48,8 @@ def test_parity_viewer_exposes_gi_volume_showcases():
     assert "raster-feature" in catalog["volume"].tags
     assert catalog["volume"].description
     assert catalog["volume"].camera.target == (-0.1, 1.45, -0.7)
-    assert catalog["volume"].renderer["volume_slices"] == 128
+    assert catalog["volume"].renderer["volume_rendering"] == "ray-march"
+    assert catalog["multi-volume"].renderer["volume_rendering"] == "ray-march"
 
 
 def test_optional_scene_light_toggle_preserves_authored_intensity():

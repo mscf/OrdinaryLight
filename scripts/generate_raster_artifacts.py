@@ -21,6 +21,9 @@ from ordinarylight.shaders.raster_programs import (
     scene_fragment, scene_vertex,
     shadow_fragment, shadow_vertex,
 )
+from ordinarylight.shaders.raster_volume_programs import (
+    volume_fragment, volume_vertex,
+)
 
 
 OUTPUT = ROOT / "ordinarylight" / "shaders"
@@ -139,6 +142,34 @@ def build_artifacts():
         manifest["programs"][target]["geometry_products"] = product_records
         manifest["program_reflection"][target]["geometry_products"] = {
             "varyings": [asdict(item) for item in product_reflection.varyings],
+        }
+        volume_vertex_result, volume_fragment_result, volume_reflection = _compile(
+            target, volume_vertex, volume_fragment,
+        )
+        volume_records = {}
+        for name, shader, suffix in (
+            ("vertex", volume_vertex_result, "vert"),
+            ("fragment", volume_fragment_result, "frag"),
+        ):
+            filename = (
+                f"raster_volume.{suffix}.spv"
+                if target == "spirv"
+                else f"raster_volume.{suffix}.wgsl"
+            )
+            payload = (
+                bytes(shader.binary) if target == "spirv"
+                else shader.source.encode("utf-8")
+            )
+            files[filename] = payload
+            volume_records[name] = {
+                "file": filename,
+                "sha256": _digest(payload),
+                "cache_key": shader.cache_key,
+                "reflection": asdict(shader.reflection),
+            }
+        manifest["programs"][target]["volume"] = volume_records
+        manifest["program_reflection"][target]["volume"] = {
+            "varyings": [asdict(item) for item in volume_reflection.varyings],
         }
     manifest["reflection"] = {
         "varyings": [asdict(item) for item in linked_reflection.varyings],

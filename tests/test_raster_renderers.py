@@ -557,3 +557,119 @@ class RasterBackendTests(unittest.TestCase):
             self.assertGreater(float(center[1]), 0.2)
         finally:
             backend.close()
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_volume_ray_march_draws_without_proxy_geometry(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        from ordinarylight.showcases.volumes import build_volume_showcase
+        scene = build_volume_showcase(16)
+        for mesh in tuple(scene.meshes):
+            scene.remove_mesh(mesh)
+        camera = ol.PerspectiveCamera((5, 3, 6), (0, 1, 0))
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march", volume_max_steps=256,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            image = backend.render_frame(scene, camera, 96, 64)
+            self.assertTrue(np.isfinite(image).all())
+            self.assertGreater(float(np.max(image[..., :3])), 0.25)
+            self.assertGreater(float(np.std(image[..., :3])), 0.01)
+        finally:
+            backend.close()
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_volume_composite_preserves_scene_orientation(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        from ordinarylight.showcases.volumes import build_volume_showcase
+        scene = build_volume_showcase(16)
+        camera = ol.PerspectiveCamera((5, 3, 6), (0, 1, 0))
+        images = []
+        for mode in ("slices", "ray-march"):
+            backend = ol.renderers.raster.VulkanRasterRenderer(
+                ol.RasterProgram.scene(target="spirv"),
+                config=ol.RasterConfig(
+                    volume_rendering=mode, volume_slices=48,
+                    volume_max_steps=256,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            )
+            try:
+                images.append(backend.render_frame(scene, camera, 96, 64))
+            finally:
+                backend.close()
+        reference, native = (image[..., :3] for image in images)
+        # Compare the mostly opaque/background portion.  The two volume
+        # algorithms need not match exactly, but an inverted composite is
+        # overwhelmingly closer after flipping than in its native layout.
+        mask = np.max(reference, axis=2) < 1.0
+        direct_error = float(np.mean(np.abs(reference[mask] - native[mask])))
+        flipped_error = float(
+            np.mean(np.abs(reference[mask] - native[::-1][mask]))
+        )
+        self.assertLess(direct_error, flipped_error * 0.25)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_volume_matches_transformed_voxel_support(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        from ordinarylight.raster import camera_matrix
+        from ordinarylight.showcases.volumes import build_volume_showcase
+
+        width, height = 320, 180
+        camera = ol.PerspectiveCamera(
+            (-6.9692433238091684, 3.1, -5.178113013123175),
+            (-0.1, 1.45, -0.7), up=(0.0, 1.0, 0.0),
+            vertical_fov_degrees=45.0,
+        )
+        scene = build_volume_showcase(32)
+        control = build_volume_showcase(32)
+        control.remove_volume(control.volumes[0])
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march", volume_max_steps=512,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            active = backend.render_frame(scene, camera, width, height)
+            bare = backend.render_frame(control, camera, width, height)
+        finally:
+            backend.close()
+
+        difference = np.linalg.norm(
+            active[..., :3] - bare[..., :3], axis=2,
+        )
+        rendered_y, rendered_x = np.where(difference > 0.015)
+        self.assertGreater(len(rendered_x), 100)
+
+        volume = scene.volumes[0]
+        z, y, x = np.where(volume.normalized_data > 0.02)
+        depth, rows, columns = volume.shape
+        local = np.column_stack((
+            x / (columns - 1), y / (rows - 1), z / (depth - 1),
+            np.ones(len(x)),
+        ))
+        world = local @ volume.transform.matrix.T
+        clip = world @ camera_matrix(camera, width, height).T
+        ndc = clip[:, :3] / clip[:, 3, None]
+        projected_x = (ndc[:, 0] * 0.5 + 0.5) * width
+        projected_y = (0.5 - ndc[:, 1] * 0.5) * height
+
+        self.assertLess(abs(rendered_x.mean() - projected_x.mean()), 3.0)
+        self.assertLess(abs(rendered_y.mean() - projected_y.mean()), 3.0)

@@ -21,7 +21,6 @@ struct SecondaryPathState
     vec4 diffuse_radiance_hit_distance;
     vec4 specular_radiance_hit_distance;
     vec4 primary_position;
-    vec4 primary_geometry;
 };
 
 struct PathToHdrCamera

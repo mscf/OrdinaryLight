@@ -6,6 +6,8 @@
     "raster_scene.vert.spv",
     "raster_geometry_products.frag.spv",
     "raster_geometry_products.vert.spv",
+    "raster_volume.frag.spv",
+    "raster_volume.vert.spv",
     "raster_shadow.frag.spv",
     "raster_shadow.vert.spv",
     "denoiser_relax_prepare.comp.spv",

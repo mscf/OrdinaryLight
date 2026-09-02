@@ -22,7 +22,11 @@ SHOWCASES = (
             "color, absorption, and composition with opaque geometry."
         ),
         camera=VOLUME_CAMERA,
-        renderer={"volume_slices": 128},
+        renderer={
+            "volume_rendering": "ray-march",
+            "volume_step_scale": 1.0,
+            "volume_max_steps": 1024,
+        },
         tags=("volumes", "gi-feature", "raster-feature"),
     ),
     Showcase(
@@ -32,7 +36,11 @@ SHOWCASES = (
             "volume composition."
         ),
         camera=VOLUME_CAMERA,
-        renderer={"volume_slices": 128},
+        renderer={
+            "volume_rendering": "ray-march",
+            "volume_step_scale": 1.0,
+            "volume_max_steps": 1024,
+        },
         tags=("volumes", "composition", "gi-feature", "raster-feature"),
     ),
     Showcase(

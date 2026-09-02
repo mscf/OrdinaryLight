@@ -19,6 +19,7 @@ _FORMATS = {
 
 _SCENE_PROGRAM_CACHE = {}
 _GEOMETRY_PRODUCT_PROGRAM_CACHE = {}
+_VOLUME_PROGRAM_CACHE = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +96,10 @@ class RasterConfig:
     temporal_weight: float = 0.9
     tone_mapping: str = "none"
     volume_slices: int = 0
+    volume_rendering: str = "slices"
+    volume_step_scale: float = 1.0
+    volume_max_steps: int = 1024
+    volume_empty_space_skipping: bool = True
     shading_model: str = "pbr"
     shadow_map_size: int = 256
     shadow_cull_mode: str = "none"
@@ -116,6 +121,14 @@ class RasterConfig:
             raise ValueError("tone_mapping must be none, reinhard, or aces")
         if not 0 <= int(self.volume_slices) <= 1024:
             raise ValueError("volume_slices must be between 0 and 1024")
+        if self.volume_rendering not in {"slices", "ray-march"}:
+            raise ValueError("volume_rendering must be slices or ray-march")
+        if not np.isfinite(self.volume_step_scale) or self.volume_step_scale <= 0.0:
+            raise ValueError("volume_step_scale must be finite and positive")
+        if not 1 <= int(self.volume_max_steps) <= 8192:
+            raise ValueError("volume_max_steps must be between 1 and 8192")
+        if not isinstance(self.volume_empty_space_skipping, bool):
+            raise TypeError("volume_empty_space_skipping must be a bool")
         if self.shading_model not in {"pbr", "diffuse"}:
             raise ValueError("shading_model must be pbr or diffuse")
         if not 32 <= int(self.shadow_map_size) <= 8192:
@@ -497,6 +510,30 @@ class RasterProgram:
                 target=target, validate=validate,
             )
         _GEOMETRY_PRODUCT_PROGRAM_CACHE[key] = result
+        return result
+
+    @classmethod
+    def volume(cls, *, target: str, validate: bool = True):
+        """Load the native fullscreen dense-volume program."""
+        key = (target, bool(validate))
+        cached = _VOLUME_PROGRAM_CACHE.get(key)
+        if cached is not None:
+            return cached
+        result = _load_named_artifact(target, "volume")
+        if result is None:
+            try:
+                from ..shaders.raster_volume_programs import (
+                    volume_fragment, volume_vertex,
+                )
+            except ImportError as error:
+                raise RuntimeError(
+                    "built-in raster volume shaders require ordinaryshade"
+                ) from error
+            result = cls.compile(
+                volume_vertex, volume_fragment,
+                target=target, validate=validate,
+            )
+        _VOLUME_PROGRAM_CACHE[key] = result
         return result
 
     @property
@@ -1300,7 +1337,7 @@ def scene_mesh(
         )))
         indices.append(mesh.indices.reshape(-1) + base)
         base += len(world)
-    if config.volume_slices:
+    if config.volume_slices and config.volume_rendering == "slices":
         # Volumes are a distinct transparent phase after the opaque draw.
         # Build genuinely camera-facing planes in world space.  Selecting the
         # nearest local axis (the former implementation) still produced a
@@ -1353,9 +1390,10 @@ def scene_mesh(
                 depth_bounds[1], depth_bounds[0], count, endpoint=False,
                 dtype=np.float32,
             )
-            slice_depths -= np.float32(
-                (depth_bounds[1] - depth_bounds[0]) / (2.0 * count)
+            slice_distance = np.float32(
+                (depth_bounds[1] - depth_bounds[0]) / count
             )
+            slice_depths -= slice_distance * np.float32(0.5)
             for depth in slice_depths:
                 world_xyz = (
                     camera_position[None, :]
@@ -1382,7 +1420,20 @@ def scene_mesh(
                 density = normalized[data_z, data_y, data_x]
                 density = np.where(inside, density, 0.0)
                 rgba = tf.sample(density).reshape(-1, 4)
-                rgba[:, 3] = 1.0 - (1.0 - rgba[:, 3]) ** (volume.material.density_scale / count)
+                # Transfer alpha describes extinction over the material's
+                # reference step size.  Rescale it to the world-space length
+                # represented by this proxy plane.  Dividing only by the
+                # slice count made the integrated opacity depend on neither
+                # volume size nor step_size and caused scattering media to
+                # converge to an almost invisible result.
+                optical_steps = (
+                    volume.material.density_scale
+                    * float(slice_distance)
+                    / volume.material.step_size
+                )
+                rgba[:, 3] = 1.0 - np.power(
+                    np.maximum(1.0 - rgba[:, 3], 1e-8), optical_steps,
+                )
                 rgba[:, :3] *= volume.material.emission_scale
                 world = np.column_stack((
                     world_xyz, np.ones(len(world_xyz), np.float32),
@@ -1454,7 +1505,13 @@ def scene_mesh(
                 )))
                 indices.append(base_indices + base)
                 base += len(local)
-    vertices = np.concatenate(rows).astype(np.float32) if rows else np.empty((0, 64), np.float32)
+    # ``np.empty((0, N))`` has a zero row stride, which is not a valid empty
+    # vertex stream for the declared interleaved ABI.  Keep the canonical row
+    # stride even for volume-only GPU passes that need no proxy vertices.
+    vertices = (
+        np.concatenate(rows).astype(np.float32)
+        if rows else np.zeros((1, 64), np.float32)[:0]
+    )
     index_data = np.concatenate(indices).astype(np.uint32) if indices else np.empty(0, np.uint32)
     layout = RasterVertexLayout(256, (
         RasterVertexAttribute(0, "float32x4", 0, "position"),
@@ -1485,7 +1542,7 @@ def scene_mesh(
     ))
     shadow_vertices = prepared_resources["shadow_vertices"]
     shadow_indices = prepared_resources["shadow_indices"]
-    from .resources import SHADOW_DTYPE, pack_raster_gpu_scene
+    from .resources import SHADOW_DTYPE, pack_raster_gpu_scene, pack_raster_volumes
     gpu_scene = pack_raster_gpu_scene(
         scene, camera, width, height,
         default_program=config.material_program,
@@ -1520,6 +1577,14 @@ def scene_mesh(
         ].T
         shadow_data["atlas"][shadow_index] = record["atlas"]
         shadow_data["parameters"][shadow_index] = record["parameters"]
+    volume_resources = (
+        pack_raster_volumes(
+            scene.visible_volumes,
+            empty_space_skipping=config.volume_empty_space_skipping,
+        )
+        if config.volume_rendering == "ray-march" and scene.visible_volumes
+        else None
+    )
     return RasterMesh(vertices, index_data, layout, {
         "base_color_atlas": atlas,
         "shadow_vertices": shadow_vertices,
@@ -1532,11 +1597,15 @@ def scene_mesh(
         "shadow_buffer": shadow_data.tobytes(),
         "shadow_count": min(len(shadow_data), 24),
         "material_programs": gpu_scene.programs,
+        "volume_resources": volume_resources,
+        "volume_step_scale": float(config.volume_step_scale),
+        "volume_max_steps": int(config.volume_max_steps),
         # Volume proxy stacks share the transparent render phase.  Mark the
         # phase present even when the scene has no authored alpha surfaces so
         # backends create/bind the blending pipeline for volume-only scenes.
         "transparent": bool(authored_transparent_meshes or (
-            config.volume_slices and scene.visible_volumes
+            config.volume_rendering == "slices" and config.volume_slices
+            and scene.visible_volumes
         )),
         "opaque_index_count": int(opaque_index_count),
         "opaque_prepass_index_count": int(opaque_prepass_index_count),

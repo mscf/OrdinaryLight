@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..lights import DirectionalLight, PointLight, SpotLight
+from ..volume import VOLUME_BRICK_SIZE, pack_volumes, volume_brick_occupancy
 
 
 CAMERA_DTYPE = np.dtype([
@@ -93,6 +94,60 @@ class RasterGpuScene:
                 raise TypeError("raster GPU records must use their canonical dtype")
             if shape is not None and value.shape != shape:
                 raise ValueError(f"raster GPU record must have shape {shape}")
+
+
+@dataclass(frozen=True, slots=True)
+class RasterVolumeResources:
+    """Target-neutral dense-volume resources for GPU raster ray marching.
+
+    Scalar and occupancy fields deliberately remain individual 3-D arrays:
+    Vulkan and WebGPU can upload them without repacking or changing coordinate
+    conventions. Header/transfer records share the GI volume ABI, so overlap
+    integration has one semantic source across renderer implementations.
+    """
+
+    headers: np.ndarray
+    transfers: np.ndarray
+    scalar_fields: tuple[np.ndarray, ...]
+    occupancy_fields: tuple[np.ndarray, ...]
+    brick_size: int = VOLUME_BRICK_SIZE
+
+    def __post_init__(self):
+        if not self.headers.flags.c_contiguous:
+            raise TypeError("volume headers must be contiguous")
+        if self.transfers.dtype != np.float32 or not self.transfers.flags.c_contiguous:
+            raise TypeError("volume transfers must be contiguous float32")
+        if len(self.scalar_fields) != len(self.occupancy_fields):
+            raise ValueError("scalar and occupancy field counts must match")
+        for field in self.scalar_fields + self.occupancy_fields:
+            if field.dtype != np.float32 or field.ndim != 3 or not field.flags.c_contiguous:
+                raise TypeError("volume fields must be contiguous float32 3-D arrays")
+
+
+def pack_raster_volumes(volumes, *, empty_space_skipping=True):
+    """Pack visible volumes for native raster targets without flattening 3-D data."""
+    volumes = tuple(volumes)
+    headers, _scalars, transfers = pack_volumes(
+        volumes, empty_space_skipping=empty_space_skipping,
+    )
+    scalar_fields = tuple(
+        np.ascontiguousarray(volume.normalized_data, dtype=np.float32)
+        for volume in volumes
+    )
+    occupancy_fields = tuple(
+        np.ascontiguousarray(
+            volume_brick_occupancy(volume)
+            if empty_space_skipping else np.ones((1, 1, 1), np.float32),
+            dtype=np.float32,
+        )
+        for volume in volumes
+    )
+    return RasterVolumeResources(
+        headers=np.ascontiguousarray(headers),
+        transfers=np.ascontiguousarray(transfers, dtype=np.float32),
+        scalar_fields=scalar_fields,
+        occupancy_fields=occupancy_fields,
+    )
 
 
 def _texture_table(scene):

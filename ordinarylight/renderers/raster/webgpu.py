@@ -89,19 +89,145 @@ class WebGpuRasterRenderer(RendererImplementation):
         self._product_fragment_module = self.device.create_shader_module(
             code=product_program.fragment.source,
         )
+        volume_program = type(program).volume(target="wgsl", validate=False)
+        self._volume_vertex_module = self.device.create_shader_module(
+            code=volume_program.vertex.source,
+        )
+        self._volume_fragment_module = self.device.create_shader_module(
+            code=volume_program.fragment.source,
+        )
         self._product_pipelines = {}
         self._pipelines = {}
         self._shadow_pipeline = None
+        self._volume_pipeline = None
         info = self.adapter.info
         self.capabilities = RendererCapabilities(
             renderer="webgpu-raster", features=frozenset({
                 "raster", "offscreen", "depth", "volumes",
-                "volume_scattering",
+                "volume_scattering", "native-volume-ray-march",
             }),
             outputs=self.available_outputs,
             limits={"max_volume_slices": 1024},
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
+
+    def _native_volume_pipeline(self):
+        if self._volume_pipeline is not None:
+            return self._volume_pipeline
+        self._volume_pipeline = self.device.create_render_pipeline(
+            layout="auto",
+            vertex={
+                "module": self._volume_vertex_module,
+                "entry_point": "main",
+                "buffers": ({
+                    "array_stride": 8,
+                    "step_mode": "vertex",
+                    "attributes": ({
+                        "format": "float32x2", "offset": 0,
+                        "shader_location": 0,
+                    },),
+                },),
+            },
+            primitive={"topology": "triangle-list", "cull_mode": "none"},
+            fragment={
+                "module": self._volume_fragment_module,
+                "entry_point": "main",
+                "targets": ({"format": "rgba16float"},),
+            },
+        )
+        return self._volume_pipeline
+
+    def _composite_native_volumes(self, encoder, mesh, source, depth, width, height):
+        resources = mesh.resources.get("volume_resources")
+        if resources is None or not resources.scalar_fields or depth is None:
+            return source
+        wgpu = self._wgpu
+        destination = self.device.create_texture(
+            size=(width, height, 1), format="rgba16float",
+            usage=(wgpu.TextureUsage.RENDER_ATTACHMENT
+                   | wgpu.TextureUsage.COPY_SRC
+                   | wgpu.TextureUsage.TEXTURE_BINDING),
+        )
+        matrix = np.asarray(mesh.resources["volume_inverse_view_projection"], np.float32)
+        camera = np.zeros(1, dtype=np.dtype([
+            ("inverse_view_projection", np.float32, (4, 4)),
+            ("camera_position", np.float32, (4,)),
+            ("viewport_steps", np.float32, (4,)),
+            ("volume_count", np.uint32, (4,)),
+        ], align=True))
+        camera["inverse_view_projection"][0] = matrix.T
+        camera["camera_position"][0] = mesh.resources["volume_camera_position"]
+        camera["viewport_steps"][0] = (
+            width, height, mesh.resources["volume_step_scale"],
+            mesh.resources["volume_max_steps"],
+        )
+        camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
+        uniform = self.device.create_buffer_with_data(
+            data=camera, usage=wgpu.BufferUsage.UNIFORM,
+        )
+        headers = self.device.create_buffer_with_data(
+            data=resources.headers, usage=wgpu.BufferUsage.STORAGE,
+        )
+        transfers = self.device.create_buffer_with_data(
+            data=resources.transfers, usage=wgpu.BufferUsage.STORAGE,
+        )
+        textures = []
+        fields = list(resources.scalar_fields[:4])
+        while len(fields) < 4:
+            fields.append(np.zeros((1, 1, 1), np.float32))
+        for field in fields:
+            field = np.ascontiguousarray(field, dtype=np.float16)
+            depth_size, height_size, width_size = field.shape
+            texture = self.device.create_texture(
+                size=(width_size, height_size, depth_size), dimension="3d",
+                format="r16float",
+                usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            )
+            self.device.queue.write_texture(
+                {"texture": texture}, field,
+                {"bytes_per_row": width_size * 2, "rows_per_image": height_size},
+                (width_size, height_size, depth_size),
+            )
+            textures.append(texture)
+        linear = self.device.create_sampler(
+            mag_filter="linear", min_filter="linear",
+            address_mode_u="clamp-to-edge", address_mode_v="clamp-to-edge",
+            address_mode_w="clamp-to-edge",
+        )
+        nearest = self.device.create_sampler(
+            mag_filter="nearest", min_filter="nearest",
+            address_mode_u="clamp-to-edge", address_mode_v="clamp-to-edge",
+        )
+        pipeline = self._native_volume_pipeline()
+        bind_group = self.device.create_bind_group(
+            layout=pipeline.get_bind_group_layout(0),
+            entries=(
+                {"binding": 0, "resource": {"buffer": uniform}},
+                {"binding": 1, "resource": {"buffer": headers}},
+                {"binding": 2, "resource": {"buffer": transfers}},
+                {"binding": 3, "resource": source.create_view()},
+                {"binding": 4, "resource": depth.create_view()},
+                *({"binding": 5 + index, "resource": texture.create_view()}
+                  for index, texture in enumerate(textures)),
+                {"binding": 9, "resource": linear},
+                {"binding": 10, "resource": nearest},
+            ),
+        )
+        fullscreen = self.device.create_buffer_with_data(
+            data=np.asarray(((-1, -1), (3, -1), (-1, 3)), np.float32),
+            usage=wgpu.BufferUsage.VERTEX,
+        )
+        render_pass = encoder.begin_render_pass(color_attachments=({
+            "view": destination.create_view(), "resolve_target": None,
+            "load_op": "clear", "store_op": "store",
+            "clear_value": (0.0, 0.0, 0.0, 1.0),
+        },))
+        render_pass.set_pipeline(pipeline)
+        render_pass.set_bind_group(0, bind_group)
+        render_pass.set_vertex_buffer(0, fullscreen)
+        render_pass.draw(3)
+        render_pass.end()
+        return destination
 
     def _product_pipeline(self, layout):
         pipeline = self._product_pipelines.get(layout)
@@ -143,7 +269,7 @@ class WebGpuRasterRenderer(RendererImplementation):
 
     def _render_native_products(self, mesh, width, height):
         """Rasterize depth/normal/object-ID/motion into native MRTs."""
-        if not len(mesh.vertices):
+        if not len(mesh.vertices) and mesh.resources.get("volume_resources") is None:
             return {
                 "depth": np.ones((height, width), np.float32),
                 "normal": np.zeros((height, width, 3), np.float32),
@@ -319,7 +445,9 @@ class WebGpuRasterRenderer(RendererImplementation):
                        | wgpu.TextureUsage.TEXTURE_BINDING),
             )
         vertex_buffer = self.device.create_buffer_with_data(
-            data=mesh.vertices, usage=wgpu.BufferUsage.VERTEX,
+            data=(mesh.vertices if len(mesh.vertices) else
+                  np.zeros((1, mesh.layout.stride // 4), np.float32)),
+            usage=wgpu.BufferUsage.VERTEX,
         )
         bind_group = None
         transparent_bind_group = None
@@ -716,6 +844,9 @@ class WebGpuRasterRenderer(RendererImplementation):
                 )
                 final_texture = destination_texture
             output_texture = final_texture
+        output_texture = self._composite_native_volumes(
+            encoder, mesh, output_texture, depth, width, height,
+        )
         row_bytes = width * 4 * np.dtype(np.float16).itemsize
         padded_row_bytes = (row_bytes + 255) & ~255
         readback = self.device.create_buffer(
@@ -758,6 +889,10 @@ class WebGpuRasterRenderer(RendererImplementation):
             "optical_transmissive_layers_nested", False,
         ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
+        mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
+            camera_matrix(camera, width, height),
+        )
+        mesh.resources["volume_camera_position"] = (*camera.position, 1.0)
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
         return self._post.process(image, scene, camera)
@@ -794,6 +929,12 @@ class WebGpuRasterRenderer(RendererImplementation):
                 )
             )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
+            color_mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
+                camera_matrix(camera, width, height),
+            )
+            color_mesh.resources["volume_camera_position"] = (
+                *camera.position, 1.0,
+            )
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)
         return {name: products[name] for name in outputs}

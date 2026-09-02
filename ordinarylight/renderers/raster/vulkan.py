@@ -262,10 +262,44 @@ class VulkanRasterRenderer(RendererImplementation):
             ), None,
         )
         self._product_pipelines = {}
+        volume_program = type(program).volume(target="spirv")
+        self._volume_vertex_module = self._shader(volume_program.vertex.binary)
+        self._volume_fragment_module = self._shader(volume_program.fragment.binary)
+        volume_bindings = []
+        for binding, descriptor_type in (
+            (0, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER),
+            (1, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
+            (2, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
+            (3, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (4, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (5, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (6, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (7, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (8, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (9, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
+            (10, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
+        ):
+            volume_bindings.append(vk.VkDescriptorSetLayoutBinding(
+                binding=binding, descriptorType=descriptor_type,
+                descriptorCount=1, stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+            ))
+        self._volume_descriptor_layout = vk.vkCreateDescriptorSetLayout(
+            self.device, vk.VkDescriptorSetLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                bindingCount=len(volume_bindings), pBindings=volume_bindings,
+            ), None,
+        )
+        self._volume_pipeline_layout = vk.vkCreatePipelineLayout(
+            self.device, vk.VkPipelineLayoutCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                setLayoutCount=1, pSetLayouts=[self._volume_descriptor_layout],
+            ), None,
+        )
+        self._volume_pipelines = {}
         self.capabilities = RendererCapabilities(
             renderer="vulkan-raster", features=frozenset(
                 {"raster", "offscreen", "depth", "volumes",
-                 "volume_scattering"}
+                 "volume_scattering", "native-volume-ray-march"}
                 | ({"direct-presentation", "resident-scene"}
                    if self.surface is not None else set())
             ),
@@ -587,6 +621,484 @@ class VulkanRasterRenderer(RendererImplementation):
             sType=vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             codeSize=len(binary), pCode=binary,
         ), None)
+
+    def _volume_texture(self, field, remember):
+        """Upload one immutable scalar field and return its sampled 3-D view."""
+        vk = self.vk
+        field = np.ascontiguousarray(field, dtype=np.float32)
+        depth, height, width = field.shape
+        image = remember("image", vk.vkCreateImage(
+            self.device, vk.VkImageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                imageType=vk.VK_IMAGE_TYPE_3D,
+                format=vk.VK_FORMAT_R32_SFLOAT,
+                extent=vk.VkExtent3D(width=width, height=height, depth=depth),
+                mipLevels=1, arrayLayers=1,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
+                usage=(vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                       | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
+                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            ), None,
+        ))
+        requirements = vk.vkGetImageMemoryRequirements(self.device, image)
+        memory = remember("memory", vk.vkAllocateMemory(
+            self.device, vk.VkMemoryAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                allocationSize=requirements.size,
+                memoryTypeIndex=self._memory_type(
+                    requirements.memoryTypeBits,
+                    vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                ),
+            ), None,
+        ))
+        vk.vkBindImageMemory(self.device, image, memory, 0)
+        host = (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        staging, staging_memory = self._buffer(
+            field.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            host, field.tobytes(),
+        )
+        command = vk.vkAllocateCommandBuffers(
+            self.device, vk.VkCommandBufferAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                commandPool=self.command_pool,
+                level=vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                commandBufferCount=1,
+            ),
+        )[0]
+        vk.vkBeginCommandBuffer(command, vk.VkCommandBufferBeginInfo(
+            sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            flags=vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        ))
+        color_range = vk.VkImageSubresourceRange(
+            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            baseMipLevel=0, levelCount=1,
+            baseArrayLayer=0, layerCount=1,
+        )
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                srcAccessMask=0,
+                dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                oldLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+                newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                image=image, subresourceRange=color_range,
+            )],
+        )
+        vk.vkCmdCopyBufferToImage(
+            command, staging, image, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, [vk.VkBufferImageCopy(
+                bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
+                imageSubresource=vk.VkImageSubresourceLayers(
+                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                    mipLevel=0, baseArrayLayer=0, layerCount=1,
+                ),
+                imageExtent=vk.VkExtent3D(
+                    width=width, height=height, depth=depth,
+                ),
+            )],
+        )
+        vk.vkCmdPipelineBarrier(
+            command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                image=image, subresourceRange=color_range,
+            )],
+        )
+        vk.vkEndCommandBuffer(command)
+        fence = vk.vkCreateFence(self.device, vk.VkFenceCreateInfo(
+            sType=vk.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        ), None)
+        try:
+            vk.vkQueueSubmit(self.queue, 1, [vk.VkSubmitInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                commandBufferCount=1, pCommandBuffers=[command],
+            )], fence)
+            vk.vkWaitForFences(
+                self.device, 1, [fence], vk.VK_TRUE, (1 << 64) - 1,
+            )
+        finally:
+            vk.vkDestroyFence(self.device, fence, None)
+            vk.vkFreeCommandBuffers(
+                self.device, self.command_pool, 1, [command],
+            )
+            vk.vkDestroyBuffer(self.device, staging, None)
+            vk.vkFreeMemory(self.device, staging_memory, None)
+        return remember("image_view", vk.vkCreateImageView(
+            self.device, vk.VkImageViewCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                image=image, viewType=vk.VK_IMAGE_VIEW_TYPE_3D,
+                format=vk.VK_FORMAT_R32_SFLOAT,
+                subresourceRange=color_range,
+            ), None,
+        ))
+
+    def _volume_pipeline(self, render_pass, width, height, remember):
+        vk = self.vk
+        stages = [
+            vk.VkPipelineShaderStageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                stage=vk.VK_SHADER_STAGE_VERTEX_BIT,
+                module=self._volume_vertex_module, pName="main",
+            ),
+            vk.VkPipelineShaderStageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                module=self._volume_fragment_module, pName="main",
+            ),
+        ]
+        return remember("pipeline", vk.vkCreateGraphicsPipelines(
+            self.device, vk.VK_NULL_HANDLE, 1,
+            [vk.VkGraphicsPipelineCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                stageCount=2, pStages=stages,
+                pVertexInputState=vk.VkPipelineVertexInputStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+                    vertexBindingDescriptionCount=1,
+                    pVertexBindingDescriptions=[vk.VkVertexInputBindingDescription(
+                        binding=0, stride=8,
+                        inputRate=vk.VK_VERTEX_INPUT_RATE_VERTEX,
+                    )],
+                    vertexAttributeDescriptionCount=1,
+                    pVertexAttributeDescriptions=[vk.VkVertexInputAttributeDescription(
+                        location=0, binding=0,
+                        format=vk.VK_FORMAT_R32G32_SFLOAT, offset=0,
+                    )],
+                ),
+                pInputAssemblyState=vk.VkPipelineInputAssemblyStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+                    topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                ),
+                pViewportState=vk.VkPipelineViewportStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+                    viewportCount=1, pViewports=[vk.VkViewport(
+                        # The scene image already uses the renderer's
+                        # top-left-oriented attachment convention.  This
+                        # fullscreen composite must sample it without the
+                        # negative-height flip used by geometry pipelines.
+                        x=0.0, y=0.0, width=float(width),
+                        height=float(height), minDepth=0.0, maxDepth=1.0,
+                    )],
+                    scissorCount=1, pScissors=[vk.VkRect2D(
+                        offset=vk.VkOffset2D(x=0, y=0),
+                        extent=vk.VkExtent2D(width=width, height=height),
+                    )],
+                ),
+                pRasterizationState=vk.VkPipelineRasterizationStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                    polygonMode=vk.VK_POLYGON_MODE_FILL,
+                    cullMode=vk.VK_CULL_MODE_NONE,
+                    frontFace=vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+                    lineWidth=1.0,
+                ),
+                pMultisampleState=vk.VkPipelineMultisampleStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                    rasterizationSamples=vk.VK_SAMPLE_COUNT_1_BIT,
+                ),
+                pColorBlendState=vk.VkPipelineColorBlendStateCreateInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                    attachmentCount=1,
+                    pAttachments=[vk.VkPipelineColorBlendAttachmentState(
+                        blendEnable=vk.VK_FALSE,
+                        colorWriteMask=(vk.VK_COLOR_COMPONENT_R_BIT
+                                        | vk.VK_COLOR_COMPONENT_G_BIT
+                                        | vk.VK_COLOR_COMPONENT_B_BIT
+                                        | vk.VK_COLOR_COMPONENT_A_BIT),
+                    )],
+                ),
+                layout=self._volume_pipeline_layout,
+                renderPass=render_pass, subpass=0,
+            )], None,
+        )[0])
+
+    @staticmethod
+    def _volume_camera_payload(mesh, width, height):
+        dtype = np.dtype([
+            ("inverse_view_projection", np.float32, (4, 4)),
+            ("camera_position", np.float32, (4,)),
+            ("viewport_steps", np.float32, (4,)),
+            ("volume_count", np.uint32, (4,)),
+        ], align=True)
+        camera = np.zeros(1, dtype)
+        camera["inverse_view_projection"][0] = np.asarray(
+            mesh.resources["volume_inverse_view_projection"], np.float32,
+        ).T
+        camera["camera_position"][0] = mesh.resources["volume_camera_position"]
+        camera["viewport_steps"][0] = (
+            width, height, mesh.resources["volume_step_scale"],
+            mesh.resources["volume_max_steps"],
+        )
+        resources = mesh.resources["volume_resources"]
+        camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
+        return camera.tobytes()
+
+    def _record_volume_composite(
+        self, command, mesh, width, height, source_image, source_view,
+        depth_image, depth_view, remember,
+    ):
+        """Record the native volume pass and return color plus camera memory."""
+        resources = mesh.resources.get("volume_resources")
+        if resources is None or not resources.scalar_fields or depth_view is None:
+            return source_image, source_view, None
+        vk = self.vk
+        color_range = vk.VkImageSubresourceRange(
+            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
+        )
+        depth_range = vk.VkImageSubresourceRange(
+            aspectMask=vk.VK_IMAGE_ASPECT_DEPTH_BIT,
+            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
+        )
+        destination = remember("image", vk.vkCreateImage(
+            self.device, vk.VkImageCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                imageType=vk.VK_IMAGE_TYPE_2D,
+                format=vk.VK_FORMAT_R16G16B16A16_SFLOAT,
+                extent=vk.VkExtent3D(width=width, height=height, depth=1),
+                mipLevels=1, arrayLayers=1,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
+                usage=(vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                       | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                       | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
+                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
+                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+            ), None,
+        ))
+        requirements = vk.vkGetImageMemoryRequirements(self.device, destination)
+        memory = remember("memory", vk.vkAllocateMemory(
+            self.device, vk.VkMemoryAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                allocationSize=requirements.size,
+                memoryTypeIndex=self._memory_type(
+                    requirements.memoryTypeBits,
+                    vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                ),
+            ), None,
+        ))
+        vk.vkBindImageMemory(self.device, destination, memory, 0)
+        destination_view = remember("image_view", vk.vkCreateImageView(
+            self.device, vk.VkImageViewCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                image=destination, viewType=vk.VK_IMAGE_VIEW_TYPE_2D,
+                format=vk.VK_FORMAT_R16G16B16A16_SFLOAT,
+                subresourceRange=color_range,
+            ), None,
+        ))
+        render_pass = remember("render_pass", vk.vkCreateRenderPass(
+            self.device, vk.VkRenderPassCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                attachmentCount=1,
+                pAttachments=[vk.VkAttachmentDescription(
+                    format=vk.VK_FORMAT_R16G16B16A16_SFLOAT,
+                    samples=vk.VK_SAMPLE_COUNT_1_BIT,
+                    loadOp=vk.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    storeOp=vk.VK_ATTACHMENT_STORE_OP_STORE,
+                    stencilLoadOp=vk.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    stencilStoreOp=vk.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+                    finalLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                )],
+                subpassCount=1,
+                pSubpasses=[vk.VkSubpassDescription(
+                    pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    colorAttachmentCount=1,
+                    pColorAttachments=[vk.VkAttachmentReference(
+                        attachment=0,
+                        layout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    )],
+                )],
+            ), None,
+        ))
+        framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(
+            self.device, vk.VkFramebufferCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                renderPass=render_pass, attachmentCount=1,
+                pAttachments=[destination_view],
+                width=width, height=height, layers=1,
+            ), None,
+        ))
+        pipeline = self._volume_pipeline(render_pass, width, height, remember)
+        camera_payload = self._volume_camera_payload(mesh, width, height)
+        host = (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        buffers = []
+        for payload, usage in (
+            (camera_payload, vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT),
+            (resources.headers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+            (resources.transfers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+        ):
+            buffer, buffer_memory = self._buffer(
+                max(len(payload), 16), usage, host,
+                payload if payload else bytes(16),
+            )
+            remember("buffer", buffer); remember("memory", buffer_memory)
+            buffers.append((buffer, max(len(payload), 16), buffer_memory))
+        fields = list(resources.scalar_fields[:4])
+        while len(fields) < 4:
+            fields.append(np.zeros((1, 1, 1), np.float32))
+        volume_views = [self._volume_texture(field, remember) for field in fields]
+        linear = remember("sampler", vk.vkCreateSampler(
+            self.device, vk.VkSamplerCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                magFilter=vk.VK_FILTER_LINEAR, minFilter=vk.VK_FILTER_LINEAR,
+                mipmapMode=vk.VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                addressModeU=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                addressModeV=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                addressModeW=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                maxLod=0.0,
+            ), None,
+        ))
+        nearest = remember("sampler", vk.vkCreateSampler(
+            self.device, vk.VkSamplerCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                magFilter=vk.VK_FILTER_NEAREST, minFilter=vk.VK_FILTER_NEAREST,
+                mipmapMode=vk.VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                addressModeU=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                addressModeV=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                addressModeW=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                maxLod=0.0,
+            ), None,
+        ))
+        pool = remember("descriptor_pool", vk.vkCreateDescriptorPool(
+            self.device, vk.VkDescriptorPoolCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                maxSets=1, poolSizeCount=4,
+                pPoolSizes=[
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        descriptorCount=1,
+                    ),
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                        descriptorCount=2,
+                    ),
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                        descriptorCount=6,
+                    ),
+                    vk.VkDescriptorPoolSize(
+                        type=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
+                        descriptorCount=2,
+                    ),
+                ],
+            ), None,
+        ))
+        descriptor_set = vk.vkAllocateDescriptorSets(
+            self.device, vk.VkDescriptorSetAllocateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                descriptorPool=pool, descriptorSetCount=1,
+                pSetLayouts=[self._volume_descriptor_layout],
+            ),
+        )[0]
+        writes = []
+        for binding, descriptor_type, (buffer, size, _memory) in (
+            (0, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffers[0]),
+            (1, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[1]),
+            (2, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[2]),
+        ):
+            writes.append(vk.VkWriteDescriptorSet(
+                sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                dstSet=descriptor_set, dstBinding=binding,
+                descriptorCount=1, descriptorType=descriptor_type,
+                pBufferInfo=[vk.VkDescriptorBufferInfo(
+                    buffer=buffer, offset=0, range=size,
+                )],
+            ))
+        for binding, sampled_view, layout in (
+            (3, source_view, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+            (4, depth_view, vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
+            *((5 + index, volume_view, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              for index, volume_view in enumerate(volume_views)),
+        ):
+            writes.append(vk.VkWriteDescriptorSet(
+                sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                dstSet=descriptor_set, dstBinding=binding,
+                descriptorCount=1,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                pImageInfo=[vk.VkDescriptorImageInfo(
+                    imageView=sampled_view, imageLayout=layout,
+                )],
+            ))
+        for binding, sampler in ((9, linear), (10, nearest)):
+            writes.append(vk.VkWriteDescriptorSet(
+                sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                dstSet=descriptor_set, dstBinding=binding,
+                descriptorCount=1,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
+                pImageInfo=[vk.VkDescriptorImageInfo(sampler=sampler)],
+            ))
+        vk.vkUpdateDescriptorSets(self.device, len(writes), writes, 0, None)
+        fullscreen = np.asarray(((-1, -1), (3, -1), (-1, 3)), np.float32)
+        vertex_buffer, vertex_memory = self._buffer(
+            fullscreen.nbytes, vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            host, fullscreen.tobytes(),
+        )
+        remember("buffer", vertex_buffer); remember("memory", vertex_memory)
+        vk.vkCmdPipelineBarrier(
+            command,
+            (vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+             | vk.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT),
+            vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            0, None, 0, None, 2, [
+                vk.VkImageMemoryBarrier(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    srcAccessMask=vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                    oldLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    image=source_image, subresourceRange=color_range,
+                ),
+                vk.VkImageMemoryBarrier(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    srcAccessMask=vk.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                    oldLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    newLayout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    image=depth_image, subresourceRange=depth_range,
+                ),
+            ],
+        )
+        vk.vkCmdBeginRenderPass(command, vk.VkRenderPassBeginInfo(
+            sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            renderPass=render_pass, framebuffer=framebuffer,
+            renderArea=vk.VkRect2D(
+                offset=vk.VkOffset2D(x=0, y=0),
+                extent=vk.VkExtent2D(width=width, height=height),
+            ),
+            clearValueCount=1,
+            pClearValues=[vk.VkClearValue(
+                color=vk.VkClearColorValue(float32=[0.0, 0.0, 0.0, 1.0]),
+            )],
+        ), vk.VK_SUBPASS_CONTENTS_INLINE)
+        vk.vkCmdBindPipeline(
+            command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline,
+        )
+        vk.vkCmdBindDescriptorSets(
+            command, vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self._volume_pipeline_layout, 0, 1, [descriptor_set], 0, None,
+        )
+        vk.vkCmdBindVertexBuffers(command, 0, 1, [vertex_buffer], [0])
+        vk.vkCmdDraw(command, 3, 1, 0, 0)
+        vk.vkCmdEndRenderPass(command)
+        return destination, destination_view, buffers[0][2]
 
     def _shadow_pass(self, mesh, atlas_view, atlas_width, atlas_height, remember):
         """Create per-frame shadow attachments and a compatible cached pipeline."""
@@ -960,6 +1472,11 @@ class VulkanRasterRenderer(RendererImplementation):
                     self._write_memory(
                         cached["vertex_memory"], mesh.vertices.tobytes(),
                     )
+                if cached.get("volume_camera_memory") is not None:
+                    self._write_memory(
+                        cached["volume_camera_memory"],
+                        self._volume_camera_payload(mesh, width, height),
+                    )
                 started = __import__("time").perf_counter()
                 fence = present_frame["fence"]
                 vk.vkQueueSubmit(self.queue, 1, [vk.VkSubmitInfo(
@@ -997,7 +1514,11 @@ class VulkanRasterRenderer(RendererImplementation):
         else:
             image_available = render_finished = None
             image_index = cache_key = None
-        if not len(mesh.vertices) and not present:
+        if (
+            not len(mesh.vertices)
+            and mesh.resources.get("volume_resources") is None
+            and not present
+        ):
             clear = np.array((0.04, 0.06, 0.1, 1.0), np.float32)
             return np.broadcast_to(clear, (height, width, 4)).copy()
         resources = []
@@ -1503,7 +2024,8 @@ class VulkanRasterRenderer(RendererImplementation):
                     tiling=vk.VK_IMAGE_TILING_OPTIMAL,
                     usage=(vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
                            | vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                           | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT),
+                           | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                           | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
                     sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
                     initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
                 ), None,
@@ -1951,10 +2473,17 @@ class VulkanRasterRenderer(RendererImplementation):
                 ),
             ], 0, None)
         host = vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        vertex_buffer, vertex_memory = self._buffer(mesh.vertices.nbytes, vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, host, mesh.vertices.tobytes())
+        vertex_payload = (
+            mesh.vertices.tobytes()
+            if mesh.vertices.nbytes else bytes(max(mesh.layout.stride, 8))
+        )
+        vertex_buffer, vertex_memory = self._buffer(
+            len(vertex_payload), vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            host, vertex_payload,
+        )
         resources.extend((("buffer", vertex_buffer), ("memory", vertex_memory)))
         index_buffer = None
-        if mesh.indices is not None:
+        if mesh.indices is not None and mesh.indices.nbytes:
             index_buffer, index_memory = self._buffer(mesh.indices.nbytes, vk.VK_BUFFER_USAGE_INDEX_BUFFER_BIT, host, mesh.indices.tobytes())
             resources.extend((("buffer", index_buffer), ("memory", index_memory)))
         readback_size = width * height * 4 * np.dtype(np.float16).itemsize
@@ -2123,6 +2652,9 @@ class VulkanRasterRenderer(RendererImplementation):
                 )
         vk.vkCmdEndRenderPass(command)
         final_image = image
+        final_view = view
+        final_depth = depth_image
+        final_depth_view = depth_view
         if screen_space_optics:
             color_range = vk.VkImageSubresourceRange(
                 aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
@@ -2501,8 +3033,10 @@ class VulkanRasterRenderer(RendererImplementation):
                 )
             vk.vkCmdEndRenderPass(command)
             final_image = optical_image
+            final_view = optical_view
             final_framebuffer = optical_framebuffer
             final_depth = optical_depth_image
+            final_depth_view = optical_depth_view
 
             def composite_optical_layer(
                 source_image, destination_image, destination_framebuffer,
@@ -2719,8 +3253,16 @@ class VulkanRasterRenderer(RendererImplementation):
                     int(draw_count), int(next_index),
                 )
                 final_image = destination_image
+                final_view = (
+                    view if destination_image == image else optical_view
+                )
                 final_framebuffer = destination_framebuffer
                 final_depth = destination_depth
+                final_depth_view = (
+                    optical_ping_depth_view
+                    if destination_depth == optical_ping_depth_image
+                    else optical_depth_view
+                )
                 next_index += int(draw_count)
             if authored_transparent_count:
                 if final_image == optical_image:
@@ -2741,6 +3283,19 @@ class VulkanRasterRenderer(RendererImplementation):
                     opaque_count + optical_opaque_count + transmissive_count,
                 )
                 final_image = destination_image
+                final_view = (
+                    view if destination_image == image else optical_view
+                )
+                final_depth = destination_depth
+                final_depth_view = (
+                    optical_ping_depth_view
+                    if destination_depth == optical_ping_depth_image
+                    else optical_depth_view
+                )
+        final_image, final_view, volume_camera_memory = self._record_volume_composite(
+            command, mesh, width, height, final_image, final_view,
+            final_depth, final_depth_view, remember,
+        )
         vk.vkCmdPipelineBarrier(
             command,
             vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -2925,6 +3480,7 @@ class VulkanRasterRenderer(RendererImplementation):
                 "vertex_memory": vertex_memory,
                 "camera_memory": camera_memory,
                 "opaque_camera_memory": opaque_camera_memory,
+                "volume_camera_memory": volume_camera_memory,
                 "last_fence": fence,
                 "diagnostic_slot": self._present_cache_serial,
                 "diagnostic_readback_memory": (
@@ -3022,6 +3578,10 @@ class VulkanRasterRenderer(RendererImplementation):
             "optical_transmissive_layers_nested", False,
         ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
+        mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
+            camera_matrix(camera, width, height),
+        )
+        mesh.resources["volume_camera_position"] = (*camera.position, 1.0)
         pack_ms = (time.perf_counter() - pack_started) * 1000.0
         camera_order_token = mesh.resources.get("camera_order_token", ())
         self._activate_present_cache_generation(camera_order_token)
@@ -3068,6 +3628,10 @@ class VulkanRasterRenderer(RendererImplementation):
             "optical_transmissive_layers_nested", False,
         ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
+        mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
+            camera_matrix(camera, width, height),
+        )
+        mesh.resources["volume_camera_position"] = (*camera.position, 1.0)
         image = self.render(mesh, width, height)
         self.last_timings = {"total_ms": (time.perf_counter() - started) * 1000.0}
         return self._post.process(image, scene, camera)
@@ -3511,6 +4075,12 @@ class VulkanRasterRenderer(RendererImplementation):
                 )
             )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
+            color_mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
+                camera_matrix(camera, width, height),
+            )
+            color_mesh.resources["volume_camera_position"] = (
+                *camera.position, 1.0,
+            )
             image = self.render(color_mesh, width, height)
             products["color"] = self._post.process(image, scene, camera)
         return {name: products[name] for name in outputs}
@@ -3549,6 +4119,21 @@ class VulkanRasterRenderer(RendererImplementation):
         for pipeline in self._product_pipelines.values():
             self.vk.vkDestroyPipeline(self.device, pipeline, None)
         self._product_pipelines.clear()
+        for pipeline in self._volume_pipelines.values():
+            self.vk.vkDestroyPipeline(self.device, pipeline, None)
+        self._volume_pipelines.clear()
+        self.vk.vkDestroyPipelineLayout(
+            self.device, self._volume_pipeline_layout, None,
+        )
+        self.vk.vkDestroyDescriptorSetLayout(
+            self.device, self._volume_descriptor_layout, None,
+        )
+        self.vk.vkDestroyShaderModule(
+            self.device, self._volume_fragment_module, None,
+        )
+        self.vk.vkDestroyShaderModule(
+            self.device, self._volume_vertex_module, None,
+        )
         self.vk.vkDestroyPipelineLayout(
             self.device, self._product_pipeline_layout, None,
         )
