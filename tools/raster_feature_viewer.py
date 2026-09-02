@@ -1198,7 +1198,7 @@ def _catalog():
     path = ROOT / "ordinarylight" / "showcases" / "catalog"
     return tuple(
         item for item in discover_showcases((path,))
-        if "raster-feature" in item.tags
+        if {"raster-feature", "volumes"}.intersection(item.tags)
     )
 
 

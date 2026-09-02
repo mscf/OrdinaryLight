@@ -35,6 +35,22 @@ def test_parity_viewer_lists_all_three_rendering_targets():
     )
 
 
+def test_parity_viewer_exposes_gi_volume_showcases():
+    catalog = {showcase.id: showcase for showcase in viewer._catalog()}
+
+    assert {
+        "volume",
+        "multi-volume",
+        "volume-scattering",
+        "volume-multiple-scattering",
+    }.issubset(catalog)
+    assert "gi-feature" in catalog["volume"].tags
+    assert "raster-feature" in catalog["volume"].tags
+    assert catalog["volume"].description
+    assert catalog["volume"].camera.target == (-0.1, 1.45, -0.7)
+    assert catalog["volume"].renderer["volume_slices"] == 128
+
+
 def test_optional_scene_light_toggle_preserves_authored_intensity():
     from ordinarylight.showcases.raster_features import (
         build_material_program_room_scene,

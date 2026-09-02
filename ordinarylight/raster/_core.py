@@ -1301,39 +1301,130 @@ def scene_mesh(
         indices.append(mesh.indices.reshape(-1) + base)
         base += len(world)
     if config.volume_slices:
+        # Volumes are a distinct transparent phase after the opaque draw.
+        # Build genuinely camera-facing planes in world space.  Selecting the
+        # nearest local axis (the former implementation) still produced a
+        # visibly flat slab whenever the camera viewed that axis obliquely.
+        camera_up_hint = np.asarray(camera.up, np.float32)
+        camera_right = np.cross(camera_forward, camera_up_hint)
+        camera_right /= max(float(np.linalg.norm(camera_right)), 1e-8)
+        camera_up = np.cross(camera_right, camera_forward)
+        camera_up /= max(float(np.linalg.norm(camera_up)), 1e-8)
+        volume_draws = []
         for volume in scene.visible_volumes:
+            local_from_world = np.linalg.inv(volume.transform.matrix)
+            corners_local = np.asarray([
+                (x, y, z, 1.0)
+                for z in (0.0, 1.0) for y in (0.0, 1.0)
+                for x in (0.0, 1.0)
+            ], np.float32)
+            corners_world = (corners_local @ volume.transform.matrix.T)[:, :3]
+            relative = corners_world - camera_position
+            depths = relative @ camera_forward
+            horizontal = relative @ camera_right
+            vertical = relative @ camera_up
+            volume_draws.append((
+                float(depths.max()), volume, local_from_world,
+                (float(depths.min()), float(depths.max())),
+                (float(horizontal.min()), float(horizontal.max())),
+                (float(vertical.min()), float(vertical.max())),
+            ))
+        volume_draws.sort(key=lambda item: item[0], reverse=True)
+
+        for _far_depth, volume, local_from_world, depth_bounds, u_bounds, v_bounds in volume_draws:
             count = config.volume_slices
             normalized = volume.normalized_data
             tf = volume.material.transfer_function
-            grid_y = min(normalized.shape[1], 32)
-            grid_x = min(normalized.shape[2], 32)
-            gx, gy = np.meshgrid(
-                np.linspace(0.0, 1.0, grid_x, dtype=np.float32),
-                np.linspace(0.0, 1.0, grid_y, dtype=np.float32),
+            grid_u = min(max(normalized.shape), 64)
+            grid_v = grid_u
+            gu, gv = np.meshgrid(
+                np.linspace(*u_bounds, grid_u, dtype=np.float32),
+                np.linspace(*v_bounds, grid_v, dtype=np.float32),
             )
             base_indices = []
-            for row in range(grid_y - 1):
-                for column in range(grid_x - 1):
-                    a = row * grid_x + column; b = a + 1
-                    c = a + grid_x; d = c + 1
+            for row in range(grid_v - 1):
+                for column in range(grid_u - 1):
+                    a = row * grid_u + column; b = a + 1
+                    c = a + grid_u; d = c + 1
                     base_indices.extend((a, b, d, a, d, c))
             base_indices = np.asarray(base_indices, np.uint32)
-            inverse_volume = np.linalg.inv(volume.transform.matrix)
-            local_camera = inverse_volume @ np.r_[np.asarray(camera.position, np.float32), 1.0]
-            # Source-alpha blending requires far-to-near slice order.
-            slice_order = range(count) if local_camera[2] >= 0.5 else range(count - 1, -1, -1)
-            for slice_index in slice_order:
-                z = (slice_index + 0.5) / count
-                data_z = min(int(z * normalized.shape[0]), normalized.shape[0] - 1)
-                source = normalized[data_z]
-                sx = np.clip(np.rint(gx * (source.shape[1] - 1)).astype(int), 0, source.shape[1] - 1)
-                sy = np.clip(np.rint(gy * (source.shape[0] - 1)).astype(int), 0, source.shape[0] - 1)
-                rgba = tf.sample(source[sy, sx]).reshape(-1, 4)
+            # Source-alpha compositing requires far-to-near planes.
+            slice_depths = np.linspace(
+                depth_bounds[1], depth_bounds[0], count, endpoint=False,
+                dtype=np.float32,
+            )
+            slice_depths -= np.float32(
+                (depth_bounds[1] - depth_bounds[0]) / (2.0 * count)
+            )
+            for depth in slice_depths:
+                world_xyz = (
+                    camera_position[None, :]
+                    + camera_right[None, :] * gu.reshape(-1, 1)
+                    + camera_up[None, :] * gv.reshape(-1, 1)
+                    + camera_forward[None, :] * depth
+                ).astype(np.float32)
+                local = np.column_stack((
+                    world_xyz, np.ones(len(world_xyz), np.float32),
+                )) @ local_from_world.T
+                local_xyz = local[:, :3]
+                inside = np.all(
+                    (local_xyz >= 0.0) & (local_xyz <= 1.0), axis=1,
+                )
+                data_x = np.clip(np.rint(
+                    local_xyz[:, 0] * (normalized.shape[2] - 1)
+                ).astype(int), 0, normalized.shape[2] - 1)
+                data_y = np.clip(np.rint(
+                    local_xyz[:, 1] * (normalized.shape[1] - 1)
+                ).astype(int), 0, normalized.shape[1] - 1)
+                data_z = np.clip(np.rint(
+                    local_xyz[:, 2] * (normalized.shape[0] - 1)
+                ).astype(int), 0, normalized.shape[0] - 1)
+                density = normalized[data_z, data_y, data_x]
+                density = np.where(inside, density, 0.0)
+                rgba = tf.sample(density).reshape(-1, 4)
                 rgba[:, 3] = 1.0 - (1.0 - rgba[:, 3]) ** (volume.material.density_scale / count)
                 rgba[:, :3] *= volume.material.emission_scale
-                local = np.column_stack((gx.reshape(-1), gy.reshape(-1), np.full(grid_x * grid_y, z, np.float32), np.ones(grid_x * grid_y, np.float32)))
-                world = local @ volume.transform.matrix.T
-                clip = world @ matrix.T
+                world = np.column_stack((
+                    world_xyz, np.ones(len(world_xyz), np.float32),
+                ))
+                if volume.material.scattering_scale > 0.0:
+                    # Portable single-scattering approximation. Lighting is
+                    # evaluated per proxy vertex and interpolation/raster
+                    # blending remains entirely GPU-side. Higher orders use a
+                    # bounded geometric gain rather than pretending that the
+                    # raster pass performs full volumetric path transport.
+                    incident = np.full((len(world), 3), 0.025, np.float32)
+                    for light in scene.lights:
+                        color = np.asarray(light.color, np.float32)
+                        if hasattr(light, "direction"):
+                            attenuation = np.ones(len(world), np.float32)
+                        else:
+                            delta = np.asarray(light.position, np.float32) - world[:, :3]
+                            attenuation = 1.0 / np.maximum(
+                                np.einsum("ij,ij->i", delta, delta), 0.25,
+                            )
+                        incident += (
+                            color[None, :] * float(light.intensity)
+                            * attenuation[:, None] * 0.035
+                        )
+                    albedo = np.asarray(
+                        volume.material.scattering_albedo, np.float32,
+                    )
+                    order_gain = np.ones(3, np.float32)
+                    power = albedo.copy()
+                    for _ in range(1, volume.material.scattering_orders):
+                        order_gain += power
+                        power *= albedo
+                    rgba[:, :3] += (
+                        np.asarray(volume.material.scattering_color, np.float32)
+                        * volume.material.scattering_scale
+                        * density[:, None] * incident * order_gain
+                    )
+                # Resident/direct-presentation paths apply the current camera
+                # matrix in the vertex shader.  Pre-transforming volume proxy
+                # vertices here applied the view projection a second time,
+                # collapsing the stack into an offset, flat-looking plane.
+                clip = world if gpu_camera else world @ matrix.T
                 normal = np.zeros((len(local), 3), np.float32)
                 object_id = np.full(len(local), float(volume.id or 0), np.float32)
                 rows.append(np.column_stack((
@@ -1342,7 +1433,11 @@ def scene_mesh(
                     np.ones(len(local), np.float32),
                     np.zeros(len(local), np.float32),
                     rgba[:, 3], rgba[:, :3],
-                    np.broadcast_to(camera_position, (len(local), 3)),
+                    np.broadcast_to(
+                        np.zeros(3, np.float32) if gpu_camera
+                        else camera_position,
+                        (len(local), 3),
+                    ),
                     np.zeros((len(local), 4), np.float32),
                     np.column_stack((
                         np.zeros((len(local), 3), np.float32),
@@ -1437,7 +1532,12 @@ def scene_mesh(
         "shadow_buffer": shadow_data.tobytes(),
         "shadow_count": min(len(shadow_data), 24),
         "material_programs": gpu_scene.programs,
-        "transparent": bool(authored_transparent_meshes),
+        # Volume proxy stacks share the transparent render phase.  Mark the
+        # phase present even when the scene has no authored alpha surfaces so
+        # backends create/bind the blending pipeline for volume-only scenes.
+        "transparent": bool(authored_transparent_meshes or (
+            config.volume_slices and scene.visible_volumes
+        )),
         "opaque_index_count": int(opaque_index_count),
         "opaque_prepass_index_count": int(opaque_prepass_index_count),
         "optical_index_count": int(index_data.size - opaque_prepass_index_count),

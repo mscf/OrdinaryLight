@@ -94,8 +94,12 @@ class WebGpuRasterRenderer(RendererImplementation):
         self._shadow_pipeline = None
         info = self.adapter.info
         self.capabilities = RendererCapabilities(
-            renderer="webgpu-raster", features=frozenset({"raster", "offscreen", "depth"}),
+            renderer="webgpu-raster", features=frozenset({
+                "raster", "offscreen", "depth", "volumes",
+                "volume_scattering",
+            }),
             outputs=self.available_outputs,
+            limits={"max_volume_slices": 1024},
             device=info.get("device", info.get("description", "WebGPU adapter")),
         )
 

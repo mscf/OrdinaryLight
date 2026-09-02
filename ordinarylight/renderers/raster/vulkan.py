@@ -264,11 +264,13 @@ class VulkanRasterRenderer(RendererImplementation):
         self._product_pipelines = {}
         self.capabilities = RendererCapabilities(
             renderer="vulkan-raster", features=frozenset(
-                {"raster", "offscreen", "depth"}
+                {"raster", "offscreen", "depth", "volumes",
+                 "volume_scattering"}
                 | ({"direct-presentation", "resident-scene"}
                    if self.surface is not None else set())
             ),
             outputs=self.available_outputs,
+            limits={"max_volume_slices": 1024},
             device=name,
         )
         self._closed = False

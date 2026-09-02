@@ -442,6 +442,47 @@ class RasterFeatureTests(unittest.TestCase):
         )
         self.assertEqual(mesh.vertices.shape, (12, 64))
         self.assertGreater(float(mesh.vertices[:, 16].max()), 0.0)
+        self.assertTrue(mesh.resources["transparent"])
+
+    def test_volume_slice_geometry_aligns_to_dominant_camera_axis(self):
+        volume = ol.Volume(np.ones((2, 2, 2), np.float32))
+        camera = ol.PerspectiveCamera((4, 0, 0), (0, 0, 0))
+        mesh = ol.scene_mesh(
+            ol.Scene(volumes=[volume]), camera, 64, 64,
+            ol.RasterConfig(volume_slices=3),
+        )
+        world_positions = mesh.vertices[:, 10:13]
+        self.assertEqual(len(np.unique(world_positions[:, 0])), 3)
+        self.assertEqual(len(np.unique(world_positions[:, 2])), 2)
+
+    def test_resident_volume_vertices_are_not_view_projected_twice(self):
+        volume = ol.Volume(np.ones((2, 2, 2), np.float32))
+        mesh = ol.scene_mesh(
+            ol.Scene(volumes=[volume]), _camera(), 64, 64,
+            ol.RasterConfig(volume_slices=3), gpu_camera=True,
+        )
+        np.testing.assert_allclose(
+            mesh.vertices[:, :3], mesh.vertices[:, 10:13], atol=1e-6,
+        )
+        np.testing.assert_allclose(mesh.vertices[:, 3], 1.0, atol=1e-6)
+
+    def test_raster_volume_scattering_contributes_radiance(self):
+        transfer = ol.Texture1D(np.asarray((
+            (0.0, 0.0, 0.0, 0.2),
+            (0.0, 0.0, 0.0, 0.2),
+        ), np.float32))
+        material = ol.VolumeMaterial(
+            transfer, emission_scale=0.0, scattering_scale=1.0,
+            scattering_color=(0.4, 0.7, 1.0), scattering_orders=2,
+        )
+        scene = ol.Scene(volumes=[
+            ol.Volume(np.ones((2, 2, 2), np.float32), material),
+        ])
+        scene.add_point_light((0, 2, 2), intensity=8.0)
+        mesh = ol.scene_mesh(
+            scene, _camera(), 64, 64, ol.RasterConfig(volume_slices=2),
+        )
+        self.assertGreater(float(mesh.vertices[:, 4:7].max()), 0.0)
 
     def test_hybrid_implementation_composes_child_renderers(self):
         raster, lighting = _Backend(0.25), _Backend(0.5)
