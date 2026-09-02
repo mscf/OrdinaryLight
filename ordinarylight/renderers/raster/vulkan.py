@@ -2334,7 +2334,7 @@ class VulkanRasterRenderer(RendererImplementation):
             transparent_pass = pass_kind in {"transmissive", "transparent"}
             pipeline_key = (
                 mesh.layout, self.state, width, height,
-                pass_kind, target_render_pass,
+                pass_kind,
             )
             cached = self._pipelines.get(pipeline_key)
             if cached is not None:

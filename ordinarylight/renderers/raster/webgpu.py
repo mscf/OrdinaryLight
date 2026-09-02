@@ -427,11 +427,12 @@ class WebGpuRasterRenderer(RendererImplementation):
         key = (layout, self.state, pass_kind)
         if key in self._pipelines:
             return self._pipelines[key]
-        # Source-alpha blending is harmless for opaque fragments (alpha=1)
-        # and lets material-level ``alpha_mode='blend'`` work without forcing
-        # applications to replace the renderer-wide pipeline state.
+        # Optical opaque prepasses temporarily store an object tag in alpha.
+        # Blending those fragments would make ``one-minus-src-alpha`` negative
+        # for tags above one and corrupt the accumulated HDR color. Material
+        # transparency is routed through a dedicated transparent pass.
         blend = None
-        if transparent or self.state.blend_mode in {"opaque", "alpha"}:
+        if transparent or self.state.blend_mode == "alpha":
             blend = {"color": {"src_factor": "src-alpha", "dst_factor": "one-minus-src-alpha", "operation": "add"}, "alpha": {"src_factor": "one", "dst_factor": "one-minus-src-alpha", "operation": "add"}}
         elif self.state.blend_mode == "additive":
             blend = {"color": {"src_factor": "one", "dst_factor": "one", "operation": "add"}, "alpha": {"src_factor": "one", "dst_factor": "one", "operation": "add"}}

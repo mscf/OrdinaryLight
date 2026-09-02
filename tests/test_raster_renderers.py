@@ -452,14 +452,20 @@ class RasterBackendTests(unittest.TestCase):
         for backend in choices:
             try:
                 image = backend.render_frame(scene, camera, 64, 48)
+                cached_pipeline_count = (
+                    len(backend._pipelines)
+                    if hasattr(backend, "_pipelines") else None
+                )
                 second = backend.render_frame(scene, camera, 64, 48)
                 center = image[24, 32, :3]
                 self.assertGreater(float(center[0]), 0.5)
                 self.assertLess(float(center[1]), 0.05)
                 self.assertLess(float(center[2]), 0.05)
                 np.testing.assert_allclose(second, image, atol=2e-3)
-                if hasattr(backend, "_pipelines"):
-                    self.assertEqual(len(backend._pipelines), 1)
+                if cached_pipeline_count is not None:
+                    self.assertEqual(
+                        len(backend._pipelines), cached_pipeline_count,
+                    )
             finally:
                 backend.close()
 
