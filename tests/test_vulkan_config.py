@@ -12,8 +12,10 @@ from ordinarylight.targets.vulkan.core import (
     RECONSTRUCT_PUSH_SIZE,
     VulkanRayQueryCore,
     _camera_angular_motion_pixels,
+    _camera_motion_pixels,
     _effect_screen_rect,
     _motion_adaptive_history_limit,
+    _relax_temporal_policy,
     _wavefront_history_semaphore_plan,
 )
 
@@ -453,6 +455,50 @@ class RendererConfigTests(unittest.TestCase):
             1080,
         )))
 
+    def test_relax_temporal_policy_preserves_stationary_history(self):
+        config = RendererConfig(denoiser_history_limit=32)
+        policy = _relax_temporal_policy(config, 0.0)
+        self.assertEqual(policy["history_limit"], 32)
+        self.assertEqual(policy["normal_threshold"], 0.8)
+        self.assertEqual(policy["depth_threshold"], 0.02)
+        self.assertEqual(policy["clamp_sigma"], 2.5)
+        self.assertEqual(policy["reactive_sigma"], 0.0)
+
+    def test_relax_camera_motion_includes_translation(self):
+        previous = ol.PerspectiveCamera(
+            position=(0.0, 0.0, -4.0), target=(0.0, 0.0, 0.0),
+            vertical_fov_degrees=60.0,
+        )
+        translated = ol.PerspectiveCamera(
+            position=(0.1, 0.0, -4.0), target=(0.1, 0.0, 0.0),
+            vertical_fov_degrees=60.0,
+        )
+        self.assertEqual(
+            _camera_angular_motion_pixels(previous, translated, 1080), 0.0
+        )
+        self.assertGreater(
+            _camera_motion_pixels(previous, translated, 1080), 20.0
+        )
+
+    def test_relax_temporal_policy_bounds_moving_history(self):
+        config = RendererConfig(
+            denoiser_history_limit=32,
+            denoiser_history_motion_pixels=8.0,
+        )
+        slow = _relax_temporal_policy(config, 2.0)
+        fast = _relax_temporal_policy(config, 10.0)
+        self.assertEqual(slow["history_limit"], 4)
+        self.assertEqual(fast["history_limit"], 1)
+        self.assertEqual(
+            slow["normal_threshold"],
+            config.denoiser_motion_normal_threshold,
+        )
+        self.assertEqual(
+            slow["depth_threshold"],
+            config.denoiser_motion_depth_threshold,
+        )
+        self.assertGreater(slow["reactive_sigma"], 0.0)
+
     def test_external_surface_requires_instance_and_surface_pair(self):
         with self.assertRaisesRegex(ValueError, "must be supplied together"):
             VulkanRayQueryCore(external_instance=1)
@@ -482,6 +528,12 @@ class RendererConfigTests(unittest.TestCase):
             wavefront_execution_strategy="megakernel",
             denoiser_enabled=True, denoiser_iterations=4,
             denoiser_variance_threshold=0.02,
+            denoiser_history_limit=24,
+            denoiser_history_motion_pixels=6.0,
+            denoiser_motion_normal_threshold=0.92,
+            denoiser_motion_depth_threshold=0.0075,
+            denoiser_motion_clamp_sigma=1.25,
+            denoiser_motion_reactive_sigma=3.5,
             wavefront_tile_capacity=65536,
             wavefront_exposure=1.5,
             wavefront_render_scale=0.75,
@@ -541,6 +593,12 @@ class RendererConfigTests(unittest.TestCase):
         self.assertTrue(config.denoiser_enabled)
         self.assertEqual(config.denoiser_iterations, 4)
         self.assertEqual(config.denoiser_variance_threshold, 0.02)
+        self.assertEqual(config.denoiser_history_limit, 24)
+        self.assertEqual(config.denoiser_history_motion_pixels, 6.0)
+        self.assertEqual(config.denoiser_motion_normal_threshold, 0.92)
+        self.assertEqual(config.denoiser_motion_depth_threshold, 0.0075)
+        self.assertEqual(config.denoiser_motion_clamp_sigma, 1.25)
+        self.assertEqual(config.denoiser_motion_reactive_sigma, 3.5)
         self.assertEqual(config.wavefront_tile_capacity, 65536)
         self.assertEqual(config.wavefront_exposure, 1.5)
         self.assertEqual(config.wavefront_render_scale, 0.75)
@@ -701,6 +759,18 @@ class RendererConfigTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             RendererConfig(denoiser_variance_threshold=0.0)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_history_limit=0)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_history_motion_pixels=0.0)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_motion_normal_threshold=1.1)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_motion_depth_threshold=0.0)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_motion_clamp_sigma=0.0)
+        with self.assertRaises(ValueError):
+            RendererConfig(denoiser_motion_reactive_sigma=0.0)
         with self.assertRaises(ValueError):
             RendererConfig(wavefront_tile_capacity=0)
         with self.assertRaises(ValueError):

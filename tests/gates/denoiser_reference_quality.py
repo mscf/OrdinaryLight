@@ -40,21 +40,30 @@ def main(argv=None):
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--with-nrd", action="store_true")
+    parser.add_argument("--benchmark-nrd", action="store_true")
+    parser.add_argument("--nrd-warmup", type=int, default=8)
+    parser.add_argument("--nrd-iterations", type=int, default=32)
     parser.add_argument("--accept-baseline", action="store_true")
     parser.add_argument("--scene")
     parser.add_argument("--tolerance", type=float, default=0.03)
     args = parser.parse_args(argv)
     signals, truth = _load_sequence(args.capture)
     reference = None
-    if args.with_nrd:
+    if args.with_nrd or args.benchmark_nrd:
         reference = NrdRelaxReference()
         if not reference.available:
             raise RuntimeError(
-                "--with-nrd requested, but ordinarylight_nrd is not installed"
+                "NRD requested, but ordinarylight_nrd is not installed"
             )
     result = ol.evaluate_denoiser_sequence(
-        signals, truth, reference_denoiser=reference,
+        signals, truth,
+        reference_denoiser=reference if args.with_nrd else None,
     )
+    benchmark = None
+    if args.benchmark_nrd:
+        benchmark = asdict(reference.benchmark(
+            signals, warmup=args.nrd_warmup, iterations=args.nrd_iterations,
+        ))
     payload = {
         "schema": 1,
         "capture": str(args.capture),
@@ -66,6 +75,7 @@ def main(argv=None):
             result.portable_against_reference
         ),
         "reference_implementation": result.reference_implementation,
+        "reference_benchmark": benchmark,
     }
     rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if args.output:

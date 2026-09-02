@@ -76,17 +76,20 @@ SECONDARY_PATH_STATE_DTYPE = np.dtype({
         "position_valid", "normal_pdf", "primary_throughput",
         "primary_radiance", "diffuse_radiance_hit_distance",
         "specular_radiance_hit_distance", "primary_position",
+        "primary_geometry",
     ),
-    "formats": ((np.float32, 4),) * 7,
-    "offsets": (0, 16, 32, 48, 64, 80, 96),
-    "itemsize": 112,
+    "formats": ((np.float32, 4),) * 8,
+    "offsets": (0, 16, 32, 48, 64, 80, 96, 112),
+    "itemsize": 128,
 })
 """Optional cold path state kept out of the hot path ABI.
 
-The final three vectors are dormant unless denoiser-signal capture is enabled.
+The final four vectors are dormant unless denoiser-signal capture is enabled.
 Their RGB lanes accumulate demodulated diffuse/specular radiance and their W
-lanes retain the corresponding first-event hit distance.  Keeping these
-signals here preserves the 48-byte hot path state used by every bounce.
+lanes retain the corresponding first-event hit distance. ``primary_geometry``
+stores the packed primitive identity and barycentrics needed for rigid-object
+motion reprojection. Keeping these signals here preserves the 48-byte hot path
+state used by every bounce.
 """
 
 

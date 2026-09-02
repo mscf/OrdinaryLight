@@ -31,19 +31,58 @@ submodules selected by that NRD revision, and builds NRD with its NRI
 integration and embedded SPIR-V shaders. Nothing is installed into the active
 Python environment and the generated `_build` directory is ignored by Git.
 
-NRD is a GPU dispatch library, not a NumPy callable. The native bridge must own
-or wrap a Vulkan device, upload the canonical signal images, retain NRD history
-textures across calls, execute the dispatch list, and read back only the final
-reference result. It must export exactly:
+NRD is a GPU dispatch library, not a NumPy callable. The native reference
+bridge owns a minimal Vulkan 1.3 device, wraps it with NRI, retains NRD history
+textures, uploads canonical signals, reads back the final reference result,
+and measures the dispatch list with Vulkan timestamp queries. The Python
+bridge exports:
 
 ```python
 version() -> str
 denoise_relax(signals: ordinarylight.DenoiserSignals,
               settings: dict) -> tuple[numpy.ndarray, numpy.ndarray]
+denoise_relax_sequence(signals: tuple[ordinarylight.DenoiserSignals, ...],
+                       settings: dict) -> list[tuple[numpy.ndarray,
+                                                     numpy.ndarray]]
+
+benchmark_relax(signals: tuple[ordinarylight.DenoiserSignals, ...],
+                settings: dict,
+                *, warmup: int,
+                iterations: int) -> dict
 ```
+
+``benchmark_relax`` sizes resident synthetic signal surfaces from the supplied
+sequence, retains NRD history resources, and returns ``median_gpu_ms``,
+``p95_gpu_ms``, ``wall_ms``,
+``persistent_mib``, ``transient_mib``, and ``measured_frames``. GPU time must
+come from Vulkan timestamp queries enclosing only NRD's dispatch list. It must
+not be inferred from the blocking Python call, which includes upload, readback,
+and synchronization.
 
 The adapter intentionally refuses to substitute the portable denoiser when the
 module is absent: doing so would invalidate the comparison.
+
+## Visual A/B in the Qt showcase
+
+After building the bridge, run:
+
+```bash
+python tools/raster_feature_viewer.py --target wavefront-gi
+```
+
+The **GI denoiser implementation** selector offers the production
+**Ordinary Shade ReLAX (live)** path and **NVIDIA NRD ReLAX (reference
+capture)**. The NRD choice captures up to four canonical GI signal frames,
+runs them as one temporal NRD sequence, and displays the final linear HDR
+result through the Qt readback viewport. The sequence is reduced at large
+resolutions to keep host signal storage below 384 MiB. Stable
+scene/camera/extent results are cached.
+
+This mode is deliberately labelled a reference capture: the bridge currently
+owns a separate Vulkan device and includes readback, upload, and subprocess
+overhead. It is suitable for image-quality A/B comparisons, not real-time
+performance comparisons. A future shared-device NRD runtime can implement the
+same selector without changing its user-facing semantics.
 
 ## Comparing a captured sequence
 
@@ -57,6 +96,11 @@ python -m tests.gates.denoiser_reference_quality captures/glossy-motion \
 # Add the independently built NRD bridge to PYTHONPATH first:
 python -m tests.gates.denoiser_reference_quality captures/glossy-motion \
   --with-nrd --output /tmp/glossy-motion-with-nrd.json
+
+# Include repeatable GPU-only timing and allocation telemetry:
+python -m tests.gates.denoiser_reference_quality captures/glossy-motion \
+  --benchmark-nrd --nrd-warmup 16 --nrd-iterations 64 \
+  --output /tmp/glossy-motion-nrd-benchmark.json
 ```
 
 Baseline replacement is explicit and auditable:

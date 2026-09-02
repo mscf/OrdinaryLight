@@ -12,6 +12,7 @@ struct SecondaryPathState {
     diffuse_radiance_hit_distance: vec4<f32>,
     specular_radiance_hit_distance: vec4<f32>,
     primary_position: vec4<f32>,
+    primary_geometry: vec4<f32>,
 }
 
 struct PrepareCamera {
@@ -36,7 +37,9 @@ struct PrepareConstants {
 @group(0) @binding(8) var motion_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(9) var<storage, read> current_camera: PrepareCamera;
 @group(0) @binding(10) var<storage, read> previous_camera: PrepareCamera;
-@group(0) @binding(11) var<uniform> constants: PrepareConstants;
+@group(0) @binding(11) var<storage, read> previous_vertices: array<vec4<f32>>;
+@group(0) @binding(12) var identity_output: texture_storage_2d<r32uint, write>;
+@group(0) @binding(13) var<uniform> constants: PrepareConstants;
 
 fn prepare_decode_normal(encoded: vec2<f32>) -> vec3<f32> {
     var normal: vec3<f32> = vec3<f32>(encoded, ((1.0 - abs(encoded.x)) - abs(encoded.y)));
@@ -99,14 +102,21 @@ fn main(
     let normal: vec3<f32> = prepare_unpack_normal(textureLoad(packed_normal, pixel).x);
     let roughness: f32 = clamp((secondary.primary_position.w - 1.0), 0.0, 1.0);
     let view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
-    let old: vec3<f32> = prepare_previous_pixel(world_position, extent);
+    let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
+    let barycentrics: vec2<f32> = secondary.primary_geometry.yz;
+    let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
+    let previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
+    let old: vec3<f32> = prepare_previous_pixel(previous_world_position, extent);
     var motion: vec2<f32> = (old.xy - vec2<f32>(pixel));
+    var previous_view_z: f32 = old.z;
     if ((((old.z <= 0.0001) || any((old.xy < vec2<f32>((-0.5))))) || any((old.xy >= (vec2<f32>(extent) - 0.5))))) {
         motion = vec2<f32>(0.0);
+        previous_view_z = 0.0;
     }
     textureStore(diffuse_output, pixel, secondary.diffuse_radiance_hit_distance);
     textureStore(specular_output, pixel, secondary.specular_radiance_hit_distance);
     textureStore(normal_roughness_output, pixel, vec4<f32>(normal, roughness));
     textureStore(view_z_output, pixel, vec4<f32>(view_z));
-    textureStore(motion_output, pixel, vec4<f32>(motion, 0.0, 0.0));
+    textureStore(motion_output, pixel, vec4<f32>(motion, previous_view_z, 0.0));
+    textureStore(identity_output, pixel, vec4<u32>(primitive, 0, 0, 0));
 }

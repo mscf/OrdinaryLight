@@ -210,6 +210,42 @@ def build_dense_geometry():
     return scene
 
 
+def build_object_motion_room():
+    """Small rigid-motion fixture for temporal reconstruction testing."""
+    scene = ol.Scene()
+    _add_room(scene, floor=(0.52, 0.55, 0.60))
+    _add_emitter(scene, (
+        (-1.7, 6.7, -1.0), (1.7, 6.7, -1.0),
+        (1.7, 6.7, 1.0), (-1.7, 6.7, 1.0),
+    ), (15.0, 12.0, 9.0))
+    vertices, indices = sphere((0.0, 0.0, 0.0), 0.85)
+    moving = scene.add_mesh(
+        vertices, indices,
+        ol.Material(base_color=(0.92, 0.28, 0.12), roughness=0.42,
+                    program=diffuse),
+        transform=ol.Transform.translation((-2.0, 1.0, 0.0)),
+        name="moving-sphere",
+    )
+    vertices, indices = sphere((0.0, 0.0, 0.0), 1.0)
+    scene.add_mesh(
+        vertices, indices,
+        ol.Material(base_color=(0.18, 0.42, 0.88), roughness=0.3,
+                    program=diffuse),
+        transform=ol.Transform.translation((1.8, 1.05, -0.35)),
+        name="stationary-sphere",
+    )
+    scene.add_animation(ol.AnimationClip((ol.AnimationTrack(
+        moving, "translation", (0.0, 1.5, 3.0),
+        ((-2.0, 1.0, 0.0), (0.0, 1.8, 0.0), (-2.0, 1.0, 0.0)),
+    ),), name="rigid-object-motion"))
+    return scene
+
+
+def animate_object_motion_room(scene, time):
+    """Advance the rigid-motion fixture without moving its camera."""
+    scene.apply_animation(scene.animations[0], time, loop=True)
+
+
 SCENES = {
     spec.name: spec for spec in (
         RestirSceneSpec("area_lights", "mixed metal, glass, and two emitters", build_area_light_showcase),

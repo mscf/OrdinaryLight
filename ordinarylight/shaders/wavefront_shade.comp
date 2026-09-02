@@ -44,6 +44,7 @@ struct SecondaryPathState {
     vec4 diffuse_radiance_hit_distance;
     vec4 specular_radiance_hit_distance;
     vec4 primary_position;
+    vec4 primary_geometry;
 };
 
 uint pathRng(WavePathState path) { return path.metadata.z; }
@@ -466,6 +467,8 @@ void main()
         secondary_paths[path_index].normal_pdf.w = bsdf_pdf;
         secondary_paths[path_index].primary_position = vec4(
             hit.position_t.xyz, 1.0);
+        secondary_paths[path_index].primary_geometry = vec4(
+            uintBitsToFloat(hit.primitive_index), hit.barycentrics, 0.0);
     }
     next_direction = normalize(next_direction);
     setPathBounce(path, next_bounce);

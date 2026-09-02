@@ -318,6 +318,8 @@ class WebGpuRasterRenderer(RendererImplementation):
             data=mesh.vertices, usage=wgpu.BufferUsage.VERTEX,
         )
         bind_group = None
+        transparent_bind_group = None
+        optical_entries = None
         atlas_texture = atlas_sampler = shadow_depth = None
         resources = getattr(self.program.fragment.reflection, "resources", ())
         if resources:
@@ -519,6 +521,12 @@ class WebGpuRasterRenderer(RendererImplementation):
                 layout=self._pipeline(mesh.layout).get_bind_group_layout(0),
                 entries=tuple(entries),
             )
+            transparent_bind_group = self.device.create_bind_group(
+                layout=self._pipeline(
+                    mesh.layout, pass_kind="transparent",
+                ).get_bind_group_layout(0),
+                entries=tuple(entries),
+            )
             optical_bind_group = None
             if screen_space_optics:
                 optical_entries = [dict(entry) for entry in entries]
@@ -531,7 +539,7 @@ class WebGpuRasterRenderer(RendererImplementation):
                         entry["resource"] = optical_camera_buffer
                 optical_bind_group = self.device.create_bind_group(
                     layout=self._pipeline(
-                        mesh.layout, pass_kind="transparent",
+                        mesh.layout, pass_kind="optical-opaque",
                     ).get_bind_group_layout(0),
                     entries=tuple(optical_entries),
                 )
@@ -566,6 +574,8 @@ class WebGpuRasterRenderer(RendererImplementation):
                 render_pass.set_pipeline(
                     self._pipeline(mesh.layout, pass_kind="transparent"),
                 )
+                if transparent_bind_group is not None:
+                    render_pass.set_bind_group(0, transparent_bind_group)
                 render_pass.draw_indexed(
                     transparent_count, 1, opaque_count, 0, 0,
                 )
@@ -586,12 +596,6 @@ class WebGpuRasterRenderer(RendererImplementation):
                     entry["resource"] = depth.create_view()
                 elif entry["binding"] == 3:
                     entry["resource"] = optical_camera_buffer
-            optical_ping_bind_group = self.device.create_bind_group(
-                layout=self._pipeline(
-                    mesh.layout, pass_kind="transparent",
-                ).get_bind_group_layout(0),
-                entries=tuple(optical_ping_entries),
-            )
             encoder.copy_texture_to_texture(
                 {"texture": texture}, {"texture": output_texture},
                 (width, height, 1),
@@ -607,6 +611,10 @@ class WebGpuRasterRenderer(RendererImplementation):
                     "depth_read_only": True,
                 },
             )
+            optical_opaque_pipeline = self._pipeline(
+                mesh.layout, pass_kind="optical-opaque",
+            )
+            optical_pass.set_pipeline(optical_opaque_pipeline)
             optical_pass.set_bind_group(0, optical_bind_group)
             optical_pass.set_vertex_buffer(0, vertex_buffer)
             optical_pass.set_index_buffer(index_buffer, "uint32")
@@ -623,9 +631,6 @@ class WebGpuRasterRenderer(RendererImplementation):
                 alpha_transparent_count - transmissive_count
             )
             if optical_opaque_count:
-                optical_pass.set_pipeline(self._pipeline(
-                    mesh.layout, pass_kind="optical-opaque",
-                ))
                 optical_pass.draw_indexed(
                     optical_opaque_count, 1, opaque_count, 0, 0,
                 )
@@ -633,7 +638,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             final_texture = output_texture
 
             def composite_optical_layer(
-                source_texture, destination_texture, source_bind_group,
+                source_texture, destination_texture, source_entries,
                 pass_kind, draw_count, first_index,
             ):
                 encoder.copy_texture_to_texture(
@@ -652,10 +657,15 @@ class WebGpuRasterRenderer(RendererImplementation):
                         "depth_read_only": True,
                     },
                 )
-                layer_pass.set_bind_group(0, source_bind_group)
-                layer_pass.set_pipeline(self._pipeline(
+                layer_pipeline = self._pipeline(
                     mesh.layout, pass_kind=pass_kind,
-                ))
+                )
+                source_bind_group = self.device.create_bind_group(
+                    layout=layer_pipeline.get_bind_group_layout(0),
+                    entries=tuple(source_entries),
+                )
+                layer_pass.set_pipeline(layer_pipeline)
+                layer_pass.set_bind_group(0, source_bind_group)
                 layer_pass.set_vertex_buffer(0, vertex_buffer)
                 layer_pass.set_index_buffer(index_buffer, "uint32")
                 layer_pass.draw_indexed(
@@ -678,12 +688,12 @@ class WebGpuRasterRenderer(RendererImplementation):
             for draw_count in retained_counts:
                 if final_texture is output_texture:
                     destination_texture = texture
-                    source_bind_group = optical_ping_bind_group
+                    source_entries = optical_ping_entries
                 else:
                     destination_texture = output_texture
-                    source_bind_group = optical_bind_group
+                    source_entries = optical_entries
                 composite_optical_layer(
-                    final_texture, destination_texture, source_bind_group,
+                    final_texture, destination_texture, source_entries,
                     "transmissive", int(draw_count), int(next_index),
                 )
                 final_texture = destination_texture
@@ -691,12 +701,12 @@ class WebGpuRasterRenderer(RendererImplementation):
             if authored_transparent_count:
                 if final_texture is output_texture:
                     destination_texture = texture
-                    source_bind_group = optical_ping_bind_group
+                    source_entries = optical_ping_entries
                 else:
                     destination_texture = output_texture
-                    source_bind_group = optical_bind_group
+                    source_entries = optical_entries
                 composite_optical_layer(
-                    final_texture, destination_texture, source_bind_group,
+                    final_texture, destination_texture, source_entries,
                     "transparent", authored_transparent_count,
                     opaque_count + optical_opaque_count + transmissive_count,
                 )

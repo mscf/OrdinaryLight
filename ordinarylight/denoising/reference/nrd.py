@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
+import math
 
 import numpy as np
 
@@ -16,6 +17,40 @@ from ..signals import DenoiserSignals
 
 class ReferenceDenoiserUnavailable(RuntimeError):
     """Raised when the optional NRD native bridge is not installed."""
+
+
+@dataclass(frozen=True)
+class NrdBenchmarkResult:
+    """GPU-only NRD timing and allocation telemetry.
+
+    Upload and readback are deliberately excluded from the GPU timings. The
+    native bridge measures them with Vulkan timestamp queries around NRD's
+    dispatch list. ``wall_ms`` exposes the complete offline bridge overhead.
+    """
+
+    median_gpu_ms: float
+    p95_gpu_ms: float
+    wall_ms: float
+    persistent_mib: float
+    transient_mib: float
+    measured_frames: int
+    implementation_version: str
+
+    def __post_init__(self):
+        for name in (
+            "median_gpu_ms", "p95_gpu_ms", "wall_ms", "persistent_mib",
+            "transient_mib",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(
+                    f"NRD benchmark {name} must be finite and non-negative"
+                )
+            object.__setattr__(self, name, value)
+        measured_frames = int(self.measured_frames)
+        if measured_frames < 1:
+            raise ValueError("NRD benchmark measured_frames must be positive")
+        object.__setattr__(self, "measured_frames", measured_frames)
 
 
 @dataclass(frozen=True)
@@ -87,7 +122,78 @@ class NrdRelaxReference:
             )
         return result
 
+    def denoise_sequence(self, signals, **settings):
+        sequence = tuple(signals)
+        if not sequence or not all(
+            isinstance(value, DenoiserSignals) for value in sequence
+        ):
+            raise TypeError("signals must contain at least one DenoiserSignals frame")
+        extent = sequence[0].extent
+        if any(value.extent != extent for value in sequence):
+            raise ValueError("all NRD signal frames must share one extent")
+        bridge = self._resolve_bridge()
+        operation = getattr(bridge, "denoise_relax_sequence", None)
+        if operation is None:
+            return [self.denoise(value, **settings) for value in sequence]
+        raw_results = operation(sequence, dict(settings))
+        if len(raw_results) != len(sequence):
+            raise RuntimeError("ordinarylight_nrd returned the wrong frame count")
+        version = str(bridge.version())
+        results = [NrdReferenceResult(*raw, version) for raw in raw_results]
+        expected = (extent[1], extent[0], 3)
+        if any(result.diffuse.shape != expected for result in results):
+            raise RuntimeError("ordinarylight_nrd returned an invalid sequence extent")
+        return results
+
+    def benchmark(self, signals, *, warmup=8, iterations=32, **settings):
+        """Benchmark RELAX without counting signal upload or result readback."""
+        sequence = tuple(signals)
+        if not sequence or not all(
+            isinstance(value, DenoiserSignals) for value in sequence
+        ):
+            raise TypeError(
+                "signals must contain at least one DenoiserSignals frame"
+            )
+        extent = sequence[0].extent
+        if any(value.extent != extent for value in sequence):
+            raise ValueError("all benchmark signal frames must share one extent")
+        warmup = int(warmup)
+        iterations = int(iterations)
+        if warmup < 0 or iterations < 1:
+            raise ValueError(
+                "warmup must be non-negative and iterations must be positive"
+            )
+        bridge = self._resolve_bridge()
+        benchmark_relax = getattr(bridge, "benchmark_relax", None)
+        if benchmark_relax is None:
+            raise RuntimeError(
+                "ordinarylight_nrd does not expose benchmark_relax; rebuild "
+                "the reference bridge with benchmark support"
+            )
+        raw = benchmark_relax(
+            sequence, dict(settings), warmup=warmup, iterations=iterations,
+        )
+        if not isinstance(raw, dict):
+            raise RuntimeError(
+                "ordinarylight_nrd returned invalid benchmark telemetry"
+            )
+        required = {
+            "median_gpu_ms", "p95_gpu_ms", "wall_ms", "persistent_mib",
+            "transient_mib", "measured_frames",
+        }
+        missing = sorted(required.difference(raw))
+        if missing:
+            raise RuntimeError(
+                "ordinarylight_nrd benchmark telemetry is missing "
+                + ", ".join(missing)
+            )
+        return NrdBenchmarkResult(
+            **{name: raw[name] for name in required},
+            implementation_version=str(bridge.version()),
+        )
+
 
 __all__ = [
-    "NrdRelaxReference", "NrdReferenceResult", "ReferenceDenoiserUnavailable",
+    "NrdBenchmarkResult", "NrdRelaxReference", "NrdReferenceResult",
+    "ReferenceDenoiserUnavailable",
 ]

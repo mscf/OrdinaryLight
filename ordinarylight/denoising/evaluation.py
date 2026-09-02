@@ -54,7 +54,11 @@ def evaluate_denoiser_sequence(
     if reference_denoiser is None:
         return DenoiserSequenceEvaluation(portable=portable_metrics)
 
-    reference_results = [reference_denoiser.denoise(frame) for frame in sequence]
+    denoise_sequence = getattr(reference_denoiser, "denoise_sequence", None)
+    reference_results = (
+        denoise_sequence(sequence) if denoise_sequence is not None else
+        [reference_denoiser.denoise(frame) for frame in sequence]
+    )
     reference_frames = np.stack([result.combined for result in reference_results])
     reference_metrics = DenoiserQualityMetrics.measure(reference_frames, truth)
     portable_against_reference = DenoiserQualityMetrics.measure(

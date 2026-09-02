@@ -69,6 +69,15 @@ class RendererConfig:
     denoiser_enabled: bool = False
     denoiser_iterations: int = 3
     denoiser_variance_threshold: float = 0.01
+    # ReLAX keeps long histories for a stationary view, but bounds their
+    # screen-space footprint while the camera moves.  The moving thresholds
+    # deliberately favor disocclusion correctness over temporal stability.
+    denoiser_history_limit: int = 32
+    denoiser_history_motion_pixels: float = 8.0
+    denoiser_motion_normal_threshold: float = 0.95
+    denoiser_motion_depth_threshold: float = 0.005
+    denoiser_motion_clamp_sigma: float = 1.0
+    denoiser_motion_reactive_sigma: float = 3.0
     # Offline/reference instrumentation. This allocates cold per-path signal
     # storage and is deliberately separate from the interactive denoiser.
     denoiser_signal_capture: bool = False
@@ -273,6 +282,24 @@ class RendererConfig:
             raise ValueError("denoiser_enabled requires temporal_history=True")
         if self.denoiser_variance_threshold <= 0.0:
             raise ValueError("denoiser_variance_threshold must be positive")
+        if not 1 <= self.denoiser_history_limit <= 4096:
+            raise ValueError("denoiser_history_limit must be between 1 and 4096")
+        if (not math.isfinite(self.denoiser_history_motion_pixels)
+                or self.denoiser_history_motion_pixels <= 0.0):
+            raise ValueError("denoiser_history_motion_pixels must be positive")
+        if not 0.0 <= self.denoiser_motion_normal_threshold <= 1.0:
+            raise ValueError(
+                "denoiser_motion_normal_threshold must be between 0 and 1"
+            )
+        if (not math.isfinite(self.denoiser_motion_depth_threshold)
+                or self.denoiser_motion_depth_threshold <= 0.0):
+            raise ValueError("denoiser_motion_depth_threshold must be positive")
+        if (not math.isfinite(self.denoiser_motion_clamp_sigma)
+                or self.denoiser_motion_clamp_sigma <= 0.0):
+            raise ValueError("denoiser_motion_clamp_sigma must be positive")
+        if (not math.isfinite(self.denoiser_motion_reactive_sigma)
+                or self.denoiser_motion_reactive_sigma <= 0.0):
+            raise ValueError("denoiser_motion_reactive_sigma must be positive")
         if not 1 <= self.wavefront_tile_capacity <= 4194304:
             raise ValueError("wavefront_tile_capacity must be between 1 and 4194304")
         if self.wavefront_exposure <= 0.0:
@@ -1520,6 +1547,43 @@ class VulkanGlfwPresenter:
         self.config = config or RendererConfig(device_name=device_name)
         self._core = VulkanRayQueryCore(config=self.config, glfw_window=window)
         self.device_name = self._core.device_name
+        self._output_history = None
+
+    @staticmethod
+    def _project_positions(positions, camera, width, height):
+        return _VulkanGlobalIlluminationEngine._project_positions(
+            positions, camera, width, height,
+        )
+
+    @staticmethod
+    def _capture_motion_state(scene, camera, size):
+        return _VulkanGlobalIlluminationEngine._capture_motion_state(
+            scene, camera, size,
+        )
+
+    def _motion_product(
+        self, scene, camera, width, height, primitive, position, barycentric,
+    ):
+        return _VulkanGlobalIlluminationEngine._motion_product(
+            self, scene, camera, width, height, primitive, position,
+            barycentric,
+        )
+
+    def capture_denoiser_raw(
+        self, scene, camera, width, height, *, frame_index=0,
+    ):
+        """Capture native denoiser inputs using this presenter's device."""
+        return _VulkanGlobalIlluminationEngine.capture_denoiser_raw(
+            self, scene, camera, width, height, frame_index=frame_index,
+        )
+
+    def capture_denoiser_signals(
+        self, scene, camera, width, height, *, frame_index=0,
+    ):
+        """Capture canonical denoiser signals without creating another device."""
+        return _VulkanGlobalIlluminationEngine.capture_denoiser_signals(
+            self, scene, camera, width, height, frame_index=frame_index,
+        )
 
     @property
     def last_timings(self):
@@ -1718,3 +1782,4 @@ class VulkanSurfacePresenter(VulkanGlfwPresenter):
             external_surface=handle(surface, "VkSurfaceKHR"),
         )
         self.device_name = self._core.device_name
+        self._output_history = None

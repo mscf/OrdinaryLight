@@ -71,7 +71,31 @@ def main(argv=None):
     if args.jobs:
         command.extend(("--parallel", str(args.jobs)))
     _run(command)
+    nri_source = build / "_deps" / "nri-src"
+    shadermake = build / "_deps" / "shadermake-src"
+    shadermake_library = build / "_deps" / "shadermake-build" / "libShaderMakeBlob.a"
+    output = args.work_dir.resolve() / "ordinarylight_nrd_benchmark"
+    definitions = (
+        "NOMINMAX", "NRD_EMBEDS_DXBC_SHADERS=0",
+        "NRD_EMBEDS_DXIL_SHADERS=0", "NRD_EMBEDS_SPIRV_SHADERS=1",
+        "NRD_STATIC_LIBRARY=1", "SPIRV_BREG_OFFSET=2",
+        "SPIRV_SREG_OFFSET=0", "SPIRV_TREG_OFFSET=20",
+        "SPIRV_UREG_OFFSET=3",
+    )
+    compile_command = ["c++", "-std=c++20", "-O3"]
+    compile_command.extend(f"-D{item}" for item in definitions)
+    compile_command.extend((
+        f"-I{source / 'Include'}", f"-I{source / 'Integration'}",
+        f"-I{source / '_Shaders'}", f"-I{nri_source / 'Include'}",
+        f"-I{build / '_deps' / 'mathlib-src'}", f"-I{shadermake}",
+        str(ROOT / "native" / "benchmark.cpp"),
+        str(source / "_Bin" / "libNRD.a"), str(shadermake_library),
+        f"-L{source / '_Bin'}", "-lNRI", "-lvulkan", "-ldl", "-lpthread",
+        "-Wl,-rpath,$ORIGIN/NRD/_Bin", "-o", str(output),
+    ))
+    _run(compile_command)
     print(f"Pinned NRD/NRI build is available at {build}")
+    print(f"NRD benchmark bridge is available at {output}")
     return 0
 
 

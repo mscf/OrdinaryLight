@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -56,6 +57,28 @@ def noisy_signals(seed, width=24, height=16, *, camera_cut=False):
 
 
 class DenoiserSignalTests(unittest.TestCase):
+    def test_surface_presenter_exposes_signal_capture_on_its_existing_core(self):
+        from ordinarylight.targets.vulkan.api import (
+            VulkanSurfacePresenter, _VulkanGlobalIlluminationEngine,
+        )
+
+        presenter = object.__new__(VulkanSurfacePresenter)
+        sentinel = object()
+        with mock.patch.object(
+            _VulkanGlobalIlluminationEngine,
+            "capture_denoiser_signals",
+            autospec=True,
+            return_value=sentinel,
+        ) as capture:
+            result = presenter.capture_denoiser_signals(
+                "scene", "camera", 64, 32, frame_index=9,
+            )
+
+        self.assertIs(result, sentinel)
+        capture.assert_called_once_with(
+            presenter, "scene", "camera", 64, 32, frame_index=9,
+        )
+
     def test_contract_round_trip_preserves_exact_signals(self):
         expected = signals()
         with tempfile.TemporaryDirectory() as directory:
@@ -119,6 +142,66 @@ class DenoiserSignalTests(unittest.TestCase):
         result = NrdRelaxReference(Bridge()).denoise(signals(), amount=3.0)
         self.assertEqual(result.implementation_version, "test")
         self.assertAlmostEqual(float(result.combined[0, 0, 0]), 5.0)
+
+    def test_nrd_adapter_preserves_sequence_in_one_bridge_call(self):
+        class Bridge:
+            calls = 0
+
+            @staticmethod
+            def version():
+                return "sequence-test"
+
+            @classmethod
+            def denoise_relax_sequence(cls, values, settings):
+                cls.calls += 1
+                return [(
+                    value.diffuse_radiance_hit_distance[..., :3],
+                    value.specular_radiance_hit_distance[..., :3],
+                ) for value in values]
+
+        values = (signals(), signals())
+        results = NrdRelaxReference(Bridge()).denoise_sequence(values)
+        self.assertEqual(Bridge.calls, 1)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].implementation_version, "sequence-test")
+
+    def test_nrd_adapter_validates_gpu_benchmark_telemetry(self):
+        class Bridge:
+            @staticmethod
+            def version():
+                return "nrd-test"
+
+            @staticmethod
+            def benchmark_relax(values, settings, *, warmup, iterations):
+                return {
+                    "median_gpu_ms": 1.25,
+                    "p95_gpu_ms": 1.5,
+                    "wall_ms": 2.0,
+                    "persistent_mib": 48.0,
+                    "transient_mib": 12.0,
+                    "measured_frames": iterations,
+                }
+
+        result = NrdRelaxReference(Bridge()).benchmark(
+            (signals(), signals()), warmup=2, iterations=7,
+        )
+        self.assertEqual(result.implementation_version, "nrd-test")
+        self.assertEqual(result.measured_frames, 7)
+        self.assertAlmostEqual(result.median_gpu_ms, 1.25)
+        self.assertAlmostEqual(result.persistent_mib, 48.0)
+
+    def test_nrd_benchmark_rejects_wall_clock_substitution(self):
+        class Bridge:
+            @staticmethod
+            def version():
+                return "invalid"
+
+            @staticmethod
+            def benchmark_relax(values, settings, *, warmup, iterations):
+                return {"wall_ms": 2.0, "measured_frames": iterations}
+
+        with self.assertRaisesRegex(RuntimeError, "missing"):
+            NrdRelaxReference(Bridge()).benchmark((signals(),))
 
     def test_sequence_evaluation_compares_portable_and_reference_outputs(self):
         class Bridge:
@@ -278,6 +361,7 @@ class DenoiserSignalTests(unittest.TestCase):
         for name in (
             "diffuse_output", "specular_output", "normal_roughness_output",
             "view_z_output", "motion_output", "previous_camera",
+            "previous_vertices", "identity_output",
         ):
             self.assertIn(name, source)
 
@@ -300,6 +384,38 @@ class DenoiserSignalTests(unittest.TestCase):
             relax_temporal, target="glsl", validate=False,
         ).source
         self.assertIn("constants.extent_history.w > 0.5", source)
+
+    def test_temporal_kernel_validates_expected_previous_camera_depth(self):
+        import ordinaryshade as osh
+        from ordinarylight.denoising.kernels import relax_temporal
+
+        source = osh.compile(
+            relax_temporal, target="glsl", validate=False,
+        ).source
+        self.assertIn("expected_old_depth", source)
+        self.assertIn("expected_old_depth > 0.0", source)
+        self.assertIn("expected_old_depth - old_depth", source)
+
+    def test_temporal_kernel_rejects_different_primitive_identity(self):
+        import ordinaryshade as osh
+        from ordinarylight.denoising.kernels import relax_temporal
+
+        source = osh.compile(
+            relax_temporal, target="glsl", validate=False,
+        ).source
+        self.assertIn("previous_identity", source)
+        self.assertIn("old_primitive == current_primitive", source)
+
+    def test_temporal_kernel_rejects_reactive_luminance_history(self):
+        import ordinaryshade as osh
+        from ordinarylight.denoising.kernels import relax_temporal
+
+        source = osh.compile(
+            relax_temporal, target="glsl", validate=False,
+        ).source
+        self.assertIn("history_luma", source)
+        self.assertIn("reactive_limit", source)
+        self.assertIn("constants.rejection.w", source)
 
 
 if __name__ == "__main__":

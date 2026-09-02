@@ -234,7 +234,7 @@ class WavefrontLayoutTests(unittest.TestCase):
             ol.PATH_STATE_DTYPE.fields["ior_stack"][0].shape,
             (ol.MAX_MEDIUM_STACK_DEPTH,),
         )
-        self.assertEqual(ol.SECONDARY_PATH_STATE_DTYPE.itemsize, 112)
+        self.assertEqual(ol.SECONDARY_PATH_STATE_DTYPE.itemsize, 128)
         self.assertEqual(
             ol.SECONDARY_PATH_STATE_DTYPE.fields["position_valid"][1], 0)
         self.assertEqual(
@@ -253,6 +253,8 @@ class WavefrontLayoutTests(unittest.TestCase):
             ][1], 80)
         self.assertEqual(
             ol.SECONDARY_PATH_STATE_DTYPE.fields["primary_position"][1], 96)
+        self.assertEqual(
+            ol.SECONDARY_PATH_STATE_DTYPE.fields["primary_geometry"][1], 112)
         self.assertEqual(ol.RESOLVED_PIXEL_DTYPE.itemsize, 32)
         self.assertEqual(ol.RESOLVED_PIXEL_DTYPE.fields["metadata"][1], 16)
 

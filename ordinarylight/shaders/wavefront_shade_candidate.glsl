@@ -119,6 +119,7 @@ struct SecondaryPathState
     vec4 diffuse_radiance_hit_distance;
     vec4 specular_radiance_hit_distance;
     vec4 primary_position;
+    vec4 primary_geometry;
 };
 
 struct VolumeHeader
@@ -2696,6 +2697,7 @@ void main()
         secondary.primary_radiance = vec4(path.radiance.rgb, shadePbrSpecularProbability(surface.material));
         secondary.normal_pdf.w = bsdf_pdf;
         secondary.primary_position = vec4(loaded.hit.position_t.xyz, (1.0 + clamp(surface.material.base_roughness.a, 0.0, 1.0)));
+        secondary.primary_geometry = vec4(uintBitsToFloat(loaded.hit.primitive_index), loaded.hit.barycentrics, 0.0);
         secondary_paths[path_index] = secondary;
     }
     ShadeRouletteResult roulette = shadeApplyRussianRoulette(path, random_state, next_bounce, transmission, push.russian_roulette_start, push.russian_roulette_min_survival);

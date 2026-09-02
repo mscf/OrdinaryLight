@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ if (
     sys.path.insert(0, str(SHADE_ROOT))
 
 import ordinarylight as ol
+from ordinarylight.denoising.reference import NrdRelaxReference
 from ordinarylight.integrations.workbench import discover_showcases
 from ordinarylight.outputs import to_sdr
 from ordinarylight.renderers.raster._diagnostics import frame_difference
@@ -48,6 +50,90 @@ TARGETS = (
     ("Wavefront GI", "wavefront-gi"),
     ("WebGPU raster", "webgpu-raster"),
 )
+
+DENOISERS = (
+    ("Ordinary Shade ReLAX (live)", "ordinaryshade"),
+    ("NVIDIA NRD ReLAX (reference capture)", "nrd-reference"),
+)
+
+
+class _NrdReferencePreview:
+    """Cold, readback-oriented NRD preview for honest visual A/B testing.
+
+    NRD currently owns a separate Vulkan device, so this path deliberately
+    captures canonical signals and runs the optional reference bridge instead
+    of pretending to be the production zero-copy denoiser.  Results are cached
+    for a stable scene/camera/extent; moving the camera produces a new capture.
+    """
+
+    def __init__(self, config, *, renderer=None, sequence_frames=4):
+        self._renderer = renderer
+        if self._renderer is None:
+            self._renderer = ol.renderers.gi.VulkanGlobalIlluminationRenderer(
+                config=config,
+            )
+        self._reference = NrdRelaxReference()
+        if not self._reference.available:
+            self._renderer.close()
+            raise RuntimeError(
+                "NRD reference bridge is unavailable; run "
+                "`python tools/nrd_reference/bootstrap.py`"
+            )
+        self._sequence_frames = int(sequence_frames)
+        self._frame_index = 0
+        self._cache_key = None
+        self._cached_image = None
+        self.last_timings = {}
+
+    @staticmethod
+    def _key(scene, camera, width, height):
+        values = np.concatenate((
+            np.asarray(camera.position, np.float64),
+            np.asarray(camera.target, np.float64),
+            np.asarray(camera.up, np.float64),
+            np.asarray((camera.vertical_fov_degrees, width, height), np.float64),
+        ))
+        return id(scene), values.tobytes()
+
+    def render(self, scene, camera, size):
+        width, height = map(int, size)
+        key = self._key(scene, camera, width, height)
+        if key == self._cache_key and self._cached_image is not None:
+            self.last_timings = dict(self.last_timings, cache_hit=True)
+            return self._cached_image
+        started = time.perf_counter()
+        signals = []
+        # A canonical signal frame retains roughly 64 bytes/pixel before the
+        # bridge's packed upload. Avoid turning a 4K visual comparison into a
+        # multi-gigabyte host allocation; lower resolutions still exercise a
+        # useful temporal sequence.
+        memory_budget = 384 * 1024 * 1024
+        sequence_frames = min(
+            self._sequence_frames,
+            max(1, memory_budget // max(1, width * height * 64)),
+        )
+        for _ in range(sequence_frames):
+            signals.append(self._renderer.capture_denoiser_signals(
+                scene, camera, width, height, frame_index=self._frame_index,
+            ))
+            self._frame_index += 1
+        captured = time.perf_counter()
+        result = self._reference.denoise_sequence(signals)[-1]
+        finished = time.perf_counter()
+        self._cached_image = np.ascontiguousarray(result.combined, np.float32)
+        self._cache_key = key
+        self.last_timings = {
+            "total_ms": (finished - started) * 1000.0,
+            "signal_capture_ms": (captured - started) * 1000.0,
+            "reference_ms": (finished - captured) * 1000.0,
+            "sequence_frames": sequence_frames,
+            "cache_hit": False,
+            "implementation": result.implementation_version,
+        }
+        return self._cached_image
+
+    def close(self):
+        self._renderer.close()
 
 
 def _camera_pose_from_json(text):
@@ -384,6 +470,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             self.denoiser = QtWidgets.QCheckBox()
             self.denoiser.setChecked(True)
+            self.denoiser_backend = QtWidgets.QComboBox()
+            for title, key in DENOISERS:
+                self.denoiser_backend.addItem(title, key)
             self.denoiser_iterations = QtWidgets.QComboBox()
             for count in range(1, 6):
                 self.denoiser_iterations.addItem(str(count), count)
@@ -392,6 +481,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             gi_selected = self.target.currentData() == "wavefront-gi"
             self.denoiser.setEnabled(gi_selected)
+            self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
@@ -423,9 +513,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
             form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
-            form.addRow("Ordinary Shade ReLAX", self.denoiser)
+            form.addRow("Enable GI denoising", self.denoiser)
+            form.addRow("GI denoiser implementation", self.denoiser_backend)
             form.addRow("ReLAX A-trous iterations", self.denoiser_iterations)
-            form.addRow("Animate camera", self.animate)
+            form.addRow("Animate scene / camera", self.animate)
             form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
             form.addRow(button)
@@ -435,6 +526,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.status = QtWidgets.QLabel(wordWrap=True); form.addRow(self.status)
             self.renderer = None
             self.renderer_target = None
+            # Track the mode installed on ``renderer`` independently of the
+            # controls.  A combo-box change can precede the deferred renderer
+            # restart by one or more frames.
+            self.renderer_denoiser_backend = None
             self.scene_value = None
             self.active_showcase_id = None
             self.controller = None
@@ -570,6 +665,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             gi_selected = self.target.currentData() == "wavefront-gi"
             self.restir_reservoirs.setEnabled(gi_selected)
             self.denoiser.setEnabled(gi_selected)
+            self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
             if self.scene_value is not None:
                 self.restart_pending = True
@@ -610,6 +706,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             except Exception as error:
                 errors.append(error)
             renderer, self.renderer = self.renderer, None
+            self.renderer_denoiser_backend = None
             if renderer is not None:
                 try:
                     renderer.close()
@@ -620,6 +717,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
         def restart(self):
             self.restart_pending = False
             target_key = self.target.currentData()
+            requested_denoiser_backend = (
+                self.denoiser_backend.currentData()
+                if target_key == "wavefront-gi" and self.denoiser.isChecked()
+                else None
+            )
             self.status.setText(f"Initializing {self.target.currentText()}…")
             try:
                 previous_target = self.renderer_target
@@ -650,21 +752,47 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self._startup_camera = None
                 settings = dict(item.renderer)
                 if target_key == "wavefront-gi":
-                    self.renderer = ol.VulkanSurfacePresenter(
-                        self.surface.instance, self.surface.surface,
-                        config=_gi_config(
-                            item, present=True,
-                            capture=args.diagnostic_frames > 0,
-                            restir_reservoirs=int(
-                                self.restir_reservoirs.currentData()
-                            ),
-                            denoiser_enabled=self.denoiser.isChecked(),
-                            denoiser_iterations=int(
-                                self.denoiser_iterations.currentData()
-                            ),
+                    nrd_reference = (
+                        requested_denoiser_backend == "nrd-reference"
+                    )
+                    gi_config = _gi_config(
+                        item, present=not nrd_reference,
+                        capture=args.diagnostic_frames > 0,
+                        restir_reservoirs=int(
+                            self.restir_reservoirs.currentData()
+                        ),
+                        denoiser_enabled=(
+                            self.denoiser.isChecked() and not nrd_reference
+                        ),
+                        denoiser_iterations=int(
+                            self.denoiser_iterations.currentData()
                         ),
                     )
-                    self.viewport_stack.setCurrentWidget(self.container)
+                    if nrd_reference:
+                        gi_config = replace(
+                            gi_config,
+                            progressive_accumulation=False,
+                            temporal_history=False,
+                            denoiser_enabled=False,
+                            denoiser_signal_capture=True,
+                            direct_swapchain_storage=False,
+                        )
+                        capture_renderer = ol.VulkanSurfacePresenter(
+                            self.surface.instance, self.surface.surface,
+                            config=gi_config,
+                        )
+                        self.renderer = _NrdReferencePreview(
+                            gi_config, renderer=capture_renderer,
+                        )
+                        self.viewport_stack.setCurrentWidget(
+                            self.readback_image
+                        )
+                    else:
+                        self.renderer = ol.VulkanSurfacePresenter(
+                            self.surface.instance, self.surface.surface,
+                            config=gi_config,
+                        )
+                        self.viewport_stack.setCurrentWidget(self.container)
                 elif target_key == "vulkan-raster":
                     default_material = (
                         settings.get("material_program") or ol.builtin_material
@@ -702,6 +830,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     )
                     self.viewport_stack.setCurrentWidget(self.readback_image)
                 self.renderer_target = target_key
+                self.renderer_denoiser_backend = requested_denoiser_backend
                 self.presentation_failed = False
                 self.completed.clear()
                 self.diagnostic_frames.clear()
@@ -714,13 +843,18 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             except Exception as error:
                 self.renderer = None
                 self.renderer_target = None
+                self.renderer_denoiser_backend = None
                 self.status.setText(f"Renderer start failed: {error}")
 
         def tick(self):
             now = time.perf_counter()
             elapsed = min(now - self.last_tick, 0.1)
             self.last_tick = now
-            if self.animate.isChecked() and self.controller is not None:
+            item = self.feature.currentData()
+            if (
+                self.animate.isChecked() and self.controller is not None
+                and item.animate is None
+            ):
                 self.controller.orbit(elapsed * 0.35, 0.0)
             if self.future is not None:
                 if not self.future.done():
@@ -737,7 +871,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.presentation_failed = True
                     return
                 self.future = None
-                if self.renderer_target == "webgpu-raster":
+                nrd_reference = (
+                    self.renderer_target == "wavefront-gi"
+                    and self.renderer_denoiser_backend == "nrd-reference"
+                )
+                if self.renderer_target == "webgpu-raster" or nrd_reference:
                     self._display_readback(result)
                 complete = time.perf_counter()
                 self.completed.append(complete)
@@ -753,6 +891,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 timings = self.renderer.last_timings
                 if (
                     self.renderer_target == "wavefront-gi"
+                    and not nrd_reference
                     and args.diagnostic_frames > 0
                     and not self._diagnostic_exit_requested
                 ):
@@ -877,8 +1016,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         )
                         QtCore.QTimer.singleShot(0, self.close)
                 path = (
-                    "QImage readback" if self.renderer_target == "webgpu-raster"
-                    else "direct swapchain"
+                    "NRD reference readback"
+                    if nrd_reference else
+                    "QImage readback"
+                    if self.renderer_target == "webgpu-raster" else
+                    "direct swapchain"
                 )
                 self.status.setText(
                     f"{fps:.1f} FPS | frame {ms:.2f} ms | pack {pack_ms:.2f} ms "
@@ -908,9 +1050,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         if diagnostic.get("present_hdr_hash") else ""
                     )
                     + (
-                        "\nOrdinary Shade ReLAX "
+                        "\nGI denoiser: "
                         + (
-                            f"enabled · {self.denoiser_iterations.currentData()} "
+                            "NVIDIA NRD ReLAX reference capture"
+                            if nrd_reference else
+                            f"Ordinary Shade ReLAX · "
+                            f"{self.denoiser_iterations.currentData()} "
                             "A-trous iteration(s)"
                             if self.denoiser.isChecked()
                             else "disabled (raw GI)"
@@ -918,6 +1063,15 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         if self.renderer_target == "wavefront-gi" else ""
                     ),
                 )
+                if nrd_reference:
+                    self.status.setText(
+                        self.status.text()
+                        + "\nNRD reference: "
+                        f"{timings.get('sequence_frames', 0)} signal frame(s) · "
+                        f"capture {timings.get('signal_capture_ms', 0.0):.1f} ms · "
+                        f"NRD bridge {timings.get('reference_ms', 0.0):.1f} ms"
+                        + (" · cached" if timings.get("cache_hit") else "")
+                    )
                 if (
                     args.switch_target_after_frames > 0
                     and not self.automatic_switch_requested
@@ -949,6 +1103,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 max(1, round(self.native_window.height() * ratio)),
             )
             camera = self.controller.camera()
+            if self.animate.isChecked() and item.animate is not None:
+                item.animate(self.scene_value, now)
             self.last_submission = now
             if self.renderer_target == "vulkan-raster":
                 raster_width, raster_height = _surface_aspect_extent(
@@ -961,6 +1117,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     diagnostic_readback=(
                         args.diagnostic_camera_pose is not None
                     ),
+                )
+            elif (
+                self.renderer_target == "wavefront-gi"
+                and self.renderer_denoiser_backend == "nrd-reference"
+            ):
+                if not isinstance(self.renderer, _NrdReferencePreview):
+                    self.status.setText(
+                        "Waiting for the NRD reference renderer restart…"
+                    )
+                    return
+                self.future = self.executor.submit(
+                    self.renderer.render,
+                    self.scene_value, camera,
+                    (render_width, render_height),
                 )
             elif self.renderer_target == "wavefront-gi":
                 # A direct Vulkan swapchain must follow the native Qt client
@@ -1299,7 +1469,7 @@ def main():
             form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
             form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
-            form.addRow("Animate camera", self.animate)
+            form.addRow("Animate scene / camera", self.animate)
             form.addRow("Live rendering", self.live)
             form.addRow(self.description); form.addRow(self.help)
             form.addRow(button)

@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import numpy as np
+
 import ordinarylight as ol
 from ordinarylight.integrations.workbench import (
     OrbitCamera, Showcase, ShowcaseCatalog, discover_showcases,
@@ -23,6 +25,20 @@ class WorkbenchScriptTests(unittest.TestCase):
             directional.create_scene().lights[0], ol.DirectionalLight,
         )
         self.assertIsInstance(spot.create_scene().lights[0], ol.SpotLight)
+
+    def test_object_motion_showcase_advances_only_animated_geometry(self):
+        catalog = discover_showcases(_default_showcase_paths())
+        showcase = catalog["object-motion-relax"]
+        scene = showcase.create_scene()
+        moving = next(mesh for mesh in scene.meshes if mesh.name == "moving-sphere")
+        stationary = next(
+            mesh for mesh in scene.meshes if mesh.name == "stationary-sphere"
+        )
+        moving_before = moving.transform.matrix.copy()
+        stationary_before = stationary.transform.matrix.copy()
+        showcase.animate(scene, 1.5)
+        self.assertFalse(np.allclose(moving.transform.matrix, moving_before))
+        np.testing.assert_allclose(stationary.transform.matrix, stationary_before)
 
     def test_showcase_is_lazy_and_camera_is_fitted(self):
         calls = []

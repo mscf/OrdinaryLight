@@ -79,6 +79,7 @@ class Showcase:
     camera: OrbitCamera = field(default_factory=OrbitCamera)
     renderer: Mapping[str, object] = field(default_factory=dict)
     tags: tuple[str, ...] = ()
+    animate: Callable[[Scene, float], None] | None = None
 
     def __post_init__(self):
         identifier = str(self.id).strip()
@@ -95,6 +96,8 @@ class Showcase:
             raise TypeError("showcase build must be callable")
         if not isinstance(self.camera, OrbitCamera):
             raise TypeError("showcase camera must be an OrbitCamera")
+        if self.animate is not None and not callable(self.animate):
+            raise TypeError("showcase animate must be callable or None")
         object.__setattr__(self, "id", identifier)
         object.__setattr__(self, "title", str(self.title).strip())
         object.__setattr__(self, "description", str(self.description).strip())

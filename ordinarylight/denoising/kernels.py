@@ -24,6 +24,7 @@ class SecondaryPathState:
     diffuse_radiance_hit_distance: osh.vec4
     specular_radiance_hit_distance: osh.vec4
     primary_position: osh.vec4
+    primary_geometry: osh.vec4
 
 
 @osh.structure
@@ -101,7 +102,13 @@ def prepare_relax_signals(
     previous_camera: osh.storage_record(
         PrepareCamera, access="read", binding=10,
     ),
-    constants: osh.push_constants(PrepareConstants, wgsl_binding=11),
+    previous_vertices: osh.storage_buffer(
+        osh.vec4, access="read", binding=11,
+    ),
+    identity_output: osh.storage_image(
+        "r32ui", access="write", binding=12,
+    ),
+    constants: osh.push_constants(PrepareConstants, wgsl_binding=13),
 ):
     path_index = osh.global_invocation_id.x
     path_count = constants.extent_paths.z
@@ -131,13 +138,26 @@ def prepare_relax_signals(
         world_position - current_camera.origin.xyz,
         current_camera.forward.xyz,
     )
-    old = prepare_previous_pixel(world_position, extent)
+    primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
+    barycentrics = secondary.primary_geometry.yz
+    weights = osh.vec3(
+        1.0 - barycentrics.x - barycentrics.y,
+        barycentrics.x, barycentrics.y,
+    )
+    previous_world_position = (
+        previous_vertices[primitive * osh.u32(3)].xyz * weights.x
+        + previous_vertices[primitive * osh.u32(3) + osh.u32(1)].xyz * weights.y
+        + previous_vertices[primitive * osh.u32(3) + osh.u32(2)].xyz * weights.z
+    )
+    old = prepare_previous_pixel(previous_world_position, extent)
     motion = old.xy - osh.vec2(pixel)
+    previous_view_z = old.z
     if (
         old.z <= 0.0001 or osh.any_value(old.xy < osh.vec2(-0.5))
         or osh.any_value(old.xy >= osh.vec2(extent) - 0.5)
     ):
         motion = osh.vec2(0.0)
+        previous_view_z = 0.0
     diffuse_output.store(
         pixel, secondary.diffuse_radiance_hit_distance,
     )
@@ -146,7 +166,12 @@ def prepare_relax_signals(
     )
     normal_roughness_output.store(pixel, osh.vec4(normal, roughness))
     view_z_output.store(pixel, osh.vec4(view_z))
-    motion_output.store(pixel, osh.vec4(motion, 0.0, 0.0))
+    # Carry the expected previous-camera depth alongside the screen-space
+    # motion.  Temporal validation must compare values in the same camera
+    # space; current ``view_z`` and previous-frame ``view_z`` are not directly
+    # comparable while the camera moves.
+    motion_output.store(pixel, osh.vec4(motion, previous_view_z, 0.0))
+    identity_output.store(pixel, osh.uvec4(primitive, 0, 0, 0))
 
 
 @osh.structure
@@ -186,6 +211,12 @@ def relax_temporal(
         "r32f", access="write", binding=11,
     ),
     constants: osh.uniform_buffer(TemporalConstants, binding=12),
+    identity: osh.storage_image(
+        "r32ui", access="read", binding=13,
+    ),
+    previous_identity: osh.storage_image(
+        "r32ui", access="read", binding=14,
+    ),
 ):
     pixel = osh.ivec2(osh.global_invocation_id.xy)
     extent = osh.ivec2(constants.extent_history.xy)
@@ -194,7 +225,9 @@ def relax_temporal(
     current = current_radiance_hit_distance.load(pixel)
     current_normal = normal_roughness.load(pixel).xyz
     current_depth = view_z.load(pixel).r
-    motion_vector = motion.load(pixel).xy
+    motion_sample = motion.load(pixel)
+    motion_vector = motion_sample.xy
+    expected_old_depth = motion_sample.z
     previous_pixel = osh.ivec2(osh.vec2(pixel) + motion_vector + osh.vec2(0.5))
     in_bounds = (
         previous_pixel.x >= 0 and previous_pixel.y >= 0
@@ -205,7 +238,7 @@ def relax_temporal(
     # and geometry tests alone must never make their contents eligible.
     accepted = (
         constants.extent_history.w > 0.5
-        and in_bounds and current_depth != 0.0
+        and in_bounds and current_depth != 0.0 and expected_old_depth > 0.0
     )
     history = current
     history_length = 1.0
@@ -213,15 +246,18 @@ def relax_temporal(
         old_depth = previous_view_z.load(previous_pixel).r
         old_normal = previous_normal_roughness.load(previous_pixel).xyz
         old_material = previous_material_id.load(previous_pixel).r
+        old_primitive = previous_identity.load(previous_pixel).r
+        current_primitive = identity.load(pixel).r
         current_material = material_id.load(pixel).r
         depth_tolerance = osh.maximum(
-            osh.absolute(current_depth) * constants.rejection.y, 0.001,
+            osh.absolute(expected_old_depth) * constants.rejection.y, 0.001,
         )
         accepted = (
             old_depth != 0.0
             and osh.dot(current_normal, old_normal) >= constants.rejection.x
-            and osh.absolute(current_depth - old_depth) <= depth_tolerance
+            and osh.absolute(expected_old_depth - old_depth) <= depth_tolerance
             and old_material == current_material
+            and old_primitive == current_primitive
         )
         if accepted:
             history = previous_radiance.load(previous_pixel)
@@ -254,6 +290,24 @@ def relax_temporal(
             )
             neighborhood_deviation = osh.sqrt(neighborhood_variance)
             clamp_radius = neighborhood_deviation * constants.rejection.z
+            if constants.rejection.w > 0.0:
+                history_luma = osh.dot(
+                    history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                mean_luma = osh.dot(
+                    neighborhood_mean, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                deviation_luma = osh.dot(
+                    neighborhood_deviation,
+                    osh.vec3(0.2126, 0.7152, 0.0722),
+                )
+                reactive_limit = osh.maximum(
+                    deviation_luma * constants.rejection.w,
+                    osh.absolute(mean_luma) * 0.1 + 0.01,
+                )
+                accepted = (
+                    osh.absolute(history_luma - mean_luma) <= reactive_limit
+                )
             history = osh.vec4(
                 osh.clamp(
                     history.rgb,
@@ -262,10 +316,11 @@ def relax_temporal(
                 ),
                 history.a,
             )
-            history_length = osh.minimum(
-                previous_history_length.load(previous_pixel).r + 1.0,
-                constants.extent_history.z,
-            )
+            if accepted:
+                history_length = osh.minimum(
+                    previous_history_length.load(previous_pixel).r + 1.0,
+                    constants.extent_history.z,
+                )
     if accepted:
         alpha = 1.0 / osh.maximum(history_length, 1.0)
         current = osh.vec4(

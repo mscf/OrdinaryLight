@@ -202,6 +202,43 @@ def _camera_angular_motion_pixels(previous_camera, camera, image_height):
     return angle * float(image_height) / vertical_fov
 
 
+def _camera_motion_pixels(previous_camera, camera, image_height):
+    """Estimate rotational and translational screen-space camera motion."""
+    angular = _camera_angular_motion_pixels(
+        previous_camera, camera, image_height
+    )
+    if not math.isfinite(angular) or previous_camera is None:
+        return angular
+    previous_position = np.asarray(previous_camera.position, dtype=np.float64)
+    current_position = np.asarray(camera.position, dtype=np.float64)
+    previous_target = np.asarray(previous_camera.target, dtype=np.float64)
+    current_target = np.asarray(camera.target, dtype=np.float64)
+    focus_distance = min(
+        np.linalg.norm(previous_target - previous_position),
+        np.linalg.norm(current_target - current_position),
+    )
+    if focus_distance <= 1e-12:
+        return math.inf
+    focal_pixels = float(image_height) / (
+        2.0 * math.tan(math.radians(camera.vertical_fov_degrees) * 0.5)
+    )
+    translation = np.linalg.norm(current_position - previous_position)
+    translational = translation * focal_pixels / focus_distance
+    previous_tangent = math.tan(
+        math.radians(previous_camera.vertical_fov_degrees) * 0.5
+    )
+    current_tangent = math.tan(
+        math.radians(camera.vertical_fov_degrees) * 0.5
+    )
+    zoom = (
+        abs(math.log(current_tangent / previous_tangent))
+        * float(image_height) * 0.5
+        if previous_tangent > 1e-12 and current_tangent > 1e-12
+        else math.inf
+    )
+    return max(angular, float(translational), zoom)
+
+
 def _motion_adaptive_history_limit(configured_limit, motion_pixels,
                                    history_footprint_pixels):
     """Bound represented history by its approximate screen-space footprint."""
@@ -213,6 +250,30 @@ def _motion_adaptive_history_limit(configured_limit, motion_pixels,
         history_footprint_pixels / motion_pixels
     )))
     return min(configured_limit, motion_limit)
+
+
+def _relax_temporal_policy(config, motion_pixels):
+    """Resolve stationary or motion-safe ReLAX temporal constants."""
+    moving = not math.isfinite(motion_pixels) or motion_pixels > 0.25
+    return {
+        "history_limit": _motion_adaptive_history_limit(
+            config.denoiser_history_limit,
+            motion_pixels,
+            config.denoiser_history_motion_pixels,
+        ),
+        "normal_threshold": (
+            config.denoiser_motion_normal_threshold if moving else 0.8
+        ),
+        "depth_threshold": (
+            config.denoiser_motion_depth_threshold if moving else 0.02
+        ),
+        "clamp_sigma": (
+            config.denoiser_motion_clamp_sigma if moving else 2.5
+        ),
+        "reactive_sigma": (
+            config.denoiser_motion_reactive_sigma if moving else 0.0
+        ),
+    }
 
 
 class Buffer:
@@ -1101,11 +1162,12 @@ class VulkanWavefrontExecutor:
             self.relax_prepare_layout = self._layout(
                 [storage(0), storage(1)]
                 + [storage_image(binding) for binding in range(2, 9)]
-                + [storage(9), storage(10)]
+                + [storage(9), storage(10), storage(11)]
+                + [storage_image(12)]
             )
             self.relax_temporal_layout = self._layout(
                 [storage_image(binding) for binding in range(12)]
-                + [uniform(12)]
+                + [uniform(12), storage_image(13), storage_image(14)]
             )
             self.relax_atrous_layout = self._layout(
                 [storage_image(binding) for binding in range(5)]
@@ -1648,6 +1710,7 @@ class VulkanWavefrontExecutor:
                     (0, self.path_buffer), (1, self.secondary_path_buffer),
                     (9, self.camera_buffers[slot]),
                     (10, self.camera_buffers[1 - slot]),
+                    (11, self.core.scene_previous_vertex_buffer),
                 )
             )
         for index, descriptor_set in enumerate(self.relax_temporal_sets):
@@ -1738,17 +1801,19 @@ class VulkanWavefrontExecutor:
                 current["wavefront_relax_normal_roughness_view"],
                 current["wavefront_relax_view_z_view"],
                 current["wavefront_relax_motion_view"],
+                current["wavefront_relax_identity_view"],
             )
             relax_infos = [vk.VkDescriptorImageInfo(
                 imageView=view, imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL
             ) for view in relax_views]
+            relax_bindings = (2, 3, 4, 5, 6, 7, 8, 12)
             relax_writes = [vk.VkWriteDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                dstSet=self.relax_prepare_sets[slot], dstBinding=2 + index,
+                dstSet=self.relax_prepare_sets[slot], dstBinding=binding,
                 descriptorCount=1,
                 descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 pImageInfo=[info],
-            ) for index, info in enumerate(relax_infos)]
+            ) for binding, info in zip(relax_bindings, relax_infos)]
             vk.vkUpdateDescriptorSets(
                 self.core.device, len(relax_writes), relax_writes, 0, None
             )
@@ -1780,6 +1845,17 @@ class VulkanWavefrontExecutor:
                     descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                     pImageInfo=[info],
                 ) for binding, info in enumerate(infos)]
+                identity_infos = [vk.VkDescriptorImageInfo(
+                    imageView=frame["wavefront_relax_identity_view"],
+                    imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL,
+                ) for frame in (current, previous)]
+                writes.extend(vk.VkWriteDescriptorSet(
+                    sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    dstSet=descriptor_set, dstBinding=13 + index,
+                    descriptorCount=1,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    pImageInfo=[info],
+                ) for index, info in enumerate(identity_infos))
                 vk.vkUpdateDescriptorSets(
                     self.core.device, len(writes), writes, 0, None
                 )
@@ -2251,6 +2327,7 @@ class VulkanWavefrontExecutor:
             "wavefront_relax_normal_roughness_image",
             "wavefront_relax_view_z_image",
             "wavefront_relax_motion_image",
+            "wavefront_relax_identity_image",
         )]
         vk.vkCmdPipelineBarrier(
             command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2278,15 +2355,18 @@ class VulkanWavefrontExecutor:
         vk.vkCmdDispatch(command, (path_count + 63) // 64, 1, 1)
 
     def update_relax_temporal_constants(
-        self, slot, width, height, history_valid,
+        self, slot, width, height, history_valid, *, history_limit=32,
+        normal_threshold=0.8, depth_threshold=0.02, clamp_sigma=2.5,
+        reactive_sigma=0.0,
     ):
-        """Upload stable temporal rejection settings for one frame slot."""
+        """Upload temporal history and rejection policy for one frame slot."""
         if not self.relax_temporal_constant_buffers:
             return
         values = np.asarray((
-            float(width), float(height), 32.0,
+            float(width), float(height), float(history_limit),
             1.0 if history_valid else 0.0,
-            0.8, 0.02, 2.5, 0.0,
+            float(normal_threshold), float(depth_threshold),
+            float(clamp_sigma), float(reactive_sigma),
         ), dtype=np.float32)
         memory = self.relax_temporal_constant_buffers[slot].memory
         mapped = vk.vkMapMemory(
@@ -2307,6 +2387,7 @@ class VulkanWavefrontExecutor:
             "wavefront_relax_normal_roughness_image",
             "wavefront_relax_view_z_image",
             "wavefront_relax_motion_image",
+            "wavefront_relax_identity_image",
             "wavefront_material_image",
             "wavefront_relax_temporal_diffuse_image",
             "wavefront_relax_temporal_specular_image",
@@ -2324,7 +2405,8 @@ class VulkanWavefrontExecutor:
             vk.VK_ACCESS_SHADER_READ_BIT,
         ) for name in (
             "wavefront_relax_normal_roughness_image",
-            "wavefront_relax_view_z_image", "wavefront_material_image",
+            "wavefront_relax_view_z_image", "wavefront_relax_identity_image",
+            "wavefront_material_image",
             "wavefront_relax_temporal_diffuse_image",
             "wavefront_relax_temporal_specular_image",
             "wavefront_relax_diffuse_history_image",
@@ -2621,6 +2703,7 @@ class VulkanWavefrontExecutor:
         scene_key = (
             id(self.core.scene_tlas),
             id(self.core.scene_vertex_buffer),
+            id(self.core.scene_previous_vertex_buffer),
             id(self.core.scene_material_buffer),
             id(self.core.scene_attribute_buffer),
             id(self.core.scene_custom_attribute_buffer),
@@ -2833,6 +2916,10 @@ class VulkanWavefrontExecutor:
                         )
                         if self.core.native_textures_enabled:
                             self._write_sampled_textures(descriptor_set, 13)
+        for descriptor_set in self.relax_prepare_sets:
+            self._write_storage_set(descriptor_set, (
+                (11, self.core.scene_previous_vertex_buffer),
+            ))
         self._bound_scene_key = scene_key
 
     def _ensure_medium_buffer(self, scene):
@@ -4004,7 +4091,9 @@ class VulkanSceneResources:
         self.scene = scene
         self.scene_revision = scene.revision
         self.geometry_revision = scene.geometry_revision
+        self.shading_revision = scene.shading_revision
         self.transform_revision = scene.transform_revision
+        self.previous_transform_revision = scene.transform_revision
         self.texture_signature = tuple(id(item) for item in scene.textures)
         buffer_start = len(core._buffers)
         structure_start = len(core._structures)
@@ -4021,6 +4110,12 @@ class VulkanSceneResources:
             del core._sampled_textures[texture_start:]
             raise
         self.vertex_buffer = core.scene_vertex_buffer
+        self.previous_vertex_buffer = core.scene_previous_vertex_buffer
+        positions = scene.render_triangles().reshape((-1, 3))
+        self.vertex_data = np.ascontiguousarray(
+            np.column_stack((positions, np.ones(len(positions), np.float32))),
+            dtype=np.float32,
+        )
         self.material_buffer = core.scene_material_buffer
         self.light_buffer = core.scene_light_buffer
         self.area_light_buffer = core.scene_area_light_buffer
@@ -4211,6 +4306,7 @@ class VulkanRayQueryCore:
         self.scene_tlas = None
         self.scene_material_buffer = None
         self.scene_vertex_buffer = None
+        self.scene_previous_vertex_buffer = None
         self.scene_light_buffer = None
         self.scene_area_light_buffer = None
         self.scene_attribute_buffer = None
@@ -5929,6 +6025,9 @@ class VulkanRayQueryCore:
             device_address=True,
         )
         self.scene_vertex_buffer = vertex_buffer
+        self.scene_previous_vertex_buffer = self._create_uploaded_device_buffer(
+            vertices, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        )
         material_data = scene.triangle_material_data(programs, default_program)
         self.scene_material_buffer = self._create_uploaded_device_buffer(
             material_data,
@@ -6538,6 +6637,17 @@ class VulkanRayQueryCore:
             and self.scene_resources.scene is scene
             and self.scene_resources.scene_revision == scene.revision
         ):
+            resources = self.scene_resources
+            if resources.previous_transform_revision != scene.transform_revision:
+                # The first frame after a transform consumes the preceding
+                # vertex snapshot. Once that frame is complete, converge the
+                # snapshot so a newly stationary object produces zero motion.
+                vk.vkDeviceWaitIdle(self.device)
+                self._update_device_buffers(((
+                    resources.previous_vertex_buffer,
+                    resources.vertex_data,
+                ),))
+                resources.previous_transform_revision = scene.transform_revision
             return
         if self._try_update_window_scene(scene):
             return
@@ -6564,7 +6674,8 @@ class VulkanRayQueryCore:
             previous.close()
 
     _SCENE_STATE_NAMES = (
-        "scene_tlas", "scene_vertex_buffer", "scene_material_buffer",
+        "scene_tlas", "scene_vertex_buffer", "scene_previous_vertex_buffer",
+        "scene_material_buffer",
         "scene_light_buffer", "scene_area_light_buffer",
         "scene_attribute_buffer", "scene_custom_attribute_buffer",
         "scene_custom_attribute_layout", "scene_texture_buffer",
@@ -6588,6 +6699,7 @@ class VulkanRayQueryCore:
         self.scene_resources = resources
         self.scene_tlas = resources.tlas
         self.scene_vertex_buffer = resources.vertex_buffer
+        self.scene_previous_vertex_buffer = resources.previous_vertex_buffer
         self.scene_material_buffer = resources.material_buffer
         self.scene_light_buffer = resources.light_buffer
         self.scene_area_light_buffer = resources.area_light_buffer
@@ -6635,6 +6747,7 @@ class VulkanRayQueryCore:
         geometry_changed = (
             resources.geometry_revision != scene.geometry_revision
         )
+        shading_changed = resources.shading_revision != scene.shading_revision
         transform_changed = (
             resources.transform_revision != scene.transform_revision
         )
@@ -6706,6 +6819,11 @@ class VulkanRayQueryCore:
                     positions, np.ones(len(positions), dtype=np.float32),
                 )), dtype=np.float32,
             )
+            # Preserve the exact world-space geometry used by the preceding
+            # frame. ReLAX reconstructs the old surface point from the stable
+            # primitive index and barycentrics written by the path tracer.
+            updates.append((resources.previous_vertex_buffer,
+                            resources.vertex_data))
             updates.append((resources.vertex_buffer, vertices))
         for item in changed_blases:
             updates.append((
@@ -6740,16 +6858,25 @@ class VulkanRayQueryCore:
                 item.indices = item.mesh.indices.copy()
                 item.vertices = item.mesh.vertices.copy()
             resources.geometry_revision = scene.geometry_revision
+        if geometry_changed or transform_changed:
+            resources.vertex_data = vertices.copy()
+            resources.previous_transform_revision = (
+                scene.transform_revision - 1 if transform_changed
+                else scene.transform_revision
+            )
+        resources.shading_revision = scene.shading_revision
         resources.scene_revision = scene.revision
         self.last_timings["blas_count"] = len(resources.blases)
         self.last_timings["instance_count"] = len(resources.instances)
         self.last_timings["shared_blas_savings"] = max(
             0, len(resources.instances) - len(resources.blases)
         )
+        motion_only = transform_changed and not geometry_changed and not shading_changed
         self.reset_accumulation()
         for frame in self.window_frames:
             frame["wavefront_history_valid"] = False
-            frame["wavefront_relax_history_valid"] = False
+            if not motion_only:
+                frame["wavefront_relax_history_valid"] = False
             frame["wavefront_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_valid"] = False
             frame["wavefront_command_key"] = None
@@ -6821,6 +6948,7 @@ class VulkanRayQueryCore:
                 "wavefront_relax_diffuse", "wavefront_relax_specular",
                 "wavefront_relax_normal_roughness",
                 "wavefront_relax_view_z", "wavefront_relax_motion",
+                "wavefront_relax_identity",
                 "wavefront_relax_temporal_diffuse",
                 "wavefront_relax_temporal_specular",
                 "wavefront_relax_atrous_diffuse",
@@ -7437,6 +7565,9 @@ class VulkanRayQueryCore:
                     "wavefront_relax_motion_image": None,
                     "wavefront_relax_motion_memory": None,
                     "wavefront_relax_motion_view": None,
+                    "wavefront_relax_identity_image": None,
+                    "wavefront_relax_identity_memory": None,
+                    "wavefront_relax_identity_view": None,
                     "wavefront_relax_temporal_diffuse_image": None,
                     "wavefront_relax_temporal_diffuse_memory": None,
                     "wavefront_relax_temporal_diffuse_view": None,
@@ -7609,6 +7740,13 @@ class VulkanRayQueryCore:
                 frame["wavefront_relax_view_z_view"],
             ) = create_history_image(
                 wavefront_relax_view_z_info, vk.VK_FORMAT_R32_SFLOAT
+            )
+            (
+                frame["wavefront_relax_identity_image"],
+                frame["wavefront_relax_identity_memory"],
+                frame["wavefront_relax_identity_view"],
+            ) = create_history_image(
+                wavefront_material_info, vk.VK_FORMAT_R32_UINT
             )
             for prefix in (
                 "wavefront_relax_diffuse_history",
@@ -7990,7 +8128,7 @@ class VulkanRayQueryCore:
                 vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 0, 0, None, 0, None,
-                len(self.window_frames) * 15 + len(self.accumulation_images)
+                len(self.window_frames) * 18 + len(self.accumulation_images)
                 + len(self.gbuffer_images) + len(self.moment_images)
                 + len(self.denoise_images),
                 [self._image_barrier(
@@ -8026,6 +8164,7 @@ class VulkanRayQueryCore:
                     "wavefront_relax_diffuse", "wavefront_relax_specular",
                     "wavefront_relax_normal_roughness",
                     "wavefront_relax_view_z", "wavefront_relax_motion",
+                    "wavefront_relax_identity",
                     "wavefront_relax_temporal_diffuse",
                     "wavefront_relax_temporal_specular",
                     "wavefront_relax_atrous_diffuse",
@@ -8385,8 +8524,15 @@ class VulkanRayQueryCore:
             and temporal_motion_valid
             and perspective_history_compatible
         )
+        relax_camera_motion_pixels = _camera_motion_pixels(
+            self.wavefront_previous_present_camera, camera, render_height
+        )
+        relax_policy = _relax_temporal_policy(
+            self.config, relax_camera_motion_pixels
+        )
         self.wavefront_executor.update_relax_temporal_constants(
-            frame_slot, render_width, render_height, relax_history_valid
+            frame_slot, render_width, render_height, relax_history_valid,
+            **relax_policy,
         )
         restir_history_valid = bool(
             self.wavefront_restir_runtime_enabled

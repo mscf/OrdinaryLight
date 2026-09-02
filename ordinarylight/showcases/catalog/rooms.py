@@ -4,11 +4,13 @@ from ordinarylight.integrations.workbench import OrbitCamera, Showcase
 
 from ordinarylight.showcases.area_lights import build_area_light_showcase
 from ordinarylight.showcases.rooms import (
+    animate_object_motion_room,
     build_dense_geometry,
     build_diffuse_room,
     build_glossy_glass,
     build_nested_glass,
     build_occlusion_room,
+    build_object_motion_room,
     build_small_emitter,
     build_textured_room,
 )
@@ -35,4 +37,16 @@ SHOWCASES = (
              camera=ROOM_CAMERA, tags=("materials", "glass")),
     Showcase("dense-geometry", "Dense geometry", build_dense_geometry,
              camera=ROOM_CAMERA, tags=("geometry", "stress")),
+    Showcase(
+        "object-motion-relax", "ReLAX object motion",
+        build_object_motion_room,
+        description=(
+            "A moving foreground sphere and stationary background sphere "
+            "exercise rigid-object motion reprojection and disocclusion."
+        ),
+        camera=ROOM_CAMERA,
+        renderer={"denoiser_enabled": True},
+        tags=("raster-feature", "denoising", "animation", "motion"),
+        animate=animate_object_motion_room,
+    ),
 )

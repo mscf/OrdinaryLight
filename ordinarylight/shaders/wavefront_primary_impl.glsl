@@ -55,6 +55,7 @@ struct SecondaryPathState {
     vec4 diffuse_radiance_hit_distance;
     vec4 specular_radiance_hit_distance;
     vec4 primary_position;
+    vec4 primary_geometry;
 };
 
 uint pathRng(WavePathState path) { return path.metadata.z; }
@@ -1138,6 +1139,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         secondary_paths[path_index].diffuse_radiance_hit_distance = vec4(0.0);
         secondary_paths[path_index].specular_radiance_hit_distance = vec4(0.0);
         secondary_paths[path_index].primary_position = vec4(0.0);
+        secondary_paths[path_index].primary_geometry = vec4(0.0);
 #endif
     }
 
@@ -1867,7 +1869,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         ordinarylight_store_secondary_primary(
             path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf,
             sampled_specular, pbrSpecularProbability(material), position,
-            material.base_roughness.a);
+            material.base_roughness.a, primitive, barycentrics);
 #else
         secondary_paths[path_index].primary_throughput =
             vec4(path.throughput.rgb, 1.0 + sampled_specular);
@@ -1876,6 +1878,8 @@ void processPrimaryPixel(uvec2 local_pixel)
         secondary_paths[path_index].normal_pdf.w = bsdf_pdf;
         secondary_paths[path_index].primary_position = vec4(
             position, 1.0 + clamp(material.base_roughness.a, 0.0, 1.0));
+        secondary_paths[path_index].primary_geometry = vec4(
+            uintBitsToFloat(primitive), barycentrics, 0.0);
 #endif
     }
     WAVE_STORE_PATH(path_index, path);
