@@ -58,12 +58,28 @@ def build_volume_scattering_showcase(
         name="floor",
     )
     scene.add_points(
-        ((-2.0, 0.25, 1.25), (1.9, 0.32, 0.9)), radii=(0.25, 0.32),
+        (
+            (-2.0, 0.25, 1.25),
+            (1.9, 0.32, 0.9),
+            # Keep one opaque caster inside the participating medium.  The
+            # two reference spheres sit just outside its bounds and therefore
+            # cannot produce a readable volumetric shadow shaft.
+            (-0.65, 1.42, 0.25),
+        ),
+        radii=(0.25, 0.32, 0.28),
         materials=(
             ol.Material(base_color=(0.08, 0.28, 0.8), metallic=0.5),
             ol.Material(base_color=(0.9, 0.22, 0.05), roughness=0.3),
+            ol.Material(base_color=(0.08, 0.09, 0.11), roughness=0.52),
         ),
-        names=("blue-reference", "orange-reference"),
+        names=(
+            "blue-reference", "orange-reference", "volume-shadow-caster",
+        ),
+        metadata=(
+            {"role": "opaque-reference"},
+            {"role": "opaque-reference"},
+            {"role": "volume-shadow-caster"},
+        ),
     )
     # A warm side light reveals the phase response; a dim frontal fill keeps
     # the opaque references readable while orbiting.

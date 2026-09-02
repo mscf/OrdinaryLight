@@ -34,24 +34,43 @@ def build_sparse_volume_scene(resolution=129):
 
 
 def _capture(scene, camera, args, enabled):
-    config = ol.RendererConfig(
-        max_bounces=1, samples_per_pixel=1,
-        wavefront_tile_capacity=args.width * args.height,
-        wavefront_execution_strategy="megakernel",
-        volume_empty_space_skipping=enabled,
-    )
     timings = []
     last = None
-    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config) as renderer:
+    if args.target == "vulkan-raster":
+        renderer = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march",
+                volume_max_steps=8192,
+                volume_empty_space_skipping=enabled,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        render = lambda frame: renderer.render_frame(
+            scene, camera, args.width, args.height, frame_index=frame,
+        )
+    else:
+        renderer = ol.renderers.gi.VulkanGlobalIlluminationRenderer(
+            config=ol.RendererConfig(
+                max_bounces=1, samples_per_pixel=1,
+                wavefront_tile_capacity=args.width * args.height,
+                wavefront_execution_strategy="megakernel",
+                volume_empty_space_skipping=enabled,
+            ),
+        )
+        render = lambda frame: renderer.render_wavefront(
+            scene, camera, args.width, args.height,
+            samples=1, frame_index=frame,
+        )
+    try:
         for frame in range(args.warmup + args.frames):
             start = time.perf_counter()
-            last = np.array(renderer.render_wavefront(
-                scene, camera, args.width, args.height,
-                samples=1, frame_index=args.seed,
-            ), copy=True)
+            last = np.array(render(args.seed), copy=True)
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             if frame >= args.warmup:
                 timings.append(elapsed_ms)
+    finally:
+        renderer.close()
     return last, np.asarray(timings, np.float64)
 
 
@@ -63,6 +82,10 @@ def main():
     parser.add_argument("--frames", type=int, default=7)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument(
+        "--target", choices=("gi", "vulkan-raster"), default="gi",
+        help="renderer implementation whose sparse traversal is gated",
+    )
     # This is an end-to-end readback benchmark, so the threshold deliberately
     # guards a modest reproducible win rather than claiming the much larger
     # traversal-only gain hidden behind fixed synchronization/copy costs.
@@ -100,6 +123,7 @@ def main():
     speedup = baseline_median / max(accelerated_median, 1e-8)
     result = {
         "extent": [args.width, args.height],
+        "target": args.target,
         "rounds": args.rounds,
         "occupancy": statistics,
         "baseline_median_ms": baseline_median,

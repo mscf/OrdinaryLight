@@ -104,7 +104,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         self.capabilities = RendererCapabilities(
             renderer="webgpu-raster", features=frozenset({
                 "raster", "offscreen", "depth", "volumes",
-                "volume_scattering", "native-volume-ray-march",
+                "volume_scattering", "volume-shadowing",
+                "overlapping-volume-extinction",
+                "volume-empty-space-skipping",
+                "native-volume-ray-march",
             }),
             outputs=self.available_outputs,
             limits={"max_volume_slices": 1024},
@@ -140,7 +143,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         )
         return self._volume_pipeline
 
-    def _composite_native_volumes(self, encoder, mesh, source, depth, width, height):
+    def _composite_native_volumes(
+        self, encoder, mesh, source, depth, shadow_depth, shadow_sampler,
+        width, height,
+    ):
         resources = mesh.resources.get("volume_resources")
         if resources is None or not resources.scalar_fields or depth is None:
             return source
@@ -166,6 +172,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         )
         camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
         camera["volume_count"][0, 1] = min(mesh.resources.get("light_count", 0), 8)
+        camera["volume_count"][0, 2] = int(mesh.resources.get(
+            "volume_empty_space_skipping", False,
+        ))
+        camera["volume_count"][0, 3] = min(mesh.resources.get("shadow_count", 0), 24)
         uniform = self.device.create_buffer_with_data(
             data=camera, usage=wgpu.BufferUsage.UNIFORM,
         )
@@ -178,6 +188,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         light_payload = mesh.resources.get("light_buffer", b"") or bytes(64)
         light_buffer = self.device.create_buffer_with_data(
             data=light_payload, usage=wgpu.BufferUsage.STORAGE,
+        )
+        shadow_payload = mesh.resources.get("shadow_buffer", b"") or bytes(96)
+        shadow_buffer = self.device.create_buffer_with_data(
+            data=shadow_payload, usage=wgpu.BufferUsage.STORAGE,
         )
         textures = []
         fields = list(resources.scalar_fields[:4])
@@ -197,6 +211,24 @@ class WebGpuRasterRenderer(RendererImplementation):
                 (width_size, height_size, depth_size),
             )
             textures.append(texture)
+        occupancy_textures = []
+        occupancy_fields = list(resources.occupancy_fields[:4])
+        while len(occupancy_fields) < 4:
+            occupancy_fields.append(np.ones((1, 1, 1), np.float32))
+        for field in occupancy_fields:
+            field = np.ascontiguousarray(field, dtype=np.float16)
+            depth_size, height_size, width_size = field.shape
+            texture = self.device.create_texture(
+                size=(width_size, height_size, depth_size), dimension="3d",
+                format="r16float",
+                usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            )
+            self.device.queue.write_texture(
+                {"texture": texture}, field,
+                {"bytes_per_row": width_size * 2, "rows_per_image": height_size},
+                (width_size, height_size, depth_size),
+            )
+            occupancy_textures.append(texture)
         linear = self.device.create_sampler(
             mag_filter="linear", min_filter="linear",
             address_mode_u="clamp-to-edge", address_mode_v="clamp-to-edge",
@@ -220,6 +252,11 @@ class WebGpuRasterRenderer(RendererImplementation):
                 {"binding": 9, "resource": linear},
                 {"binding": 10, "resource": nearest},
                 {"binding": 11, "resource": {"buffer": light_buffer}},
+                *({"binding": 12 + index, "resource": texture.create_view()}
+                  for index, texture in enumerate(occupancy_textures)),
+                {"binding": 16, "resource": shadow_depth.create_view()},
+                {"binding": 17, "resource": shadow_sampler},
+                {"binding": 18, "resource": {"buffer": shadow_buffer}},
             ),
         )
         fullscreen = self.device.create_buffer_with_data(
@@ -465,7 +502,7 @@ class WebGpuRasterRenderer(RendererImplementation):
         bind_group = None
         transparent_bind_group = None
         optical_entries = None
-        atlas_texture = atlas_sampler = shadow_depth = None
+        atlas_texture = atlas_sampler = shadow_depth = shadow_sampler = None
         resources = getattr(self.program.fragment.reflection, "resources", ())
         if resources:
             atlas = np.ascontiguousarray(
@@ -858,7 +895,8 @@ class WebGpuRasterRenderer(RendererImplementation):
                 final_texture = destination_texture
             output_texture = final_texture
         output_texture = self._composite_native_volumes(
-            encoder, mesh, output_texture, depth, width, height,
+            encoder, mesh, output_texture, depth, shadow_depth, shadow_sampler,
+            width, height,
         )
         row_bytes = width * 4 * np.dtype(np.float16).itemsize
         padded_row_bytes = (row_bytes + 255) & ~255

@@ -279,6 +279,13 @@ class VulkanRasterRenderer(RendererImplementation):
             (9, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
             (10, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
             (11, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
+            (12, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (13, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (14, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (15, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (16, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
+            (17, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
+            (18, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
         ):
             volume_bindings.append(vk.VkDescriptorSetLayoutBinding(
                 binding=binding, descriptorType=descriptor_type,
@@ -300,7 +307,10 @@ class VulkanRasterRenderer(RendererImplementation):
         self.capabilities = RendererCapabilities(
             renderer="vulkan-raster", features=frozenset(
                 {"raster", "offscreen", "depth", "volumes",
-                 "volume_scattering", "native-volume-ray-march"}
+                 "volume_scattering", "volume-shadowing",
+                 "overlapping-volume-extinction",
+                 "volume-empty-space-skipping",
+                 "native-volume-ray-march"}
                 | ({"direct-presentation", "resident-scene"}
                    if self.surface is not None else set())
             ),
@@ -851,11 +861,15 @@ class VulkanRasterRenderer(RendererImplementation):
         resources = mesh.resources["volume_resources"]
         camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
         camera["volume_count"][0, 1] = min(mesh.resources.get("light_count", 0), 8)
+        camera["volume_count"][0, 2] = int(mesh.resources.get(
+            "volume_empty_space_skipping", False,
+        ))
+        camera["volume_count"][0, 3] = min(mesh.resources.get("shadow_count", 0), 24)
         return camera.tobytes()
 
     def _record_volume_composite(
         self, command, mesh, width, height, source_image, source_view,
-        depth_image, depth_view, remember,
+        depth_image, depth_view, shadow_view, shadow_sampler, remember,
     ):
         """Record the native volume pass and return color plus camera memory."""
         resources = mesh.resources.get("volume_resources")
@@ -949,6 +963,7 @@ class VulkanRasterRenderer(RendererImplementation):
             (resources.headers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
             (resources.transfers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
             (mesh.resources.get("light_buffer", b""), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+            (mesh.resources.get("shadow_buffer", b""), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
         ):
             buffer, buffer_memory = self._buffer(
                 max(len(payload), 16), usage, host,
@@ -960,6 +975,12 @@ class VulkanRasterRenderer(RendererImplementation):
         while len(fields) < 4:
             fields.append(np.zeros((1, 1, 1), np.float32))
         volume_views = [self._volume_texture(field, remember) for field in fields]
+        occupancy_fields = list(resources.occupancy_fields[:4])
+        while len(occupancy_fields) < 4:
+            occupancy_fields.append(np.ones((1, 1, 1), np.float32))
+        occupancy_views = [
+            self._volume_texture(field, remember) for field in occupancy_fields
+        ]
         linear = remember("sampler", vk.vkCreateSampler(
             self.device, vk.VkSamplerCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -993,15 +1014,15 @@ class VulkanRasterRenderer(RendererImplementation):
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                        descriptorCount=3,
+                        descriptorCount=4,
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        descriptorCount=6,
+                        descriptorCount=11,
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
-                        descriptorCount=2,
+                        descriptorCount=3,
                     ),
                 ],
             ), None,
@@ -1019,6 +1040,7 @@ class VulkanRasterRenderer(RendererImplementation):
             (1, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[1]),
             (2, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[2]),
             (11, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[3]),
+            (18, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[4]),
         ):
             writes.append(vk.VkWriteDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1033,6 +1055,9 @@ class VulkanRasterRenderer(RendererImplementation):
             (4, depth_view, vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
             *((5 + index, volume_view, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
               for index, volume_view in enumerate(volume_views)),
+            *((12 + index, volume_view, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              for index, volume_view in enumerate(occupancy_views)),
+            (16, shadow_view, vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
         ):
             writes.append(vk.VkWriteDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1043,7 +1068,7 @@ class VulkanRasterRenderer(RendererImplementation):
                     imageView=sampled_view, imageLayout=layout,
                 )],
             ))
-        for binding, sampler in ((9, linear), (10, nearest)):
+        for binding, sampler in ((9, linear), (10, nearest), (17, shadow_sampler)):
             writes.append(vk.VkWriteDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 dstSet=descriptor_set, dstBinding=binding,
@@ -1604,6 +1629,8 @@ class VulkanRasterRenderer(RendererImplementation):
         atlas_image = None
         atlas_view = None
         atlas_staging = None
+        shadow_view = None
+        shadow_sampler = None
         if self._uses_scene_textures:
             atlas = np.ascontiguousarray(
                 mesh.resources.get("base_color_atlas", np.full((1, 1, 4), 255, np.uint8)),
@@ -3308,7 +3335,7 @@ class VulkanRasterRenderer(RendererImplementation):
                 )
         final_image, final_view, volume_camera_memory = self._record_volume_composite(
             command, mesh, width, height, final_image, final_view,
-            final_depth, final_depth_view, remember,
+            final_depth, final_depth_view, shadow_view, shadow_sampler, remember,
         )
         vk.vkCmdPipelineBarrier(
             command,

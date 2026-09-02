@@ -48,7 +48,8 @@ SHOWCASES = (
         build_volume_scattering_showcase,
         description=(
             "A heterogeneous medium demonstrates light-dependent "
-            "Henyey-Greenstein scattering."
+            "Henyey-Greenstein scattering and an embedded opaque object's "
+            "volumetric shadow."
         ),
         camera=VOLUME_CAMERA,
         renderer={
@@ -62,7 +63,7 @@ SHOWCASES = (
         build_volume_multiple_scattering_showcase,
         description=(
             "Bounded higher-order in-scattering exercises volume transport "
-            "across the GI and raster targets."
+            "and opaque volumetric shadows across the GI and raster targets."
         ),
         camera=VOLUME_CAMERA,
         renderer={

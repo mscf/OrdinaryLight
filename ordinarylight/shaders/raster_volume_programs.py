@@ -37,6 +37,13 @@ class RasterVolumeLight:
     spot: osh.vec4
 
 
+@osh.structure
+class RasterVolumeShadow:
+    view_projection: osh.mat4
+    atlas: osh.vec4
+    parameters: osh.vec4
+
+
 @osh.vertex
 def volume_vertex(
     clip_position: osh.location(osh.vec2, 0),
@@ -63,6 +70,13 @@ def volume_fragment(
     linear_sampler: osh.sampler(binding=9),
     depth_sampler: osh.sampler(binding=10),
     lights: osh.storage_buffer(RasterVolumeLight, access="read", binding=11),
+    occupancy_0: osh.sampled_texture_3d(binding=12),
+    occupancy_1: osh.sampled_texture_3d(binding=13),
+    occupancy_2: osh.sampled_texture_3d(binding=14),
+    occupancy_3: osh.sampled_texture_3d(binding=15),
+    shadow_map: osh.sampled_depth_texture_2d(binding=16),
+    shadow_sampler: osh.comparison_sampler(binding=17),
+    shadows: osh.storage_buffer(RasterVolumeShadow, access="read", binding=18),
 ) -> osh.location(osh.vec4, 0):
     background = scene_color.sample_level_with(linear_sampler, uv, 0.0)
     opaque_depth = scene_depth.sample_depth_with(depth_sampler, uv)
@@ -128,6 +142,141 @@ def volume_fragment(
         combined_extinction = 0.0
         combined_emission = osh.vec3(0.0)
         world_position = ray_origin + ray_direction * distance
+        # Traverse the same conservative occupancy hierarchy as the GI path.
+        # A jump ends at the first brick boundary (or the next volume entry),
+        # so it cannot cross unseen density in an overlapping medium.
+        inside_any = False
+        occupied_any = False
+        empty_exit = 1.0e30
+        if camera.volume_count.z > osh.u32(0):
+            for occupancy_index in range(4):
+                if osh.u32(occupancy_index) >= volume_count:
+                    break
+                occupancy_header = headers[osh.u32(occupancy_index)]
+                occupancy_local = (
+                    occupancy_header.world_to_local
+                    * osh.vec4(world_position, 1.0)
+                ).xyz
+                occupancy_direction = (
+                    occupancy_header.world_to_local
+                    * osh.vec4(ray_direction, 0.0)
+                ).xyz
+                # An empty brick in one medium must not jump across the entry
+                # surface of another medium.  Clamp the candidate jump to the
+                # nearest positive box entry for every currently-outside
+                # volume before considering the containing brick.
+                occupancy_safe_direction = occupancy_direction + (
+                    osh.sign(occupancy_direction) * 1.0e-8
+                )
+                occupancy_first = -occupancy_local / occupancy_safe_direction
+                occupancy_second = (
+                    osh.vec3(1.0) - occupancy_local
+                ) / occupancy_safe_direction
+                occupancy_lower = osh.minimum(
+                    occupancy_first, occupancy_second,
+                )
+                occupancy_upper = osh.maximum(
+                    occupancy_first, occupancy_second,
+                )
+                occupancy_entry = osh.maximum(
+                    occupancy_lower.x,
+                    osh.maximum(occupancy_lower.y, occupancy_lower.z),
+                )
+                occupancy_box_exit = osh.minimum(
+                    occupancy_upper.x,
+                    osh.minimum(occupancy_upper.y, occupancy_upper.z),
+                )
+                if (
+                    occupancy_local.x >= 0.0 and occupancy_local.x <= 1.0
+                    and occupancy_local.y >= 0.0 and occupancy_local.y <= 1.0
+                    and occupancy_local.z >= 0.0 and occupancy_local.z <= 1.0
+                ):
+                    inside_any = True
+                    brick_grid = occupancy_header.acceleration_parameters.yzw
+                    if brick_grid.x == osh.u32(0):
+                        occupied_any = True
+                        continue
+                    brick_coordinate = osh.minimum(
+                        osh.uvec3(occupancy_local * osh.vec3(brick_grid)),
+                        brick_grid - osh.uvec3(1),
+                    )
+                    occupancy_uv = (
+                        osh.vec3(brick_coordinate) + osh.vec3(0.5)
+                    ) / osh.vec3(brick_grid)
+                    occupied = 0.0
+                    if occupancy_index == 0:
+                        occupied = occupancy_0.sample_level_with(
+                            depth_sampler, occupancy_uv, 0.0,
+                        ).x
+                    elif occupancy_index == 1:
+                        occupied = occupancy_1.sample_level_with(
+                            depth_sampler, occupancy_uv, 0.0,
+                        ).x
+                    elif occupancy_index == 2:
+                        occupied = occupancy_2.sample_level_with(
+                            depth_sampler, occupancy_uv, 0.0,
+                        ).x
+                    else:
+                        occupied = occupancy_3.sample_level_with(
+                            depth_sampler, occupancy_uv, 0.0,
+                        ).x
+                    if occupied > 0.5:
+                        occupied_any = True
+                    else:
+                        lower_brick = osh.vec3(brick_coordinate) / osh.vec3(brick_grid)
+                        upper_brick = (
+                            osh.vec3(brick_coordinate) + osh.vec3(1.0)
+                        ) / osh.vec3(brick_grid)
+                        axis_exit = osh.vec3(1.0e30)
+                        if osh.absolute(occupancy_direction.x) > 1.0e-10:
+                            boundary = (
+                                upper_brick.x if occupancy_direction.x > 0.0
+                                else lower_brick.x
+                            )
+                            axis_exit.x = osh.maximum(
+                                (boundary - occupancy_local.x)
+                                / occupancy_direction.x, 0.0,
+                            )
+                        if osh.absolute(occupancy_direction.y) > 1.0e-10:
+                            boundary = (
+                                upper_brick.y if occupancy_direction.y > 0.0
+                                else lower_brick.y
+                            )
+                            axis_exit.y = osh.maximum(
+                                (boundary - occupancy_local.y)
+                                / occupancy_direction.y, 0.0,
+                            )
+                        if osh.absolute(occupancy_direction.z) > 1.0e-10:
+                            boundary = (
+                                upper_brick.z if occupancy_direction.z > 0.0
+                                else lower_brick.z
+                            )
+                            axis_exit.z = osh.maximum(
+                                (boundary - occupancy_local.z)
+                                / occupancy_direction.z, 0.0,
+                            )
+                        empty_exit = osh.minimum(
+                            empty_exit,
+                            distance + osh.minimum(
+                                axis_exit.x,
+                                osh.minimum(axis_exit.y, axis_exit.z),
+                            ),
+                        )
+                elif occupancy_box_exit > osh.maximum(occupancy_entry, 0.0):
+                    if occupancy_entry > 0.0:
+                        empty_exit = osh.minimum(
+                            empty_exit, distance + occupancy_entry,
+                        )
+            if inside_any and not occupied_any:
+                distance = osh.maximum(
+                    distance + step_size, empty_exit + step_size * 0.001,
+                )
+                continue
+            if not inside_any and empty_exit < 1.0e29:
+                distance = osh.maximum(
+                    distance + step_size, empty_exit + step_size * 0.001,
+                )
+                continue
         for volume_index in range(4):
             if osh.u32(volume_index) >= volume_count:
                 break
@@ -175,6 +324,7 @@ def volume_fragment(
                     light_type = osh.i32(light.position_type.w + 0.5)
                     incoming = osh.vec3(0.0)
                     attenuation = 1.0
+                    distance_to_light = 1.0e6
                     enabled = light_type != 3
                     if light_type == 1:
                         incoming = -osh.normalize(light.direction_range.xyz)
@@ -201,6 +351,211 @@ def volume_fragment(
                                 enabled = False
                     if enabled:
                         incident = light.color_intensity.xyz * light.color_intensity.w * attenuation
+                        # Integrate extinction through every overlapping volume
+                        # on the light ray. This makes volume-on-volume shadows
+                        # additive instead of whichever-medium-was-last wins.
+                        light_limit = (
+                            1.0e6 if light_type == 1 else distance_to_light
+                        )
+                        light_optical_depth = 0.0
+                        for shadow_volume_index in range(4):
+                            if osh.u32(shadow_volume_index) >= volume_count:
+                                break
+                            shadow_header = headers[osh.u32(shadow_volume_index)]
+                            shadow_origin = (
+                                shadow_header.world_to_local
+                                * osh.vec4(world_position, 1.0)
+                            ).xyz
+                            shadow_direction = (
+                                shadow_header.world_to_local
+                                * osh.vec4(incoming, 0.0)
+                            ).xyz
+                            safe_shadow_direction = shadow_direction + (
+                                osh.sign(shadow_direction) * 1.0e-8
+                            )
+                            shadow_first = -shadow_origin / safe_shadow_direction
+                            shadow_second = (
+                                osh.vec3(1.0) - shadow_origin
+                            ) / safe_shadow_direction
+                            shadow_lower = osh.minimum(shadow_first, shadow_second)
+                            shadow_upper = osh.maximum(shadow_first, shadow_second)
+                            shadow_entry = osh.maximum(
+                                0.002,
+                                osh.maximum(
+                                    shadow_lower.x,
+                                    osh.maximum(shadow_lower.y, shadow_lower.z),
+                                ),
+                            )
+                            shadow_exit = osh.minimum(
+                                light_limit,
+                                osh.minimum(
+                                    shadow_upper.x,
+                                    osh.minimum(shadow_upper.y, shadow_upper.z),
+                                ),
+                            )
+                            if shadow_exit > shadow_entry:
+                                shadow_midpoint = world_position + incoming * (
+                                    0.5 * (shadow_entry + shadow_exit)
+                                )
+                                shadow_local = (
+                                    shadow_header.world_to_local
+                                    * osh.vec4(shadow_midpoint, 1.0)
+                                ).xyz
+                                shadow_occupied = 1.0
+                                if camera.volume_count.z > osh.u32(0):
+                                    shadow_brick_grid = (
+                                        shadow_header.acceleration_parameters.yzw
+                                    )
+                                    if shadow_brick_grid.x > osh.u32(0):
+                                        shadow_brick_coordinate = osh.minimum(
+                                            osh.uvec3(
+                                                shadow_local
+                                                * osh.vec3(shadow_brick_grid)
+                                            ),
+                                            shadow_brick_grid - osh.uvec3(1),
+                                        )
+                                        shadow_occupancy_uv = (
+                                            osh.vec3(shadow_brick_coordinate)
+                                            + osh.vec3(0.5)
+                                        ) / osh.vec3(shadow_brick_grid)
+                                        if shadow_volume_index == 0:
+                                            shadow_occupied = occupancy_0.sample_level_with(
+                                                depth_sampler, shadow_occupancy_uv, 0.0,
+                                            ).x
+                                        elif shadow_volume_index == 1:
+                                            shadow_occupied = occupancy_1.sample_level_with(
+                                                depth_sampler, shadow_occupancy_uv, 0.0,
+                                            ).x
+                                        elif shadow_volume_index == 2:
+                                            shadow_occupied = occupancy_2.sample_level_with(
+                                                depth_sampler, shadow_occupancy_uv, 0.0,
+                                            ).x
+                                        else:
+                                            shadow_occupied = occupancy_3.sample_level_with(
+                                                depth_sampler, shadow_occupancy_uv, 0.0,
+                                            ).x
+                                shadow_scalar = 0.0
+                                if shadow_volume_index == 0:
+                                    shadow_scalar = volume_0.sample_level_with(
+                                        linear_sampler, shadow_local, 0.0,
+                                    ).x
+                                elif shadow_volume_index == 1:
+                                    shadow_scalar = volume_1.sample_level_with(
+                                        linear_sampler, shadow_local, 0.0,
+                                    ).x
+                                elif shadow_volume_index == 2:
+                                    shadow_scalar = volume_2.sample_level_with(
+                                        linear_sampler, shadow_local, 0.0,
+                                    ).x
+                                else:
+                                    shadow_scalar = volume_3.sample_level_with(
+                                        linear_sampler, shadow_local, 0.0,
+                                    ).x
+                                shadow_transfer_count = osh.maximum(
+                                    osh.u32(shadow_header.value_parameters.y),
+                                    osh.u32(1),
+                                )
+                                shadow_transfer_coordinate = osh.clamp(
+                                    shadow_scalar, 0.0, 1.0,
+                                ) * osh.f32(shadow_transfer_count - osh.u32(1))
+                                shadow_transfer_index = osh.minimum(
+                                    osh.u32(shadow_transfer_coordinate + 0.5),
+                                    shadow_transfer_count - osh.u32(1),
+                                )
+                                shadow_sample = transfers[
+                                    osh.u32(shadow_header.value_parameters.x)
+                                    + shadow_transfer_index
+                                ]
+                                shadow_alpha = osh.clamp(
+                                    shadow_sample.a
+                                    * shadow_header.value_parameters.z,
+                                    0.0, 0.999999,
+                                )
+                                shadow_reference_step = osh.maximum(
+                                    shadow_header.render_parameters.x, 1.0e-5,
+                                )
+                                shadow_extinction = -osh.logarithm(
+                                    1.0 - shadow_alpha
+                                ) / shadow_reference_step
+                                light_optical_depth = light_optical_depth + (
+                                    shadow_extinction
+                                    * (shadow_exit - shadow_entry)
+                                    * (1.0 if shadow_occupied > 0.5 else 0.0)
+                                )
+                        incident = incident * osh.exp(-light_optical_depth)
+
+                        # Match the opaque raster path's native shadow atlas.
+                        opaque_visibility = 1.0
+                        shadow_count = osh.minimum(
+                            camera.volume_count.w, osh.u32(24),
+                        )
+                        for shadow_index in range(24):
+                            if osh.u32(shadow_index) >= shadow_count:
+                                break
+                            shadow_record = shadows[osh.u32(shadow_index)]
+                            if osh.absolute(
+                                shadow_record.parameters.x
+                                - osh.f32(light_index)
+                            ) > 0.25:
+                                continue
+                            shadow_face_matches = True
+                            if shadow_record.parameters.w > 1.5:
+                                point_shadow_delta = (
+                                    world_position - light.position_type.xyz
+                                )
+                                point_shadow_axis = osh.absolute(
+                                    point_shadow_delta
+                                )
+                                point_shadow_face = 0.0
+                                if (
+                                    point_shadow_axis.y >= point_shadow_axis.x
+                                    and point_shadow_axis.y >= point_shadow_axis.z
+                                ):
+                                    point_shadow_face = (
+                                        2.0 if point_shadow_delta.y >= 0.0
+                                        else 3.0
+                                    )
+                                elif point_shadow_axis.z >= point_shadow_axis.x:
+                                    point_shadow_face = (
+                                        4.0 if point_shadow_delta.z >= 0.0
+                                        else 5.0
+                                    )
+                                else:
+                                    point_shadow_face = (
+                                        0.0 if point_shadow_delta.x >= 0.0
+                                        else 1.0
+                                    )
+                                shadow_face_matches = osh.absolute(
+                                    shadow_record.parameters.y - point_shadow_face
+                                ) < 0.25
+                            if not shadow_face_matches:
+                                continue
+                            shadow_clip = shadow_record.view_projection * osh.vec4(
+                                world_position + incoming * shadow_record.parameters.z,
+                                1.0,
+                            )
+                            shadow_w = osh.maximum(
+                                osh.absolute(shadow_clip.w), 1.0e-6,
+                            )
+                            shadow_ndc = shadow_clip.xyz / shadow_w
+                            if (
+                                shadow_clip.w > 0.0
+                                and osh.absolute(shadow_ndc.x) <= 1.0001
+                                and osh.absolute(shadow_ndc.y) <= 1.0001
+                                and shadow_ndc.z >= 0.0 and shadow_ndc.z <= 1.0
+                            ):
+                                shadow_uv = osh.vec2(
+                                    shadow_record.atlas.x
+                                    + shadow_record.atlas.y * shadow_ndc.x,
+                                    shadow_record.atlas.z
+                                    - shadow_record.atlas.w * shadow_ndc.y,
+                                )
+                                opaque_visibility = shadow_map.sample_compare_with(
+                                    shadow_sampler, shadow_uv,
+                                    shadow_ndc.z - 0.00002,
+                                )
+                                break
+                        incident = incident * opaque_visibility
                         cosine = osh.dot(-incoming, outgoing)
                         phase = 0.0795774715459
                         if header.phase_parameters.y > 0.5:
@@ -248,5 +603,5 @@ def volume_fragment(
 
 __all__ = [
     "RasterVolumeCamera", "RasterVolumeHeader", "VolumeVertexOutput",
-    "RasterVolumeLight", "volume_fragment", "volume_vertex",
+    "RasterVolumeLight", "RasterVolumeShadow", "volume_fragment", "volume_vertex",
 ]

@@ -375,6 +375,12 @@ class RasterBackendTests(unittest.TestCase):
             self.skipTest("no GPU raster backend is available")
         for backend in choices:
             with self.subTest(renderer=backend.capabilities.renderer):
+                for feature in (
+                    "volume-shadowing",
+                    "overlapping-volume-extinction",
+                    "volume-empty-space-skipping",
+                ):
+                    self.assertTrue(backend.capabilities.supports(feature))
                 renderer = ol.Renderer(implementation=backend)
                 try:
                     image = renderer.render(scene, camera, (96, 64))
@@ -624,6 +630,173 @@ class RasterBackendTests(unittest.TestCase):
         self.assertGreater(int(np.count_nonzero(
             np.max(contribution, axis=2) > 0.002,
         )), 50)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_volume_empty_space_skipping_preserves_hdr(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        coordinates = np.linspace(-1.0, 1.0, 65, dtype=np.float32)
+        z, y, x = np.meshgrid(
+            coordinates, coordinates, coordinates, indexing="ij",
+        )
+        density = np.where(
+            x * x + y * y + z * z < 0.12 ** 2, 1.0, 0.0,
+        ).astype(np.float32)
+        scene = ol.Scene(volumes=[ol.Volume(
+            density,
+            ol.VolumeMaterial(
+                ol.Texture1D(((0, 0, 0, 0), (0.8, 0.25, 0.05, 0.2))),
+                emission_scale=1.0, step_size=0.004,
+            ),
+            transform=(ol.Transform.translation((-1, -1, -1))
+                       @ ol.Transform.scale((2, 2, 2))),
+        )])
+        camera = ol.PerspectiveCamera((0, 0, -3.2), (0, 0, 0))
+        images = []
+        for enabled in (False, True):
+            backend = ol.renderers.raster.VulkanRasterRenderer(
+                ol.RasterProgram.scene(target="spirv"),
+                config=ol.RasterConfig(
+                    volume_rendering="ray-march", volume_max_steps=1024,
+                    volume_empty_space_skipping=enabled,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            )
+            try:
+                images.append(backend.render_frame(scene, camera, 96, 64))
+            finally:
+                backend.close()
+        np.testing.assert_allclose(images[1], images[0], atol=2e-3)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_volume_scattering_receives_opaque_shadows(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+
+        def scene(blocked, lit=True):
+            result = ol.Scene(volumes=[ol.Volume(
+                np.ones((12, 12, 12), np.float32),
+                ol.VolumeMaterial(
+                    ol.Texture1D(((0, 0, 0, 0.055),) * 2),
+                    emission_scale=0.0, step_size=0.04,
+                    scattering_scale=1.0,
+                    scattering_color=(0.45, 0.7, 1.0),
+                    phase_function="henyey_greenstein", anisotropy=0.0,
+                ),
+                transform=(ol.Transform.translation((-0.6, -0.6, 0.0))
+                           @ ol.Transform.scale((1.2, 1.2, 1.2))),
+            )])
+            if lit:
+                result.add_point_light((0, 2, 2.0), intensity=38.0)
+            if blocked:
+                result.add_mesh(
+                    ((-3, 1.2, -3), (3, 1.2, -3),
+                     (3, 1.2, 3), (-3, 1.2, 3)),
+                    ((0, 1, 2), (0, 2, 3)),
+                    ol.Material(base_color=(0.01, 0.01, 0.01)),
+                )
+            return result
+
+        camera = ol.PerspectiveCamera((0, 0, -2.3), (0, 0, 0.6))
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march", volume_max_steps=512,
+                ambient_light=0.0, shadows=True, shadow_map_size=512,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            unblocked = backend.render_frame(scene(False), camera, 128, 96)
+            unblocked_control = backend.render_frame(
+                scene(False, False), camera, 128, 96,
+            )
+            blocked = backend.render_frame(scene(True), camera, 128, 96)
+            blocked_control = backend.render_frame(
+                scene(True, False), camera, 128, 96,
+            )
+        finally:
+            backend.close()
+        center = np.s_[32:64, 48:80, :3]
+        unblocked_effect = float(np.mean(np.maximum(
+            unblocked[center] - unblocked_control[center], 0.0,
+        )))
+        blocked_effect = float(np.mean(np.maximum(
+            blocked[center] - blocked_control[center], 0.0,
+        )))
+        self.assertGreater(unblocked_effect, 0.005)
+        self.assertLess(blocked_effect, unblocked_effect * 0.8)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_vulkan_native_overlapping_volumes_accumulate_extinction(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+
+        transform = (ol.Transform.translation((-0.6, -0.6, 0.0))
+                     @ ol.Transform.scale((1.2, 1.2, 1.2)))
+        scattering = ol.VolumeMaterial(
+            ol.Texture1D(((0, 0, 0, 0.04),) * 2),
+            emission_scale=0.0, step_size=0.04,
+            scattering_scale=1.0, scattering_color=(0.6, 0.8, 1.0),
+        )
+        absorber = ol.VolumeMaterial(
+            ol.Texture1D(((0, 0, 0, 0.16),) * 2),
+            emission_scale=0.0, step_size=0.04, scattering_scale=0.0,
+        )
+
+        def scene(overlap, lit):
+            volumes = [ol.Volume(
+                np.ones((8, 8, 8), np.float32), scattering,
+                transform=transform,
+            )]
+            if overlap:
+                volumes.append(ol.Volume(
+                    np.ones((8, 8, 8), np.float32), absorber,
+                    transform=transform,
+                ))
+            result = ol.Scene(volumes=volumes)
+            if lit:
+                result.add_point_light((0, 2, 2), intensity=38.0)
+            return result
+
+        camera = ol.PerspectiveCamera((0, 0, -2.3), (0, 0, 0.6))
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march", volume_max_steps=512,
+                ambient_light=0.0, shadows=True,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            single = backend.render_frame(scene(False, True), camera, 96, 64)
+            single_control = backend.render_frame(
+                scene(False, False), camera, 96, 64,
+            )
+            overlap = backend.render_frame(scene(True, True), camera, 96, 64)
+            overlap_control = backend.render_frame(
+                scene(True, False), camera, 96, 64,
+            )
+        finally:
+            backend.close()
+        center = np.s_[20:44, 36:60, :3]
+        single_effect = float(np.mean(np.maximum(
+            single[center] - single_control[center], 0.0,
+        )))
+        overlap_effect = float(np.mean(np.maximum(
+            overlap[center] - overlap_control[center], 0.0,
+        )))
+        self.assertGreater(single_effect, 0.005)
+        self.assertLess(overlap_effect, single_effect * 0.75)
 
     @unittest.skipUnless(
         os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",

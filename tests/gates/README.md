@@ -53,6 +53,15 @@ PYTHONPATH=../ordinaryshade python -m tests.gates.raster_lighting --target vulka
 PYTHONPATH=../ordinaryshade python -m tests.gates.raster_lighting --target webgpu
 ```
 
+Sparse-volume empty-space skipping can be checked independently for the GI
+renderer or the native Vulkan raster ray marcher. The gate requires identical
+HDR output and a measurable end-to-end speedup:
+
+```bash
+PYTHONPATH=../ordinaryshade python -m tests.gates.volume_empty_space --target gi
+PYTHONPATH=../ordinaryshade python -m tests.gates.volume_empty_space --target vulkan-raster
+```
+
 Raster/GI approximate visual parity uses a path-traced reference while
 separately measuring exposure-normalized color, edge structure, and foreground
 coverage. This intentionally does not demand numerical identity for indirect

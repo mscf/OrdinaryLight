@@ -1600,6 +1600,7 @@ def scene_mesh(
         "volume_resources": volume_resources,
         "volume_step_scale": float(config.volume_step_scale),
         "volume_max_steps": int(config.volume_max_steps),
+        "volume_empty_space_skipping": bool(config.volume_empty_space_skipping),
         # Volume proxy stacks share the transparent render phase.  Mark the
         # phase present even when the scene has no authored alpha surfaces so
         # backends create/bind the blending pipeline for volume-only scenes.

@@ -383,7 +383,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "460d936de8a10a103c14bb1b7f14e346ea3108c2e8e82dfd4856e2a7b9618221",
+          "cache_key": "f75c220e3f06bc113ac4b17136a094503e26790967bfe20897c04bf3393c2fd0",
           "file": "raster_volume.frag.spv",
           "reflection": {
             "entry_point": "main",
@@ -501,6 +501,62 @@
                 "kind": "storage_buffer",
                 "name": "lights",
                 "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 12,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_0",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 13,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_1",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 14,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_2",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 15,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_3",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 16,
+                "format": "depth",
+                "kind": "sampled_depth_texture_2d",
+                "name": "shadow_map",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 17,
+                "format": "sampler_comparison",
+                "kind": "comparison_sampler",
+                "name": "shadow_sampler",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 18,
+                "format": "RasterVolumeShadow",
+                "kind": "storage_buffer",
+                "name": "shadows",
+                "set": 0
               }
             ],
             "stage": "fragment",
@@ -510,7 +566,7 @@
               1
             ]
           },
-          "sha256": "25345ac0527d1f632cff5715cc9068fe26f1243b2480af330da52fc2e686a7c8"
+          "sha256": "bc17d693c9b3dcf6d5e141ea3e1ed68da7eea6b2c25b6e88a7199f3a38305c4a"
         },
         "vertex": {
           "cache_key": "a0e38e64d354cd317b919607a3c85005e4e821b8bd816e036776271aa6a23edf",
@@ -816,7 +872,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "d3f46220604b67d7f1ab54ece1f6d8dc302f4b5ff4bc2f57da766aa6735f3c7c",
+          "cache_key": "5be54ac9c7cd98d4577107c2065bd3010840aad581e48168ea3c7f5a82df54f3",
           "file": "raster_volume.frag.wgsl",
           "reflection": {
             "entry_point": "main",
@@ -934,6 +990,62 @@
                 "kind": "storage_buffer",
                 "name": "lights",
                 "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 12,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_0",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 13,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_1",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 14,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_2",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 15,
+                "format": "r32f",
+                "kind": "sampled_texture_3d",
+                "name": "occupancy_3",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 16,
+                "format": "depth",
+                "kind": "sampled_depth_texture_2d",
+                "name": "shadow_map",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 17,
+                "format": "sampler_comparison",
+                "kind": "comparison_sampler",
+                "name": "shadow_sampler",
+                "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 18,
+                "format": "RasterVolumeShadow",
+                "kind": "storage_buffer",
+                "name": "shadows",
+                "set": 0
               }
             ],
             "stage": "fragment",
@@ -943,7 +1055,7 @@
               1
             ]
           },
-          "sha256": "92f84e6b92f80f602bf83b87a054a8aefb3651350166fb733fadaeb50fc3affd"
+          "sha256": "fcbfec6207d5be0d4cd50e297460fb436c0c9526f79a3da17a2348914394798f"
         },
         "vertex": {
           "cache_key": "420b9a68760d89696e2cc3382e551f02e771744ac784b2e3325424ef81a6cd4e",

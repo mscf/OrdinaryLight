@@ -522,6 +522,7 @@ class RasterFeatureTests(unittest.TestCase):
         self.assertEqual(resources.scalar_fields[0].shape, (4, 3, 2))
         self.assertEqual(len(resources.occupancy_fields), 2)
         self.assertEqual(resources.headers[0]["render_parameters"][2], 2.0)
+        self.assertTrue(mesh.resources["volume_empty_space_skipping"])
         self.assertFalse(mesh.resources["transparent"])
 
     def test_raster_volume_quality_controls_validate(self):
@@ -550,6 +551,13 @@ class RasterFeatureTests(unittest.TestCase):
             "volume_1": "sampled_texture_3d",
             "volume_2": "sampled_texture_3d",
             "volume_3": "sampled_texture_3d",
+            "occupancy_0": "sampled_texture_3d",
+            "occupancy_1": "sampled_texture_3d",
+            "occupancy_2": "sampled_texture_3d",
+            "occupancy_3": "sampled_texture_3d",
+            "shadow_map": "sampled_depth_texture_2d",
+            "shadow_sampler": "comparison_sampler",
+            "shadows": "storage_buffer",
         }
         for target in ("spirv", "wgsl"):
             program = ol.RasterProgram.volume(target=target, validate=False)
@@ -559,6 +567,15 @@ class RasterFeatureTests(unittest.TestCase):
             }
             for name, kind in expected.items():
                 self.assertEqual(reflected[name], kind)
+
+    def test_native_volume_program_contains_shadow_and_sparse_traversal_paths(self):
+        source = ol.RasterProgram.volume(
+            target="wgsl", validate=False,
+        ).fragment.source
+        self.assertIn("shadow_face_matches", source)
+        self.assertIn("light_optical_depth", source)
+        self.assertIn("occupancy_box_exit", source)
+        self.assertIn("textureSampleCompare", source)
 
     def test_native_volume_program_uses_canonical_unit_volume_domain(self):
         source = ol.RasterProgram.volume(
