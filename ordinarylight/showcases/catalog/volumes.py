@@ -51,7 +51,10 @@ SHOWCASES = (
             "Henyey-Greenstein scattering."
         ),
         camera=VOLUME_CAMERA,
-        renderer={"volume_slices": 128},
+        renderer={
+            "volume_rendering": "ray-march", "volume_step_scale": 1.0,
+            "volume_max_steps": 1024,
+        },
         tags=("volumes", "scattering", "gi-feature", "raster-feature"),
     ),
     Showcase(
@@ -62,7 +65,10 @@ SHOWCASES = (
             "across the GI and raster targets."
         ),
         camera=VOLUME_CAMERA,
-        renderer={"volume_slices": 128},
+        renderer={
+            "volume_rendering": "ray-march", "volume_step_scale": 1.0,
+            "volume_max_steps": 1024,
+        },
         tags=("volumes", "scattering", "stress", "gi-feature",
               "raster-feature"),
     ),

@@ -29,13 +29,22 @@ class RasterVolumeHeader:
     acceleration_parameters: osh.uvec4
 
 
+@osh.structure
+class RasterVolumeLight:
+    position_type: osh.vec4
+    direction_range: osh.vec4
+    color_intensity: osh.vec4
+    spot: osh.vec4
+
+
 @osh.vertex
 def volume_vertex(
     clip_position: osh.location(osh.vec2, 0),
+    texture_coordinate: osh.location(osh.vec2, 1),
 ) -> VolumeVertexOutput:
     return VolumeVertexOutput(
         osh.vec4(clip_position, 0.0, 1.0),
-        clip_position * 0.5 + osh.vec2(0.5),
+        texture_coordinate,
     )
 
 
@@ -53,14 +62,13 @@ def volume_fragment(
     volume_3: osh.sampled_texture_3d(binding=8),
     linear_sampler: osh.sampler(binding=9),
     depth_sampler: osh.sampler(binding=10),
+    lights: osh.storage_buffer(RasterVolumeLight, access="read", binding=11),
 ) -> osh.location(osh.vec4, 0):
     background = scene_color.sample_level_with(linear_sampler, uv, 0.0)
     opaque_depth = scene_depth.sample_depth_with(depth_sampler, uv)
-    # Sampled textures use a top-left screen origin, while the camera matrix
-    # follows OpenGL clip coordinates where +Y is the top of the image.
-    # Keep texture UVs unchanged and flip only the Y coordinate used for ray
-    # reconstruction; conflating the two vertically displaced the volume
-    # relative to otherwise correctly oriented raster geometry.
+    # Fullscreen vertices provide top-left-oriented texture coordinates on
+    # both targets. The camera matrix follows OpenGL clip coordinates where
+    # +Y is the top of the image, so only ray reconstruction flips UV Y.
     clip_xy = osh.vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0)
     near_clip = osh.vec4(clip_xy, 0.0, 1.0)
     far_clip = osh.vec4(clip_xy, 1.0, 1.0)
@@ -146,11 +154,88 @@ def volume_fragment(
             sample_value = transfers[
                 osh.u32(header.value_parameters.x) + transfer_index
             ]
-            extinction = sample_value.a * header.value_parameters.z
-            combined_extinction = combined_extinction + extinction
-            combined_emission = combined_emission + sample_value.rgb * (
-                extinction + header.value_parameters.w
+            reference_alpha = osh.clamp(
+                sample_value.a * header.value_parameters.z, 0.0, 0.999999,
             )
+            reference_step = osh.maximum(header.render_parameters.x, 1.0e-5)
+            extinction = -osh.logarithm(1.0 - reference_alpha) / reference_step
+            combined_extinction = combined_extinction + extinction
+            combined_emission = combined_emission + (
+                sample_value.rgb * header.value_parameters.w
+            )
+            if header.scattering_parameters.w > 0.0 and extinction > 0.0:
+                incoming_radiance = osh.vec3(0.0)
+                isotropic_radiance = osh.vec3(0.0)
+                outgoing = -ray_direction
+                light_count = osh.minimum(camera.volume_count.y, osh.u32(8))
+                for light_index in range(8):
+                    if osh.u32(light_index) >= light_count:
+                        break
+                    light = lights[osh.u32(light_index)]
+                    light_type = osh.i32(light.position_type.w + 0.5)
+                    incoming = osh.vec3(0.0)
+                    attenuation = 1.0
+                    enabled = light_type != 3
+                    if light_type == 1:
+                        incoming = -osh.normalize(light.direction_range.xyz)
+                    else:
+                        offset = light.position_type.xyz - world_position
+                        distance_squared = osh.maximum(osh.dot(offset, offset), 1.0e-6)
+                        distance_to_light = osh.sqrt(distance_squared)
+                        incoming = offset / distance_to_light
+                        attenuation = 1.0 / distance_squared
+                        if light.direction_range.w > 0.0 and distance_to_light > light.direction_range.w:
+                            enabled = False
+                        if light_type == 2:
+                            cone = osh.dot(osh.normalize(light.direction_range.xyz), -incoming)
+                            spot_outer = osh.cosine(light.spot.y)
+                            spot_inner = osh.cosine(light.spot.x)
+                            spot = osh.clamp(
+                                (cone - spot_outer)
+                                / osh.maximum(spot_inner - spot_outer, 1.0e-6),
+                                0.0, 1.0,
+                            )
+                            spot = spot * spot * (3.0 - 2.0 * spot)
+                            attenuation = attenuation * spot
+                            if spot <= 0.0:
+                                enabled = False
+                    if enabled:
+                        incident = light.color_intensity.xyz * light.color_intensity.w * attenuation
+                        cosine = osh.dot(-incoming, outgoing)
+                        phase = 0.0795774715459
+                        if header.phase_parameters.y > 0.5:
+                            anisotropy = osh.clamp(header.phase_parameters.x, -0.95, 0.95)
+                            denominator = osh.maximum(
+                                1.0 + anisotropy * anisotropy - 2.0 * anisotropy * cosine,
+                                1.0e-4,
+                            )
+                            phase = (1.0 - anisotropy * anisotropy) / (
+                                12.5663706144 * denominator * osh.sqrt(denominator)
+                            )
+                        incoming_radiance = incoming_radiance + incident * phase
+                        isotropic_radiance = isotropic_radiance + incident * 0.0795774715459
+                scattered = incoming_radiance
+                scattering_orders = osh.minimum(
+                    osh.u32(header.multiple_scattering_parameters.w + 0.5),
+                    osh.u32(8),
+                )
+                ratio = osh.clamp(
+                    header.multiple_scattering_parameters.xyz
+                    * (1.0 - osh.exp(
+                        -extinction * (exit_distance - entry)
+                    )),
+                    osh.vec3(0.0), osh.vec3(0.999),
+                )
+                order_weight = ratio
+                for order in range(2, 9):
+                    if osh.u32(order) > scattering_orders:
+                        break
+                    scattered = scattered + isotropic_radiance * order_weight
+                    order_weight = order_weight * ratio
+                combined_emission = combined_emission + (
+                    scattered * header.scattering_parameters.xyz
+                    * header.scattering_parameters.w
+                )
         opacity = 1.0 - osh.exp(-combined_extinction * step_size)
         radiance = radiance + transmittance * combined_emission * opacity
         transmittance = transmittance * (1.0 - opacity)
@@ -163,5 +248,5 @@ def volume_fragment(
 
 __all__ = [
     "RasterVolumeCamera", "RasterVolumeHeader", "VolumeVertexOutput",
-    "volume_fragment", "volume_vertex",
+    "RasterVolumeLight", "volume_fragment", "volume_vertex",
 ]

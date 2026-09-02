@@ -278,6 +278,7 @@ class VulkanRasterRenderer(RendererImplementation):
             (8, vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE),
             (9, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
             (10, vk.VK_DESCRIPTOR_TYPE_SAMPLER),
+            (11, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
         ):
             volume_bindings.append(vk.VkDescriptorSetLayoutBinding(
                 binding=binding, descriptorType=descriptor_type,
@@ -769,14 +770,20 @@ class VulkanRasterRenderer(RendererImplementation):
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                     vertexBindingDescriptionCount=1,
                     pVertexBindingDescriptions=[vk.VkVertexInputBindingDescription(
-                        binding=0, stride=8,
+                        binding=0, stride=16,
                         inputRate=vk.VK_VERTEX_INPUT_RATE_VERTEX,
                     )],
-                    vertexAttributeDescriptionCount=1,
-                    pVertexAttributeDescriptions=[vk.VkVertexInputAttributeDescription(
-                        location=0, binding=0,
-                        format=vk.VK_FORMAT_R32G32_SFLOAT, offset=0,
-                    )],
+                    vertexAttributeDescriptionCount=2,
+                    pVertexAttributeDescriptions=[
+                        vk.VkVertexInputAttributeDescription(
+                            location=0, binding=0,
+                            format=vk.VK_FORMAT_R32G32_SFLOAT, offset=0,
+                        ),
+                        vk.VkVertexInputAttributeDescription(
+                            location=1, binding=0,
+                            format=vk.VK_FORMAT_R32G32_SFLOAT, offset=8,
+                        ),
+                    ],
                 ),
                 pInputAssemblyState=vk.VkPipelineInputAssemblyStateCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -843,6 +850,7 @@ class VulkanRasterRenderer(RendererImplementation):
         )
         resources = mesh.resources["volume_resources"]
         camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
+        camera["volume_count"][0, 1] = min(mesh.resources.get("light_count", 0), 8)
         return camera.tobytes()
 
     def _record_volume_composite(
@@ -940,6 +948,7 @@ class VulkanRasterRenderer(RendererImplementation):
             (camera_payload, vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT),
             (resources.headers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
             (resources.transfers.tobytes(), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+            (mesh.resources.get("light_buffer", b""), vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
         ):
             buffer, buffer_memory = self._buffer(
                 max(len(payload), 16), usage, host,
@@ -984,7 +993,7 @@ class VulkanRasterRenderer(RendererImplementation):
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                        descriptorCount=2,
+                        descriptorCount=3,
                     ),
                     vk.VkDescriptorPoolSize(
                         type=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -1009,6 +1018,7 @@ class VulkanRasterRenderer(RendererImplementation):
             (0, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffers[0]),
             (1, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[1]),
             (2, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[2]),
+            (11, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers[3]),
         ):
             writes.append(vk.VkWriteDescriptorSet(
                 sType=vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1042,7 +1052,11 @@ class VulkanRasterRenderer(RendererImplementation):
                 pImageInfo=[vk.VkDescriptorImageInfo(sampler=sampler)],
             ))
         vk.vkUpdateDescriptorSets(self.device, len(writes), writes, 0, None)
-        fullscreen = np.asarray(((-1, -1), (3, -1), (-1, 3)), np.float32)
+        # position.xy, top-left-oriented texture coordinate.xy. Vulkan's
+        # positive-height volume viewport maps clip and texture Y directly.
+        fullscreen = np.asarray((
+            (-1, -1, 0, 0), (3, -1, 2, 0), (-1, 3, 0, 2),
+        ), np.float32)
         vertex_buffer, vertex_memory = self._buffer(
             fullscreen.nbytes, vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             host, fullscreen.tobytes(),

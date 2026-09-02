@@ -383,7 +383,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "b57e31cb6f7241bed5e051d51a234562febadb7e0db00e6109f81a5da4b7d753",
+          "cache_key": "460d936de8a10a103c14bb1b7f14e346ea3108c2e8e82dfd4856e2a7b9618221",
           "file": "raster_volume.frag.spv",
           "reflection": {
             "entry_point": "main",
@@ -493,6 +493,14 @@
                 "kind": "sampler",
                 "name": "depth_sampler",
                 "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 11,
+                "format": "RasterVolumeLight",
+                "kind": "storage_buffer",
+                "name": "lights",
+                "set": 0
               }
             ],
             "stage": "fragment",
@@ -502,10 +510,10 @@
               1
             ]
           },
-          "sha256": "bfa44d0f72b29ff3c51523f625a7dbfa18f93d98910463eb88bbd45a2060c28d"
+          "sha256": "25345ac0527d1f632cff5715cc9068fe26f1243b2480af330da52fc2e686a7c8"
         },
         "vertex": {
-          "cache_key": "4db59a75b743155d568566d0522742ebaab3a916f47fbc00f464fc6c2db78896",
+          "cache_key": "a0e38e64d354cd317b919607a3c85005e4e821b8bd816e036776271aa6a23edf",
           "file": "raster_volume.vert.spv",
           "reflection": {
             "entry_point": "main",
@@ -515,6 +523,13 @@
                 "invariant": false,
                 "location": 0,
                 "name": "clip_position",
+                "type": "vec2"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "texture_coordinate",
                 "type": "vec2"
               }
             ],
@@ -542,7 +557,7 @@
               1
             ]
           },
-          "sha256": "88e1e03298d527913ce19771af6c12cdea11da8f825e5df5f44991f5ec191b38"
+          "sha256": "2cc7eb4e42e2bae9d57f6182c893afd668ddf5b844ee6245d0d5295af68af14a"
         }
       }
     },
@@ -801,7 +816,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "33e4937c285208586fbead9f3b800af6403963ea8067dff9ac8b02b05c98d530",
+          "cache_key": "d3f46220604b67d7f1ab54ece1f6d8dc302f4b5ff4bc2f57da766aa6735f3c7c",
           "file": "raster_volume.frag.wgsl",
           "reflection": {
             "entry_point": "main",
@@ -911,6 +926,14 @@
                 "kind": "sampler",
                 "name": "depth_sampler",
                 "set": 0
+              },
+              {
+                "access": "read",
+                "binding": 11,
+                "format": "RasterVolumeLight",
+                "kind": "storage_buffer",
+                "name": "lights",
+                "set": 0
               }
             ],
             "stage": "fragment",
@@ -920,10 +943,10 @@
               1
             ]
           },
-          "sha256": "120b110ac882feb83d763ae0caba8d4fc015c684be38c0375093ac64ed1e1761"
+          "sha256": "92f84e6b92f80f602bf83b87a054a8aefb3651350166fb733fadaeb50fc3affd"
         },
         "vertex": {
-          "cache_key": "e2782c002936789c3e48ba4357d8b2f7b26b074c116128cd0d9986e5fecc265a",
+          "cache_key": "420b9a68760d89696e2cc3382e551f02e771744ac784b2e3325424ef81a6cd4e",
           "file": "raster_volume.vert.wgsl",
           "reflection": {
             "entry_point": "main",
@@ -933,6 +956,13 @@
                 "invariant": false,
                 "location": 0,
                 "name": "clip_position",
+                "type": "vec2"
+              },
+              {
+                "builtin": null,
+                "invariant": false,
+                "location": 1,
+                "name": "texture_coordinate",
                 "type": "vec2"
               }
             ],
@@ -960,7 +990,7 @@
               1
             ]
           },
-          "sha256": "abb2cd7094de683e56645f1a6c0c4bd91907bd79f7da85a9581d3b336748af65"
+          "sha256": "f364f18bd0d9d770b6c9407bb5cd9cd2c9ba686264b1542ff32384749bb083ab"
         }
       }
     }

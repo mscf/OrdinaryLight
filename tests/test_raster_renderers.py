@@ -589,6 +589,46 @@ class RasterBackendTests(unittest.TestCase):
         os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
         "GPU raster validation is opt-in",
     )
+    def test_vulkan_native_volume_scattering_responds_to_scene_lights(self):
+        if importlib.util.find_spec("vulkan") is None:
+            self.skipTest("Vulkan is unavailable")
+        from ordinarylight.showcases.volume_scattering import (
+            build_volume_scattering_showcase,
+        )
+
+        lit = build_volume_scattering_showcase(20)
+        unlit = build_volume_scattering_showcase(20)
+        for scene in (lit, unlit):
+            for mesh in tuple(scene.meshes):
+                scene.remove_mesh(mesh)
+        for light in tuple(unlit.lights):
+            unlit.remove_light(light)
+        camera = ol.PerspectiveCamera((5.2, 3.1, 6.2), (-0.1, 1.45, -0.7))
+        backend = ol.renderers.raster.VulkanRasterRenderer(
+            ol.RasterProgram.scene(target="spirv"),
+            config=ol.RasterConfig(
+                volume_rendering="ray-march", volume_max_steps=512,
+                state=ol.RasterState(cull_mode="none"),
+            ),
+        )
+        try:
+            lit_image = backend.render_frame(lit, camera, 128, 96)
+            unlit_image = backend.render_frame(unlit, camera, 128, 96)
+        finally:
+            backend.close()
+
+        contribution = np.maximum(
+            lit_image[..., :3] - unlit_image[..., :3], 0.0,
+        )
+        self.assertGreater(float(np.max(contribution)), 0.01)
+        self.assertGreater(int(np.count_nonzero(
+            np.max(contribution, axis=2) > 0.002,
+        )), 50)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
     def test_vulkan_native_volume_composite_preserves_scene_orientation(self):
         if importlib.util.find_spec("vulkan") is None:
             self.skipTest("Vulkan is unavailable")
@@ -613,6 +653,38 @@ class RasterBackendTests(unittest.TestCase):
         # Compare the mostly opaque/background portion.  The two volume
         # algorithms need not match exactly, but an inverted composite is
         # overwhelmingly closer after flipping than in its native layout.
+        mask = np.max(reference, axis=2) < 1.0
+        direct_error = float(np.mean(np.abs(reference[mask] - native[mask])))
+        flipped_error = float(
+            np.mean(np.abs(reference[mask] - native[::-1][mask]))
+        )
+        self.assertLess(direct_error, flipped_error * 0.25)
+
+    @unittest.skipUnless(
+        os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
+        "GPU raster validation is opt-in",
+    )
+    def test_webgpu_native_volume_composite_preserves_scene_orientation(self):
+        if importlib.util.find_spec("wgpu") is None:
+            self.skipTest("WebGPU is unavailable")
+        from ordinarylight.showcases.volumes import build_volume_showcase
+        scene = build_volume_showcase(16)
+        camera = ol.PerspectiveCamera((5, 3, 6), (0, 1, 0))
+        images = []
+        for mode in ("slices", "ray-march"):
+            backend = ol.renderers.raster.WebGpuRasterRenderer(
+                ol.RasterProgram.scene(target="wgsl"),
+                config=ol.RasterConfig(
+                    volume_rendering=mode, volume_slices=48,
+                    volume_max_steps=256,
+                    state=ol.RasterState(cull_mode="none"),
+                ),
+            )
+            try:
+                images.append(backend.render_frame(scene, camera, 96, 64))
+            finally:
+                backend.close()
+        reference, native = (image[..., :3] for image in images)
         mask = np.max(reference, axis=2) < 1.0
         direct_error = float(np.mean(np.abs(reference[mask] - native[mask])))
         flipped_error = float(

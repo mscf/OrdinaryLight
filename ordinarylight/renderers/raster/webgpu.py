@@ -120,12 +120,15 @@ class WebGpuRasterRenderer(RendererImplementation):
                 "module": self._volume_vertex_module,
                 "entry_point": "main",
                 "buffers": ({
-                    "array_stride": 8,
+                    "array_stride": 16,
                     "step_mode": "vertex",
                     "attributes": ({
                         "format": "float32x2", "offset": 0,
                         "shader_location": 0,
-                    },),
+                    }, {
+                        "format": "float32x2", "offset": 8,
+                        "shader_location": 1,
+                    }),
                 },),
             },
             primitive={"topology": "triangle-list", "cull_mode": "none"},
@@ -162,6 +165,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             mesh.resources["volume_max_steps"],
         )
         camera["volume_count"][0, 0] = min(len(resources.scalar_fields), 4)
+        camera["volume_count"][0, 1] = min(mesh.resources.get("light_count", 0), 8)
         uniform = self.device.create_buffer_with_data(
             data=camera, usage=wgpu.BufferUsage.UNIFORM,
         )
@@ -170,6 +174,10 @@ class WebGpuRasterRenderer(RendererImplementation):
         )
         transfers = self.device.create_buffer_with_data(
             data=resources.transfers, usage=wgpu.BufferUsage.STORAGE,
+        )
+        light_payload = mesh.resources.get("light_buffer", b"") or bytes(64)
+        light_buffer = self.device.create_buffer_with_data(
+            data=light_payload, usage=wgpu.BufferUsage.STORAGE,
         )
         textures = []
         fields = list(resources.scalar_fields[:4])
@@ -211,10 +219,15 @@ class WebGpuRasterRenderer(RendererImplementation):
                   for index, texture in enumerate(textures)),
                 {"binding": 9, "resource": linear},
                 {"binding": 10, "resource": nearest},
+                {"binding": 11, "resource": {"buffer": light_buffer}},
             ),
         )
         fullscreen = self.device.create_buffer_with_data(
-            data=np.asarray(((-1, -1), (3, -1), (-1, 3)), np.float32),
+            # position.xy, top-left-oriented texture coordinate.xy. WebGPU's
+            # framebuffer Y is opposite its clip-space Y, so UV is explicit.
+            data=np.asarray((
+                (-1, -1, 0, 1), (3, -1, 2, 1), (-1, 3, 0, -1),
+            ), np.float32),
             usage=wgpu.BufferUsage.VERTEX,
         )
         render_pass = encoder.begin_render_pass(color_attachments=({

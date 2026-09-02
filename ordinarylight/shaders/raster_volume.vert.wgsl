@@ -5,7 +5,8 @@ struct VolumeVertexOutput {
 
 @vertex
 fn main(
-    @location(0) clip_position: vec2<f32>
+    @location(0) clip_position: vec2<f32>,
+    @location(1) texture_coordinate: vec2<f32>
 ) -> VolumeVertexOutput {
-    return VolumeVertexOutput(vec4<f32>(clip_position, 0.0, 1.0), ((clip_position * 0.5) + vec2<f32>(0.5)));
+    return VolumeVertexOutput(vec4<f32>(clip_position, 0.0, 1.0), texture_coordinate);
 }

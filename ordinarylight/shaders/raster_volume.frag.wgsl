@@ -16,6 +16,13 @@ struct RasterVolumeHeader {
     acceleration_parameters: vec4<u32>,
 }
 
+struct RasterVolumeLight {
+    position_type: vec4<f32>,
+    direction_range: vec4<f32>,
+    color_intensity: vec4<f32>,
+    spot: vec4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> camera: RasterVolumeCamera;
 @group(0) @binding(1) var<storage, read> headers: array<RasterVolumeHeader>;
 @group(0) @binding(2) var<storage, read> transfers: array<vec4<f32>>;
@@ -27,6 +34,7 @@ struct RasterVolumeHeader {
 @group(0) @binding(8) var volume_3: texture_3d<f32>;
 @group(0) @binding(9) var linear_sampler: sampler;
 @group(0) @binding(10) var depth_sampler: sampler;
+@group(0) @binding(11) var<storage, read> lights: array<RasterVolumeLight>;
 
 @fragment
 fn main(
@@ -115,9 +123,74 @@ fn main(
             let transfer_coordinate: f32 = (clamp(scalar, 0.0, 1.0) * f32((transfer_count - u32(1))));
             let transfer_index: u32 = min(u32((transfer_coordinate + 0.5)), (transfer_count - u32(1)));
             let sample_value: vec4<f32> = transfers[(u32(header.value_parameters.x) + transfer_index)];
-            let extinction: f32 = (sample_value.a * header.value_parameters.z);
+            let reference_alpha: f32 = clamp((sample_value.a * header.value_parameters.z), 0.0, 0.999999);
+            let reference_step: f32 = max(header.render_parameters.x, 1e-05);
+            let extinction: f32 = ((-log((1.0 - reference_alpha))) / reference_step);
             combined_extinction = (combined_extinction + extinction);
-            combined_emission = (combined_emission + (sample_value.rgb * (extinction + header.value_parameters.w)));
+            combined_emission = (combined_emission + (sample_value.rgb * header.value_parameters.w));
+            if (((header.scattering_parameters.w > 0.0) && (extinction > 0.0))) {
+                var incoming_radiance: vec3<f32> = vec3<f32>(0.0);
+                var isotropic_radiance: vec3<f32> = vec3<f32>(0.0);
+                let outgoing: vec3<f32> = (-ray_direction);
+                let light_count: u32 = min(camera.volume_count.y, u32(8));
+                for (var light_index: i32 = 0; light_index < 8; light_index += 1) {
+                    if ((u32(light_index) >= light_count)) {
+                        break;
+                    }
+                    let light: RasterVolumeLight = lights[u32(light_index)];
+                    let light_type: i32 = i32((light.position_type.w + 0.5));
+                    var incoming: vec3<f32> = vec3<f32>(0.0);
+                    var attenuation: f32 = 1.0;
+                    var enabled: bool = (light_type != 3);
+                    if ((light_type == 1)) {
+                        incoming = (-normalize(light.direction_range.xyz));
+                    } else {
+                        let offset: vec3<f32> = (light.position_type.xyz - world_position);
+                        let distance_squared: f32 = max(dot(offset, offset), 1e-06);
+                        let distance_to_light: f32 = sqrt(distance_squared);
+                        incoming = (offset / distance_to_light);
+                        attenuation = (1.0 / distance_squared);
+                        if (((light.direction_range.w > 0.0) && (distance_to_light > light.direction_range.w))) {
+                            enabled = false;
+                        }
+                        if ((light_type == 2)) {
+                            let cone: f32 = dot(normalize(light.direction_range.xyz), (-incoming));
+                            let spot_outer: f32 = cos(light.spot.y);
+                            let spot_inner: f32 = cos(light.spot.x);
+                            var spot: f32 = clamp(((cone - spot_outer) / max((spot_inner - spot_outer), 1e-06)), 0.0, 1.0);
+                            spot = ((spot * spot) * (3.0 - (2.0 * spot)));
+                            attenuation = (attenuation * spot);
+                            if ((spot <= 0.0)) {
+                                enabled = false;
+                            }
+                        }
+                    }
+                    if (enabled) {
+                        let incident: vec3<f32> = ((light.color_intensity.xyz * light.color_intensity.w) * attenuation);
+                        let cosine: f32 = dot((-incoming), outgoing);
+                        var phase: f32 = 0.0795774715459;
+                        if ((header.phase_parameters.y > 0.5)) {
+                            let anisotropy: f32 = clamp(header.phase_parameters.x, (-0.95), 0.95);
+                            let denominator: f32 = max(((1.0 + (anisotropy * anisotropy)) - ((2.0 * anisotropy) * cosine)), 0.0001);
+                            phase = ((1.0 - (anisotropy * anisotropy)) / ((12.5663706144 * denominator) * sqrt(denominator)));
+                        }
+                        incoming_radiance = (incoming_radiance + (incident * phase));
+                        isotropic_radiance = (isotropic_radiance + (incident * 0.0795774715459));
+                    }
+                }
+                var scattered: vec3<f32> = incoming_radiance;
+                let scattering_orders: u32 = min(u32((header.multiple_scattering_parameters.w + 0.5)), u32(8));
+                let ratio: vec3<f32> = clamp((header.multiple_scattering_parameters.xyz * (1.0 - exp(((-extinction) * (exit_distance - entry))))), vec3<f32>(0.0), vec3<f32>(0.999));
+                var order_weight: vec3<f32> = ratio;
+                for (var order: i32 = 2; order < 9; order += 1) {
+                    if ((u32(order) > scattering_orders)) {
+                        break;
+                    }
+                    scattered = (scattered + (isotropic_radiance * order_weight));
+                    order_weight = (order_weight * ratio);
+                }
+                combined_emission = (combined_emission + ((scattered * header.scattering_parameters.xyz) * header.scattering_parameters.w));
+            }
         }
         let opacity: f32 = (1.0 - exp(((-combined_extinction) * step_size)));
         radiance = (radiance + ((transmittance * combined_emission) * opacity));
