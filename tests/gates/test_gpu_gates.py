@@ -119,6 +119,22 @@ class VulkanGateTests(unittest.TestCase):
         self._run_optical_pose_matrix(
             "nested-dielectric", "nested_dielectric_parity.json", "outer-",
         )
+
+    def test_material_program_room_visual_parity(self):
+        pose = {
+            "position": [-4.349655341112302, 3.5999999999999996,
+                         9.004471023526769],
+            "target": [0.0, 1.3, 0.0],
+            "up": [0.0, 1.0, 0.0],
+            "vertical_fov_degrees": 45.0,
+        }
+        self._run(
+            "tests.gates.renderer_visual_parity",
+            "--scene", "material-room",
+            "--raster-optics", "screen-space",
+            "--camera-pose", json.dumps(pose),
+            "--output", "/tmp/ordinarylight_material_room_parity",
+        )
         self._run_optical_pose_matrix(
             "thin-transmission", "thin_transmission_parity.json", "material-",
         )

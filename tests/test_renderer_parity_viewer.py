@@ -66,6 +66,15 @@ def test_optional_scene_light_toggle_preserves_authored_intensity():
     assert light.intensity == entry["intensity"]
 
 
+def test_material_program_room_uses_shared_screen_space_optics():
+    catalog = {showcase.id: showcase for showcase in viewer._catalog()}
+    settings = catalog["raster-material-program-room"].renderer
+
+    assert settings["optical_quality"] == "screen-space"
+    assert settings["screen_space_ray_steps"] == 64
+    assert settings["screen_space_optical_layers"] == 4
+
+
 def test_target_switch_preserves_scene_and_camera_controller():
     created = []
     showcase = _showcase("one", created)

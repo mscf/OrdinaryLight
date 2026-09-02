@@ -64,6 +64,8 @@ def _render_gi(
 def _render_raster(
     scene, camera, extent, material_modifier=None,
     optical_quality="environment", optical_debug_view="off", *, shadows=True,
+    ambient_light=0.08, screen_space_ray_steps=24,
+    screen_space_optical_layers=4,
 ):
     program = ol.RasterProgram.scene(
         target="spirv",
@@ -74,10 +76,12 @@ def _render_raster(
         program,
         config=ol.RasterConfig(
             state=ol.RasterState(cull_mode="none"),
-            ambient_light=0.08,
+            ambient_light=ambient_light,
             shading_model="pbr",
             tone_mapping="none",
             optical_quality=optical_quality,
+            screen_space_ray_steps=screen_space_ray_steps,
+            screen_space_optical_layers=screen_space_optical_layers,
             optical_debug_view=optical_debug_view,
             shadows=shadows,
         ),
@@ -103,6 +107,7 @@ def main():
             "feature", "materials", "modifier", "clearcoat", "sheen",
             "anisotropy", "thin-transmission", "subsurface",
             "point-shadows",
+            "material-room",
             "environment-reflection", "refraction", "absorption",
             "nested-dielectric", "transparency",
         ), default="feature",
@@ -232,12 +237,17 @@ def main():
         )
         scene = build_point_shadow_scene()
         camera = ol.PerspectiveCamera((0.0, 4.2, 8.5), (0.0, 0.9, 0.0))
-    elif args.scene in {"materials", "modifier"}:
+    elif args.scene in {"materials", "modifier", "material-room"}:
         from ordinarylight.showcases.raster_features import (
-            build_material_program_parity_scene,
+            build_material_program_parity_scene, build_material_program_room_scene,
         )
-        scene = build_material_program_parity_scene()
-        camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
+        if args.scene == "material-room":
+            scene = build_material_program_room_scene()
+            camera = ol.PerspectiveCamera((0,3.6,10),(0,1.3,0))
+            args.raster_optics = "screen-space"
+        else:
+            scene = build_material_program_parity_scene()
+            camera = ol.PerspectiveCamera((0,3.2,10),(0,1,0))
         if args.scene == "modifier":
             from ordinarylight.showcases.raster_material_hooks import (
                 advanced_surface_showcase_modifier,
@@ -262,6 +272,8 @@ def main():
         scene, camera, extent, material_modifier, args.raster_optics,
         args.raster_optical_debug_view,
         shadows=not args.disable_raster_shadows,
+        ambient_light=(0.015 if args.scene == "material-room" else 0.08),
+        screen_space_ray_steps=(64 if args.scene == "material-room" else 24),
     )
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,

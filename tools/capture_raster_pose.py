@@ -86,6 +86,9 @@ def main() -> int:
         vertical_fov_degrees=float(pose.get("vertical_fov_degrees", 45.0)),
     )
     settings = dict(showcase.renderer)
+    # Viewer-only controls are not RasterConfig fields. The scene already
+    # carries the authored optional-light state used for deterministic capture.
+    settings.pop("scene_light_toggle", None)
     default_material = settings.get("material_program") or ol.builtin_material
     program = ol.RasterProgram.scene(
         target="spirv", validate=False,

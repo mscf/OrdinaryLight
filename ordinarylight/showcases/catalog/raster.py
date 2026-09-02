@@ -158,6 +158,9 @@ SHOWCASES = (
         renderer={
             "shadows": False, "shadow_map_size": 1024,
             "ambient_light": 0.015,
+            "optical_quality": "screen-space",
+            "screen_space_ray_steps": 64,
+            "screen_space_optical_layers": 4,
             "scene_light_toggle": True,
         },
         tags=(
