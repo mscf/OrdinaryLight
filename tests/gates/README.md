@@ -108,6 +108,22 @@ The tracked baseline contains aggregate metrics and configuration, not large
 HDR captures. Per-frame HDR sequences, the complete CSV, and the run report
 remain under `/tmp/ordinarylight_noise_quality` for inspection.
 
+Rigid-object motion has a separate ReLAX gate. It compares actual HDR pixels
+against independent high-sample frames for both object and camera motion,
+including stationary-background stability, moving/disoccluded regions, edge
+preservation, and median GPU time:
+
+```bash
+python -m tests.gates.relax_motion_quality
+```
+
+Replacing its tracked baseline also requires an explicit review reason:
+
+```bash
+ORDINARYLIGHT_RELAX_MOTION_GATE_OVERRIDE_REASON="explain the accepted change" \
+python -m tests.gates.relax_motion_quality --accept-baseline
+```
+
 Gate reports default to `/tmp` or to an explicitly supplied output directory.
 Tests must not write generated captures into the source tree.
 

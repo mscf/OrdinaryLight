@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "override_reason": "Establish object-motion ReLAX baseline after adding rigid-transform reprojection",
+  "configuration": {
+    "width": 320,
+    "height": 180,
+    "frames": 7,
+    "reference_samples": 16,
+    "bounces": 8,
+    "atrous_iterations": 3,
+    "camera_arc": 0.2
+  },
+  "accepted": {
+    "object": {
+      "log_luminance_rmse": 0.22239725291728973,
+      "motion_region_rmse": 0.36846625804901123,
+      "stationary_residual_rmse": 0.20045508444309235,
+      "edge_correlation": 0.023116504549900416,
+      "median_gpu_ms": 0.67808
+    },
+    "camera": {
+      "log_luminance_rmse": 0.2968509793281555,
+      "motion_region_rmse": 0.44215965270996094,
+      "stationary_residual_rmse": 0.3726467788219452,
+      "edge_correlation": 0.11219798100864169,
+      "median_gpu_ms": 0.6528
+    }
+  }
+}

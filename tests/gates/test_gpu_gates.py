@@ -65,6 +65,9 @@ class VulkanGateTests(unittest.TestCase):
     def test_accepted_noise_quality_baseline(self):
         self._run("tests.gates.noise_quality")
 
+    def test_relax_object_and_camera_motion_quality(self):
+        self._run("tests.gates.relax_motion_quality")
+
     def test_resident_transition_latency(self):
         self._run("tests.gates.transition_latency")
 

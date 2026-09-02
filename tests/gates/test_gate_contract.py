@@ -11,6 +11,7 @@ PYTHON_GATES = (
     "noise_quality",
     "path_termination_quality",
     "raster_lighting",
+    "relax_motion_quality",
     "restir_matrix",
     "restir_quality",
     "ser_quality",
@@ -53,6 +54,12 @@ class GateContractTests(unittest.TestCase):
         path = Path(__file__).parent / "baselines" / "raster_lighting.json"
         self.assertTrue(path.is_file())
         self.assertIn("point", path.read_text())
+
+    def test_relax_motion_baseline_is_checked_in(self):
+        path = Path(__file__).parent / "baselines" / "relax_motion_quality.json"
+        self.assertTrue(path.is_file())
+        payload = __import__("json").loads(path.read_text())
+        self.assertEqual(set(payload["accepted"]), {"object", "camera"})
 
 
 if __name__ == "__main__":
