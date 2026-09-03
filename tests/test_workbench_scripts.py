@@ -1,5 +1,6 @@
 import textwrap
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -25,6 +26,11 @@ class WorkbenchScriptTests(unittest.TestCase):
             directional.create_scene().lights[0], ol.DirectionalLight,
         )
         self.assertIsInstance(spot.create_scene().lights[0], ol.SpotLight)
+        self.assertNotIn("scientific-scalar-field", tuple(item.id for item in catalog))
+
+    def test_external_only_mode_omits_packaged_catalog(self):
+        with patch.dict("os.environ", {"ORDINARYLIGHT_SHOWCASE_ONLY": "1"}):
+            self.assertEqual(_default_showcase_paths(), ())
 
     def test_object_motion_showcase_advances_only_animated_geometry(self):
         catalog = discover_showcases(_default_showcase_paths())

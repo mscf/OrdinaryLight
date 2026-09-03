@@ -21,6 +21,10 @@ from ordinarylight.integrations.workbench import Showcase, discover_showcases
 
 def _default_showcase_paths():
     """Return packaged catalog scripts; user paths are added by discovery."""
+    if os.environ.get("ORDINARYLIGHT_SHOWCASE_ONLY", "").lower() in {
+        "1", "true", "yes", "on",
+    }:
+        return ()
     return (Path(__file__).resolve().parents[1] / "showcases" / "catalog",)
 
 

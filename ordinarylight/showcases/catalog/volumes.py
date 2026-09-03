@@ -6,7 +6,6 @@ from ordinarylight.showcases.multivolume import build_multivolume_showcase
 from ordinarylight.showcases.volume_multiple_scattering import build_volume_multiple_scattering_showcase
 from ordinarylight.showcases.volume_scattering import build_volume_scattering_showcase
 from ordinarylight.showcases.volumes import build_volume_showcase
-from ordinarylight.showcases.scientific import build_scientific_scalar_field_scene
 
 
 VOLUME_CAMERA = OrbitCamera(
@@ -16,21 +15,6 @@ VOLUME_CAMERA = OrbitCamera(
 
 
 SHOWCASES = (
-    Showcase(
-        "scientific-scalar-field", "Scientific scalar field",
-        build_scientific_scalar_field_scene,
-        description=(
-            "One coordinate-aware field drives a clipped volume, three "
-            "orthogonal slices, and an isosurface through a shared transfer "
-            "function."
-        ),
-        camera=OrbitCamera(target=(0.0, 0.0, 0.0), radius=4.8, height=2.3),
-        renderer={
-            "volume_rendering": "ray-march", "volume_step_scale": 1.0,
-            "volume_max_steps": 1024,
-        },
-        tags=("volumes", "scientific", "raster-feature"),
-    ),
     Showcase(
         "volume", "Volumes: transfer function", build_volume_showcase,
         description=(
