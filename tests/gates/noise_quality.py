@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import statistics
 
 import numpy as np
 
@@ -19,7 +20,7 @@ from ordinarylight.showcases.rooms import get_restir_scene
 from ordinarylight.showcases.volumes import build_volume_showcase
 
 
-BASELINE_SCHEMA = 2
+BASELINE_SCHEMA = 4
 DEFAULT_BASELINE = Path(__file__).with_name("baselines") / "noise_quality.json"
 OVERRIDE_REASON = "ORDINARYLIGHT_NOISE_GATE_OVERRIDE_REASON"
 
@@ -34,14 +35,96 @@ MAX_POLICIES = {
     "horizontal_band_rms_p95": (1.10, 0.001),
     "vertical_band_rms_p95": (1.10, 0.001),
     "positive_outlier_p999_p95": (1.15, 0.01),
-    "edge_gradient_error_mean": (1.08, 0.005),
+    "structural_edge_error_mean": (1.08, 0.02),
 }
 MIN_POLICIES = {
     # An absolute margin is more meaningful than a ratio around the ideal
     # signed edge-gradient gain of one.
-    "edge_gradient_gain_mean": 0.05,
+    "structural_edge_gain_mean": 0.05,
 }
 BIAS_MARGIN = 0.002
+
+
+def _box_filter(image, radius=2):
+    """Return an edge-padded box filter without adding a SciPy dependency."""
+    size = 2 * radius + 1
+    padded = np.pad(image, radius, mode="edge")
+    integral = (
+        np.pad(padded, ((1, 0), (1, 0)), mode="constant")
+        .cumsum(0)
+        .cumsum(1)
+    )
+    return (
+        integral[size:, size:]
+        - integral[:-size, size:]
+        - integral[size:, :-size]
+        + integral[:-size, :-size]
+    ) / float(size * size)
+
+
+def structural_edge_rows(reference, candidate):
+    """Measure signed scene edges after suppressing sample-scale noise.
+
+    Two small box passes form a triangular filter. This removes isolated Monte
+    Carlo gradients from the edge selector while retaining object and lighting
+    boundaries at the gate's 320x180 capture resolution.
+    """
+    reference = np.asarray(reference, dtype=np.float32)[..., :3]
+    candidate = np.asarray(candidate, dtype=np.float32)[..., :3]
+    if reference.shape != candidate.shape or reference.ndim != 4:
+        raise ValueError(
+            "reference and candidate sequences must have matching HDR shapes"
+        )
+    weights = np.asarray((0.2126, 0.7152, 0.0722), dtype=np.float32)
+    epsilon = 1e-8
+    rows = []
+    for reference_frame, candidate_frame in zip(reference, candidate):
+        reference_luma = _box_filter(_box_filter(reference_frame @ weights))
+        candidate_luma = _box_filter(_box_filter(candidate_frame @ weights))
+        reference_dx = np.diff(reference_luma, axis=1)
+        reference_dy = np.diff(reference_luma, axis=0)
+        candidate_dx = np.diff(candidate_luma, axis=1)
+        candidate_dy = np.diff(candidate_luma, axis=0)
+        magnitudes = np.concatenate((
+            np.abs(reference_dx).ravel(), np.abs(reference_dy).ravel(),
+        ))
+        threshold = max(float(np.percentile(magnitudes, 90.0)), epsilon)
+        edge_x = np.abs(reference_dx) > threshold
+        edge_y = np.abs(reference_dy) > threshold
+        edge_reference = np.concatenate((
+            reference_dx[edge_x], reference_dy[edge_y],
+        ))
+        edge_candidate = np.concatenate((
+            candidate_dx[edge_x], candidate_dy[edge_y],
+        ))
+        denominator = float(np.dot(edge_reference, edge_reference))
+        if not edge_reference.size or denominator <= epsilon:
+            rows.append({
+                "structural_edge_gain": 1.0,
+                "structural_edge_error": 0.0,
+            })
+            continue
+        rows.append({
+            "structural_edge_gain": (
+                float(np.dot(edge_reference, edge_candidate)) / denominator
+            ),
+            "structural_edge_error": float(np.sqrt(
+                np.dot(
+                    edge_candidate - edge_reference,
+                    edge_candidate - edge_reference,
+                )
+                / denominator
+            )),
+        })
+    return rows
+
+
+def summarize_structural_edges(reference, candidate):
+    rows = structural_edge_rows(reference, candidate)
+    return {
+        f"{name}_mean": float(np.mean([row[name] for row in rows]))
+        for name in ("structural_edge_gain", "structural_edge_error")
+    }
 
 
 @dataclass(frozen=True)
@@ -151,7 +234,7 @@ def _capture(window, scenario, scene, args, *, reference, path):
     return frames, timings
 
 
-def make_baseline(configuration, summaries, *, reason):
+def make_baseline(configuration, summaries, *, reason, timings=None):
     """Create the reviewable baseline payload stored in version control."""
     return {
         "schema": BASELINE_SCHEMA,
@@ -169,10 +252,11 @@ def make_baseline(configuration, summaries, *, reason):
             "bias_margin": BIAS_MARGIN,
         },
         "accepted": summaries,
+        "accepted_timings": dict(timings or {}),
     }
 
 
-def evaluate_against_baseline(configuration, summaries, baseline):
+def evaluate_against_baseline(configuration, summaries, baseline, timings=None):
     """Return human-readable failures against an accepted baseline payload."""
     failures = []
     if baseline.get("schema") != BASELINE_SCHEMA:
@@ -213,6 +297,18 @@ def evaluate_against_baseline(configuration, summaries, baseline):
             failures.append(
                 f"{scene_name}/|bias_mean|: {abs(observed['bias_mean']):.7g} "
                 f"> {bias_limit:.7g}"
+            )
+    accepted_timings = baseline.get("accepted_timings", {})
+    for scene_name, observed in (timings or {}).items():
+        accepted = accepted_timings.get(scene_name)
+        if accepted is None:
+            failures.append(f"missing accepted timing for {scene_name}")
+            continue
+        limit = max(accepted * 1.20, accepted + 0.35)
+        if observed > limit:
+            failures.append(
+                f"{scene_name}/median_gpu_ms: {observed:.7g} > {limit:.7g} "
+                f"(accepted {accepted:.7g})"
             )
     return failures
 
@@ -269,6 +365,7 @@ def main():
 
     summaries = {}
     timings = {}
+    candidate_medians = {}
     comparisons = {}
     try:
         for scenario in SCENARIOS:
@@ -282,13 +379,16 @@ def main():
                 path=args.output / f"{scenario.name}_relax.npy",
             )
             comparisons[scenario.name] = (reference, candidate)
-            summaries[scenario.name] = _selected_summary(
-                summarize_temporal_quality(reference, candidate)
-            )
+            summary = summarize_temporal_quality(reference, candidate)
+            summary.update(summarize_structural_edges(reference, candidate))
+            summaries[scenario.name] = _selected_summary(summary)
             timings[scenario.name] = {
                 "reference_gpu_ms_mean": float(np.mean(reference_times)),
                 "candidate_gpu_ms_mean": float(np.mean(candidate_times)),
             }
+            candidate_medians[scenario.name] = float(
+                statistics.median(candidate_times)
+            )
     finally:
         glfw.destroy_window(window)
         glfw.terminate()
@@ -298,13 +398,17 @@ def main():
         "configuration": configuration,
         "quality": summaries,
         "timings": timings,
+        "candidate_median_gpu_ms": candidate_medians,
     }
     write_temporal_quality_csv(args.output / "metrics.csv", comparisons)
     (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 
     if args.accept_baseline:
-        baseline = make_baseline(configuration, summaries, reason=reason)
+        baseline = make_baseline(
+            configuration, summaries, reason=reason,
+            timings=candidate_medians,
+        )
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps(baseline, indent=2) + "\n")
         print(f"ACCEPTED: ReLAX noise baseline -> {args.baseline}")
@@ -315,7 +419,8 @@ def main():
             f"--accept-baseline and {OVERRIDE_REASON}"
         )
     failures = evaluate_against_baseline(
-        configuration, summaries, json.loads(args.baseline.read_text())
+        configuration, summaries, json.loads(args.baseline.read_text()),
+        timings=candidate_medians,
     )
     if failures:
         print("FAIL: accepted noise-quality baseline regressed")
