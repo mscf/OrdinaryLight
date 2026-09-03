@@ -6,7 +6,7 @@ import pytest
 import ordinarylight as ol
 from ordinarylight.integrations.workbench import OrbitCamera
 
-from tools import raster_feature_viewer as viewer
+from ordinarylight.integrations import raster_workbench as viewer
 
 
 def _showcase(identifier, counter):

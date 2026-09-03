@@ -41,6 +41,7 @@ dev = ["build>=1.2", "twine>=5.1"]
 
 [project.scripts]
 ordinarylight-workbench = "ordinarylight.integrations.qt_workbench:main"
+ordinarylight-raster-workbench = "ordinarylight.integrations.raster_workbench:main"
 
 [tool.setuptools]
 include-package-data = true

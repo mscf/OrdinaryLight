@@ -295,8 +295,10 @@ normal transition path zero-copy.
 
 ## Workbench showcases
 
-`ordinarylight-workbench` is the sole interactive feature browser. Built-in
-scenes and third-party extensions use the same declarative `Showcase` contract.
+`ordinarylight-workbench` is the global-illumination feature browser, while
+`ordinarylight-raster-workbench` provides live Vulkan/WebGPU raster comparison.
+Built-in scenes and third-party extensions use the same declarative `Showcase`
+contract in both hosts.
 Put Python scripts in a directory listed by `ORDINARYLIGHT_SHOWCASE_PATH`, then
 use **Reload scripts** in the workbench. Each script defines `SHOWCASE` or
 `SHOWCASES`; scene construction is lazy and runs away from the Qt event thread.
