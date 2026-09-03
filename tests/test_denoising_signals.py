@@ -6,6 +6,7 @@ from unittest import mock
 import numpy as np
 
 import ordinarylight as ol
+from ordinarylight.integrations.temporal_quality import summarize_temporal_quality
 from tests.gates.denoiser_reference_quality import main as reference_gate_main
 from ordinarylight.denoising.reference import (
     NrdRelaxReference,
@@ -281,6 +282,47 @@ class DenoiserSignalTests(unittest.TestCase):
         right = float(result.diffuse[:, 13, 0].mean())
         self.assertGreater(right - left, 0.75)
         self.assertGreater(result.temporal_acceptance, 0.9)
+
+    def test_deterministic_relax_integration_has_no_band_or_finite_regression(self):
+        """Compare enabled ReLAX with the exact same fixed-seed raw sequence."""
+        denoiser = ol.PortableDenoiser(ol.PortableDenoiserConfig(
+            spatial_iterations=2, max_history_frames=16,
+        ))
+        raw = []
+        filtered = []
+        for seed in range(16):
+            value = noisy_signals(seed, width=32, height=24)
+            raw.append(
+                value.diffuse_radiance_hit_distance[..., :3]
+                + value.specular_radiance_hit_distance[..., :3]
+            )
+            filtered.append(denoiser.denoise(value).combined)
+        raw = np.asarray(raw, np.float32)
+        filtered = np.asarray(filtered, np.float32)
+        truth = np.empty_like(raw)
+        truth[..., :16, :] = (0.7, 0.9, 1.3)
+        truth[..., 16:, :] = (1.7, 1.9, 2.3)
+        self.assertTrue(np.isfinite(filtered).all())
+        raw_quality = summarize_temporal_quality(truth, raw)
+        relax_quality = summarize_temporal_quality(truth, filtered)
+        self.assertLess(
+            relax_quality["relative_rmse_mean"],
+            raw_quality["relative_rmse_mean"] * 0.65,
+        )
+        self.assertLess(
+            relax_quality["horizontal_band_rms_p95"],
+            raw_quality["horizontal_band_rms_p95"] * 0.75,
+        )
+        self.assertGreater(relax_quality["edge_gradient_gain_mean"], 0.75)
+
+    def test_visual_metrics_detect_repeating_horizontal_corruption(self):
+        height, width = 32, 40
+        reference = np.ones((2, height, width, 3), np.float32)
+        candidate = reference.copy()
+        candidate[:, 7::8, :, :] = 0.0
+        metrics = summarize_temporal_quality(reference, candidate)
+        self.assertGreater(metrics["horizontal_band_rms_max"], 0.25)
+        self.assertGreater(metrics["band_anisotropy_max"], 10.0)
 
     def test_portable_oracle_camera_cut_discards_history(self):
         denoiser = ol.PortableDenoiser(ol.PortableDenoiserConfig(

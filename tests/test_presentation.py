@@ -93,6 +93,38 @@ class AsyncPresenterTests(unittest.TestCase):
         self.assertFalse(worker.ready)
         self.assertTrue(worker.close(1.0))
 
+    def test_denoiser_configuration_restart_recreates_owned_resources(self):
+        created = []
+
+        def factory(config):
+            presenter = FakePresenter(config)
+            presenter.pipeline_token = object()
+            presenter.history_token = object() if config["denoiser"] else None
+            created.append(presenter)
+            return presenter
+
+        worker = AsyncPresenter(factory)
+        first_generation = worker.restart({"denoiser": False})
+        self.assertEqual(
+            wait_event(worker, "ready").generation, first_generation
+        )
+        first_pipeline = created[0].pipeline_token
+        second_generation = worker.restart({"denoiser": True})
+        self.assertEqual(
+            wait_event(worker, "ready").generation, second_generation
+        )
+        self.assertTrue(created[0].closed)
+        self.assertIsNot(created[1].pipeline_token, first_pipeline)
+        self.assertIsNotNone(created[1].history_token)
+        third_generation = worker.restart({"denoiser": False})
+        self.assertEqual(
+            wait_event(worker, "ready").generation, third_generation
+        )
+        self.assertTrue(created[1].closed)
+        self.assertIsNone(created[2].history_token)
+        self.assertTrue(worker.close(1.0))
+        self.assertTrue(created[2].closed)
+
 
 if __name__ == "__main__":
     unittest.main()

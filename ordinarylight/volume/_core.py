@@ -5,20 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from ..lights import DirectionalLight, SpotLight
+from ..shaders.abi import VOLUME_HEADER_ABI
 
 
-VOLUME_HEADER_DTYPE = np.dtype([
-    ("world_to_local", np.float32, (4, 4)),
-    ("dimensions_offset", np.uint32, (4,)),
-    ("value_parameters", np.float32, (4,)),
-    ("render_parameters", np.float32, (4,)),
-    ("scattering_parameters", np.float32, (4,)),
-    ("phase_parameters", np.float32, (4,)),
-    ("multiple_scattering_parameters", np.float32, (4,)),
-    ("acceleration_parameters", np.uint32, (4,)),
-    ("clip_parameters", np.uint32, (4,)),
-    ("clip_planes", np.float32, (8, 4)),
-])
+VOLUME_HEADER_DTYPE = VOLUME_HEADER_ABI.numpy_dtype()
 
 VOLUME_BRICK_SIZE = 8
 VOLUME_MAX_CLIP_PLANES = 8

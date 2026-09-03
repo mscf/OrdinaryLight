@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..pipeline import RenderPipeline, RenderStage
+from ..shaders.abi import SECONDARY_PATH_STATE_ABI
 
 
 MAX_MEDIUM_STACK_DEPTH = 16
@@ -71,17 +72,7 @@ MEDIUM_STACK_DTYPE = np.dtype({
 """Cold nested-medium state stored separately from common path data."""
 
 
-SECONDARY_PATH_STATE_DTYPE = np.dtype({
-    "names": (
-        "position_valid", "normal_pdf", "primary_throughput",
-        "primary_radiance", "diffuse_radiance_hit_distance",
-        "specular_radiance_hit_distance", "primary_position",
-        "primary_geometry",
-    ),
-    "formats": ((np.float32, 4),) * 8,
-    "offsets": (0, 16, 32, 48, 64, 80, 96, 112),
-    "itemsize": 128,
-})
+SECONDARY_PATH_STATE_DTYPE = SECONDARY_PATH_STATE_ABI.numpy_dtype()
 """Optional cold path state kept out of the hot path ABI.
 
 The final four vectors are dormant unless denoiser-signal capture is enabled.
