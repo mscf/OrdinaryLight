@@ -20,7 +20,7 @@ from ordinarylight.showcases.rooms import get_restir_scene
 from ordinarylight.showcases.volumes import build_volume_showcase
 
 
-BASELINE_SCHEMA = 4
+BASELINE_SCHEMA = 5
 DEFAULT_BASELINE = Path(__file__).with_name("baselines") / "noise_quality.json"
 OVERRIDE_REASON = "ORDINARYLIGHT_NOISE_GATE_OVERRIDE_REASON"
 
@@ -36,6 +36,7 @@ MAX_POLICIES = {
     "vertical_band_rms_p95": (1.10, 0.001),
     "positive_outlier_p999_p95": (1.15, 0.01),
     "structural_edge_error_mean": (1.08, 0.02),
+    "bright_edge_temporal_residual_mean": (1.10, 0.02),
 }
 MIN_POLICIES = {
     # An absolute margin is more meaningful than a ratio around the ideal
@@ -125,6 +126,43 @@ def summarize_structural_edges(reference, candidate):
         f"{name}_mean": float(np.mean([row[name] for row in rows]))
         for name in ("structural_edge_gain", "structural_edge_error")
     }
+
+
+def _dilate(mask):
+    padded = np.pad(mask, 1, mode="edge")
+    result = np.zeros_like(mask)
+    for y in range(3):
+        for x in range(3):
+            result |= padded[y:y + mask.shape[0], x:x + mask.shape[1]]
+    return result
+
+
+def summarize_bright_edge_temporal_residual(reference, candidate):
+    """Measure flicker around high-energy visibility boundaries."""
+    reference = np.asarray(reference, dtype=np.float32)[..., :3]
+    candidate = np.asarray(candidate, dtype=np.float32)[..., :3]
+    if reference.shape != candidate.shape or reference.ndim != 4:
+        raise ValueError(
+            "reference and candidate sequences must have matching HDR shapes"
+        )
+    weights = np.asarray((0.2126, 0.7152, 0.0722), dtype=np.float32)
+    reference_luma = reference @ weights
+    rows = [0.0]
+    for index in range(1, len(reference)):
+        pair_luma = np.maximum(
+            reference_luma[index - 1], reference_luma[index]
+        )
+        threshold = max(float(np.percentile(pair_luma, 99.0)), 1.0)
+        bright = pair_luma >= threshold
+        boundary = _dilate(bright) & _dilate(~bright)
+        if not np.any(boundary):
+            rows.append(0.0)
+            continue
+        reference_delta = reference[index] - reference[index - 1]
+        candidate_delta = candidate[index] - candidate[index - 1]
+        residual = candidate_delta[boundary] - reference_delta[boundary]
+        rows.append(float(np.sqrt(np.mean(residual * residual))))
+    return {"bright_edge_temporal_residual_mean": float(np.mean(rows))}
 
 
 @dataclass(frozen=True)
@@ -389,6 +427,9 @@ def main():
             comparisons[scenario.name] = (reference, candidate)
             summary = summarize_temporal_quality(reference, candidate)
             summary.update(summarize_structural_edges(reference, candidate))
+            summary.update(summarize_bright_edge_temporal_residual(
+                reference, candidate
+            ))
             summaries[scenario.name] = _selected_summary(summary)
             timings[scenario.name] = {
                 "reference_gpu_ms_mean": float(np.mean(reference_times)),

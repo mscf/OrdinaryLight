@@ -9,6 +9,7 @@ from tests.gates.noise_quality import (
     make_baseline,
     _renderer_config,
     summarize_structural_edges,
+    summarize_bright_edge_temporal_residual,
 )
 
 
@@ -18,6 +19,7 @@ class NoiseQualityGateTests(unittest.TestCase):
         self.summary = {
             "diffuse": {
                 "bias_mean": 0.001,
+                "bright_edge_temporal_residual_mean": 0.08,
                 "structural_edge_error_mean": 0.10,
                 "structural_edge_gain_mean": 0.98,
                 "horizontal_band_rms_p95": 0.01,
@@ -88,6 +90,20 @@ class NoiseQualityGateTests(unittest.TestCase):
         result = summarize_structural_edges(reference, noisy)
         self.assertAlmostEqual(result["structural_edge_gain_mean"], 1.0, delta=0.03)
         self.assertLess(result["structural_edge_error_mean"], 0.05)
+
+    def test_bright_edge_metric_detects_alternating_coverage(self):
+        reference = np.zeros((3, 32, 32, 3), dtype=np.float32)
+        reference[:, 8:24, 8:24] = 4.0
+        stable = summarize_bright_edge_temporal_residual(reference, reference)
+        flickering = reference.copy()
+        flickering[1, 8:24, 8:24] = 0.0
+        unstable = summarize_bright_edge_temporal_residual(
+            reference, flickering
+        )
+        self.assertEqual(stable["bright_edge_temporal_residual_mean"], 0.0)
+        self.assertGreater(
+            unstable["bright_edge_temporal_residual_mean"], 0.5
+        )
 
     def test_configuration_change_requires_reacceptance(self):
         failures = evaluate_against_baseline(

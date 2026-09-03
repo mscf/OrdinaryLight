@@ -128,8 +128,11 @@ python -m tests.gates.noise_quality --accept-baseline
 The tracked baseline contains aggregate metrics and configuration, not large
 HDR captures. Its edge policy measures gradients after a small triangular
 prefilter, preventing sample-scale noise in the reference from masquerading as
-detail that the denoiser should preserve. Per-frame reference and ReLAX
-sequences, the complete CSV, and the run report remain under
+detail that the denoiser should preserve. A separate bright-boundary temporal
+metric catches unstable subpixel coverage around emitters and reflected
+highlights, including cases where a jittered primary ray alternates between
+geometry and the environment. Per-frame reference and ReLAX sequences, the
+complete CSV, and the run report remain under
 `/tmp/ordinarylight_noise_quality` for inspection.
 The same baseline also guards median candidate GPU time per scene with a 20%
 relative margin and a 0.35 ms absolute floor for sub-millisecond captures.

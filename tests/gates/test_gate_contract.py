@@ -65,7 +65,7 @@ class GateContractTests(unittest.TestCase):
     def test_noise_baseline_uses_relax(self):
         path = Path(__file__).parent / "baselines" / "noise_quality.json"
         payload = __import__("json").loads(path.read_text())
-        self.assertEqual(payload["schema"], 4)
+        self.assertEqual(payload["schema"], 5)
         self.assertEqual(payload["configuration"]["candidate_samples"], 1)
         self.assertIn("atrous_iterations", payload["configuration"])
         self.assertEqual(

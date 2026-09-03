@@ -1,6 +1,6 @@
 {
-  "schema": 4,
-  "override_reason": "Add conservative specular firefly suppression",
+  "schema": 5,
+  "override_reason": "Add bright-boundary temporal stability metric",
   "configuration": {
     "width": 320,
     "height": 180,
@@ -123,6 +123,10 @@
       "structural_edge_error_mean": {
         "ratio": 1.08,
         "floor": 0.02
+      },
+      "bright_edge_temporal_residual_mean": {
+        "ratio": 1.1,
+        "floor": 0.02
       }
     },
     "minimum": {
@@ -135,6 +139,7 @@
   "accepted": {
     "diffuse": {
       "bias_mean": -0.0007635428119101562,
+      "bright_edge_temporal_residual_mean": 0.0,
       "horizontal_band_rms_p95": 0.0013517337793018667,
       "low_frequency_energy_ratio_mean": 2.0862413526405224,
       "positive_outlier_p999_p95": 1.055270298013371,
@@ -148,6 +153,7 @@
     },
     "area_light": {
       "bias_mean": -0.004684882907895371,
+      "bright_edge_temporal_residual_mean": 1.175073280930519,
       "horizontal_band_rms_p95": 0.010101475846022367,
       "low_frequency_energy_ratio_mean": 1.8834327493543523,
       "positive_outlier_p999_p95": 2.494558704295666,
@@ -161,6 +167,7 @@
     },
     "glossy_glass": {
       "bias_mean": -0.0024821069528115913,
+      "bright_edge_temporal_residual_mean": 1.1370988339185715,
       "horizontal_band_rms_p95": 0.008333935099653899,
       "low_frequency_energy_ratio_mean": 1.1299123016383068,
       "positive_outlier_p999_p95": 13.167027160238897,
@@ -174,6 +181,7 @@
     },
     "dense_motion": {
       "bias_mean": -0.0012883704039268196,
+      "bright_edge_temporal_residual_mean": 0.0,
       "horizontal_band_rms_p95": 0.001377718459116295,
       "low_frequency_energy_ratio_mean": 2.2189974490230764,
       "positive_outlier_p999_p95": 1.4930775046641183,
@@ -187,6 +195,7 @@
     },
     "volume_static": {
       "bias_mean": 0.00014554736753780162,
+      "bright_edge_temporal_residual_mean": 0.044929695315659046,
       "horizontal_band_rms_p95": 0.00030753978935535995,
       "low_frequency_energy_ratio_mean": 1.5282278042734387,
       "positive_outlier_p999_p95": 0.35531095564914833,
@@ -200,6 +209,7 @@
     },
     "volume_motion": {
       "bias_mean": -0.0031756690295878798,
+      "bright_edge_temporal_residual_mean": 2.724029615521431,
       "horizontal_band_rms_p95": 0.01873023696243763,
       "low_frequency_energy_ratio_mean": 1.4341440956699305,
       "positive_outlier_p999_p95": 0.947790620754448,
@@ -213,11 +223,11 @@
     }
   },
   "accepted_timings": {
-    "diffuse": 0.65152,
-    "area_light": 0.647024,
-    "glossy_glass": 0.682384,
-    "dense_motion": 0.6704,
-    "volume_static": 0.437408,
-    "volume_motion": 1.8973119999999999
+    "diffuse": 0.6132960000000001,
+    "area_light": 0.6631039999999999,
+    "glossy_glass": 0.652352,
+    "dense_motion": 0.67304,
+    "volume_static": 0.437792,
+    "volume_motion": 1.867264
   }
 }
