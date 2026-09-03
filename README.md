@@ -584,10 +584,10 @@ ordinarylight-workbench
 tests/gates/run_4k_instancing.sh
 ```
 
-The general-purpose renderer API direction, including the requirements needed
-by downstream visualization packages, is documented in
-[`docs/scientific_api.md`](docs/scientific_api.md). Domain-specific datasets,
-plot types, and analysis remain outside this project.
+The general-purpose renderer APIs used by downstream visualization packages
+are documented in [`docs/public_api.md`](docs/public_api.md). Domain-specific
+datasets, transfer policies, plot types, and analysis remain outside this
+project.
 
 ## Dear PyGui surface adapter
 

@@ -346,7 +346,6 @@ def main():
             self._frame_times = deque(maxlen=60)
             self._loader = _SceneLoader()
             self._load_future = None
-            self._scientific_syncing = False
             self._smoke_frames = max(0, int(os.environ.get(
                 "ORDINARYLIGHT_WORKBENCH_SMOKE_FRAMES", "0"
             )))
@@ -406,114 +405,6 @@ def main():
             row.addWidget(self.reload_button)
             scene_layout.addLayout(row)
             layout.addWidget(scenes)
-
-            scientific = QtWidgets.QGroupBox("Scientific scalar field")
-            scientific_form = QtWidgets.QFormLayout(scientific)
-            self.scientific_load = QtWidgets.QPushButton("Load NumPy array…")
-            self.scientific_load.clicked.connect(self._load_scientific)
-            self.scientific_dataset = QtWidgets.QLabel("Analytic dataset")
-            self.scientific_representation = QtWidgets.QComboBox()
-            self.scientific_representation.addItems(
-                ("combined", "volume", "slices", "isosurface")
-            )
-            self.scientific_colormap = QtWidgets.QComboBox()
-            self.scientific_colormap.addItems(ol.available_colormaps())
-            self.scientific_mapping = QtWidgets.QComboBox()
-            self.scientific_mapping.addItems(
-                ("linear", "log", "symlog", "percentile", "normalized")
-            )
-            self.scientific_range_min = QtWidgets.QDoubleSpinBox()
-            self.scientific_range_max = QtWidgets.QDoubleSpinBox()
-            for control in (
-                self.scientific_range_min, self.scientific_range_max,
-            ):
-                control.setRange(-1e12, 1e12)
-                control.setDecimals(6)
-            self.scientific_opacity = QtWidgets.QDoubleSpinBox()
-            self.scientific_opacity.setRange(0.0, 1.0)
-            self.scientific_opacity.setSingleStep(0.02)
-            self.scientific_opacity.setValue(0.18)
-            self.scientific_channel = QtWidgets.QComboBox()
-            self.scientific_time = QtWidgets.QSlider(
-                QtCore.Qt.Orientation.Horizontal
-            )
-            self.scientific_play = QtWidgets.QCheckBox("Play timeline")
-            self.scientific_fps = QtWidgets.QDoubleSpinBox()
-            self.scientific_fps.setRange(0.1, 60.0)
-            self.scientific_fps.setValue(6.0)
-            self.scientific_slice_axis = QtWidgets.QComboBox()
-            self.scientific_slice_axis.addItems(("x", "y", "z"))
-            self.scientific_slice_axis.currentIndexChanged.connect(
-                self._sync_scientific_axis_ranges
-            )
-            self.scientific_slice = QtWidgets.QSlider(
-                QtCore.Qt.Orientation.Horizontal
-            )
-            self.scientific_isovalue = QtWidgets.QDoubleSpinBox()
-            self.scientific_isovalue.setRange(-1e12, 1e12)
-            self.scientific_isovalue.setDecimals(6)
-            self.scientific_clip_axis = QtWidgets.QComboBox()
-            self.scientific_clip_axis.addItems(("x", "y", "z"))
-            self.scientific_clip_axis.currentIndexChanged.connect(
-                self._sync_scientific_axis_ranges
-            )
-            self.scientific_clip_min = QtWidgets.QSpinBox()
-            self.scientific_clip_max = QtWidgets.QSpinBox()
-            clipping_row = QtWidgets.QHBoxLayout()
-            clipping_row.addWidget(self.scientific_clip_axis)
-            clipping_row.addWidget(self.scientific_clip_min)
-            clipping_row.addWidget(self.scientific_clip_max)
-            self.scientific_apply = QtWidgets.QPushButton("Apply field controls")
-            self.scientific_apply.clicked.connect(self._apply_scientific)
-            self.scientific_probe = QtWidgets.QLabel(
-                "Probe: click the viewport to inspect a value"
-            )
-            self.scientific_probe.setWordWrap(True)
-            scientific_form.addRow(self.scientific_load)
-            scientific_form.addRow("Dataset", self.scientific_dataset)
-            scientific_form.addRow("Representation", self.scientific_representation)
-            scientific_form.addRow("Color map", self.scientific_colormap)
-            scientific_form.addRow("Mapping", self.scientific_mapping)
-            scientific_form.addRow("Range minimum", self.scientific_range_min)
-            scientific_form.addRow("Range maximum", self.scientific_range_max)
-            scientific_form.addRow("Maximum opacity", self.scientific_opacity)
-            scientific_form.addRow("Channel", self.scientific_channel)
-            scientific_form.addRow("Timeline", self.scientific_time)
-            scientific_form.addRow(self.scientific_play)
-            scientific_form.addRow("Playback FPS", self.scientific_fps)
-            scientific_form.addRow("Slice axis", self.scientific_slice_axis)
-            scientific_form.addRow("Slice index", self.scientific_slice)
-            scientific_form.addRow("Isovalue", self.scientific_isovalue)
-            scientific_form.addRow("Clip axis / min / max", clipping_row)
-            scientific_form.addRow(self.scientific_apply)
-            scientific_form.addRow(self.scientific_probe)
-            scientific.setVisible(False)
-            self.scientific_group = scientific
-            layout.addWidget(scientific)
-            self.scientific_debounce = QtCore.QTimer(self)
-            self.scientific_debounce.setSingleShot(True)
-            self.scientific_debounce.setInterval(120)
-            self.scientific_debounce.timeout.connect(self._apply_scientific)
-            for control in (
-                self.scientific_representation, self.scientific_colormap,
-                self.scientific_mapping, self.scientific_channel,
-                self.scientific_slice_axis, self.scientific_clip_axis,
-            ):
-                control.currentIndexChanged.connect(
-                    self._schedule_scientific_update
-                )
-            for control in (
-                self.scientific_range_min, self.scientific_range_max,
-                self.scientific_opacity, self.scientific_fps,
-                self.scientific_isovalue,
-                self.scientific_clip_min, self.scientific_clip_max,
-            ):
-                control.valueChanged.connect(self._schedule_scientific_update)
-            for control in (self.scientific_time, self.scientific_slice):
-                control.valueChanged.connect(self._schedule_scientific_update)
-            self.scientific_play.toggled.connect(
-                self._schedule_scientific_update
-            )
 
             settings = QtWidgets.QGroupBox("Renderer configuration")
             form = QtWidgets.QFormLayout(settings)
@@ -777,7 +668,6 @@ def main():
                 self.viewport.set_camera(self._camera())
                 self.started = time.perf_counter()
                 self._message(f"Activated: {self.state.active.name}")
-            self._sync_scientific_controls()
 
         def _load_scene(self):
             if self._load_future is not None:
@@ -799,123 +689,6 @@ def main():
             self._load_future = (
                 "gltf", path, self._loader.submit(ol.loaders.load, path)
             )
-
-        def _load_scientific(self):
-            if self._load_future is not None:
-                return
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                self, "Load scalar field", "", "NumPy arrays (*.npy)",
-                options=QtWidgets.QFileDialog.Option.DontUseNativeDialog,
-            )
-            if not path:
-                return
-            from ordinarylight.showcases.scientific import (
-                ScientificWorkbenchController,
-            )
-            self._message(f"Memory-mapping {path}…")
-            self._load_future = (
-                "scientific", path,
-                self._loader.submit(ScientificWorkbenchController.from_numpy, path),
-            )
-
-        def _scientific_controller(self):
-            scene = self.state.active.scene if self.state.active is not None else None
-            return None if scene is None else getattr(
-                scene, "scientific_controller", None
-            )
-
-        def _sync_scientific_controls(self):
-            controller = self._scientific_controller()
-            self.scientific_group.setVisible(controller is not None)
-            if controller is None:
-                return
-            self._scientific_syncing = True
-            try:
-                field = controller.field
-                finite = np.asarray(field.data)[np.isfinite(field.data)]
-                low, high = map(float, (np.min(finite), np.max(finite)))
-                self.scientific_dataset.setText(
-                    f"{controller.series.name or 'array'} — {field.data.shape} "
-                    f"{field.unit or '(unitless)'}"
-                )
-                self.scientific_channel.clear()
-                self.scientific_channel.addItems(controller.series.channels)
-                self.scientific_channel.setCurrentIndex(controller.channel_index)
-                self.scientific_time.setRange(0, len(controller.series.times) - 1)
-                self.scientific_time.setValue(controller.time_index)
-                self.scientific_range_min.setValue(low)
-                self.scientific_range_max.setValue(high)
-                self.scientific_isovalue.setValue(
-                    controller.showcase.isosurface.value
-                )
-                self._sync_scientific_axis_ranges()
-            finally:
-                self._scientific_syncing = False
-
-        def _schedule_scientific_update(self, *_args):
-            if not self._scientific_syncing:
-                self.scientific_debounce.start()
-
-        def _sync_scientific_axis_ranges(self, *_args):
-            controller = self._scientific_controller()
-            if controller is None:
-                return
-            axis = self.scientific_slice_axis.currentText()
-            size = controller.field.data.shape[{"x": 2, "y": 1, "z": 0}[axis]]
-            self.scientific_slice.setRange(0, size - 1)
-            self.scientific_slice.setValue(controller.showcase.slices[axis].index)
-            clip_axis = self.scientific_clip_axis.currentText()
-            clip_size = controller.field.data.shape[
-                {"x": 2, "y": 1, "z": 0}[clip_axis]
-            ]
-            for control in (self.scientific_clip_min, self.scientific_clip_max):
-                control.setRange(0, clip_size - 1)
-            self.scientific_clip_min.setValue(0)
-            self.scientific_clip_max.setValue(clip_size - 1)
-
-        def _apply_scientific(self):
-            controller = self._scientific_controller()
-            if controller is None:
-                return
-            try:
-                revision = controller.scene.revision
-                controller.select_frame(
-                    self.scientific_time.value(),
-                    self.scientific_channel.currentIndex(),
-                )
-                low = self.scientific_range_min.value()
-                high = self.scientific_range_max.value()
-                value_range = None if self.scientific_mapping.currentText() in {
-                    "percentile", "normalized",
-                } else (low, high)
-                controller.configure_transfer(
-                    colormap=self.scientific_colormap.currentText(),
-                    mode=self.scientific_mapping.currentText(),
-                    value_range=value_range,
-                    opacity=(0.0, self.scientific_opacity.value()),
-                )
-                controller.showcase.set_slice_index(
-                    self.scientific_slice_axis.currentText(),
-                    self.scientific_slice.value(),
-                )
-                controller.showcase.set_isovalue(
-                    self.scientific_isovalue.value()
-                )
-                axis = "xyz".index(self.scientific_clip_axis.currentText())
-                shape = np.asarray(controller.field.data.shape[::-1]) - 1
-                minimum = np.zeros(3); maximum = shape.astype(float)
-                minimum[axis] = self.scientific_clip_min.value()
-                maximum[axis] = self.scientific_clip_max.value()
-                controller.set_roi(minimum, maximum)
-                controller.showcase.set_representation(
-                    self.scientific_representation.currentText()
-                )
-                controller.playing = self.scientific_play.isChecked()
-                controller.playback_fps = self.scientific_fps.value()
-                if self.viewport is not None and controller.scene.revision != revision:
-                    self.viewport.reset_sequence()
-            except Exception as error:
-                self._message(f"Scientific controls failed: {error}")
 
         def _queue_showcase(self, index):
             if self._load_future is not None:
@@ -951,15 +724,6 @@ def main():
                     entry = self.state.add(Path(path).name, scene, source=path)
                     self.scene_list.addItem(entry.name)
                     self.scene_list.setCurrentRow(len(self.state.scenes) - 1)
-                elif kind == "scientific":
-                    path = subject
-                    controller = scene
-                    entry = self.state.add(
-                        Path(path).name, controller.scene, source=path,
-                    )
-                    scene = controller.scene
-                    self.scene_list.addItem(entry.name)
-                    self.scene_list.setCurrentRow(len(self.state.scenes) - 1)
                 else:
                     index = subject
                     if not 0 <= index < len(self.state.scenes):
@@ -973,7 +737,6 @@ def main():
                     f"Loaded {entry.name}: {len(scene.meshes)} meshes, "
                     f"{triangles:,} triangles"
                 )
-                self._sync_scientific_controls()
             except Exception as error:
                 self._message(f"Scene load failed: {error}")
 
@@ -1010,21 +773,6 @@ def main():
                 window_size, framebuffer_size=framebuffer,
                 render_size=framebuffer,
             )
-            controller = self._scientific_controller()
-            if controller is not None:
-                probe = controller.probe(
-                    self.viewport.camera, framebuffer, cursor, mapping=mapping,
-                )
-                if probe is None:
-                    self.scientific_probe.setText("Probe: no visible field sample")
-                else:
-                    world = ", ".join(f"{value:.5g}" for value in probe.world_position)
-                    index = ", ".join(f"{value:.3f}" for value in probe.index_position)
-                    self.scientific_probe.setText(
-                        f"Probe: {probe.value:.7g} {probe.unit or ''} | "
-                        f"world ({world}) | index ({index})"
-                    )
-                return
             result = ol.pick(
                 scene, self.viewport.camera, framebuffer, cursor,
                 mapping=mapping,
@@ -1047,13 +795,6 @@ def main():
             if self.viewport is None or self.pause_button.isChecked():
                 return
             try:
-                controller = self._scientific_controller()
-                if controller is not None:
-                    controller.playing = self.scientific_play.isChecked()
-                    controller.playback_fps = self.scientific_fps.value()
-                    if controller.advance():
-                        self.scientific_time.setValue(controller.time_index)
-                        self.viewport.reset_sequence()
                 if self.animate.isChecked():
                     phase = (
                         (time.perf_counter() - self.started) * 0.22

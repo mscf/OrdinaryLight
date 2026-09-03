@@ -101,16 +101,6 @@ from .primitives import (
     GlyphBatch, LineBatch, PointBatch, add_glyphs, add_lines, add_points,
 )
 from .volume import volume_empty_space_statistics
-from . import scientific
-from .scientific import (
-    ClipPlane, ClipRegion, ProbeResult, RayProbeResult, RegionOfInterest,
-    SCIENTIFIC_EXPORT_SCHEMA,
-    SampleResult, ScalarField3D, ScalarIsosurface, ScalarMapping, ScalarSlice,
-    ScientificInspector,
-    ScalarFieldSeries, TransferFunction, export_scientific_image, scalar_field_sha256,
-    verify_scientific_export, available_colormaps, colormap, opacity_curve,
-    scientific_slice_material,
-)
 from .selection import (
     PickOptions, PickResult, ViewportMapping, camera_ray, pick, pick_ray,
 )
