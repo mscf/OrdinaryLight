@@ -2454,16 +2454,17 @@ class VulkanWavefrontExecutor:
         iteration_count = self.core.config.denoiser_iterations
         for iteration in range(iteration_count):
             direction = 0 if iteration == 0 else (1 if iteration & 1 else 2)
-            constants = bytearray(struct.pack(
-                "8f", float(width), float(height),
-                float(1 << iteration), 0.0, 32.0, 0.02, 4.0, 0.0,
-            ))
-            vk.vkCmdPushConstants(
-                command, self.relax_atrous_pipeline_layout,
-                vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
-                vk.ffi.from_buffer(constants),
-            )
             for lobe in range(2):
+                constants = bytearray(struct.pack(
+                    "8f", float(width), float(height),
+                    float(1 << iteration), 0.0, 32.0, 0.02, 4.0,
+                    float(lobe == 1 and iteration == 0),
+                ))
+                vk.vkCmdPushConstants(
+                    command, self.relax_atrous_pipeline_layout,
+                    vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants),
+                    vk.ffi.from_buffer(constants),
+                )
                 vk.vkCmdBindDescriptorSets(
                     command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
                     self.relax_atrous_pipeline_layout, 0, 1,

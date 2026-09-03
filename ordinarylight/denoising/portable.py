@@ -20,6 +20,7 @@ class PortableDenoiserConfig:
     spatial_iterations: int = 2
     diffuse_phi_color: float = 4.0
     specular_phi_color: float = 2.0
+    specular_firefly_sigma: float = 4.0
 
     def __post_init__(self):
         if not 1 <= int(self.max_history_frames) <= 255:
@@ -30,6 +31,8 @@ class PortableDenoiserConfig:
             raise ValueError("relative_depth_threshold cannot be negative")
         if float(self.history_clamp_sigma) < 0.0:
             raise ValueError("history_clamp_sigma cannot be negative")
+        if float(self.specular_firefly_sigma) < 0.0:
+            raise ValueError("specular_firefly_sigma cannot be negative")
         if not 0 <= int(self.spatial_iterations) <= 5:
             raise ValueError("spatial_iterations must be between 0 and 5")
 
@@ -84,7 +87,39 @@ def _neighborhood_bounds(color, sigma):
     return mean - sigma * deviation, mean + sigma * deviation
 
 
-def _atrous(color, signals, iterations, phi_color):
+def _firefly_clamp(color, signals, sigma):
+    """Bound isolated specular energy using same-guide neighboring pixels."""
+    luminance_weights = np.asarray((0.2126, 0.7152, 0.0722))
+    center_luma = np.sum(color * luminance_weights, axis=-1)
+    total = np.zeros_like(center_luma)
+    square_total = np.zeros_like(center_luma)
+    count = np.zeros_like(center_luma)
+    background = signals.view_z == 0.0
+    for dy, dx in (
+        (-1, -1), (-1, 0), (-1, 1), (0, -1),
+        (0, 1), (1, -1), (1, 0), (1, 1),
+    ):
+        sample, valid = _shift(color, dx, dy)
+        depth, _ = _shift(signals.view_z, dx, dy)
+        material, _ = _shift(signals.material_id, dx, dy)
+        valid &= (
+            (material == signals.material_id)
+            & ((depth == 0.0) == background)
+        )
+        sample_luma = np.sum(sample * luminance_weights, axis=-1)
+        total += np.where(valid, sample_luma, 0.0)
+        square_total += np.where(valid, sample_luma * sample_luma, 0.0)
+        count += valid
+    safe_count = np.maximum(count, 1.0)
+    mean = total / safe_count
+    deviation = np.sqrt(np.maximum(square_total / safe_count - mean * mean, 0.0))
+    limit = mean + sigma * deviation + 0.02
+    scale = np.minimum(1.0, limit / np.maximum(center_luma, 1e-6))
+    scale = np.where(count > 0.0, scale, 1.0)
+    return np.ascontiguousarray(color * scale[..., None], np.float32)
+
+
+def _atrous(color, signals, iterations, phi_color, *, firefly_sigma=0.0):
     result = np.asarray(color, np.float32)
     center_normal = signals.normal_roughness[..., :3]
     center_depth = signals.view_z
@@ -93,7 +128,11 @@ def _atrous(color, signals, iterations, phi_color):
     luminance_weights = np.asarray((0.2126, 0.7152, 0.0722))
     for iteration in range(iterations):
         step = 1 << iteration
-        total = result.copy()
+        total = (
+            _firefly_clamp(result, signals, firefly_sigma)
+            if iteration == 0 and firefly_sigma > 0.0
+            else result.copy()
+        )
         weight_sum = np.ones(result.shape[:2], np.float32)
         center_luma = np.sum(result * luminance_weights, axis=-1)
         for dy, dx, kernel in (
@@ -209,6 +248,7 @@ class PortableDenoiser:
         specular = _atrous(
             specular, signals, self.config.spatial_iterations,
             self.config.specular_phi_color,
+            firefly_sigma=self.config.specular_firefly_sigma,
         )
         acceptance = (
             (diffuse_accepted + specular_accepted)

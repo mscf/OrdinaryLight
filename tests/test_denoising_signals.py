@@ -343,6 +343,26 @@ class DenoiserSignalTests(unittest.TestCase):
         ).source
         self.assertIn("layout(push_constant)", glsl)
         self.assertIn("@group(0) @binding(5) var<uniform>", wgsl)
+        self.assertIn("firefly_limit", glsl)
+
+    def test_portable_specular_firefly_clamp_preserves_diffuse(self):
+        value = signals(7, 7)
+        specular = value.specular_radiance_hit_distance.copy()
+        specular[3, 3, :3] = 100.0
+        value = ol.DenoiserSignals(
+            value.diffuse_radiance_hit_distance, specular,
+            value.normal_roughness, value.view_z, value.motion,
+            value.material_id, value.frame,
+        )
+        result = ol.PortableDenoiser(ol.PortableDenoiserConfig(
+            spatial_iterations=1,
+        )).denoise(value)
+        np.testing.assert_allclose(
+            result.diffuse,
+            value.diffuse_radiance_hit_distance[..., :3],
+            atol=1e-6,
+        )
+        self.assertLess(float(result.specular[3, 3, 0]), 10.0)
 
     def test_prepare_kernel_emits_canonical_signal_outputs(self):
         import ordinaryshade as osh

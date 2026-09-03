@@ -1,6 +1,6 @@
 {
   "schema": 4,
-  "override_reason": "Isolate static volume temporal quality from reference geometry",
+  "override_reason": "Add conservative specular firefly suppression",
   "configuration": {
     "width": 320,
     "height": 180,
@@ -147,30 +147,30 @@
       "vertical_band_rms_p95": 0.0015885577478911724
     },
     "area_light": {
-      "bias_mean": -0.004455930495169014,
-      "horizontal_band_rms_p95": 0.010269202850759029,
-      "low_frequency_energy_ratio_mean": 1.815793024053654,
-      "positive_outlier_p999_p95": 2.5215494963983067,
-      "relative_rmse_mean": 0.17173696887234097,
-      "relative_rmse_p95": 0.1998877894373466,
-      "structural_edge_error_mean": 0.09619714319705963,
-      "structural_edge_gain_mean": 0.9894041174718351,
-      "temporal_residual_rmse_mean": 0.19540954753756523,
-      "temporal_residual_rmse_p95": 0.26211239248514173,
-      "vertical_band_rms_p95": 0.01217271671630442
+      "bias_mean": -0.004684882907895371,
+      "horizontal_band_rms_p95": 0.010101475846022367,
+      "low_frequency_energy_ratio_mean": 1.8834327493543523,
+      "positive_outlier_p999_p95": 2.494558704295666,
+      "relative_rmse_mean": 0.17035530233196503,
+      "relative_rmse_p95": 0.19765848233096434,
+      "structural_edge_error_mean": 0.09626409225165844,
+      "structural_edge_gain_mean": 0.989098409528437,
+      "temporal_residual_rmse_mean": 0.19391203671693802,
+      "temporal_residual_rmse_p95": 0.25979671329259874,
+      "vertical_band_rms_p95": 0.012131058005616068
     },
     "glossy_glass": {
-      "bias_mean": -0.002279653199366294,
-      "horizontal_band_rms_p95": 0.008341351710259914,
-      "low_frequency_energy_ratio_mean": 1.0364375580460408,
-      "positive_outlier_p999_p95": 13.451272910871257,
-      "relative_rmse_mean": 0.8125315414192992,
-      "relative_rmse_p95": 0.8579239752663224,
-      "structural_edge_error_mean": 0.3428262881934643,
-      "structural_edge_gain_mean": 0.9272974221854564,
-      "temporal_residual_rmse_mean": 0.13605277985334396,
-      "temporal_residual_rmse_p95": 0.17685856446623802,
-      "vertical_band_rms_p95": 0.010718439146876335
+      "bias_mean": -0.0024821069528115913,
+      "horizontal_band_rms_p95": 0.008333935099653899,
+      "low_frequency_energy_ratio_mean": 1.1299123016383068,
+      "positive_outlier_p999_p95": 13.167027160238897,
+      "relative_rmse_mean": 0.7941666399904131,
+      "relative_rmse_p95": 0.8423592377806263,
+      "structural_edge_error_mean": 0.34138499572873116,
+      "structural_edge_gain_mean": 0.9218384031606143,
+      "temporal_residual_rmse_mean": 0.13275338802486658,
+      "temporal_residual_rmse_p95": 0.1726040482521057,
+      "vertical_band_rms_p95": 0.010580122796818614
     },
     "dense_motion": {
       "bias_mean": -0.0012883704039268196,
@@ -199,25 +199,25 @@
       "vertical_band_rms_p95": 0.0004409903092891909
     },
     "volume_motion": {
-      "bias_mean": -0.003111122437985614,
-      "horizontal_band_rms_p95": 0.018727930076420308,
-      "low_frequency_energy_ratio_mean": 1.4266527777698894,
-      "positive_outlier_p999_p95": 0.9940059871818704,
-      "relative_rmse_mean": 0.1834103961831683,
-      "relative_rmse_p95": 0.20133534609391962,
-      "structural_edge_error_mean": 0.07340219197794795,
-      "structural_edge_gain_mean": 0.9986840117542883,
-      "temporal_residual_rmse_mean": 0.22512071207165718,
-      "temporal_residual_rmse_p95": 0.297540745139122,
-      "vertical_band_rms_p95": 0.014782088762149214
+      "bias_mean": -0.0031756690295878798,
+      "horizontal_band_rms_p95": 0.01873023696243763,
+      "low_frequency_energy_ratio_mean": 1.4341440956699305,
+      "positive_outlier_p999_p95": 0.947790620754448,
+      "relative_rmse_mean": 0.18273629176055944,
+      "relative_rmse_p95": 0.20053960158772058,
+      "structural_edge_error_mean": 0.07339331228286028,
+      "structural_edge_gain_mean": 0.9986695162662031,
+      "temporal_residual_rmse_mean": 0.22416658699512482,
+      "temporal_residual_rmse_p95": 0.2960731893777847,
+      "vertical_band_rms_p95": 0.014713283628225327
     }
   },
   "accepted_timings": {
-    "diffuse": 0.63008,
-    "area_light": 0.6603840000000001,
-    "glossy_glass": 0.696384,
-    "dense_motion": 0.672544,
-    "volume_static": 0.44489599999999996,
-    "volume_motion": 1.916016
+    "diffuse": 0.65152,
+    "area_light": 0.647024,
+    "glossy_glass": 0.682384,
+    "dense_motion": 0.6704,
+    "volume_static": 0.437408,
+    "volume_motion": 1.8973119999999999
   }
 }

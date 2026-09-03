@@ -391,6 +391,9 @@ def relax_atrous(
     center_luma = osh.dot(center.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
     total = center.rgb
     weight_sum = 1.0
+    neighborhood_luma_sum = 0.0
+    neighborhood_luma_square_sum = 0.0
+    neighborhood_count = 0.0
     for y in range(-1, 2):
         for x in range(-1, 2):
             if x == 0 and y == 0:
@@ -421,6 +424,11 @@ def relax_atrous(
             sample_luma = osh.dot(
                 sample.rgb, osh.vec3(0.2126, 0.7152, 0.0722),
             )
+            neighborhood_luma_sum = neighborhood_luma_sum + sample_luma
+            neighborhood_luma_square_sum = (
+                neighborhood_luma_square_sum + sample_luma * sample_luma
+            )
+            neighborhood_count = neighborhood_count + 1.0
             color_scale = osh.maximum(
                 osh.absolute(center_luma) / constants.weights.z, 0.02,
             )
@@ -433,6 +441,23 @@ def relax_atrous(
             weight = kernel * normal_weight * depth_weight * color_weight
             total = total + sample.rgb * weight
             weight_sum = weight_sum + weight
+    if constants.weights.w > 0.5 and neighborhood_count > 0.0:
+        neighborhood_luma_mean = neighborhood_luma_sum / neighborhood_count
+        neighborhood_luma_variance = osh.maximum(
+            neighborhood_luma_square_sum / neighborhood_count
+            - neighborhood_luma_mean * neighborhood_luma_mean,
+            0.0,
+        )
+        firefly_limit = (
+            neighborhood_luma_mean
+            + 4.0 * osh.sqrt(neighborhood_luma_variance)
+            + 0.02
+        )
+        if center_luma > firefly_limit:
+            clamped_center = center.rgb * (
+                firefly_limit / osh.maximum(center_luma, 0.000001)
+            )
+            total = total - center.rgb + clamped_center
     output_radiance.store(
         pixel, osh.vec4(total / osh.maximum(weight_sum, 0.000001), center.a),
     )

@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "source": "ordinarylight/denoising/kernels.py",
-  "source_sha256": "5a96bac66600e5dd87044c0f73898587cebf71f057f2ce732f331ce763b058b0",
+  "source_sha256": "6d8532267e4bc177e3082f52ba8081517bd471053830216e27bea75bfb886255",
   "targets": {
     "spirv": {
       "atrous": {
-        "cache_key": "80a646be4c7ac82657ac3c9daf18198d68c8e41197e2b0d75c6941a9ee2a7a1b",
+        "cache_key": "39d72150e59ddb04a904ede18af9c239b1247a851528f429660f63e5e39bd54b",
         "file": "denoiser_relax_atrous.comp.spv",
         "reflection": {
           "entry_point": "main",
@@ -68,7 +68,7 @@
             1
           ]
         },
-        "sha256": "ed0ba4340fce18bc5c21f7d3481c88313a1b33daa0d82c18e79c6d887937515a"
+        "sha256": "f9c372f1e2055919e844960688f3724bc52e8f49b5d95a2a2d1d5418e0bc6c01"
       },
       "compose": {
         "cache_key": "82810efe094eae1c01ab1474d55295aefff518405a6242a481b0ea8e88b225c9",
@@ -399,7 +399,7 @@
     },
     "wgsl": {
       "atrous": {
-        "cache_key": "66303ca023e3101398ed288e0b3f49b5d8f2088c761c04c760c65f147e5c2cc4",
+        "cache_key": "391e2fc1271e3e809ba03df95dc4194a12df1c11586d230f0381423a92196108",
         "file": "denoiser_relax_atrous.comp.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -462,7 +462,7 @@
             1
           ]
         },
-        "sha256": "3f5d076b3b6928e755166025d93f55dc041822e868500a9cb3fb4c85b11e457a"
+        "sha256": "58b0e9faa4e723859a389d64da8505799c61344ef824a17a9bef1e8a4ff1de91"
       },
       "compose": {
         "cache_key": "4a66918b7ee25fc3ca121558d11d1f22971ee5a20f3abda2ba6d3990c708bbb1",

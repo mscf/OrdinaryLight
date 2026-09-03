@@ -31,6 +31,9 @@ fn main(
     let center_luma: f32 = dot(center.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
     var total: vec3<f32> = center.rgb;
     var weight_sum: f32 = 1.0;
+    var neighborhood_luma_sum: f32 = 0.0;
+    var neighborhood_luma_square_sum: f32 = 0.0;
+    var neighborhood_count: f32 = 0.0;
     for (var y: i32 = (-1); y < 2; y += 1) {
         for (var x: i32 = (-1); x < 2; x += 1) {
             if (((x == 0) && (y == 0))) {
@@ -57,6 +60,9 @@ fn main(
             let depth_scale: f32 = max((abs(center_depth) * constants.weights.y), 0.001);
             let depth_weight: f32 = exp(((-abs((sample_depth - center_depth))) / depth_scale));
             let sample_luma: f32 = dot(sample.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+            neighborhood_luma_sum = (neighborhood_luma_sum + sample_luma);
+            neighborhood_luma_square_sum = (neighborhood_luma_square_sum + (sample_luma * sample_luma));
+            neighborhood_count = (neighborhood_count + 1.0);
             let color_scale: f32 = max((abs(center_luma) / constants.weights.z), 0.02);
             let color_weight: f32 = exp(((-abs((sample_luma - center_luma))) / color_scale));
             var kernel: f32 = 0.25;
@@ -66,6 +72,15 @@ fn main(
             let weight: f32 = (((kernel * normal_weight) * depth_weight) * color_weight);
             total = (total + (sample.rgb * weight));
             weight_sum = (weight_sum + weight);
+        }
+    }
+    if (((constants.weights.w > 0.5) && (neighborhood_count > 0.0))) {
+        let neighborhood_luma_mean: f32 = (neighborhood_luma_sum / neighborhood_count);
+        let neighborhood_luma_variance: f32 = max(((neighborhood_luma_square_sum / neighborhood_count) - (neighborhood_luma_mean * neighborhood_luma_mean)), 0.0);
+        let firefly_limit: f32 = ((neighborhood_luma_mean + (4.0 * sqrt(neighborhood_luma_variance))) + 0.02);
+        if ((center_luma > firefly_limit)) {
+            let clamped_center: vec3<f32> = (center.rgb * (firefly_limit / max(center_luma, 1e-06)));
+            total = ((total - center.rgb) + clamped_center);
         }
     }
     textureStore(output_radiance, pixel, vec4<f32>((total / max(weight_sum, 1e-06)), center.a));
