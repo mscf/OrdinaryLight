@@ -5,7 +5,7 @@ import numpy as np
 import ordinarylight as ol
 
 
-def build_volume_showcase(resolution=80):
+def build_volume_showcase(resolution=80, *, reference_geometry=True):
     scene = ol.Scene()
     coordinates = np.linspace(-1.0, 1.0, resolution, dtype=np.float32)
     z, y, x = np.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
@@ -46,6 +46,9 @@ def build_volume_showcase(resolution=80):
         value_range=(0.0, 1.0), name="emissive-nebula",
         metadata={"role": "structured-volume-showcase"},
     )
+
+    if not reference_geometry:
+        return scene
 
     floor = np.asarray((
         (-5, 0, -5), (5, 0, -5), (5, 0, 5), (-5, 0, 5),

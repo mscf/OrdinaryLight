@@ -109,8 +109,8 @@ python -m tests.gates.transition_latency
 
 The accepted multi-scene noise baseline exercises the presented ReLAX output
 at one sample per pixel across diffuse, area-light, glossy/glass, fast-motion
-dense geometry, and volume rendering. Independent high-sample frames remain
-the reference:
+dense geometry, and both static and camera-moving volume rendering. Independent
+high-sample frames remain the reference:
 
 ```bash
 python -m tests.gates.noise_quality

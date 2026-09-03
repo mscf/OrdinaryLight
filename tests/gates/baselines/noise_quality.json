@@ -1,6 +1,6 @@
 {
   "schema": 4,
-  "override_reason": "Replace noise-sensitive edge score with structural edge metric",
+  "override_reason": "Isolate static volume temporal quality from reference geometry",
   "configuration": {
     "width": 320,
     "height": 180,
@@ -61,7 +61,19 @@
         ]
       },
       {
-        "name": "volume",
+        "name": "volume_static",
+        "scene_name": "volume_isolated",
+        "motion_radians": 0.0,
+        "orbit_radius": 8.8,
+        "camera_height": 3.5,
+        "target": [
+          0.0,
+          1.5,
+          0.0
+        ]
+      },
+      {
+        "name": "volume_motion",
         "scene_name": "volume",
         "motion_radians": 0.12,
         "orbit_radius": 8.8,
@@ -173,7 +185,20 @@
       "temporal_residual_rmse_p95": 0.03334889020770788,
       "vertical_band_rms_p95": 0.0016739383398089557
     },
-    "volume": {
+    "volume_static": {
+      "bias_mean": 0.00014554736753780162,
+      "horizontal_band_rms_p95": 0.00030753978935535995,
+      "low_frequency_energy_ratio_mean": 1.5282278042734387,
+      "positive_outlier_p999_p95": 0.35531095564914833,
+      "relative_rmse_mean": 0.038705377028148594,
+      "relative_rmse_p95": 0.039561105370110206,
+      "structural_edge_error_mean": 0.018997762352228165,
+      "structural_edge_gain_mean": 1.002721977892301,
+      "temporal_residual_rmse_mean": 0.009970925864763558,
+      "temporal_residual_rmse_p95": 0.013082148367539048,
+      "vertical_band_rms_p95": 0.0004409903092891909
+    },
+    "volume_motion": {
       "bias_mean": -0.003111122437985614,
       "horizontal_band_rms_p95": 0.018727930076420308,
       "low_frequency_energy_ratio_mean": 1.4266527777698894,
@@ -188,10 +213,11 @@
     }
   },
   "accepted_timings": {
-    "diffuse": 0.6295040000000001,
-    "area_light": 0.666064,
-    "glossy_glass": 0.64992,
-    "dense_motion": 0.6722079999999999,
-    "volume": 1.7869920000000001
+    "diffuse": 0.63008,
+    "area_light": 0.6603840000000001,
+    "glossy_glass": 0.696384,
+    "dense_motion": 0.672544,
+    "volume_static": 0.44489599999999996,
+    "volume_motion": 1.916016
   }
 }

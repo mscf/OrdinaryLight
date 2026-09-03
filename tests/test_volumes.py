@@ -67,6 +67,12 @@ class VolumeResourceTests(unittest.TestCase):
         self.assertGreater(material.anisotropy, 0.0)
         self.assertGreaterEqual(len(scene.lights), 2)
 
+    def test_volume_showcase_can_omit_reference_geometry(self):
+        scene = build_volume_showcase(20, reference_geometry=False)
+        self.assertEqual(len(scene.visible_volumes), 1)
+        self.assertEqual(scene.visible_meshes, ())
+        self.assertEqual(len(scene.lights), 0)
+
     def test_volume_scattering_api_is_validated_and_snapshotted(self):
         transfer = ol.Texture1D(((0, 0, 0, 0.2), (0, 0, 0, 0.2)))
         material = ol.VolumeMaterial(

@@ -137,6 +137,10 @@ class NoiseScenario:
     target: tuple[float, float, float]
 
     def build(self):
+        if self.scene_name == "volume_isolated":
+            return build_volume_showcase(
+                resolution=64, reference_geometry=False
+            )
         if self.scene_name == "volume":
             return build_volume_showcase(resolution=64)
         return get_restir_scene(self.scene_name).build()
@@ -152,7 +156,11 @@ SCENARIOS = (
         (0.0, 1.25, 0.0),
     ),
     NoiseScenario("dense_motion", "dense", 0.40, 8.5, 3.2, (0.0, 1.25, 0.0)),
-    NoiseScenario("volume", "volume", 0.12, 8.8, 3.5, (0.0, 1.5, 0.0)),
+    NoiseScenario(
+        "volume_static", "volume_isolated", 0.0,
+        8.8, 3.5, (0.0, 1.5, 0.0),
+    ),
+    NoiseScenario("volume_motion", "volume", 0.12, 8.8, 3.5, (0.0, 1.5, 0.0)),
 )
 
 
