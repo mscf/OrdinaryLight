@@ -383,8 +383,15 @@ class RasterProgram:
     @classmethod
     def compile(
         cls, vertex, fragment, *, target: str, validate: bool = True,
-        helpers=(),
+        helpers=(), vertex_helpers=(), fragment_helpers=None,
     ):
+        """Compile a graphics program with stage-local helper functions.
+
+        ``helpers`` remains the backwards-compatible fragment-helper spelling.
+        New integrations should use ``vertex_helpers`` and
+        ``fragment_helpers`` so generated code is attached only to the stage
+        that calls it.
+        """
         try:
             import ordinaryshade as osh
         except ImportError as error:
@@ -395,8 +402,13 @@ class RasterProgram:
             compiler = find_glsl_compiler()
             if compiler is not None:
                 options["spirv_compiler"] = compiler
-        vertex_result = osh.compile(vertex, **options)
-        fragment_result = osh.compile(fragment, helpers=helpers, **options)
+        if fragment_helpers is not None and helpers:
+            raise TypeError("pass helpers or fragment_helpers, not both")
+        fragment_helpers = helpers if fragment_helpers is None else fragment_helpers
+        vertex_result = osh.compile(vertex, helpers=vertex_helpers, **options)
+        fragment_result = osh.compile(
+            fragment, helpers=fragment_helpers, **options,
+        )
         return cls(vertex_result, fragment_result, osh.link_graphics(vertex_result, fragment_result))
 
     @classmethod
@@ -1951,4 +1963,38 @@ def triangle_mesh() -> RasterMesh:
     return RasterMesh(np.array(((-0.7, -0.6), (0.7, -0.6), (0.0, 0.7)), np.float32))
 
 
-__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "geometry_product_mesh", "prepare_scene_mesh_resources", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]
+def parameter_grid(
+    columns: int = 96, rows: int = 96, *,
+    u_range=(-1.0, 1.0), v_range=(-1.0, 1.0), parameters=(),
+) -> RasterMesh:
+    """Return an indexed 2-D parameter domain for GPU vertex evaluation.
+
+    Vertices carry ``(u, v, p0, p1)`` at location zero. The renderer does not
+    assign meaning to those values; generated or handwritten vertex programs
+    may interpret them as coordinates and per-draw parameters.
+    """
+    columns, rows = int(columns), int(rows)
+    if columns < 2 or rows < 2:
+        raise ValueError("parameter grid dimensions must each be at least two")
+    parameters = tuple(float(value) for value in parameters)
+    if len(parameters) > 2:
+        raise ValueError("parameter_grid carries at most two extra parameters")
+    u = np.linspace(*map(float, u_range), columns, dtype=np.float32)
+    v = np.linspace(*map(float, v_range), rows, dtype=np.float32)
+    uu, vv = np.meshgrid(u, v)
+    vertices = np.zeros((rows * columns, 4), np.float32)
+    vertices[:, 0] = uu.reshape(-1)
+    vertices[:, 1] = vv.reshape(-1)
+    for index, value in enumerate(parameters):
+        vertices[:, index + 2] = value
+    cells = np.arange((rows - 1) * (columns - 1), dtype=np.uint32)
+    y, x = np.divmod(cells, columns - 1)
+    corner = y * columns + x
+    indices = np.column_stack((
+        corner, corner + columns, corner + 1,
+        corner + 1, corner + columns, corner + columns + 1,
+    )).reshape(-1)
+    return RasterMesh(vertices, indices)
+
+
+__all__ = ["RasterConfig", "RasterMesh", "RasterPostProcessor", "RasterProgram", "RasterState", "RasterVertexAttribute", "RasterVertexLayout", "camera_matrix", "create_raster_pipeline", "geometry_product_mesh", "parameter_grid", "prepare_scene_mesh_resources", "rasterize_geometry_products", "scene_mesh", "triangle_mesh"]

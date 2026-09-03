@@ -19,6 +19,12 @@ stable shortcuts, not alternate implementations.
 - `ordinarylight.primitives` owns point, line, and glyph convenience resources.
 - `ordinarylight.integrations` owns optional window-system and GUI adapters.
 - `ordinarylight.outputs` owns display conversion and encoded headless sinks.
+- `ordinarylight.compute` owns renderer-neutral descriptions and persistent
+  execution sessions for standalone Ordinary Shade compute programs.
+  `ComputeBuffer` describes shared allocations, `ComputeStep` maps reflected
+  shader resources onto them, `WebGpuComputeSession` runs one persistent
+  pipeline, and `WebGpuComputeSequence` submits ordered multi-pipeline work
+  against shared GPU-resident buffers without intermediate host readback.
 - `ordinarylight.backends` owns backend implementations and their portable
   configuration objects.
 - Backend-specific controls remain in their backend module and must not leak
@@ -340,3 +346,49 @@ config = ol.backends.vulkan.RendererConfig(max_bounces=8)
 backend = ol.backends.vulkan.VulkanRayTracingBackend(config=config)
 renderer = ol.Renderer(backend=backend)
 ```
+
+## Standalone compute
+
+`ComputeBuffer` describes initialized or zero-filled uniform/storage storage
+without assigning application semantics. `WebGpuComputeSession` consumes a
+compiled WGSL compute shader and its reflected resources, creates one persistent
+pipeline and bind group, and exposes `update()`, `dispatch()`, and `read()`.
+Updates write into existing allocations and do not recompile the shader or
+rebuild the bind group.
+
+```python
+resources = {
+    "parameters": ol.ComputeBuffer(parameter_bytes, dtype=np.uint8),
+    "values": ol.ComputeBuffer(samples, shape=samples.shape),
+    "output": ol.ComputeBuffer(shape=samples.shape, dtype=np.float32),
+}
+with ol.WebGpuComputeSession(compiled_shader, resources) as session:
+    session.dispatch((16, 1, 1))
+    result = session.read("output")
+```
+
+Multi-pass algorithms use shared allocations and one ordered submission:
+
+```python
+steps = [
+    ol.ComputeStep(first_program, (4, 1, 1), {
+        "parameters": "parameters_0", "source": "values",
+        "destination": "scratch",
+    }),
+    ol.ComputeStep(final_program, (1, 1, 1), {
+        "parameters": "parameters_1", "source": "scratch",
+        "destination": "result",
+    }),
+]
+with ol.WebGpuComputeSequence(steps, shared_resources) as sequence:
+    sequence.dispatch()
+    result = sequence.read("result")
+```
+
+Every `ComputeStep` maps its reflected names to shared allocation names.
+`WebGpuComputeSequence` keeps pipelines and bind groups persistent and encodes
+all steps into one command buffer. Reduction meanings and scratch-planning
+policy remain in downstream bridge packages.
+
+The API depends only on Ordinary Shade reflection. Domain compilers such as
+OrdinaryLattice remain downstream producers of programs and resource plans.

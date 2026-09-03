@@ -29,12 +29,15 @@ from .lights import (
     DirectionalLight, EnvironmentLight, PointLight, ReflectionProbe, SpotLight,
 )
 from .surface import ArraySurface, RenderSurface
+from .compute import (
+    ComputeBuffer, ComputeStep, WebGpuComputeSequence, WebGpuComputeSession,
+)
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
     raster_material_hook,
     RasterVertexAttribute, RasterVertexLayout, camera_matrix,
-    create_raster_pipeline, rasterize_geometry_products, scene_mesh,
-    triangle_mesh, CAMERA_DTYPE, DRAW_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE,
+    create_raster_pipeline, parameter_grid, rasterize_geometry_products,
+    scene_mesh, triangle_mesh, CAMERA_DTYPE, DRAW_DTYPE, LIGHT_DTYPE, MATERIAL_DTYPE,
     SHADOW_DTYPE,
     RasterGpuScene, pack_raster_gpu_scene, ShadowMapRequest, plan_shadow_maps,
 )
@@ -254,13 +257,15 @@ __all__ = [
     "cameras",
     "lights",
     "ArraySurface",
+    "ComputeBuffer", "ComputeStep", "WebGpuComputeSequence",
+    "WebGpuComputeSession",
     "ReferencePathTracer",
     "build_feature_parity_scene",
     "feature_parity_camera",
     "image_error_metrics",
     "renderer_visual_metrics",
     "RenderSurface",
-    "RasterMesh", "RasterProgram", "triangle_mesh",
+    "RasterMesh", "RasterProgram", "parameter_grid", "triangle_mesh",
     "CAMERA_DTYPE", "DRAW_DTYPE", "LIGHT_DTYPE", "MATERIAL_DTYPE",
     "SHADOW_DTYPE",
     "RasterGpuScene", "pack_raster_gpu_scene", "ShadowMapRequest", "plan_shadow_maps",

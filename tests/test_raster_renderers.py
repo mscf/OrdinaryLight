@@ -33,6 +33,18 @@ def raster_fragment() -> osh.location(osh.vec4, 0):
     return osh.vec4(0.95, 0.45, 0.15, 1.0)
 
 
+@osh.function
+def vertex_offset(value: osh.f32) -> osh.f32:
+    return value * 0.25
+
+
+@osh.vertex
+def helper_raster_vertex(
+    position: osh.location(osh.vec2, 0),
+) -> osh.builtin(osh.vec4, "position"):
+    return osh.vec4(position.x, position.y + vertex_offset(position.x), 0.0, 1.0)
+
+
 @ol.raster_material_hook
 def striped_material_hook(
     surface: SurfaceParameters, context: SurfaceContext,
@@ -62,6 +74,20 @@ class RasterBackendTests(unittest.TestCase):
         self.assertTrue(vulkan.vertex.binary if target == "spirv" else vulkan.vertex.source)
         self.assertTrue(webgpu.vertex.source.startswith("@vertex"))
         self.assertEqual(vulkan.reflection.vertex.stage, "vertex")
+
+    def test_raster_program_accepts_vertex_stage_helpers(self):
+        program = ol.RasterProgram.compile(
+            helper_raster_vertex, raster_fragment, target="wgsl",
+            validate=False, vertex_helpers=(vertex_offset,),
+        )
+        self.assertIn("fn vertex_offset", program.vertex.source)
+
+    def test_fragment_helper_spellings_are_mutually_exclusive(self):
+        with self.assertRaisesRegex(TypeError, "helpers or fragment_helpers"):
+            ol.RasterProgram.compile(
+                raster_vertex, raster_fragment, target="wgsl", validate=False,
+                helpers=(vertex_offset,), fragment_helpers=(vertex_offset,),
+            )
 
     def test_vulkan_renderer_exposes_direct_surface_presentation(self):
         renderer = ol.renderers.raster.VulkanRasterRenderer
@@ -274,6 +300,16 @@ class RasterBackendTests(unittest.TestCase):
         self.assertTrue(state.depth_test)
         with self.assertRaises(ValueError):
             ol.RasterState(blend_mode="multiply")
+
+    def test_parameter_grid_exposes_a_generic_vec4_domain(self):
+        mesh = ol.parameter_grid(
+            3, 2, u_range=(-2.0, 2.0), v_range=(1.0, 3.0),
+            parameters=(0.75,),
+        )
+        self.assertEqual(mesh.vertices.shape, (6, 4))
+        self.assertEqual(mesh.indices.shape, (12,))
+        np.testing.assert_allclose(mesh.vertices[:, 2], 0.75)
+        np.testing.assert_allclose(mesh.vertices[:, 3], 0.0)
 
     @unittest.skipUnless(
         os.environ.get("ORDINARYLIGHT_RUN_GPU_GATES") == "1",
