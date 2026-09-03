@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from threading import Event
 
 import numpy as np
@@ -6,6 +8,7 @@ import numpy as np
 import ordinarylight as ol
 from ordinarylight.integrations.qt_workbench import (
     QUALITY_PRESETS, WorkbenchState, _SceneLoader, _initial_showcase_index,
+    load_workbench_extension,
 )
 from ordinarylight.integrations.workbench import Showcase
 
@@ -20,6 +23,20 @@ def triangle(offset=0.0):
 
 
 class WorkbenchStateTests(unittest.TestCase):
+    def test_application_extension_is_loaded_only_from_explicit_reference(self):
+        factory = lambda *_args: None
+        with patch.dict("sys.modules", {"example_extension": SimpleNamespace(
+            create=factory,
+        )}):
+            self.assertIs(
+                load_workbench_extension("example_extension:create"), factory,
+            )
+        self.assertIsNone(load_workbench_extension(""))
+
+    def test_invalid_extension_reference_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "module:factory"):
+            load_workbench_extension("missing-separator")
+
     def test_initial_showcase_can_be_selected_by_id_for_smoke_runs(self):
         state = WorkbenchState()
         state.add_showcase(Showcase("first", "First", triangle))

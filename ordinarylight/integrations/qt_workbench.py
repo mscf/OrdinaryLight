@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from concurrent.futures import Future
 from dataclasses import dataclass
+import importlib
 import math
 import os
 from pathlib import Path
@@ -39,6 +40,28 @@ def _initial_showcase_index(entries, requested=None):
         ),
         0,
     )
+
+
+def load_workbench_extension(specification=None):
+    """Load an optional application-owned workbench extension factory.
+
+    The ``module:attribute`` reference is supplied explicitly by the embedding
+    application. Ordinary Light never imports a downstream package by name.
+    """
+    if specification is None:
+        specification = os.environ.get("ORDINARYLIGHT_WORKBENCH_EXTENSION", "")
+    specification = str(specification).strip()
+    if not specification:
+        return None
+    module_name, separator, attribute = specification.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ValueError(
+            "workbench extension must use the form 'module:factory'"
+        )
+    factory = getattr(importlib.import_module(module_name), attribute)
+    if not callable(factory):
+        raise TypeError("workbench extension factory must be callable")
+    return factory
 
 
 class _SceneLoader:
@@ -237,6 +260,7 @@ def main():
     os.environ["WAVE_RENDER_GLFW_PLATFORM"] = "x11"
     os.environ["PYGLFW_LIBRARY_VARIANT"] = "x11"
     QtCore, QtGui, QtWidgets = _qt()
+    extension_factory = load_workbench_extension()
     from ordinarylight.integrations.presentation import AsyncPresenter
     from ordinarylight.integrations.resize import ResizeRecreationGate
     from ordinarylight.integrations.glfw_platform import load_glfw
@@ -346,6 +370,7 @@ def main():
             self._frame_times = deque(maxlen=60)
             self._loader = _SceneLoader()
             self._load_future = None
+            self.extension = None
             self._smoke_frames = max(0, int(os.environ.get(
                 "ORDINARYLIGHT_WORKBENCH_SMOKE_FRAMES", "0"
             )))
@@ -405,6 +430,12 @@ def main():
             row.addWidget(self.reload_button)
             scene_layout.addLayout(row)
             layout.addWidget(scenes)
+
+            if extension_factory is not None:
+                self.extension = extension_factory(self, QtCore, QtWidgets)
+                widget = getattr(self.extension, "widget", None)
+                if widget is not None:
+                    layout.addWidget(widget)
 
             settings = QtWidgets.QGroupBox("Renderer configuration")
             form = QtWidgets.QFormLayout(settings)
@@ -668,6 +699,32 @@ def main():
                 self.viewport.set_camera(self._camera())
                 self.started = time.perf_counter()
                 self._message(f"Activated: {self.state.active.name}")
+            self._extension_call("scene_changed", self.active_scene)
+
+        @property
+        def active_scene(self):
+            entry = self.state.active
+            return None if entry is None else entry.scene
+
+        def load_scene_async(self, name, builder, *, source="extension"):
+            """Build and add an application-owned scene off the GUI thread."""
+            if self._load_future is not None:
+                raise RuntimeError("another scene is already loading")
+            self.load_button.setEnabled(False)
+            self._message(f"Loading {name}…")
+            self._load_future = (
+                "extension", (str(name), str(source)), self._loader.submit(builder),
+            )
+
+        def reset_render_sequence(self):
+            self._reset()
+
+        def show_message(self, text):
+            self._message(text)
+
+        def _extension_call(self, method, *args):
+            callback = getattr(self.extension, method, None)
+            return None if callback is None else callback(*args)
 
         def _load_scene(self):
             if self._load_future is not None:
@@ -724,6 +781,11 @@ def main():
                     entry = self.state.add(Path(path).name, scene, source=path)
                     self.scene_list.addItem(entry.name)
                     self.scene_list.setCurrentRow(len(self.state.scenes) - 1)
+                elif kind == "extension":
+                    name, source = subject
+                    entry = self.state.add(name, scene, source=source)
+                    self.scene_list.addItem(entry.name)
+                    self.scene_list.setCurrentRow(len(self.state.scenes) - 1)
                 else:
                     index = subject
                     if not 0 <= index < len(self.state.scenes):
@@ -737,6 +799,7 @@ def main():
                     f"Loaded {entry.name}: {len(scene.meshes)} meshes, "
                     f"{triangles:,} triangles"
                 )
+                self._extension_call("scene_changed", self.active_scene)
             except Exception as error:
                 self._message(f"Scene load failed: {error}")
 
@@ -773,6 +836,11 @@ def main():
                 window_size, framebuffer_size=framebuffer,
                 render_size=framebuffer,
             )
+            if self._extension_call(
+                "mouse_press", scene, self.viewport.camera, framebuffer,
+                cursor, mapping,
+            ):
+                return
             result = ol.pick(
                 scene, self.viewport.camera, framebuffer, cursor,
                 mapping=mapping,
@@ -795,6 +863,8 @@ def main():
             if self.viewport is None or self.pause_button.isChecked():
                 return
             try:
+                if self._extension_call("advance", self.viewport):
+                    self.viewport.reset_sequence()
                 if self.animate.isChecked():
                     phase = (
                         (time.perf_counter() - self.started) * 0.22

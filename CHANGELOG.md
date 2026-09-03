@@ -5,6 +5,9 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added an explicit `module:factory` Qt workbench extension hook so downstream
+  applications can own domain-specific panels without reverse dependencies.
+
 ## 0.3.5 - 2026-08-27
 
 - Added explicit picking policies, asynchronous GPU picking with a portable

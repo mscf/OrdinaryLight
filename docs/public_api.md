@@ -303,6 +303,15 @@ Put Python scripts in a directory listed by `ORDINARYLIGHT_SHOWCASE_PATH`, then
 use **Reload scripts** in the workbench. Each script defines `SHOWCASE` or
 `SHOWCASES`; scene construction is lazy and runs away from the Qt event thread.
 
+Applications can add an optional domain-specific Qt panel without introducing
+a reverse dependency. Set `ORDINARYLIGHT_WORKBENCH_EXTENSION` to a
+`module:factory` reference. The factory receives the workbench host, `QtCore`,
+and `QtWidgets`, and returns an object with a `widget` plus any of the optional
+`scene_changed`, `mouse_press`, and `advance` callbacks. The host exposes
+`active_scene`, `load_scene_async`, `reset_render_sequence`, and `show_message`
+for extension use. Ordinary Light resolves only the explicit reference and
+never imports the downstream package by name.
+
 ## Backend portability
 
 Backends implement the structural `ordinarylight.backends.RenderBackend`
