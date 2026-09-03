@@ -306,6 +306,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
                 module.shadeIsVolumePrimitive,
                 module.shadeVolumeLocalCoordinate,
                 module.shadeVolumeInterval,
+                module.shadeVolumeSliceDistances,
                 module.shadeVolumeTransferSample,
                 module.shadeVolumeScalar,
                 module.shadeVolumeBrickIndexFromVoxel,

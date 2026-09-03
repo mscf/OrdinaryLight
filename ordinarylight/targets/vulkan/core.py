@@ -4136,7 +4136,7 @@ class VulkanSceneResources:
         self.scene_sampled_textures = tuple(core.scene_sampled_textures)
         self.scene_sampled_volumes = tuple(core.scene_sampled_volumes)
         self.volume_signature = tuple(
-            (id(volume), volume.shape, id(volume.material), volume.visible)
+            (id(volume), volume.shape, volume.visible)
             for volume in scene.volumes
         )
         self.volume_data_revisions = tuple(
@@ -5548,10 +5548,10 @@ class VulkanRayQueryCore:
     def _update_sampled_volume_regions(self, texture, volume, regions):
         """Upload z/y/x boxes into an existing shader-readable 3-D image."""
         prepared = []
-        normalized = volume.normalized_data
+        scalar_data = volume.data
         for offset, shape in regions:
             stop = tuple(start + size for start, size in zip(offset, shape))
-            payload = np.ascontiguousarray(normalized[
+            payload = np.ascontiguousarray(scalar_data[
                 offset[0]:stop[0], offset[1]:stop[1], offset[2]:stop[2]
             ], np.float32)
             staging = self._create_buffer(
@@ -6230,7 +6230,7 @@ class VulkanRayQueryCore:
                 f"Vulkan backend supports at most {MAX_NATIVE_VOLUMES} visible volumes"
             )
         volume_payloads = [
-            volume.normalized_data for volume in scene.visible_volumes
+            volume.data for volume in scene.visible_volumes
         ] or [np.zeros((2, 2, 2), np.float32)]
         self.scene_sampled_volumes = [
             self._create_sampled_volume(payload) for payload in volume_payloads
@@ -7006,7 +7006,7 @@ class VulkanRayQueryCore:
     def _try_update_volume_payloads(self, scene, resources):
         """Update same-layout volume voxels without rebuilding scene geometry."""
         signature = tuple(
-            (id(volume), volume.shape, id(volume.material), volume.visible)
+            (id(volume), volume.shape, volume.visible)
             for volume in scene.volumes
         )
         if signature != resources.volume_signature:
@@ -7020,10 +7020,28 @@ class VulkanRayQueryCore:
             return False
         volumes = scene.visible_volumes
         revisions = tuple(volume.data_revision for volume in volumes)
-        if revisions == resources.volume_data_revisions:
-            return False
+        data_changed = revisions != resources.volume_data_revisions
         if len(volumes) != len(resources.scene_sampled_volumes):
             return False
+        from ...volume import pack_volumes
+        headers, _scalars, transfers = pack_volumes(
+            volumes, empty_space_skipping=False,
+        )
+        if (
+            headers.nbytes != resources.volume_header_buffer.size
+            or transfers.nbytes != resources.volume_transfer_buffer.size
+        ):
+            return False
+        if not data_changed:
+            vk.vkDeviceWaitIdle(self.device)
+            self._update_device_buffers((
+                (resources.volume_header_buffer, headers),
+                (resources.volume_transfer_buffer, transfers),
+            ))
+            resources.shading_revision = scene.shading_revision
+            resources.scene_revision = scene.revision
+            self._invalidate_scene_history()
+            return True
         dirty_counts = tuple(len(volume.dirty_regions) for volume in volumes)
         changed = []
         for index, volume in enumerate(volumes):
@@ -7037,15 +7055,11 @@ class VulkanRayQueryCore:
 
         # The packed scalar buffer is z-major. Emit one contiguous x span per
         # affected row, avoiding upload of unchanged voxels and other volumes.
-        from ...volume import pack_volumes
-        headers, _scalars, _transfers = pack_volumes(
-            volumes, empty_space_skipping=False,
-        )
         buffer_regions = []
         for index, volume, regions in changed:
             scalar_base = int(headers[index]["dimensions_offset"][3])
             _depth, height, width = volume.shape
-            normalized = volume.normalized_data
+            scalar_data = volume.data
             for offset, shape in regions:
                 for local_z in range(shape[0]):
                     z = offset[0] + local_z
@@ -7053,13 +7067,17 @@ class VulkanRayQueryCore:
                         y = offset[1] + local_y
                         x = offset[2]
                         element_offset = scalar_base + (z * height + y) * width + x
-                        row = normalized[z, y, x:x + shape[2]]
+                        row = scalar_data[z, y, x:x + shape[2]]
                         buffer_regions.append((element_offset * 4, row))
 
         vk.vkDeviceWaitIdle(self.device)
         self._update_device_buffer_regions(
             resources.volume_scalar_buffer, buffer_regions,
         )
+        self._update_device_buffers((
+            (resources.volume_header_buffer, headers),
+            (resources.volume_transfer_buffer, transfers),
+        ))
         for index, volume, regions in changed:
             self._update_sampled_volume_regions(
                 resources.scene_sampled_volumes[index], volume, regions,

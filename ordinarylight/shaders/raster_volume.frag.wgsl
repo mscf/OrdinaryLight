@@ -82,6 +82,11 @@ fn main(
     var entry: f32 = ray_limit;
     var exit_distance: f32 = 0.0;
     var step_size: f32 = 1e+30;
+    var slice_mode: bool = false;
+    var slice_first: f32 = 1e+30;
+    var slice_second: f32 = 1e+30;
+    var slice_third: f32 = 1e+30;
+    var slice_count: u32 = u32(0);
     let volume_count: u32 = min(camera.volume_count.x, u32(4));
     for (var volume_index: i32 = 0; volume_index < 4; volume_index += 1) {
         if ((u32(volume_index) >= volume_count)) {
@@ -106,22 +111,87 @@ fn main(
     if ((exit_distance <= entry)) {
         return background;
     }
-    step_size = max((step_size * camera.viewport_steps.z), 1e-05);
+    if (((volume_count == u32(1)) && (headers[u32(0)].clip_parameters.z != u32(0)))) {
+        let slice_header: RasterVolumeHeader = headers[u32(0)];
+        let slice_local_origin: vec3<f32> = (slice_header.world_to_local * vec4<f32>(ray_origin, 1.0)).xyz;
+        let slice_local_direction: vec3<f32> = (slice_header.world_to_local * vec4<f32>(ray_direction, 0.0)).xyz;
+        slice_first = select(1e+30, ((slice_header.clip_plane_7.x - slice_local_origin.x) / slice_local_direction.x), (abs(slice_local_direction.x) > 1e-10));
+        slice_second = select(1e+30, ((slice_header.clip_plane_7.y - slice_local_origin.y) / slice_local_direction.y), (abs(slice_local_direction.y) > 1e-10));
+        slice_third = select(1e+30, ((slice_header.clip_plane_7.z - slice_local_origin.z) / slice_local_direction.z), (abs(slice_local_direction.z) > 1e-10));
+        if (((slice_first < entry) || (slice_first > exit_distance))) {
+            slice_first = 1e+30;
+        } else {
+            slice_count = (slice_count + u32(1));
+        }
+        if (((slice_second < entry) || (slice_second > exit_distance))) {
+            slice_second = 1e+30;
+        } else {
+            slice_count = (slice_count + u32(1));
+        }
+        if (((slice_third < entry) || (slice_third > exit_distance))) {
+            slice_third = 1e+30;
+        } else {
+            slice_count = (slice_count + u32(1));
+        }
+        if ((slice_first > slice_second)) {
+            let temporary: f32 = slice_first;
+            slice_first = slice_second;
+            slice_second = temporary;
+        }
+        if ((slice_second > slice_third)) {
+            let temporary: f32 = slice_second;
+            slice_second = slice_third;
+            slice_third = temporary;
+        }
+        if ((slice_first > slice_second)) {
+            let temporary: f32 = slice_first;
+            slice_first = slice_second;
+            slice_second = temporary;
+        }
+        if ((slice_header.clip_parameters.w == u32(0))) {
+            if ((slice_count == u32(0))) {
+                return background;
+            }
+            let slice_step: f32 = max(slice_header.render_parameters.x, 1e-05);
+            entry = (slice_first - (slice_step * 0.5));
+            let slice_last: f32 = select(select(slice_third, slice_second, (slice_count == u32(2))), slice_first, (slice_count == u32(1)));
+            exit_distance = (slice_last + (slice_step * 0.5));
+            step_size = slice_step;
+            slice_mode = true;
+        }
+    }
+    if (slice_mode) {
+        step_size = max(step_size, 1e-05);
+    } else {
+        step_size = max((step_size * camera.viewport_steps.z), 1e-05);
+    }
     var transmittance: f32 = 1.0;
     var radiance: vec3<f32> = vec3<f32>(0.0);
+    let isosurface_enabled: bool = ((volume_count == u32(1)) && ((headers[u32(0)].clip_parameters.w == u32(2)) || (headers[u32(0)].clip_parameters.w == u32(3))));
+    let isosurface_only: bool = ((volume_count == u32(1)) && (headers[u32(0)].clip_parameters.w == u32(2)));
+    var previous_isosurface_scalar: f32 = (-3.402823e+38);
+    var previous_isosurface_distance: f32 = entry;
+    var previous_isosurface_valid: bool = false;
     var distance: f32 = (entry + (step_size * 0.5));
     let max_steps: u32 = min(u32(camera.viewport_steps.w), u32(8192));
     for (var step: i32 = 0; step < 8192; step += 1) {
+        if (slice_mode) {
+            if ((u32(step) >= slice_count)) {
+                break;
+            }
+            distance = select(select(slice_third, slice_second, (step == 1)), slice_first, (step == 0));
+        }
         if ((((u32(step) >= max_steps) || (distance >= exit_distance)) || (transmittance <= 0.001))) {
             break;
         }
         var combined_extinction: f32 = 0.0;
         var combined_emission: vec3<f32> = vec3<f32>(0.0);
+        var isosurface_hit: bool = false;
         let world_position: vec3<f32> = (ray_origin + (ray_direction * distance));
         var inside_any: bool = false;
         var occupied_any: bool = false;
         var empty_exit: f32 = 1e+30;
-        if ((camera.volume_count.z > u32(0))) {
+        if (((camera.volume_count.z > u32(0)) && (!isosurface_enabled))) {
             for (var occupancy_index: i32 = 0; occupancy_index < 4; occupancy_index += 1) {
                 if ((u32(occupancy_index) >= volume_count)) {
                     break;
@@ -247,11 +317,66 @@ fn main(
                     }
                 }
             }
-            let transfer_count: u32 = max(u32(header.value_parameters.y), u32(1));
+            let missing_scalar: bool = ((header.clip_parameters.y > u32(0)) && (scalar != scalar));
+            if (missing_scalar) {
+                scalar = 0.0;
+            }
+            var mapped_scalar: f32 = scalar;
+            let mapping: u32 = u32(header.phase_parameters.z);
+            if ((mapping == u32(1))) {
+                mapped_scalar = select((-3.402823e+38), log(scalar), (scalar > 0.0));
+            } else {
+                if ((mapping == u32(2))) {
+                    mapped_scalar = (sign(scalar) * log((1.0 + (abs(scalar) / header.phase_parameters.w))));
+                }
+            }
+            scalar = ((mapped_scalar - header.render_parameters.y) * header.render_parameters.w);
+            if ((((volume_index == 0) && isosurface_enabled) && (!missing_scalar))) {
+                let isovalue: f32 = header.clip_plane_7.w;
+                isosurface_hit = (previous_isosurface_valid && (((previous_isosurface_scalar < isovalue) && (scalar >= isovalue)) || ((previous_isosurface_scalar > isovalue) && (scalar <= isovalue))));
+                if (isosurface_hit) {
+                    var lower_distance: f32 = previous_isosurface_distance;
+                    var upper_distance: f32 = distance;
+                    var lower_scalar: f32 = previous_isosurface_scalar;
+                    for (var refinement: i32 = 0; refinement < 8; refinement += 1) {
+                        let middle_distance: f32 = (0.5 * (lower_distance + upper_distance));
+                        let middle_local: vec3<f32> = (header.world_to_local * vec4<f32>((ray_origin + (ray_direction * middle_distance)), 1.0)).xyz;
+                        var middle_scalar: f32 = textureSampleLevel(volume_0, linear_sampler, middle_local, 0.0).x;
+                        var middle_mapped: f32 = middle_scalar;
+                        if ((mapping == u32(1))) {
+                            middle_mapped = select((-3.402823e+38), log(middle_scalar), (middle_scalar > 0.0));
+                        } else {
+                            if ((mapping == u32(2))) {
+                                middle_mapped = (sign(middle_scalar) * log((1.0 + (abs(middle_scalar) / header.phase_parameters.w))));
+                            }
+                        }
+                        middle_scalar = ((middle_mapped - header.render_parameters.y) * header.render_parameters.w);
+                        let same_side: bool = (((lower_scalar < isovalue) && (middle_scalar < isovalue)) || ((lower_scalar > isovalue) && (middle_scalar > isovalue)));
+                        if (same_side) {
+                            lower_distance = middle_distance;
+                            lower_scalar = middle_scalar;
+                        } else {
+                            upper_distance = middle_distance;
+                        }
+                    }
+                }
+                previous_isosurface_scalar = scalar;
+                previous_isosurface_distance = distance;
+                previous_isosurface_valid = true;
+            }
+            let reserved: u32 = min(header.clip_parameters.y, u32(1));
+            let transfer_count: u32 = max((u32(header.value_parameters.y) - reserved), u32(1));
             let transfer_coordinate: f32 = (clamp(scalar, 0.0, 1.0) * f32((transfer_count - u32(1))));
             let transfer_index: u32 = min(u32((transfer_coordinate + 0.5)), (transfer_count - u32(1)));
-            let sample_value: vec4<f32> = transfers[(u32(header.value_parameters.x) + transfer_index)];
-            let reference_alpha: f32 = clamp((sample_value.a * header.value_parameters.z), 0.0, 0.999999);
+            var transfer_offset: u32 = u32(header.value_parameters.x);
+            if ((!missing_scalar)) {
+                transfer_offset = (transfer_offset + reserved);
+            }
+            let sample_value: vec4<f32> = transfers[(transfer_offset + transfer_index)];
+            var reference_alpha: f32 = clamp((sample_value.a * header.value_parameters.z), 0.0, 0.999999);
+            if (isosurface_only) {
+                reference_alpha = 0.0;
+            }
             let reference_step: f32 = max(header.render_parameters.x, 1e-05);
             let extinction: f32 = ((-log((1.0 - reference_alpha))) / reference_step);
             combined_extinction = (combined_extinction + extinction);
@@ -350,10 +475,29 @@ fn main(
                                         }
                                     }
                                 }
-                                let shadow_transfer_count: u32 = max(u32(shadow_header.value_parameters.y), u32(1));
+                                let missing_shadow_scalar: bool = ((shadow_header.clip_parameters.y > u32(0)) && (shadow_scalar != shadow_scalar));
+                                if (missing_shadow_scalar) {
+                                    shadow_scalar = 0.0;
+                                }
+                                var mapped_shadow_scalar: f32 = shadow_scalar;
+                                let shadow_mapping: u32 = u32(shadow_header.phase_parameters.z);
+                                if ((shadow_mapping == u32(1))) {
+                                    mapped_shadow_scalar = select((-3.402823e+38), log(shadow_scalar), (shadow_scalar > 0.0));
+                                } else {
+                                    if ((shadow_mapping == u32(2))) {
+                                        mapped_shadow_scalar = (sign(shadow_scalar) * log((1.0 + (abs(shadow_scalar) / shadow_header.phase_parameters.w))));
+                                    }
+                                }
+                                shadow_scalar = ((mapped_shadow_scalar - shadow_header.render_parameters.y) * shadow_header.render_parameters.w);
+                                let shadow_reserved: u32 = min(shadow_header.clip_parameters.y, u32(1));
+                                let shadow_transfer_count: u32 = max((u32(shadow_header.value_parameters.y) - shadow_reserved), u32(1));
                                 let shadow_transfer_coordinate: f32 = (clamp(shadow_scalar, 0.0, 1.0) * f32((shadow_transfer_count - u32(1))));
                                 let shadow_transfer_index: u32 = min(u32((shadow_transfer_coordinate + 0.5)), (shadow_transfer_count - u32(1)));
-                                let shadow_sample: vec4<f32> = transfers[(u32(shadow_header.value_parameters.x) + shadow_transfer_index)];
+                                var shadow_transfer_offset: u32 = u32(shadow_header.value_parameters.x);
+                                if ((!missing_shadow_scalar)) {
+                                    shadow_transfer_offset = (shadow_transfer_offset + shadow_reserved);
+                                }
+                                let shadow_sample: vec4<f32> = transfers[(shadow_transfer_offset + shadow_transfer_index)];
                                 let shadow_alpha: f32 = clamp((shadow_sample.a * shadow_header.value_parameters.z), 0.0, 0.999999);
                                 let shadow_reference_step: f32 = max(shadow_header.render_parameters.x, 1e-05);
                                 let shadow_extinction: f32 = ((-log((1.0 - shadow_alpha))) / shadow_reference_step);
@@ -428,6 +572,83 @@ fn main(
         let opacity: f32 = (1.0 - exp(((-combined_extinction) * step_size)));
         radiance = (radiance + ((transmittance * combined_emission) * opacity));
         transmittance = (transmittance * (1.0 - opacity));
+        if (isosurface_hit) {
+            let surface_header: RasterVolumeHeader = headers[u32(0)];
+            let surface_reserved: u32 = min(surface_header.clip_parameters.y, u32(1));
+            let surface_count: u32 = max((u32(surface_header.value_parameters.y) - surface_reserved), u32(1));
+            let surface_coordinate: f32 = (clamp(surface_header.clip_plane_7.w, 0.0, 1.0) * f32((surface_count - u32(1))));
+            let surface_index: u32 = min(u32((surface_coordinate + 0.5)), (surface_count - u32(1)));
+            let surface_sample: vec4<f32> = transfers[((u32(surface_header.value_parameters.x) + surface_reserved) + surface_index)];
+            let surface_alpha: f32 = clamp((surface_sample.a * surface_header.value_parameters.z), 0.0, 1.0);
+            radiance = (radiance + (((transmittance * surface_alpha) * surface_sample.rgb) * surface_header.value_parameters.w));
+            transmittance = (transmittance * (1.0 - surface_alpha));
+            if (isosurface_only) {
+                break;
+            }
+        }
+        if (((volume_count == u32(1)) && (headers[u32(0)].clip_parameters.w == u32(3)))) {
+            let slice_header: RasterVolumeHeader = headers[u32(0)];
+            let half_step: f32 = ((0.5 * step_size) + 1e-07);
+            for (var slice_index: i32 = 0; slice_index < 3; slice_index += 1) {
+                let slice_distance: f32 = select(select(slice_third, slice_second, (slice_index == 1)), slice_first, (slice_index == 0));
+                if ((abs((slice_distance - distance)) > half_step)) {
+                    continue;
+                }
+                let slice_world: vec3<f32> = (ray_origin + (ray_direction * slice_distance));
+                var slice_clipped: bool = false;
+                if ((slice_header.clip_parameters.x > u32(0))) {
+                    slice_clipped = (dot(slice_header.clip_plane_0.xyz, slice_world) < slice_header.clip_plane_0.w);
+                }
+                if ((slice_header.clip_parameters.x > u32(1))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_1.xyz, slice_world) < slice_header.clip_plane_1.w));
+                }
+                if ((slice_header.clip_parameters.x > u32(2))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_2.xyz, slice_world) < slice_header.clip_plane_2.w));
+                }
+                if ((slice_header.clip_parameters.x > u32(3))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_3.xyz, slice_world) < slice_header.clip_plane_3.w));
+                }
+                if ((slice_header.clip_parameters.x > u32(4))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_4.xyz, slice_world) < slice_header.clip_plane_4.w));
+                }
+                if ((slice_header.clip_parameters.x > u32(5))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_5.xyz, slice_world) < slice_header.clip_plane_5.w));
+                }
+                if ((slice_header.clip_parameters.x > u32(6))) {
+                    slice_clipped = (slice_clipped || (dot(slice_header.clip_plane_6.xyz, slice_world) < slice_header.clip_plane_6.w));
+                }
+                if (slice_clipped) {
+                    continue;
+                }
+                let slice_local: vec3<f32> = (slice_header.world_to_local * vec4<f32>(slice_world, 1.0)).xyz;
+                var slice_scalar: f32 = textureSampleLevel(volume_0, linear_sampler, slice_local, 0.0).x;
+                let slice_missing: bool = ((slice_header.clip_parameters.y > u32(0)) && (slice_scalar != slice_scalar));
+                if (slice_missing) {
+                    slice_scalar = 0.0;
+                }
+                var slice_mapped: f32 = slice_scalar;
+                let slice_mapping: u32 = u32(slice_header.phase_parameters.z);
+                if ((slice_mapping == u32(1))) {
+                    slice_mapped = select((-3.402823e+38), log(slice_scalar), (slice_scalar > 0.0));
+                } else {
+                    if ((slice_mapping == u32(2))) {
+                        slice_mapped = (sign(slice_scalar) * log((1.0 + (abs(slice_scalar) / slice_header.phase_parameters.w))));
+                    }
+                }
+                let slice_normalized: f32 = clamp(((slice_mapped - slice_header.render_parameters.y) * slice_header.render_parameters.w), 0.0, 1.0);
+                let slice_reserved: u32 = min(slice_header.clip_parameters.y, u32(1));
+                let slice_transfer_count: u32 = max((u32(slice_header.value_parameters.y) - slice_reserved), u32(1));
+                let slice_transfer_index: u32 = min(u32(((slice_normalized * f32((slice_transfer_count - u32(1)))) + 0.5)), (slice_transfer_count - u32(1)));
+                var slice_transfer_offset: u32 = u32(slice_header.value_parameters.x);
+                if ((!slice_missing)) {
+                    slice_transfer_offset = (slice_transfer_offset + slice_reserved);
+                }
+                let slice_sample: vec4<f32> = transfers[(slice_transfer_offset + slice_transfer_index)];
+                let slice_alpha: f32 = clamp((slice_sample.a * slice_header.value_parameters.z), 0.0, 1.0);
+                radiance = (radiance + (((transmittance * slice_alpha) * slice_sample.rgb) * slice_header.value_parameters.w));
+                transmittance = (transmittance * (1.0 - slice_alpha));
+            }
+        }
         distance = (distance + step_size);
     }
     return vec4<f32>((radiance + (background.rgb * transmittance)), background.a);

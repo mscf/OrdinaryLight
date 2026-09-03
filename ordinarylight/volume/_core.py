@@ -28,6 +28,40 @@ def _transfer_interval_has_opacity(transfer_function, lower, upper):
     return bool(np.any(alpha > 0.0))
 
 
+def _volume_transfer_sample(volume, values):
+    """Sample a volume LUT while honoring its reserved missing-data entry."""
+    values = np.asarray(values, np.float32)
+    if not volume.missing_data:
+        return volume.material.transfer_function.sample(values)
+    valid = np.isfinite(values)
+    count = len(volume.material.transfer_function.values)
+    encoded = (1.0 + np.where(valid, values, 0.0) * max(count - 2, 0)) / max(
+        count - 1, 1
+    )
+    encoded = np.where(valid, encoded, 0.0)
+    return volume.material.transfer_function.sample(encoded)
+
+
+def _volume_interval_has_opacity(volume, lower, upper):
+    lower = float(np.clip(lower, 0.0, 1.0))
+    upper = float(np.clip(upper, lower, 1.0))
+    count = len(volume.material.transfer_function.values) - int(
+        volume.missing_data
+    )
+    coordinates = [lower, upper]
+    if count > 1:
+        first = max(0, int(np.ceil(lower * (count - 1))))
+        last = min(count - 1, int(np.floor(upper * (count - 1))))
+        coordinates.extend(
+            index / (count - 1) for index in range(first, last + 1)
+        )
+    return bool(np.any(
+        _volume_transfer_sample(
+            volume, np.asarray(coordinates, np.float32)
+        )[:, 3] > 0.0
+    ))
+
+
 def volume_brick_occupancy(volume, brick_size=VOLUME_BRICK_SIZE):
     """Return conservative z/y/x occupancy for transfer-visible bricks.
 
@@ -58,12 +92,17 @@ def volume_brick_occupancy(volume, brick_size=VOLUME_BRICK_SIZE):
                 x0 = max(brick_x * brick_size - 1, 0)
                 x1 = min((brick_x + 1) * brick_size + 1, width)
                 values = data[z0:z1, y0:y1, x0:x1]
-                occupancy[brick_z, brick_y, brick_x] = float(
-                    _transfer_interval_has_opacity(
-                        volume.material.transfer_function,
-                        float(np.min(values)), float(np.max(values)),
-                    )
+                finite = values[np.isfinite(values)]
+                occupied = bool(
+                    volume.missing_data
+                    and np.any(~np.isfinite(values))
+                    and volume.material.transfer_function.values[0, 3] > 0.0
                 )
+                if finite.size:
+                    occupied |= _volume_interval_has_opacity(
+                        volume, float(np.min(finite)), float(np.max(finite)),
+                    )
+                occupancy[brick_z, brick_y, brick_x] = float(occupied)
     return occupancy
 
 
@@ -130,7 +169,7 @@ def _approximate_light_transmittance(volumes, positions, light_position):
             positions[ray_indices] + directions[ray_indices] * midpoint[:, None]
         )
         samples = sample_trilinear(volume, sample_positions)
-        rgba = volume.material.transfer_function.sample(samples)
+        rgba = _volume_transfer_sample(volume, samples)
         rgba[~volume_clip_mask(volume, sample_positions)] = 0.0
         alpha = np.clip(
             rgba[:, 3] * volume.material.density_scale, 0.0, 1.0 - 1e-7,
@@ -309,8 +348,8 @@ def integrate_volume(
         positions = origins[scattering_indices] + (
             directions[scattering_indices] * midpoint[:, None]
         )
-        midpoint_rgba = material.transfer_function.sample(
-            sample_trilinear(volume, positions)
+        midpoint_rgba = _volume_transfer_sample(
+            volume, sample_trilinear(volume, positions)
         )
         midpoint_rgba[~volume_clip_mask(volume, positions)] = 0.0
         midpoint_alpha = np.clip(
@@ -335,7 +374,7 @@ def integrate_volume(
         distance = entries[indices] + (step_index + 0.5) * dt
         positions = origins[indices] + directions[indices] * distance[:, None]
         scalar = sample_trilinear(volume, positions)
-        rgba = material.transfer_function.sample(scalar)
+        rgba = _volume_transfer_sample(volume, scalar)
         rgba[~volume_clip_mask(volume, positions)] = 0.0
         reference_alpha = np.clip(
             rgba[:, 3] * material.density_scale, 0.0, 1.0 - 1e-7
@@ -394,8 +433,8 @@ def integrate_volumes(
             material = volume.material
             distance = 0.5 * (entry + exit_distance)
             position = origins[ray_index] + directions[ray_index] * distance
-            midpoint_rgba = material.transfer_function.sample(
-                sample_trilinear(volume, position[None, :])
+            midpoint_rgba = _volume_transfer_sample(
+                volume, sample_trilinear(volume, position[None, :])
             )[0]
             if not volume_clip_mask(volume, position[None, :])[0]:
                 midpoint_rgba = np.zeros(4, np.float32)
@@ -433,7 +472,7 @@ def integrate_volumes(
                     volume = volumes[volume_index]
                     material = volume.material
                     scalar = sample_trilinear(volume, position[None, :])
-                    rgba = material.transfer_function.sample(scalar)[0]
+                    rgba = _volume_transfer_sample(volume, scalar)[0]
                     if not volume_clip_mask(volume, position[None, :])[0]:
                         rgba = np.zeros(4, np.float32)
                     reference_alpha = float(np.clip(
@@ -486,8 +525,20 @@ def pack_volumes(volumes, *, empty_space_skipping=True):
             float(transfer_offset), float(len(transfer)),
             volume.material.density_scale, volume.material.emission_scale,
         )
+        low, high = volume.value_range
+        if volume.value_mapping == "log":
+            mapped_low, mapped_high = np.log(low), np.log(high)
+        elif volume.value_mapping == "symlog":
+            mapped_low, mapped_high = (
+                np.sign(value) * np.log1p(
+                    abs(value) / volume.linear_threshold
+                ) for value in (low, high)
+            )
+        else:
+            mapped_low, mapped_high = low, high
         headers[index]["render_parameters"] = (
-            volume.material.step_size, float(volume.id), float(len(volumes)), 0.0,
+            volume.material.step_size, mapped_low, float(len(volumes)),
+            1.0 / (mapped_high - mapped_low),
         )
         headers[index]["scattering_parameters"] = (
             *volume.material.scattering_color, volume.material.scattering_scale,
@@ -495,7 +546,8 @@ def pack_volumes(volumes, *, empty_space_skipping=True):
         headers[index]["phase_parameters"] = (
             volume.material.anisotropy,
             1.0 if volume.material.phase_function == "henyey_greenstein" else 0.0,
-            0.0, 0.0,
+            float({"linear": 0, "log": 1, "symlog": 2}[volume.value_mapping]),
+            volume.linear_threshold,
         )
         headers[index]["multiple_scattering_parameters"] = (
             *volume.material.scattering_albedo,
@@ -505,12 +557,37 @@ def pack_volumes(volumes, *, empty_space_skipping=True):
             raise ValueError(
                 f"volumes support at most {VOLUME_MAX_CLIP_PLANES} clip planes"
             )
-        headers[index]["clip_parameters"][0] = len(volume.clip_planes)
+        headers[index]["clip_parameters"][:2] = (
+            len(volume.clip_planes), int(volume.missing_data),
+        )
+        headers[index]["clip_parameters"][2:] = (
+            7 if volume.render_mode in {"slice", "combined"} else 0,
+            {"volume": 0, "slice": 0, "isosurface": 2, "combined": 3}[
+                volume.render_mode
+            ],
+        )
         if volume.clip_planes:
             headers[index]["clip_planes"][:len(volume.clip_planes)] = (
                 volume.clip_planes
             )
-        data = volume.normalized_data.reshape(-1)
+        if volume.render_mode in {"slice", "combined"}:
+            headers[index]["clip_planes"][7, :3] = volume.slice_positions
+        if volume.render_mode in {"isosurface", "combined"}:
+            if volume.value_mapping == "log":
+                mapped_iso = np.log(volume.isovalue)
+            elif volume.value_mapping == "symlog":
+                mapped_iso = np.sign(volume.isovalue) * np.log1p(
+                    abs(volume.isovalue) / volume.linear_threshold
+                )
+            else:
+                mapped_iso = volume.isovalue
+            headers[index]["clip_planes"][7, 3] = np.clip(
+                (mapped_iso - mapped_low) / (mapped_high - mapped_low),
+                0.0, 1.0,
+            )
+        # Keep physical scalar values resident.  The shader applies the
+        # header's range transform, so window/level edits only upload headers.
+        data = volume.data.reshape(-1)
         scalar_chunks.append(data)
         brick_offset = scalar_offset + len(data)
         if empty_space_skipping:

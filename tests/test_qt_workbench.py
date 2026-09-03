@@ -5,8 +5,9 @@ import numpy as np
 
 import ordinarylight as ol
 from ordinarylight.integrations.qt_workbench import (
-    QUALITY_PRESETS, WorkbenchState, _SceneLoader,
+    QUALITY_PRESETS, WorkbenchState, _SceneLoader, _initial_showcase_index,
 )
+from ordinarylight.integrations.workbench import Showcase
 
 
 def triangle(offset=0.0):
@@ -19,6 +20,16 @@ def triangle(offset=0.0):
 
 
 class WorkbenchStateTests(unittest.TestCase):
+    def test_initial_showcase_can_be_selected_by_id_for_smoke_runs(self):
+        state = WorkbenchState()
+        state.add_showcase(Showcase("first", "First", triangle))
+        state.add_showcase(Showcase("scientific", "Scientific", triangle))
+        self.assertEqual(_initial_showcase_index(state.scenes), 0)
+        self.assertEqual(
+            _initial_showcase_index(state.scenes, "scientific"), 1,
+        )
+        self.assertEqual(_initial_showcase_index(state.scenes, "missing"), 0)
+
     def test_scene_loader_close_does_not_wait_for_running_user_code(self):
         started = Event()
         release = Event()

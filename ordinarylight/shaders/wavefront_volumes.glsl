@@ -64,6 +64,32 @@ vec2 volumeInterval(VolumeHeader header, vec3 origin, vec3 direction)
                 min(min(upper.x, upper.y), upper.z));
 }
 
+vec3 volumeSliceDistances(VolumeHeader header, vec3 origin, vec3 direction)
+{
+    vec3 local_origin = (header.world_to_local * vec4(origin, 1.0)).xyz;
+    vec3 local_direction = (header.world_to_local * vec4(direction, 0.0)).xyz;
+    vec3 distances = vec3(1.0e30);
+    for (uint axis = 0u; axis < 3u; ++axis) {
+        if ((header.clip_parameters.z & (1u << axis)) != 0u
+                && abs(local_direction[axis]) > 1.0e-10)
+            distances[axis] = (header.clip_planes[7][axis]
+                - local_origin[axis]) / local_direction[axis];
+    }
+    if (distances.x > distances.y) {
+        float temporary = distances.x; distances.x = distances.y;
+        distances.y = temporary;
+    }
+    if (distances.y > distances.z) {
+        float temporary = distances.y; distances.y = distances.z;
+        distances.z = temporary;
+    }
+    if (distances.x > distances.y) {
+        float temporary = distances.x; distances.x = distances.y;
+        distances.y = temporary;
+    }
+    return distances;
+}
+
 float sampleVolumeTexture(uint index, vec3 coordinate)
 {
     switch (index) {
@@ -97,15 +123,31 @@ float volumeScalar(uint volume_index, VolumeHeader header, vec3 world_position)
     vec3 local = clamp(
         (header.world_to_local * vec4(world_position, 1.0)).xyz,
         vec3(0.0), vec3(1.0));
-    return sampleVolumeTexture(volume_index, local);
+    float physical = sampleVolumeTexture(volume_index, local);
+    if (header.clip_parameters.y != 0u && isnan(physical))
+        return -2.0;
+    float mapped = physical;
+    uint mapping = uint(header.phase_parameters.z);
+    if (mapping == 1u)
+        mapped = physical > 0.0 ? log(physical) : -3.402823e38;
+    else if (mapping == 2u)
+        mapped = sign(physical) * log(
+            1.0 + abs(physical) / header.phase_parameters.w);
+    return (mapped - header.render_parameters.y)
+        * header.render_parameters.w;
 }
 
 vec4 volumeTransferSample(VolumeHeader header, float value)
 {
+    uint offset = uint(header.value_parameters.x);
+    if (value < -1.5)
+        return volume_transfer[offset];
     if (value < 0.0)
         return vec4(0.0);
-    uint offset = uint(header.value_parameters.x);
     uint count = uint(header.value_parameters.y);
+    uint reserved = min(header.clip_parameters.y, 1u);
+    offset += reserved;
+    count -= reserved;
     float coordinate = clamp(value, 0.0, 1.0) * float(max(count, 1u) - 1u);
     uint lower = uint(floor(coordinate));
     uint upper = min(lower + 1u, count - 1u);
@@ -388,11 +430,39 @@ float integrateVolumeUntil(
     float exit_distance = min(interval.y, maximum_distance);
     if (exit_distance <= entry)
         return entry;
+    if (header.clip_parameters.z != 0u) {
+        vec3 distances = volumeSliceDistances(header, origin, direction);
+        if ((header.clip_parameters.w & 1u) != 0u) {
+            // Combined mode inserts these exact samples into the march below.
+        } else {
+        for (uint slice_index = 0u; slice_index < 3u; ++slice_index) {
+            float slice_distance = distances[slice_index];
+            if (slice_distance < entry || slice_distance > exit_distance)
+                continue;
+            vec4 sample_value = volumeTransferSample(
+                header, volumeScalar(
+                    volume_index, header,
+                    origin + direction * slice_distance));
+            float alpha = clamp(
+                sample_value.a * header.value_parameters.z, 0.0, 1.0);
+            radiance += throughput * alpha * sample_value.rgb
+                * header.value_parameters.w;
+            throughput *= 1.0 - alpha;
+        }
+        return exit_distance;
+        }
+    }
     float reference_step = max(header.render_parameters.x, 1e-5);
     uint steps = min(uint(ceil((exit_distance - entry) / reference_step)), 4096u);
     float step_size = (exit_distance - entry) / float(max(steps, 1u));
     float transmittance = 1.0;
     vec3 integrated = vec3(0.0);
+    bool isosurface_enabled = (header.clip_parameters.w & 2u) != 0u;
+    bool volume_enabled = header.clip_parameters.w != 2u;
+    float isovalue = header.clip_planes[7].w;
+    float previous_distance = entry;
+    float previous_scalar = volumeScalar(
+        volume_index, header, origin + direction * previous_distance);
 #if WAVE_VOLUME_SCATTERING
 #if WAVE_VOLUME_MULTIPLE_SCATTERING
     float scattering_midpoint = 0.5 * (entry + exit_distance);
@@ -425,7 +495,7 @@ float integrateVolumeUntil(
 #if WAVE_VOLUME_EMPTY_SPACE_SKIPPING
         vec3 world_position = origin + direction * distance;
         vec3 voxel_position = voxel_origin + voxel_direction * distance;
-        if (distance + 1.0e-7 >= occupied_until) {
+        if (!isosurface_enabled && distance + 1.0e-7 >= occupied_until) {
             float brick_exit = volumeBrickExitDistanceAtVoxel(
                 header, voxel_position, voxel_direction, distance);
             if (!volumeBrickOccupiedAtVoxel(header, voxel_position)) {
@@ -438,9 +508,10 @@ float integrateVolumeUntil(
             occupied_until = brick_exit;
         }
 #endif
-        vec4 sample_value = volumeTransferSample(
-            header, volumeScalar(
-                volume_index, header, origin + direction * distance));
+        float scalar = volumeScalar(
+            volume_index, header, origin + direction * distance);
+        vec4 sample_value = volumeTransferSample(header, scalar);
+        if (volume_enabled) {
         float reference_alpha = clamp(
             sample_value.a * header.value_parameters.z, 0.0, 0.999999);
         float alpha = 1.0 - pow(
@@ -451,6 +522,58 @@ float integrateVolumeUntil(
 #endif
         integrated += transmittance * alpha * source;
         transmittance *= 1.0 - alpha;
+        }
+        if (isosurface_enabled && previous_scalar >= 0.0 && scalar >= 0.0
+                && ((previous_scalar < isovalue && scalar >= isovalue)
+                    || (previous_scalar > isovalue && scalar <= isovalue))) {
+            float lower_distance = previous_distance;
+            float upper_distance = distance;
+            float lower_scalar = previous_scalar;
+            for (uint refinement = 0u; refinement < 8u; ++refinement) {
+                float middle_distance = 0.5 * (lower_distance + upper_distance);
+                float middle_scalar = volumeScalar(
+                    volume_index, header,
+                    origin + direction * middle_distance);
+                if (middle_scalar < 0.0)
+                    break;
+                if ((lower_scalar < isovalue && middle_scalar < isovalue)
+                        || (lower_scalar > isovalue && middle_scalar > isovalue)) {
+                    lower_distance = middle_distance;
+                    lower_scalar = middle_scalar;
+                } else {
+                    upper_distance = middle_distance;
+                }
+            }
+            vec4 surface_sample = volumeTransferSample(header, isovalue);
+            float surface_alpha = clamp(
+                surface_sample.a * header.value_parameters.z, 0.0, 1.0);
+            integrated += transmittance * surface_alpha * surface_sample.rgb
+                * header.value_parameters.w;
+            transmittance *= 1.0 - surface_alpha;
+            if (!volume_enabled || transmittance <= 0.001)
+                break;
+        }
+        previous_distance = distance;
+        previous_scalar = scalar;
+        if ((header.clip_parameters.w & 1u) != 0u) {
+            vec3 slice_distances = volumeSliceDistances(
+                header, origin, direction);
+            float half_step = 0.5 * step_size + 1.0e-7;
+            for (uint slice_index = 0u; slice_index < 3u; ++slice_index) {
+                float slice_distance = slice_distances[slice_index];
+                if (abs(slice_distance - distance) > half_step)
+                    continue;
+                vec4 slice_sample = volumeTransferSample(
+                    header, volumeScalar(
+                        volume_index, header,
+                        origin + direction * slice_distance));
+                float slice_alpha = clamp(
+                    slice_sample.a * header.value_parameters.z, 0.0, 1.0);
+                integrated += transmittance * slice_alpha * slice_sample.rgb
+                    * header.value_parameters.w;
+                transmittance *= 1.0 - slice_alpha;
+            }
+        }
         if (transmittance < 1e-4)
             break;
         step_index += 1u;

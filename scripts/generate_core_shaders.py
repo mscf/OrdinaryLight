@@ -4080,15 +4080,45 @@ def shadeVolumeInterval(
 
 
 @osh.function
+def shadeVolumeSliceDistances(
+    header: VolumeHeader, origin: osh.vec3, direction: osh.vec3,
+) -> osh.vec3:
+    local_origin = (header.world_to_local * osh.vec4(origin, 1.0)).xyz
+    local_direction = (header.world_to_local * osh.vec4(direction, 0.0)).xyz
+    first = (
+        (header.clip_plane_7.x - local_origin.x) / local_direction.x
+        if osh.absolute(local_direction.x) > 1.0e-10 else 1.0e30
+    )
+    second = (
+        (header.clip_plane_7.y - local_origin.y) / local_direction.y
+        if osh.absolute(local_direction.y) > 1.0e-10 else 1.0e30
+    )
+    third = (
+        (header.clip_plane_7.z - local_origin.z) / local_direction.z
+        if osh.absolute(local_direction.z) > 1.0e-10 else 1.0e30
+    )
+    if first > second:
+        temporary = first; first = second; second = temporary
+    if second > third:
+        temporary = second; second = third; third = temporary
+    if first > second:
+        temporary = first; first = second; second = temporary
+    return osh.vec3(first, second, third)
+
+
+@osh.function
 def shadeVolumeTransferSample(
     header: VolumeHeader, value: osh.f32,
 ) -> osh.vec4:
-    # Negative scalar values are the shared clipping sentinel. Treat them as
-    # empty rather than clamping them to a potentially opaque LUT endpoint.
+    offset = osh.u32(header.value_parameters.x)
+    if value < -1.5:
+        return volume_transfer[offset]
     if value < 0.0:
         return osh.vec4(0.0)
-    offset = osh.u32(header.value_parameters.x)
     count = osh.u32(header.value_parameters.y)
+    reserved = osh.minimum(header.clip_parameters.y, osh.u32(1))
+    offset = offset + reserved
+    count = count - reserved
     coordinate = (
         osh.clamp(value, 0.0, 1.0)
         * osh.f32(osh.maximum(count, osh.u32(1)) - osh.u32(1))
@@ -4132,7 +4162,24 @@ def shadeVolumeScalar(
         if osh.dot(header.clip_plane_7.xyz, world_position) < header.clip_plane_7.w:
             return -1.0
     local = shadeVolumeLocalCoordinate(header, world_position)
-    return volume_textures.sample(volume_index, local)
+    physical = volume_textures.sample(volume_index, local)
+    if header.clip_parameters.y != osh.u32(0) and physical != physical:
+        return -2.0
+    mapped = physical
+    mapping = osh.u32(header.phase_parameters.z)
+    if mapping == osh.u32(1):
+        mapped = osh.logarithm(physical) if physical > 0.0 else -3.402823e38
+    elif mapping == osh.u32(2):
+        mapped = (
+            osh.sign(physical)
+            * osh.logarithm(
+                1.0 + osh.absolute(physical) / header.phase_parameters.w
+            )
+        )
+    return (
+        (mapped - header.render_parameters.y)
+        * header.render_parameters.w
+    )
 
 
 @osh.function
@@ -4665,8 +4712,39 @@ def shadeIntegrateVolumeUntil(
     entry = osh.maximum(interval.x, 0.0)
     exit_distance = osh.minimum(interval.y, maximum_distance)
     state = ShadeVolumeMarchState(osh.vec3(0.0), 1.0)
+    isosurface_enabled = (
+        header.clip_parameters.w == osh.u32(2)
+        or header.clip_parameters.w == osh.u32(3)
+    )
+    volume_enabled = header.clip_parameters.w != osh.u32(2)
     if exit_distance <= entry:
         return ShadeVolumeIntegrationResult(state, entry)
+    if header.clip_parameters.z != osh.u32(0):
+        slice_distances = shadeVolumeSliceDistances(header, origin, direction)
+        if header.clip_parameters.w == osh.u32(0):
+            for slice_index in range(3):
+                slice_distance = (
+                    slice_distances.x if slice_index == 0
+                    else slice_distances.y if slice_index == 1
+                    else slice_distances.z
+                )
+                if slice_distance < entry or slice_distance > exit_distance:
+                    continue
+                sample_value = shadeVolumeTransferSample(
+                    header, shadeVolumeScalar(
+                        volume_index, header,
+                        origin + direction * slice_distance,
+                    )
+                )
+                alpha = osh.clamp(
+                    sample_value.a * header.value_parameters.z, 0.0, 1.0
+                )
+                state.integrated = state.integrated + (
+                    state.transmittance * alpha * sample_value.rgb
+                    * header.value_parameters.w
+                )
+                state.transmittance = state.transmittance * (1.0 - alpha)
+            return ShadeVolumeIntegrationResult(state, exit_distance)
     reference_step = osh.maximum(header.render_parameters.x, 1.0e-5)
     steps = shadeVolumeStepCount(entry, exit_distance, reference_step)
     step_size = (
@@ -4696,7 +4774,10 @@ def shadeIntegrateVolumeUntil(
         )
     while step_index < steps:
         distance = entry + (osh.f32(step_index) + 0.5) * step_size
-        if empty_space_skipping and distance + 1.0e-7 >= occupied_until:
+        if (
+            empty_space_skipping and not isosurface_enabled
+            and distance + 1.0e-7 >= occupied_until
+        ):
             brick_step = shadeVolumeBrickStepAtVoxel(
                 header,
                 voxel_ray.origin + voxel_ray.direction * distance,
@@ -4714,9 +4795,84 @@ def shadeIntegrateVolumeUntil(
             volume_index, header, origin + direction * distance
         )
         sample_value = shadeVolumeTransferSample(header, scalar)
-        state = shadeCompositeVolumeStep(
-            state, header, sample_value, scattering_source, step_size
-        )
+        if volume_enabled:
+            state = shadeCompositeVolumeStep(
+                state, header, sample_value, scattering_source, step_size
+            )
+        if isosurface_enabled:
+            previous_distance = entry if step_index == osh.u32(0) else (
+                entry + (osh.f32(step_index) - 0.5) * step_size
+            )
+            previous_scalar = shadeVolumeScalar(
+                volume_index, header, origin + direction * previous_distance
+            )
+            isovalue = header.clip_plane_7.w
+            crossing = (
+                previous_scalar >= 0.0 and scalar >= 0.0
+                and (
+                    (previous_scalar < isovalue and scalar >= isovalue)
+                    or (previous_scalar > isovalue and scalar <= isovalue)
+                )
+            )
+            if crossing:
+                lower_distance = previous_distance
+                upper_distance = distance
+                lower_scalar = previous_scalar
+                for refinement in range(8):
+                    middle_distance = 0.5 * (lower_distance + upper_distance)
+                    middle_scalar = shadeVolumeScalar(
+                        volume_index, header,
+                        origin + direction * middle_distance,
+                    )
+                    if middle_scalar < 0.0:
+                        break
+                    same_side = (
+                        (lower_scalar < isovalue and middle_scalar < isovalue)
+                        or (lower_scalar > isovalue and middle_scalar > isovalue)
+                    )
+                    if same_side:
+                        lower_distance = middle_distance
+                        lower_scalar = middle_scalar
+                    else:
+                        upper_distance = middle_distance
+                surface_sample = shadeVolumeTransferSample(header, isovalue)
+                surface_alpha = osh.clamp(
+                    surface_sample.a * header.value_parameters.z, 0.0, 1.0
+                )
+                state.integrated = state.integrated + (
+                    state.transmittance * surface_alpha * surface_sample.rgb
+                    * header.value_parameters.w
+                )
+                state.transmittance = state.transmittance * (1.0 - surface_alpha)
+                if not volume_enabled or state.transmittance <= 0.001:
+                    break
+        if header.clip_parameters.w == osh.u32(3):
+            slice_distances = shadeVolumeSliceDistances(header, origin, direction)
+            half_step = 0.5 * step_size + 1.0e-7
+            for slice_index in range(3):
+                slice_distance = (
+                    slice_distances.x if slice_index == 0
+                    else slice_distances.y if slice_index == 1
+                    else slice_distances.z
+                )
+                if osh.absolute(slice_distance - distance) > half_step:
+                    continue
+                slice_sample = shadeVolumeTransferSample(
+                    header, shadeVolumeScalar(
+                        volume_index, header,
+                        origin + direction * slice_distance,
+                    )
+                )
+                slice_alpha = osh.clamp(
+                    slice_sample.a * header.value_parameters.z, 0.0, 1.0
+                )
+                state.integrated = state.integrated + (
+                    state.transmittance * slice_alpha * slice_sample.rgb
+                    * header.value_parameters.w
+                )
+                state.transmittance = (
+                    state.transmittance * (1.0 - slice_alpha)
+                )
         if state.transmittance < 1.0e-4:
             break
         step_index = step_index + osh.u32(1)
@@ -5727,6 +5883,7 @@ WAVEFRONT_SHADE_CANDIDATE_HELPERS = (
     shadePrepareEnvironmentLight, shadeEnvironmentVisible,
     shadeEnvironmentContribution,
     shadeIsVolumePrimitive, shadeVolumeLocalCoordinate, shadeVolumeInterval,
+    shadeVolumeSliceDistances,
     shadeVolumeTransferSample, shadeVolumeScalar,
     shadeVolumeBrickIndexFromVoxel, shadeVolumeBrickOccupiedAtVoxel,
     shadeVolumeVoxelRay, shadeVolumeAxisExitDelta,

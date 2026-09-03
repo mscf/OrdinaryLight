@@ -253,6 +253,14 @@ class Volume:
     material: VolumeMaterial = field(default_factory=VolumeMaterial)
     transform: Transform = field(default_factory=Transform)
     value_range: tuple[float, float] | None = None
+    value_mapping: str = "linear"
+    linear_threshold: float = 1.0
+    missing_data: bool = False
+    render_mode: str = "volume"
+    slice_axis: str = "z"
+    slice_position: float = 0.5
+    slice_positions: tuple[float, float, float] | None = None
+    isovalue: float = 0.5
     visible: bool = True
     name: str | None = None
     metadata: dict = field(default_factory=dict, repr=False)
@@ -265,14 +273,46 @@ class Volume:
         data = np.array(self.data, dtype=np.float32, copy=True, order="C")
         if data.ndim != 3 or any(size < 2 for size in data.shape):
             raise ValueError("volume data must have shape (depth, height, width) with dimensions >= 2")
-        if not np.all(np.isfinite(data)):
+        if not isinstance(self.missing_data, bool):
+            raise TypeError("missing_data must be a bool")
+        if not self.missing_data and not np.all(np.isfinite(data)):
             raise ValueError("volume data must contain finite values")
+        if self.missing_data:
+            data[~np.isfinite(data)] = np.nan
+        if self.render_mode not in {"volume", "slice", "isosurface", "combined"}:
+            raise ValueError(
+                "render_mode must be 'volume', 'slice', 'isosurface', or 'combined'"
+            )
+        if self.slice_axis not in {"x", "y", "z"}:
+            raise ValueError("slice_axis must be 'x', 'y', or 'z'")
+        slice_position = float(self.slice_position)
+        if not np.isfinite(slice_position) or not 0.0 <= slice_position <= 1.0:
+            raise ValueError("slice_position must be within [0, 1]")
+        if self.slice_positions is None:
+            slice_positions = [0.5, 0.5, 0.5]
+            slice_positions[{"x": 0, "y": 1, "z": 2}[self.slice_axis]] = slice_position
+        else:
+            slice_positions = tuple(float(value) for value in self.slice_positions)
+            if (
+                len(slice_positions) != 3
+                or not np.isfinite(slice_positions).all()
+                or any(value < 0.0 or value > 1.0 for value in slice_positions)
+            ):
+                raise ValueError("slice_positions must contain three values in [0, 1]")
+        isovalue = float(self.isovalue)
+        if not np.isfinite(isovalue):
+            raise ValueError("isovalue must be finite")
+        if self.value_mapping == "log" and isovalue <= 0.0:
+            raise ValueError("logarithmic volume isovalues must be positive")
         if not isinstance(self.material, VolumeMaterial):
             raise TypeError("material must be a VolumeMaterial")
         if not isinstance(self.transform, Transform):
             self.transform = Transform(self.transform)
         if self.value_range is None:
-            value_range = (float(data.min()), float(data.max()))
+            finite = data[np.isfinite(data)]
+            if not finite.size:
+                raise ValueError("volume data must contain at least one finite value")
+            value_range = (float(finite.min()), float(finite.max()))
             if value_range[0] == value_range[1]:
                 value = value_range[0]
                 value_range = (min(0.0, value), max(1.0, value))
@@ -282,6 +322,13 @@ class Volume:
             value_range = tuple(float(value) for value in self.value_range)
         if not np.all(np.isfinite(value_range)) or value_range[1] <= value_range[0]:
             raise ValueError("value_range must be a finite increasing pair")
+        if self.value_mapping not in {"linear", "log", "symlog"}:
+            raise ValueError("value_mapping must be 'linear', 'log', or 'symlog'")
+        if self.value_mapping == "log" and value_range[0] <= 0.0:
+            raise ValueError("logarithmic volume ranges must be positive")
+        linear_threshold = float(self.linear_threshold)
+        if not np.isfinite(linear_threshold) or linear_threshold <= 0.0:
+            raise ValueError("linear_threshold must be positive")
         if not isinstance(self.visible, bool):
             raise TypeError("visible must be a bool")
         if self.name is not None and not isinstance(self.name, str):
@@ -291,6 +338,10 @@ class Volume:
         planes = []
         if len(self.clip_planes) > 8:
             raise ValueError("volumes support at most 8 clip planes")
+        if self.render_mode in {"slice", "isosurface", "combined"} and len(self.clip_planes) > 7:
+            raise ValueError(
+                "slice rendering supports at most 7 clip planes"
+            )
         for plane in self.clip_planes:
             values = np.asarray(plane, dtype=np.float32)
             if values.shape != (4,) or not np.isfinite(values).all():
@@ -302,6 +353,10 @@ class Volume:
         data.flags.writeable = False
         self.data = data
         self.value_range = value_range
+        self.linear_threshold = linear_threshold
+        self.slice_position = slice_position
+        self.slice_positions = tuple(slice_positions)
+        self.isovalue = isovalue
         self.metadata = dict(self.metadata)
         self.clip_planes = tuple(planes)
 
@@ -312,7 +367,28 @@ class Volume:
     @property
     def normalized_data(self):
         low, high = self.value_range
-        return np.ascontiguousarray(np.clip((self.data - low) / (high - low), 0.0, 1.0))
+        if self.value_mapping == "log":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                normalized = (
+                    (np.log(self.data) - np.log(low))
+                    / (np.log(high) - np.log(low))
+                )
+        elif self.value_mapping == "symlog":
+            transform = lambda value: np.sign(value) * np.log1p(
+                np.abs(value) / self.linear_threshold
+            )
+            normalized = (
+                (transform(self.data) - transform(low))
+                / (transform(high) - transform(low))
+            )
+        else:
+            normalized = (self.data - low) / (high - low)
+        return np.ascontiguousarray(
+            np.where(
+                np.isfinite(normalized), np.clip(normalized, 0.0, 1.0),
+                np.nan if self.missing_data else 0.0,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -1168,6 +1244,14 @@ class Scene:
                     "name": volume.name,
                     "shape": list(volume.shape),
                     "value_range": list(volume.value_range),
+                    "value_mapping": volume.value_mapping,
+                    "linear_threshold": volume.linear_threshold,
+                    "missing_data": volume.missing_data,
+                    "render_mode": volume.render_mode,
+                    "slice_axis": volume.slice_axis,
+                    "slice_position": volume.slice_position,
+                    "slice_positions": list(volume.slice_positions),
+                    "isovalue": volume.isovalue,
                     "data_revision": volume.data_revision,
                     "dirty_regions": [
                         [list(offset), list(shape)]
@@ -1284,6 +1368,11 @@ class Scene:
 
     def add_volume(
         self, data, material=None, *, transform=None, value_range=None,
+        value_mapping="linear", linear_threshold=1.0,
+        missing_data=False,
+        render_mode="volume", slice_axis="z", slice_position=0.5,
+        slice_positions=None,
+        isovalue=0.5,
         visible=True, name=None, metadata=None, clip_planes=(),
     ):
         """Add a dense scalar field occupying its transformed local unit cube."""
@@ -1292,6 +1381,14 @@ class Scene:
             material=VolumeMaterial() if material is None else material,
             transform=Transform() if transform is None else transform,
             value_range=value_range,
+            value_mapping=value_mapping,
+            linear_threshold=linear_threshold,
+            missing_data=missing_data,
+            render_mode=render_mode,
+            slice_axis=slice_axis,
+            slice_position=slice_position,
+            slice_positions=slice_positions,
+            isovalue=isovalue,
             visible=visible,
             name=name,
             metadata={} if metadata is None else metadata,
@@ -1305,7 +1402,14 @@ class Scene:
 
     def update_volume(
         self, volume, *, data=_UNCHANGED, material=_UNCHANGED,
-        transform=_UNCHANGED, value_range=_UNCHANGED, visible=_UNCHANGED,
+        transform=_UNCHANGED, value_range=_UNCHANGED,
+        value_mapping=_UNCHANGED, linear_threshold=_UNCHANGED,
+        missing_data=_UNCHANGED,
+        render_mode=_UNCHANGED, slice_axis=_UNCHANGED,
+        slice_position=_UNCHANGED,
+        slice_positions=_UNCHANGED,
+        isovalue=_UNCHANGED,
+        visible=_UNCHANGED,
         clip_planes=_UNCHANGED,
     ):
         """Atomically replace volume data or placement while preserving its ID."""
@@ -1320,6 +1424,33 @@ class Scene:
                 (None if data is not _UNCHANGED else volume.value_range)
                 if value_range is _UNCHANGED else value_range
             ),
+            value_mapping=(
+                volume.value_mapping if value_mapping is _UNCHANGED
+                else value_mapping
+            ),
+            linear_threshold=(
+                volume.linear_threshold if linear_threshold is _UNCHANGED
+                else linear_threshold
+            ),
+            missing_data=(
+                volume.missing_data if missing_data is _UNCHANGED
+                else missing_data
+            ),
+            render_mode=(
+                volume.render_mode if render_mode is _UNCHANGED else render_mode
+            ),
+            slice_axis=(
+                volume.slice_axis if slice_axis is _UNCHANGED else slice_axis
+            ),
+            slice_position=(
+                volume.slice_position if slice_position is _UNCHANGED
+                else slice_position
+            ),
+            slice_positions=(
+                volume.slice_positions if slice_positions is _UNCHANGED
+                else slice_positions
+            ),
+            isovalue=volume.isovalue if isovalue is _UNCHANGED else isovalue,
             visible=volume.visible if visible is _UNCHANGED else visible,
             name=volume.name,
             metadata=volume.metadata,
@@ -1327,8 +1458,19 @@ class Scene:
                 volume.clip_planes if clip_planes is _UNCHANGED else clip_planes
             ),
         )
-        data_changed = (
-            data is not _UNCHANGED or value_range is not _UNCHANGED
+        data_changed = data is not _UNCHANGED
+        value_range_changed = candidate.value_range != volume.value_range
+        mapping_changed = (
+            candidate.value_mapping != volume.value_mapping
+            or candidate.linear_threshold != volume.linear_threshold
+            or candidate.missing_data != volume.missing_data
+        )
+        view_changed = (
+            candidate.render_mode != volume.render_mode
+            or candidate.slice_axis != volume.slice_axis
+            or candidate.slice_position != volume.slice_position
+            or candidate.slice_positions != volume.slice_positions
+            or candidate.isovalue != volume.isovalue
         )
         material_changed = material is not _UNCHANGED
         transform_changed = transform is not _UNCHANGED and not np.array_equal(
@@ -1336,11 +1478,18 @@ class Scene:
         )
         visibility_changed = candidate.visible != volume.visible
         clipping_changed = candidate.clip_planes != volume.clip_planes
-        if not (data_changed or material_changed or transform_changed
+        if not (data_changed or value_range_changed or mapping_changed
+                or view_changed
+                or material_changed or transform_changed
                 or visibility_changed or clipping_changed):
             return volume
         for attribute in (
-            "data", "material", "transform", "value_range", "visible",
+            "data", "material", "transform", "value_range", "value_mapping",
+            "linear_threshold", "visible",
+            "missing_data",
+            "render_mode", "slice_axis", "slice_position",
+            "slice_positions",
+            "isovalue",
             "clip_planes",
         ):
             setattr(volume, attribute, getattr(candidate, attribute))
@@ -1349,7 +1498,9 @@ class Scene:
             volume.dirty_regions = (((0, 0, 0), volume.shape),)
         self._changed(
             geometry=visibility_changed,
-            shading=(data_changed or material_changed or visibility_changed
+            shading=(data_changed or value_range_changed or mapping_changed
+                     or view_changed
+                     or material_changed or visibility_changed
                      or clipping_changed),
             transform=transform_changed,
         )
@@ -1372,8 +1523,11 @@ class Scene:
         patch = np.asarray(data, dtype=np.float32)
         if patch.ndim != 3 or any(size < 1 for size in patch.shape):
             raise ValueError("data must be a nonempty three-dimensional array")
-        if not np.isfinite(patch).all():
+        if not volume.missing_data and not np.isfinite(patch).all():
             raise ValueError("volume data must contain finite values")
+        if volume.missing_data:
+            patch = patch.copy()
+            patch[~np.isfinite(patch)] = np.nan
         stop = tuple(start + size for start, size in zip(offset, patch.shape))
         if any(end > size for end, size in zip(stop, volume.shape)):
             raise ValueError("updated region lies outside the volume")
@@ -1736,7 +1890,7 @@ class Scene:
         self, mesh, *, vertices=_UNCHANGED, indices=_UNCHANGED,
         material=_UNCHANGED, normals=_UNCHANGED, texcoords=_UNCHANGED,
         texcoords1=_UNCHANGED, tangents=_UNCHANGED, attributes=_UNCHANGED,
-        transform=_UNCHANGED,
+        transform=_UNCHANGED, visible=_UNCHANGED,
     ):
         """Validate and update a mesh while preserving its object and ID.
 
@@ -1746,7 +1900,7 @@ class Scene:
         """
         mesh = self._resolve(self.meshes, mesh, "mesh")
         requested = (vertices, indices, material, normals, texcoords, texcoords1,
-                     tangents, attributes, transform)
+                     tangents, attributes, transform, visible)
         if all(value is _UNCHANGED for value in requested):
             return mesh
         geometry_changed = vertices is not _UNCHANGED or indices is not _UNCHANGED
@@ -1769,7 +1923,8 @@ class Scene:
             ),
             transform=mesh.transform if transform is _UNCHANGED else transform,
             deformable=mesh.deformable,
-            resource=None, visible=mesh.visible,
+            resource=None,
+            visible=mesh.visible if visible is _UNCHANGED else visible,
             name=mesh.name, metadata=mesh.metadata,
         )
         if geometry_changed and mesh.resource is not None:
@@ -1798,10 +1953,12 @@ class Scene:
         ):
             setattr(mesh, name, getattr(candidate, name))
         mesh.transform = candidate.transform
+        mesh.visible = candidate.visible
         shading_changed = any(value is not _UNCHANGED for value in requested[2:8]) \
-            or geometry_changed
+            or geometry_changed or visible is not _UNCHANGED
         self._changed(
-            geometry=geometry_changed, shading=shading_changed,
+            geometry=geometry_changed or visible is not _UNCHANGED,
+            shading=shading_changed,
             transform=transform is not _UNCHANGED,
         )
         return mesh

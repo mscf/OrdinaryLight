@@ -534,6 +534,7 @@ vec3 shadeEnvironmentContribution(ShadeEnvironmentSample sample_, vec3 environme
 bool shadeIsVolumePrimitive(uint primitive);
 vec3 shadeVolumeLocalCoordinate(VolumeHeader header, vec3 world_position);
 vec2 shadeVolumeInterval(VolumeHeader header, vec3 origin, vec3 direction);
+vec3 shadeVolumeSliceDistances(VolumeHeader header, vec3 origin, vec3 direction);
 vec4 shadeVolumeTransferSample(VolumeHeader header, float value);
 float shadeVolumeScalar(uint volume_index, VolumeHeader header, vec3 world_position);
 uvec3 shadeVolumeBrickIndexFromVoxel(VolumeHeader header, vec3 voxel_position);
@@ -1873,14 +1874,49 @@ vec2 shadeVolumeInterval(VolumeHeader header, vec3 origin, vec3 direction)
     return vec2(max(max(lower.x, lower.y), lower.z), min(min(upper.x, upper.y), upper.z));
 }
 
+vec3 shadeVolumeSliceDistances(VolumeHeader header, vec3 origin, vec3 direction)
+{
+    vec3 local_origin = (header.world_to_local * vec4(origin, 1.0)).xyz;
+    vec3 local_direction = (header.world_to_local * vec4(direction, 0.0)).xyz;
+    float first = ((abs(local_direction.x) > 1e-10) ? ((header.clip_plane_7.x - local_origin.x) / local_direction.x) : 1e+30);
+    float second = ((abs(local_direction.y) > 1e-10) ? ((header.clip_plane_7.y - local_origin.y) / local_direction.y) : 1e+30);
+    float third = ((abs(local_direction.z) > 1e-10) ? ((header.clip_plane_7.z - local_origin.z) / local_direction.z) : 1e+30);
+    if ((first > second))
+    {
+        float temporary = first;
+        first = second;
+        second = temporary;
+    }
+    if ((second > third))
+    {
+        float temporary = second;
+        second = third;
+        third = temporary;
+    }
+    if ((first > second))
+    {
+        float temporary = first;
+        first = second;
+        second = temporary;
+    }
+    return vec3(first, second, third);
+}
+
 vec4 shadeVolumeTransferSample(VolumeHeader header, float value)
 {
+    uint offset = uint(header.value_parameters.x);
+    if ((value < (-1.5)))
+    {
+        return volume_transfer[offset];
+    }
     if ((value < 0.0))
     {
         return vec4(0.0);
     }
-    uint offset = uint(header.value_parameters.x);
     uint count = uint(header.value_parameters.y);
+    uint reserved = min(header.clip_parameters.y, uint(1));
+    offset = (offset + reserved);
+    count = (count - reserved);
     float coordinate = (clamp(value, 0.0, 1.0) * float((max(count, uint(1)) - uint(1))));
     uint lower = uint(floor(coordinate));
     uint upper = min((lower + uint(1)), (count - uint(1)));
@@ -1946,7 +1982,25 @@ float shadeVolumeScalar(uint volume_index, VolumeHeader header, vec3 world_posit
         }
     }
     vec3 local = shadeVolumeLocalCoordinate(header, world_position);
-    return texture(volume_textures[volume_index], local).r;
+    float physical = texture(volume_textures[volume_index], local).r;
+    if (((header.clip_parameters.y != uint(0)) && (physical != physical)))
+    {
+        return (-2.0);
+    }
+    float mapped = physical;
+    uint mapping = uint(header.phase_parameters.z);
+    if ((mapping == uint(1)))
+    {
+        mapped = ((physical > 0.0) ? log(physical) : (-3.402823e+38));
+    }
+    else
+    {
+        if ((mapping == uint(2)))
+        {
+            mapped = (sign(physical) * log((1.0 + (abs(physical) / header.phase_parameters.w))));
+        }
+    }
+    return ((mapped - header.render_parameters.y) * header.render_parameters.w);
 }
 
 uvec3 shadeVolumeBrickIndexFromVoxel(VolumeHeader header, vec3 voxel_position)
@@ -2292,9 +2346,31 @@ ShadeVolumeIntegrationResult shadeIntegrateVolumeUntil(uint volume_index, vec3 o
     float entry = max(interval.x, 0.0);
     float exit_distance = min(interval.y, maximum_distance);
     ShadeVolumeMarchState state = ShadeVolumeMarchState(vec3(0.0), 1.0);
+    bool isosurface_enabled = ((header.clip_parameters.w == uint(2)) || (header.clip_parameters.w == uint(3)));
+    bool volume_enabled = (header.clip_parameters.w != uint(2));
     if ((exit_distance <= entry))
     {
         return ShadeVolumeIntegrationResult(state, entry);
+    }
+    if ((header.clip_parameters.z != uint(0)))
+    {
+        vec3 slice_distances = shadeVolumeSliceDistances(header, origin, direction);
+        if ((header.clip_parameters.w == uint(0)))
+        {
+            for (int slice_index = 0; slice_index < 3; slice_index += 1)
+            {
+                float slice_distance = ((slice_index == 0) ? slice_distances.x : ((slice_index == 1) ? slice_distances.y : slice_distances.z));
+                if (((slice_distance < entry) || (slice_distance > exit_distance)))
+                {
+                    continue;
+                }
+                vec4 sample_value = shadeVolumeTransferSample(header, shadeVolumeScalar(volume_index, header, (origin + (direction * slice_distance))));
+                float alpha = clamp((sample_value.a * header.value_parameters.z), 0.0, 1.0);
+                state.integrated = (state.integrated + (((state.transmittance * alpha) * sample_value.rgb) * header.value_parameters.w));
+                state.transmittance = (state.transmittance * (1.0 - alpha));
+            }
+            return ShadeVolumeIntegrationResult(state, exit_distance);
+        }
     }
     float reference_step = max(header.render_parameters.x, 1e-05);
     uint steps = shadeVolumeStepCount(entry, exit_distance, reference_step);
@@ -2314,7 +2390,7 @@ ShadeVolumeIntegrationResult shadeIntegrateVolumeUntil(uint volume_index, vec3 o
     while ((step_index < steps))
     {
         float distance = (entry + ((float(step_index) + 0.5) * step_size));
-        if ((empty_space_skipping && ((distance + 1e-07) >= occupied_until)))
+        if (((empty_space_skipping && (!isosurface_enabled)) && ((distance + 1e-07) >= occupied_until)))
         {
             ShadeVolumeBrickStep brick_step = shadeVolumeBrickStepAtVoxel(header, (voxel_ray.origin + (voxel_ray.direction * distance)), voxel_ray.direction, distance);
             if ((!brick_step.occupied))
@@ -2327,7 +2403,67 @@ ShadeVolumeIntegrationResult shadeIntegrateVolumeUntil(uint volume_index, vec3 o
         }
         float scalar = shadeVolumeScalar(volume_index, header, (origin + (direction * distance)));
         vec4 sample_value = shadeVolumeTransferSample(header, scalar);
-        state = shadeCompositeVolumeStep(state, header, sample_value, scattering_source, step_size);
+        if (volume_enabled)
+        {
+            state = shadeCompositeVolumeStep(state, header, sample_value, scattering_source, step_size);
+        }
+        if (isosurface_enabled)
+        {
+            float previous_distance = ((step_index == uint(0)) ? entry : (entry + ((float(step_index) - 0.5) * step_size)));
+            float previous_scalar = shadeVolumeScalar(volume_index, header, (origin + (direction * previous_distance)));
+            float isovalue = header.clip_plane_7.w;
+            bool crossing = (((previous_scalar >= 0.0) && (scalar >= 0.0)) && (((previous_scalar < isovalue) && (scalar >= isovalue)) || ((previous_scalar > isovalue) && (scalar <= isovalue))));
+            if (crossing)
+            {
+                float lower_distance = previous_distance;
+                float upper_distance = distance;
+                float lower_scalar = previous_scalar;
+                for (int refinement = 0; refinement < 8; refinement += 1)
+                {
+                    float middle_distance = (0.5 * (lower_distance + upper_distance));
+                    float middle_scalar = shadeVolumeScalar(volume_index, header, (origin + (direction * middle_distance)));
+                    if ((middle_scalar < 0.0))
+                    {
+                        break;
+                    }
+                    bool same_side = (((lower_scalar < isovalue) && (middle_scalar < isovalue)) || ((lower_scalar > isovalue) && (middle_scalar > isovalue)));
+                    if (same_side)
+                    {
+                        lower_distance = middle_distance;
+                        lower_scalar = middle_scalar;
+                    }
+                    else
+                    {
+                        upper_distance = middle_distance;
+                    }
+                }
+                vec4 surface_sample = shadeVolumeTransferSample(header, isovalue);
+                float surface_alpha = clamp((surface_sample.a * header.value_parameters.z), 0.0, 1.0);
+                state.integrated = (state.integrated + (((state.transmittance * surface_alpha) * surface_sample.rgb) * header.value_parameters.w));
+                state.transmittance = (state.transmittance * (1.0 - surface_alpha));
+                if (((!volume_enabled) || (state.transmittance <= 0.001)))
+                {
+                    break;
+                }
+            }
+        }
+        if ((header.clip_parameters.w == uint(3)))
+        {
+            vec3 slice_distances = shadeVolumeSliceDistances(header, origin, direction);
+            float half_step = ((0.5 * step_size) + 1e-07);
+            for (int slice_index = 0; slice_index < 3; slice_index += 1)
+            {
+                float slice_distance = ((slice_index == 0) ? slice_distances.x : ((slice_index == 1) ? slice_distances.y : slice_distances.z));
+                if ((abs((slice_distance - distance)) > half_step))
+                {
+                    continue;
+                }
+                vec4 slice_sample = shadeVolumeTransferSample(header, shadeVolumeScalar(volume_index, header, (origin + (direction * slice_distance))));
+                float slice_alpha = clamp((slice_sample.a * header.value_parameters.z), 0.0, 1.0);
+                state.integrated = (state.integrated + (((state.transmittance * slice_alpha) * slice_sample.rgb) * header.value_parameters.w));
+                state.transmittance = (state.transmittance * (1.0 - slice_alpha));
+            }
+        }
         if ((state.transmittance < 0.0001))
         {
             break;

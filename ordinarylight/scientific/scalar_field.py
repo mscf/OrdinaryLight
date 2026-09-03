@@ -283,7 +283,9 @@ class ScalarField3D:
         """Adapt this field to the current volume renderer with shared mapping."""
         if not isinstance(transfer_function, TransferFunction):
             raise TypeError("transfer_function must be a scientific TransferFunction")
-        normalized, valid = transfer_function.encode_volume(self.data)
+        payload, value_range, valid, reserve_missing = (
+            transfer_function.gpu_volume_payload(self.data)
+        )
         metadata = dict(self.metadata)
         metadata["scientific"] = self.snapshot(transfer_function)
         metadata["valid_sample_count"] = int(np.count_nonzero(valid))
@@ -298,8 +300,17 @@ class ScalarField3D:
             )
             metadata["scientific"]["clipping"] = clipping.snapshot()
         return scene.add_volume(
-            normalized, transfer_function.volume_material(**material_options),
-            transform=self.volume_transform(), value_range=(0.0, 1.0),
+            payload, transfer_function.volume_material(
+                reserve_missing=reserve_missing, **material_options
+            ),
+            transform=self.volume_transform(), value_range=value_range,
+            value_mapping=(
+                transfer_function.mapping.mode
+                if transfer_function.mapping.mode in {"log", "symlog"}
+                else "linear"
+            ),
+            linear_threshold=transfer_function.mapping.linear_threshold,
+            missing_data=reserve_missing,
             name=self.name, metadata=metadata, clip_planes=clip_planes,
         )
 
@@ -347,21 +358,24 @@ class ScalarField3D:
         updates = self.updates_since(since_revision)
         if not updates:
             return self.revision
-        # Data-derived ranges can change when any sample changes, requiring a
-        # full remap. Explicit and normalized ranges remain region-local.
         mapping = transfer_function.mapping
-        region_safe = mapping.value_range is not None or mapping.mode == "normalized"
-        if not region_safe:
-            encoded, _valid = transfer_function.encode_volume(self.data)
-            scene.update_volume(volume, data=encoded, value_range=(0.0, 1.0))
-            return self.revision
+        # Scientific volumes always reserve the missing-data LUT entry so a
+        # later partial update can introduce NaN without reallocating buffers.
+        missing_data = True
         for _revision, offset, shape in updates:
             stop = tuple(start + size for start, size in zip(offset, shape))
             values = self.data[
                 offset[0]:stop[0], offset[1]:stop[1], offset[2]:stop[2]
             ]
-            encoded, _valid = transfer_function.encode_volume(values)
-            scene.update_volume_region(volume, offset, encoded)
+            scene.update_volume_region(volume, offset, values)
+        scene.update_volume(
+            volume, value_range=mapping.resolved_range(self.data),
+            value_mapping=(
+                mapping.mode if mapping.mode in {"log", "symlog"}
+                else "linear"
+            ), linear_threshold=mapping.linear_threshold,
+            missing_data=missing_data,
+        )
         return self.revision
 
     def snapshot(self, transfer_function=None):

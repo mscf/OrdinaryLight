@@ -13,6 +13,60 @@ def triangle(offset=0.0):
 
 
 class SceneUpdateTests(unittest.TestCase):
+    def test_volume_range_update_preserves_resident_scalar_revision(self):
+        scene = ol.Scene()
+        volume = scene.add_volume(
+            np.arange(8, dtype=np.float32).reshape(2, 2, 2),
+            value_range=(0.0, 7.0),
+        )
+        data_revision = volume.data_revision
+        shading_revision = scene.shading_revision
+
+        scene.update_volume(volume, value_range=(1.0, 6.0))
+
+        self.assertEqual(volume.data_revision, data_revision)
+        self.assertEqual(volume.value_range, (1.0, 6.0))
+        self.assertGreater(scene.shading_revision, shading_revision)
+
+        scene.update_volume(
+            volume, value_range=(1.0, 6.0), value_mapping="symlog",
+            linear_threshold=0.25,
+        )
+        self.assertEqual(volume.data_revision, data_revision)
+        self.assertEqual(volume.value_mapping, "symlog")
+        self.assertEqual(volume.linear_threshold, 0.25)
+
+    def test_volume_slice_controls_are_shading_only(self):
+        scene = ol.Scene()
+        volume = scene.add_volume(np.ones((2, 3, 4), np.float32))
+        geometry_revision = scene.geometry_revision
+        data_revision = volume.data_revision
+
+        scene.update_volume(
+            volume, render_mode="slice", slice_axis="x", slice_position=0.25,
+        )
+
+        self.assertEqual(scene.geometry_revision, geometry_revision)
+        self.assertEqual(volume.data_revision, data_revision)
+        self.assertEqual(volume.render_mode, "slice")
+        self.assertEqual(volume.slice_axis, "x")
+        self.assertEqual(volume.slice_position, 0.25)
+
+    def test_volume_isosurface_controls_are_shading_only(self):
+        scene = ol.Scene()
+        volume = scene.add_volume(np.ones((2, 3, 4), np.float32))
+        geometry_revision = scene.geometry_revision
+        data_revision = volume.data_revision
+
+        scene.update_volume(
+            volume, render_mode="isosurface", isovalue=0.75,
+        )
+
+        self.assertEqual(scene.geometry_revision, geometry_revision)
+        self.assertEqual(volume.data_revision, data_revision)
+        self.assertEqual(volume.render_mode, "isosurface")
+        self.assertEqual(volume.isovalue, 0.75)
+
     def test_material_ids_are_stable_and_triangle_aligned(self):
         scene = ol.Scene()
         shared = ol.Material(base_color=(0.2, 0.3, 0.4))
@@ -80,6 +134,15 @@ class SceneUpdateTests(unittest.TestCase):
         self.assertEqual(scene.shading_revision, shading_revision)
         self.assertGreater(scene.transform_revision, transform_revision)
         np.testing.assert_allclose(mesh.world_vertices, triangle(1.0))
+
+    def test_visibility_update_preserves_identity_and_invalidates_geometry(self):
+        scene = ol.Scene()
+        mesh = scene.add_mesh(triangle(), ((0, 1, 2),))
+        geometry_revision = scene.geometry_revision
+        self.assertIs(scene.update_mesh(mesh, visible=False), mesh)
+        self.assertFalse(mesh.visible)
+        self.assertNotIn(mesh, scene.visible_meshes)
+        self.assertGreater(scene.geometry_revision, geometry_revision)
 
     def test_transform_validation_and_composition(self):
         with self.assertRaises(ValueError):

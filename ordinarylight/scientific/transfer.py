@@ -127,10 +127,28 @@ class TransferFunction:
         encoded = (1.0 + normalized * max(count - 1, 0)) / count
         return np.asarray(np.where(valid, encoded, 0.0), np.float32), valid
 
-    def volume_material(self, **kwargs):
-        """Build an unlit volume material whose first entry is missing data."""
-        lookup = np.vstack((self.missing_rgba, self.rgba))
+    def volume_material(self, *, reserve_missing=True, **kwargs):
+        """Build an unlit volume material, optionally reserving a missing entry."""
+        lookup = (
+            np.vstack((self.missing_rgba, self.rgba))
+            if reserve_missing else self.rgba
+        )
         return VolumeMaterial(Texture1D(lookup), **kwargs)
+
+    def gpu_volume_payload(self, data):
+        """Return a GPU-resident scalar payload and its shader value range.
+
+        Physical values remain in the texture. Invalid samples are canonicalized
+        to NaN by :class:`Volume` and select a reserved missing-data LUT entry.
+        """
+        values = np.asarray(data, dtype=np.float32)
+        valid = np.isfinite(values)
+        return (
+            np.ascontiguousarray(values),
+            self.mapping.resolved_range(values),
+            valid,
+            True,
+        )
 
     def snapshot(self, data=None):
         value_range = self.mapping.value_range

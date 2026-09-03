@@ -131,7 +131,7 @@ def pack_raster_volumes(volumes, *, empty_space_skipping=True):
         volumes, empty_space_skipping=empty_space_skipping,
     )
     scalar_fields = tuple(
-        np.ascontiguousarray(volume.normalized_data, dtype=np.float32)
+        np.ascontiguousarray(volume.data, dtype=np.float32)
         for volume in volumes
     )
     occupancy_fields = tuple(

@@ -114,6 +114,11 @@ def volume_fragment(
     entry = ray_limit
     exit_distance = 0.0
     step_size = 1.0e30
+    slice_mode = False
+    slice_first = 1.0e30
+    slice_second = 1.0e30
+    slice_third = 1.0e30
+    slice_count = osh.u32(0)
     volume_count = osh.minimum(camera.volume_count.x, osh.u32(4))
     for volume_index in range(4):
         if osh.u32(volume_index) >= volume_count:
@@ -140,16 +145,102 @@ def volume_fragment(
 
     if exit_distance <= entry:
         return background
-    step_size = osh.maximum(step_size * camera.viewport_steps.z, 1.0e-5)
+    if volume_count == osh.u32(1) and headers[osh.u32(0)].clip_parameters.z != osh.u32(0):
+        slice_header = headers[osh.u32(0)]
+        slice_local_origin = (
+            slice_header.world_to_local * osh.vec4(ray_origin, 1.0)
+        ).xyz
+        slice_local_direction = (
+            slice_header.world_to_local * osh.vec4(ray_direction, 0.0)
+        ).xyz
+        slice_first = (
+            (slice_header.clip_plane_7.x - slice_local_origin.x)
+            / slice_local_direction.x
+            if osh.absolute(slice_local_direction.x) > 1.0e-10 else 1.0e30
+        )
+        slice_second = (
+            (slice_header.clip_plane_7.y - slice_local_origin.y)
+            / slice_local_direction.y
+            if osh.absolute(slice_local_direction.y) > 1.0e-10 else 1.0e30
+        )
+        slice_third = (
+            (slice_header.clip_plane_7.z - slice_local_origin.z)
+            / slice_local_direction.z
+            if osh.absolute(slice_local_direction.z) > 1.0e-10 else 1.0e30
+        )
+        if slice_first < entry or slice_first > exit_distance:
+            slice_first = 1.0e30
+        else:
+            slice_count = slice_count + osh.u32(1)
+        if slice_second < entry or slice_second > exit_distance:
+            slice_second = 1.0e30
+        else:
+            slice_count = slice_count + osh.u32(1)
+        if slice_third < entry or slice_third > exit_distance:
+            slice_third = 1.0e30
+        else:
+            slice_count = slice_count + osh.u32(1)
+        if slice_first > slice_second:
+            temporary = slice_first
+            slice_first = slice_second
+            slice_second = temporary
+        if slice_second > slice_third:
+            temporary = slice_second
+            slice_second = slice_third
+            slice_third = temporary
+        if slice_first > slice_second:
+            temporary = slice_first
+            slice_first = slice_second
+            slice_second = temporary
+        if slice_header.clip_parameters.w == osh.u32(0):
+            if slice_count == osh.u32(0):
+                return background
+            slice_step = osh.maximum(slice_header.render_parameters.x, 1.0e-5)
+            entry = slice_first - slice_step * 0.5
+            slice_last = (
+                slice_first if slice_count == osh.u32(1)
+                else slice_second if slice_count == osh.u32(2)
+                else slice_third
+            )
+            exit_distance = slice_last + slice_step * 0.5
+            step_size = slice_step
+            slice_mode = True
+    if slice_mode:
+        step_size = osh.maximum(step_size, 1.0e-5)
+    else:
+        step_size = osh.maximum(step_size * camera.viewport_steps.z, 1.0e-5)
     transmittance = 1.0
     radiance = osh.vec3(0.0)
+    isosurface_enabled = (
+        volume_count == osh.u32(1)
+        and (
+            headers[osh.u32(0)].clip_parameters.w == osh.u32(2)
+            or headers[osh.u32(0)].clip_parameters.w == osh.u32(3)
+        )
+    )
+    isosurface_only = (
+        volume_count == osh.u32(1)
+        and headers[osh.u32(0)].clip_parameters.w == osh.u32(2)
+    )
+    previous_isosurface_scalar = -3.402823e38
+    previous_isosurface_distance = entry
+    previous_isosurface_valid = False
     distance = entry + step_size * 0.5
     max_steps = osh.minimum(osh.u32(camera.viewport_steps.w), osh.u32(8192))
     for step in range(8192):
+        if slice_mode:
+            if osh.u32(step) >= slice_count:
+                break
+            distance = (
+                slice_first if step == 0
+                else slice_second if step == 1
+                else slice_third
+            )
         if osh.u32(step) >= max_steps or distance >= exit_distance or transmittance <= 0.001:
             break
         combined_extinction = 0.0
         combined_emission = osh.vec3(0.0)
+        isosurface_hit = False
         world_position = ray_origin + ray_direction * distance
         # Traverse the same conservative occupancy hierarchy as the GI path.
         # A jump ends at the first brick boundary (or the next volume entry),
@@ -157,7 +248,7 @@ def volume_fragment(
         inside_any = False
         occupied_any = False
         empty_exit = 1.0e30
-        if camera.volume_count.z > osh.u32(0):
+        if camera.volume_count.z > osh.u32(0) and not isosurface_enabled:
             for occupancy_index in range(4):
                 if osh.u32(occupancy_index) >= volume_count:
                     break
@@ -325,15 +416,92 @@ def volume_fragment(
                 scalar = volume_2.sample_level_with(linear_sampler, local, 0.0).x
             else:
                 scalar = volume_3.sample_level_with(linear_sampler, local, 0.0).x
-            transfer_count = osh.maximum(osh.u32(header.value_parameters.y), osh.u32(1))
+            missing_scalar = (
+                header.clip_parameters.y > osh.u32(0) and scalar != scalar
+            )
+            if missing_scalar:
+                scalar = 0.0
+            mapped_scalar = scalar
+            mapping = osh.u32(header.phase_parameters.z)
+            if mapping == osh.u32(1):
+                mapped_scalar = (
+                    osh.logarithm(scalar) if scalar > 0.0 else -3.402823e38
+                )
+            elif mapping == osh.u32(2):
+                mapped_scalar = (
+                    osh.sign(scalar) * osh.logarithm(
+                        1.0 + osh.absolute(scalar) / header.phase_parameters.w
+                    )
+                )
+            scalar = (
+                (mapped_scalar - header.render_parameters.y)
+                * header.render_parameters.w
+            )
+            if volume_index == 0 and isosurface_enabled and not missing_scalar:
+                isovalue = header.clip_plane_7.w
+                isosurface_hit = (
+                    previous_isosurface_valid
+                    and (
+                        (previous_isosurface_scalar < isovalue and scalar >= isovalue)
+                        or (previous_isosurface_scalar > isovalue and scalar <= isovalue)
+                    )
+                )
+                if isosurface_hit:
+                    lower_distance = previous_isosurface_distance
+                    upper_distance = distance
+                    lower_scalar = previous_isosurface_scalar
+                    for refinement in range(8):
+                        middle_distance = 0.5 * (lower_distance + upper_distance)
+                        middle_local = (
+                            header.world_to_local * osh.vec4(
+                                ray_origin + ray_direction * middle_distance, 1.0
+                            )
+                        ).xyz
+                        middle_scalar = volume_0.sample_level_with(
+                            linear_sampler, middle_local, 0.0
+                        ).x
+                        middle_mapped = middle_scalar
+                        if mapping == osh.u32(1):
+                            middle_mapped = (
+                                osh.logarithm(middle_scalar)
+                                if middle_scalar > 0.0 else -3.402823e38
+                            )
+                        elif mapping == osh.u32(2):
+                            middle_mapped = osh.sign(middle_scalar) * osh.logarithm(
+                                1.0 + osh.absolute(middle_scalar)
+                                / header.phase_parameters.w
+                            )
+                        middle_scalar = (
+                            (middle_mapped - header.render_parameters.y)
+                            * header.render_parameters.w
+                        )
+                        same_side = (
+                            (lower_scalar < isovalue and middle_scalar < isovalue)
+                            or (lower_scalar > isovalue and middle_scalar > isovalue)
+                        )
+                        if same_side:
+                            lower_distance = middle_distance
+                            lower_scalar = middle_scalar
+                        else:
+                            upper_distance = middle_distance
+                previous_isosurface_scalar = scalar
+                previous_isosurface_distance = distance
+                previous_isosurface_valid = True
+            reserved = osh.minimum(header.clip_parameters.y, osh.u32(1))
+            transfer_count = osh.maximum(
+                osh.u32(header.value_parameters.y) - reserved, osh.u32(1)
+            )
             transfer_coordinate = osh.clamp(scalar, 0.0, 1.0) * osh.f32(transfer_count - osh.u32(1))
             transfer_index = osh.minimum(osh.u32(transfer_coordinate + 0.5), transfer_count - osh.u32(1))
-            sample_value = transfers[
-                osh.u32(header.value_parameters.x) + transfer_index
-            ]
+            transfer_offset = osh.u32(header.value_parameters.x)
+            if not missing_scalar:
+                transfer_offset = transfer_offset + reserved
+            sample_value = transfers[transfer_offset + transfer_index]
             reference_alpha = osh.clamp(
                 sample_value.a * header.value_parameters.z, 0.0, 0.999999,
             )
+            if isosurface_only:
+                reference_alpha = 0.0
             reference_step = osh.maximum(header.render_parameters.x, 1.0e-5)
             extinction = -osh.logarithm(1.0 - reference_alpha) / reference_step
             combined_extinction = combined_extinction + extinction
@@ -479,8 +647,39 @@ def volume_fragment(
                                     shadow_scalar = volume_3.sample_level_with(
                                         linear_sampler, shadow_local, 0.0,
                                     ).x
+                                missing_shadow_scalar = (
+                                    shadow_header.clip_parameters.y > osh.u32(0)
+                                    and shadow_scalar != shadow_scalar
+                                )
+                                if missing_shadow_scalar:
+                                    shadow_scalar = 0.0
+                                mapped_shadow_scalar = shadow_scalar
+                                shadow_mapping = osh.u32(
+                                    shadow_header.phase_parameters.z
+                                )
+                                if shadow_mapping == osh.u32(1):
+                                    mapped_shadow_scalar = (
+                                        osh.logarithm(shadow_scalar)
+                                        if shadow_scalar > 0.0 else -3.402823e38
+                                    )
+                                elif shadow_mapping == osh.u32(2):
+                                    mapped_shadow_scalar = (
+                                        osh.sign(shadow_scalar) * osh.logarithm(
+                                            1.0 + osh.absolute(shadow_scalar)
+                                            / shadow_header.phase_parameters.w
+                                        )
+                                    )
+                                shadow_scalar = (
+                                    (mapped_shadow_scalar
+                                     - shadow_header.render_parameters.y)
+                                    * shadow_header.render_parameters.w
+                                )
+                                shadow_reserved = osh.minimum(
+                                    shadow_header.clip_parameters.y, osh.u32(1)
+                                )
                                 shadow_transfer_count = osh.maximum(
-                                    osh.u32(shadow_header.value_parameters.y),
+                                    osh.u32(shadow_header.value_parameters.y)
+                                    - shadow_reserved,
                                     osh.u32(1),
                                 )
                                 shadow_transfer_coordinate = osh.clamp(
@@ -490,9 +689,15 @@ def volume_fragment(
                                     osh.u32(shadow_transfer_coordinate + 0.5),
                                     shadow_transfer_count - osh.u32(1),
                                 )
+                                shadow_transfer_offset = osh.u32(
+                                    shadow_header.value_parameters.x
+                                )
+                                if not missing_shadow_scalar:
+                                    shadow_transfer_offset = (
+                                        shadow_transfer_offset + shadow_reserved
+                                    )
                                 shadow_sample = transfers[
-                                    osh.u32(shadow_header.value_parameters.x)
-                                    + shadow_transfer_index
+                                    shadow_transfer_offset + shadow_transfer_index
                                 ]
                                 shadow_alpha = osh.clamp(
                                     shadow_sample.a
@@ -622,6 +827,111 @@ def volume_fragment(
         opacity = 1.0 - osh.exp(-combined_extinction * step_size)
         radiance = radiance + transmittance * combined_emission * opacity
         transmittance = transmittance * (1.0 - opacity)
+        if isosurface_hit:
+            surface_header = headers[osh.u32(0)]
+            surface_reserved = osh.minimum(
+                surface_header.clip_parameters.y, osh.u32(1)
+            )
+            surface_count = osh.maximum(
+                osh.u32(surface_header.value_parameters.y) - surface_reserved,
+                osh.u32(1),
+            )
+            surface_coordinate = osh.clamp(
+                surface_header.clip_plane_7.w, 0.0, 1.0
+            ) * osh.f32(surface_count - osh.u32(1))
+            surface_index = osh.minimum(
+                osh.u32(surface_coordinate + 0.5), surface_count - osh.u32(1)
+            )
+            surface_sample = transfers[
+                osh.u32(surface_header.value_parameters.x)
+                + surface_reserved + surface_index
+            ]
+            surface_alpha = osh.clamp(
+                surface_sample.a * surface_header.value_parameters.z, 0.0, 1.0
+            )
+            radiance = radiance + (
+                transmittance * surface_alpha * surface_sample.rgb
+                * surface_header.value_parameters.w
+            )
+            transmittance = transmittance * (1.0 - surface_alpha)
+            if isosurface_only:
+                break
+        if (
+            volume_count == osh.u32(1)
+            and headers[osh.u32(0)].clip_parameters.w == osh.u32(3)
+        ):
+            slice_header = headers[osh.u32(0)]
+            half_step = 0.5 * step_size + 1.0e-7
+            for slice_index in range(3):
+                slice_distance = (
+                    slice_first if slice_index == 0
+                    else slice_second if slice_index == 1
+                    else slice_third
+                )
+                if osh.absolute(slice_distance - distance) > half_step:
+                    continue
+                slice_world = ray_origin + ray_direction * slice_distance
+                slice_clipped = False
+                if slice_header.clip_parameters.x > osh.u32(0):
+                    slice_clipped = osh.dot(slice_header.clip_plane_0.xyz, slice_world) < slice_header.clip_plane_0.w
+                if slice_header.clip_parameters.x > osh.u32(1):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_1.xyz, slice_world) < slice_header.clip_plane_1.w
+                if slice_header.clip_parameters.x > osh.u32(2):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_2.xyz, slice_world) < slice_header.clip_plane_2.w
+                if slice_header.clip_parameters.x > osh.u32(3):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_3.xyz, slice_world) < slice_header.clip_plane_3.w
+                if slice_header.clip_parameters.x > osh.u32(4):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_4.xyz, slice_world) < slice_header.clip_plane_4.w
+                if slice_header.clip_parameters.x > osh.u32(5):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_5.xyz, slice_world) < slice_header.clip_plane_5.w
+                if slice_header.clip_parameters.x > osh.u32(6):
+                    slice_clipped = slice_clipped or osh.dot(slice_header.clip_plane_6.xyz, slice_world) < slice_header.clip_plane_6.w
+                if slice_clipped:
+                    continue
+                slice_local = (
+                    slice_header.world_to_local * osh.vec4(slice_world, 1.0)
+                ).xyz
+                slice_scalar = volume_0.sample_level_with(
+                    linear_sampler, slice_local, 0.0,
+                ).x
+                slice_missing = (
+                    slice_header.clip_parameters.y > osh.u32(0)
+                    and slice_scalar != slice_scalar
+                )
+                if slice_missing:
+                    slice_scalar = 0.0
+                slice_mapped = slice_scalar
+                slice_mapping = osh.u32(slice_header.phase_parameters.z)
+                if slice_mapping == osh.u32(1):
+                    slice_mapped = osh.logarithm(slice_scalar) if slice_scalar > 0.0 else -3.402823e38
+                elif slice_mapping == osh.u32(2):
+                    slice_mapped = osh.sign(slice_scalar) * osh.logarithm(
+                        1.0 + osh.absolute(slice_scalar) / slice_header.phase_parameters.w
+                    )
+                slice_normalized = osh.clamp(
+                    (slice_mapped - slice_header.render_parameters.y)
+                    * slice_header.render_parameters.w, 0.0, 1.0,
+                )
+                slice_reserved = osh.minimum(
+                    slice_header.clip_parameters.y, osh.u32(1)
+                )
+                slice_transfer_count = osh.maximum(
+                    osh.u32(slice_header.value_parameters.y) - slice_reserved,
+                    osh.u32(1),
+                )
+                slice_transfer_index = osh.minimum(
+                    osh.u32(slice_normalized * osh.f32(slice_transfer_count - osh.u32(1)) + 0.5),
+                    slice_transfer_count - osh.u32(1),
+                )
+                slice_transfer_offset = osh.u32(slice_header.value_parameters.x)
+                if not slice_missing:
+                    slice_transfer_offset = slice_transfer_offset + slice_reserved
+                slice_sample = transfers[slice_transfer_offset + slice_transfer_index]
+                slice_alpha = osh.clamp(
+                    slice_sample.a * slice_header.value_parameters.z, 0.0, 1.0,
+                )
+                radiance = radiance + transmittance * slice_alpha * slice_sample.rgb * slice_header.value_parameters.w
+                transmittance = transmittance * (1.0 - slice_alpha)
         distance = distance + step_size
     return osh.vec4(
         radiance + background.rgb * transmittance,

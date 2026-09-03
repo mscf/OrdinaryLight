@@ -265,6 +265,55 @@ class VolumeResourceTests(unittest.TestCase):
         self.assertNotIn("data", snapshot["volumes"][0])
         json.dumps(snapshot)
 
+    def test_gpu_pack_keeps_raw_logarithmic_values_and_mapping_parameters(self):
+        data = np.asarray([1.0, 10.0, 100.0, 1000.0] * 2, np.float32).reshape(
+            2, 2, 2
+        )
+        volume = ol.Volume(
+            data, value_range=(1.0, 1000.0), value_mapping="log",
+        )
+        headers, scalars, _transfers = pack_volumes((volume,))
+
+        np.testing.assert_array_equal(scalars, data.reshape(-1))
+        self.assertEqual(headers[0]["phase_parameters"][2], 1.0)
+        self.assertAlmostEqual(headers[0]["render_parameters"][1], 0.0)
+        self.assertAlmostEqual(
+            headers[0]["render_parameters"][3], 1.0 / np.log(1000.0),
+        )
+        np.testing.assert_allclose(
+            volume.normalized_data.reshape(-1)[:4], (0.0, 1 / 3, 2 / 3, 1.0),
+            atol=1e-6,
+        )
+
+    def test_gpu_pack_encodes_exact_runtime_slice_header(self):
+        volume = ol.Volume(
+            np.ones((2, 3, 4), np.float32), render_mode="slice",
+            slice_axis="y", slice_position=0.375,
+        )
+        headers, _scalars, _transfers = pack_volumes((volume,))
+        self.assertEqual(headers[0]["clip_parameters"][2], 7)
+        self.assertEqual(headers[0]["clip_parameters"][3], 0)
+        np.testing.assert_array_equal(
+            headers[0]["clip_planes"][7, :3],
+            np.asarray((0.5, 0.375, 0.5), np.float32),
+        )
+
+    def test_gpu_pack_encodes_runtime_isosurface_mapping(self):
+        linear = ol.Volume(
+            np.ones((2, 2, 2), np.float32), value_range=(0.0, 10.0),
+            render_mode="isosurface", isovalue=2.5,
+        )
+        logarithmic = ol.Volume(
+            np.ones((2, 2, 2), np.float32), value_range=(1.0, 100.0),
+            value_mapping="log", render_mode="combined", isovalue=10.0,
+        )
+        headers, _scalars, _transfers = pack_volumes((linear, logarithmic))
+
+        self.assertEqual(headers[0]["clip_parameters"][3], 2)
+        self.assertAlmostEqual(headers[0]["clip_planes"][7, 3], 0.25)
+        self.assertEqual(headers[1]["clip_parameters"][3], 3)
+        self.assertAlmostEqual(headers[1]["clip_planes"][7, 3], 0.5)
+
     def test_update_is_atomic_and_preserves_identity(self):
         scene = ol.Scene()
         volume = scene.add_volume(ramp_volume())
@@ -340,6 +389,8 @@ class VolumeResourceTests(unittest.TestCase):
         self.assertEqual(headers.dtype, VOLUME_HEADER_DTYPE)
         np.testing.assert_array_equal(headers[0]["dimensions_offset"][:3], (4, 4, 4))
         self.assertEqual(headers[0]["render_parameters"][2], 1.0)
+        self.assertEqual(headers[0]["render_parameters"][1], 0.0)
+        self.assertAlmostEqual(headers[0]["render_parameters"][3], 1.0 / 9.0)
         np.testing.assert_array_equal(
             headers[0]["acceleration_parameters"], 0,
         )
@@ -352,6 +403,7 @@ class VolumeResourceTests(unittest.TestCase):
             (0.9, 0.9, 0.9, 1.0), atol=1e-7,
         )
         self.assertEqual(scalars.size, 64)
+        np.testing.assert_array_equal(scalars, volume.data.reshape(-1))
         self.assertEqual(transfers.shape[1], 4)
         np.testing.assert_array_equal(
             scene.triangle_volume_indices(),

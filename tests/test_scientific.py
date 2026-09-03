@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 
 import ordinarylight as ol
+from ordinarylight.volume import pack_volumes
 
 
 def test_scalar_field_coordinates_probe_and_volume_adapter():
@@ -151,10 +152,10 @@ def test_dynamic_field_updates_preserve_scene_identity_and_geometry():
     assert scene.shading_revision > shading_revision
     assert volume.data_revision == 1
     assert volume.dirty_regions == (((1, 1, 1), (2, 1, 2)),)
-    np.testing.assert_allclose(volume.data[1:3, 1:2, 1:3], 0.75)
+    np.testing.assert_allclose(volume.data[1:3, 1:2, 1:3], 5.0)
 
 
-def test_data_derived_mapping_falls_back_to_full_remap():
+def test_data_derived_linear_mapping_updates_region_and_gpu_range_header():
     field = ol.ScalarField3D(np.arange(8, dtype=np.float32).reshape(2, 2, 2))
     transfer = ol.TransferFunction(
         ((0, 0, 0, 0), (1, 1, 1, 1)), ol.ScalarMapping("linear"),
@@ -163,8 +164,28 @@ def test_data_derived_mapping_falls_back_to_full_remap():
     volume = field.add_volume(scene, transfer)
     field.update((0, 0, 0), np.asarray([[[100]]], np.float32))
     field.sync_volume(scene, volume, transfer, since_revision=0)
-    assert volume.dirty_regions == (((0, 0, 0), volume.shape),)
-    assert volume.data[0, 0, 0] == 1.0
+    assert volume.dirty_regions == (((0, 0, 0), (1, 1, 1)),)
+    assert volume.value_range == (1.0, 100.0)
+    assert volume.data[0, 0, 0] == 100.0
+
+
+def test_scientific_volume_keeps_missing_samples_in_gpu_scalar_payload():
+    data = np.arange(8, dtype=np.float32).reshape(2, 2, 2)
+    data[0, 0, 0] = np.nan
+    field = ol.ScalarField3D(data)
+    transfer = ol.TransferFunction(
+        ((0, 0, 0, 0), (1, 1, 1, 1)),
+        ol.ScalarMapping("linear", (0.0, 7.0)),
+        missing_rgba=(1.0, 0.0, 1.0, 0.5),
+    )
+    volume = field.add_volume(ol.Scene(), transfer)
+    headers, scalars, transfers = pack_volumes((volume,))
+
+    assert volume.missing_data
+    assert np.isnan(volume.data[0, 0, 0])
+    assert np.isnan(scalars[0])
+    assert headers[0]["clip_parameters"][1] == 1
+    np.testing.assert_allclose(transfers[0], transfer.missing_rgba)
 
 
 def test_trilinear_sample_reports_physical_value_and_invalid_cells():
