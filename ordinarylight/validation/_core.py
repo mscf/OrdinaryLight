@@ -287,13 +287,41 @@ def renderer_visual_metrics(
     log_difference = np.log1p(matched_luminance) - np.log1p(
         np.maximum(reference_luminance, 0.0)
     )
+    def structural_luminance(luminance):
+        # Edge parity is intended to measure shared scene structure, not
+        # high-frequency Monte Carlo noise. Apply a small box filter before
+        # differentiating; its footprint tracks image resolution up to 9x9.
+        # Color and coverage metrics continue to use the original HDR pixels.
+        values = np.maximum(luminance, 0.0)
+        radius = min(4, max(1, round(min(values.shape) / 90)))
+        padded = np.pad(values, radius, mode="edge")
+        diameter = 2 * radius + 1
+        return sum(
+            padded[y:y + values.shape[0], x:x + values.shape[1]]
+            for y in range(diameter) for x in range(diameter)
+        ) / float(diameter * diameter)
+
+    reference_structure = structural_luminance(reference_luminance)
+    candidate_structure = structural_luminance(matched_luminance)
     reference_edges = np.hypot(
-        np.diff(reference_luminance, axis=1, append=reference_luminance[:, -1:]),
-        np.diff(reference_luminance, axis=0, append=reference_luminance[-1:, :]),
+        np.diff(
+            reference_structure, axis=1,
+            append=reference_structure[:, -1:],
+        ),
+        np.diff(
+            reference_structure, axis=0,
+            append=reference_structure[-1:, :],
+        ),
     )
     candidate_edges = np.hypot(
-        np.diff(matched_luminance, axis=1, append=matched_luminance[:, -1:]),
-        np.diff(matched_luminance, axis=0, append=matched_luminance[-1:, :]),
+        np.diff(
+            candidate_structure, axis=1,
+            append=candidate_structure[:, -1:],
+        ),
+        np.diff(
+            candidate_structure, axis=0,
+            append=candidate_structure[-1:, :],
+        ),
     )
     reference_centered = reference_edges - reference_edges.mean()
     candidate_centered = candidate_edges - candidate_edges.mean()

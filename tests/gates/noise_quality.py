@@ -1,4 +1,4 @@
-"""Guard the accepted multi-scene noise/reconstruction quality baseline."""
+"""Guard the accepted multi-scene ReLAX denoising quality baseline."""
 
 import argparse
 from dataclasses import asdict, dataclass
@@ -19,7 +19,7 @@ from ordinarylight.showcases.rooms import get_restir_scene
 from ordinarylight.showcases.volumes import build_volume_showcase
 
 
-BASELINE_SCHEMA = 1
+BASELINE_SCHEMA = 2
 DEFAULT_BASELINE = Path(__file__).with_name("baselines") / "noise_quality.json"
 OVERRIDE_REASON = "ORDINARYLIGHT_NOISE_GATE_OVERRIDE_REASON"
 
@@ -82,8 +82,8 @@ def _configuration(args):
         "candidate_samples": args.candidate_samples,
         "max_bounces": args.bounces,
         "area_light_samples": args.area_light_samples,
-        "temporal_weight": args.temporal_weight,
-        "diffuse_filter_strength": args.diffuse_filter_strength,
+        "atrous_iterations": args.atrous_iterations,
+        "history_limit": args.history_limit,
         "scenarios": [asdict(scenario) for scenario in SCENARIOS],
     }
     # Use the same list/object representation before and after a JSON
@@ -105,6 +105,7 @@ def _camera(scenario, index, frames):
 
 
 def _renderer_config(args, *, reference):
+    denoise = not reference
     return ol.RendererConfig(
         max_bounces=args.bounces,
         samples_per_pixel=(
@@ -113,17 +114,15 @@ def _renderer_config(args, *, reference):
         area_light_samples=args.area_light_samples,
         wavefront_secondary_area_light_samples=1,
         wavefront_environment_samples=1,
-        wavefront_temporal_reconstruction=not reference,
-        wavefront_temporal_weight=args.temporal_weight,
-        wavefront_temporal_variance_confidence=not reference,
-        wavefront_temporal_variance_strength=0.5,
-        wavefront_temporal_material_confidence=not reference,
-        wavefront_temporal_transmission_history_scale=0.5,
-        wavefront_temporal_reprojection_search=not reference,
-        wavefront_temporal_outlier_confidence=not reference,
-        wavefront_temporal_outlier_strength=0.75,
-        wavefront_diffuse_filter=not reference,
-        wavefront_diffuse_filter_strength=args.diffuse_filter_strength,
+        wavefront_restir_di=denoise,
+        wavefront_restir_reservoirs=2,
+        wavefront_restir_candidates=4,
+        wavefront_restir_history_limit=4,
+        progressive_accumulation=denoise,
+        temporal_history=denoise,
+        temporal_history_limit=args.history_limit,
+        denoiser_enabled=denoise,
+        denoiser_iterations=args.atrous_iterations,
         wavefront_execution_strategy="wavefront",
         wavefront_hdr_capture=True,
         wavefront_tile_capacity=args.width * args.height,
@@ -132,7 +131,7 @@ def _renderer_config(args, *, reference):
 
 
 def _capture(window, scenario, scene, args, *, reference, path):
-    mode = "reference" if reference else "candidate"
+    mode = "reference" if reference else "relax"
     frames = np.lib.format.open_memmap(
         path, mode="w+", dtype=np.float32,
         shape=(args.frames, args.height, args.width, 4),
@@ -229,11 +228,11 @@ def main():
     parser.add_argument("--height", type=int, default=180)
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--reference-samples", type=int, default=16)
-    parser.add_argument("--candidate-samples", type=int, default=2)
+    parser.add_argument("--candidate-samples", type=int, default=1)
     parser.add_argument("--bounces", type=int, default=8)
     parser.add_argument("--area-light-samples", type=int, default=2)
-    parser.add_argument("--temporal-weight", type=float, default=0.93)
-    parser.add_argument("--diffuse-filter-strength", type=float, default=0.35)
+    parser.add_argument("--atrous-iterations", type=int, default=3)
+    parser.add_argument("--history-limit", type=int, default=32)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument(
         "--output", type=Path,
@@ -262,7 +261,7 @@ def main():
     glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
     glfw.window_hint(glfw.DECORATED, glfw.FALSE)
     window = glfw.create_window(
-        args.width, args.height, "Ordinary Light noise gate", None, None
+        args.width, args.height, "Ordinary Light ReLAX noise gate", None, None
     )
     if not window:
         glfw.terminate()
@@ -280,7 +279,7 @@ def main():
             )
             candidate, candidate_times = _capture(
                 window, scenario, scene, args, reference=False,
-                path=args.output / f"{scenario.name}_candidate.npy",
+                path=args.output / f"{scenario.name}_relax.npy",
             )
             comparisons[scenario.name] = (reference, candidate)
             summaries[scenario.name] = _selected_summary(
@@ -308,7 +307,7 @@ def main():
         baseline = make_baseline(configuration, summaries, reason=reason)
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps(baseline, indent=2) + "\n")
-        print(f"ACCEPTED: noise baseline -> {args.baseline}")
+        print(f"ACCEPTED: ReLAX noise baseline -> {args.baseline}")
         return
     if not args.baseline.is_file():
         raise SystemExit(
@@ -323,7 +322,7 @@ def main():
         for failure in failures:
             print(f"  {failure}")
         raise SystemExit(1)
-    print("PASS: current output preserves the accepted noise-quality baseline")
+    print("PASS: ReLAX preserves the accepted multi-scene noise baseline")
 
 
 if __name__ == "__main__":

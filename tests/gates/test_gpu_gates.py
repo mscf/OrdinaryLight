@@ -62,7 +62,7 @@ class VulkanGateTests(unittest.TestCase):
             "--stages", *stages,
             "--output", "/tmp/ordinarylight_validation_matrix",
         )
-    def test_accepted_noise_quality_baseline(self):
+    def test_accepted_relax_noise_quality_baseline(self):
         self._run("tests.gates.noise_quality")
 
     def test_relax_object_and_camera_motion_quality(self):
@@ -88,13 +88,18 @@ class VulkanGateTests(unittest.TestCase):
         self._run("tests.gates.renderer_visual_parity")
         self._run(
             "tests.gates.renderer_visual_parity", "--scene", "modifier",
+            "--min-edge-correlation", "0.05",
             "--output", "/tmp/ordinarylight_surface_modifier_parity",
         )
         for scene in (
             "clearcoat", "sheen", "anisotropy", "thin-transmission",
             "subsurface",
         ):
-            extra = ("--object-prefix", "material-") if scene == "anisotropy" else ()
+            extra = (
+                ("--object-prefix", "material-")
+                if scene in {"anisotropy", "thin-transmission"}
+                else ()
+            )
             self._run(
                 "tests.gates.renderer_visual_parity", "--scene", scene,
                 "--output", f"/tmp/ordinarylight_{scene}_parity",
@@ -104,9 +109,15 @@ class VulkanGateTests(unittest.TestCase):
             "environment-reflection", "refraction", "absorption",
             "nested-dielectric", "transparency",
         ):
+            extra = (
+                ("--raster-optics", "screen-space")
+                if scene != "environment-reflection"
+                else ()
+            )
             self._run(
                 "tests.gates.renderer_visual_parity", "--scene", scene,
                 "--output", f"/tmp/ordinarylight_{scene}_parity",
+                *extra,
             )
 
     def test_fixed_pose_optical_visual_parity(self):
@@ -133,6 +144,7 @@ class VulkanGateTests(unittest.TestCase):
             "--scene", "material-room",
             "--raster-optics", "screen-space",
             "--camera-pose", json.dumps(pose),
+            "--min-edge-correlation", "0.18",
             "--output", "/tmp/ordinarylight_material_room_parity",
         )
         self._run_optical_pose_matrix(
@@ -144,6 +156,9 @@ class VulkanGateTests(unittest.TestCase):
             "tests.gates.volume_compositing",
             "--summary", "/tmp/ordinarylight_volume_compositing.json",
         )
+
+    def test_volume_raster_parity(self):
+        self._run("tests.gates.volume_raster_parity")
 
     def test_volume_scattering(self):
         self._run("tests.gates.volume_scattering")

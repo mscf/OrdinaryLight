@@ -22,6 +22,7 @@ PYTHON_GATES = (
     "volume_compositing",
     "volume_empty_space",
     "volume_multiple_scattering",
+    "volume_raster_parity",
     "volume_scattering",
 )
 
@@ -60,6 +61,13 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(path.is_file())
         payload = __import__("json").loads(path.read_text())
         self.assertEqual(set(payload["accepted"]), {"object", "camera"})
+
+    def test_noise_baseline_uses_relax(self):
+        path = Path(__file__).parent / "baselines" / "noise_quality.json"
+        payload = __import__("json").loads(path.read_text())
+        self.assertEqual(payload["schema"], 2)
+        self.assertEqual(payload["configuration"]["candidate_samples"], 1)
+        self.assertIn("atrous_iterations", payload["configuration"])
 
 
 if __name__ == "__main__":

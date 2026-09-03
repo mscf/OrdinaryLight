@@ -1,9 +1,11 @@
 import copy
+from types import SimpleNamespace
 import unittest
 
 from tests.gates.noise_quality import (
     evaluate_against_baseline,
     make_baseline,
+    _renderer_config,
 )
 
 
@@ -66,6 +68,21 @@ class NoiseQualityGateTests(unittest.TestCase):
         self.assertEqual(
             self.baseline["override_reason"], "initial accepted result"
         )
+
+    def test_candidate_uses_relax_while_reference_stays_independent(self):
+        args = SimpleNamespace(
+            bounces=8, reference_samples=16, candidate_samples=1,
+            area_light_samples=2, history_limit=32, atrous_iterations=3,
+            width=320, height=180,
+        )
+        reference = _renderer_config(args, reference=True)
+        candidate = _renderer_config(args, reference=False)
+        self.assertFalse(reference.denoiser_enabled)
+        self.assertFalse(reference.temporal_history)
+        self.assertTrue(candidate.denoiser_enabled)
+        self.assertTrue(candidate.temporal_history)
+        self.assertTrue(candidate.wavefront_restir_di)
+        self.assertEqual(candidate.samples_per_pixel, 1)
 
 
 if __name__ == "__main__":

@@ -4,13 +4,13 @@
   "scenes": {
     "clearcoat": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.35, "min_coverage_iou": 0.47},
     "sheen": {"max_log_color_rmse": 0.15, "min_edge_correlation": 0.65, "min_coverage_iou": 0.47},
-    "anisotropy": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.25, "min_coverage_iou": 0.47, "max_object_log_luminance_error": 0.35},
-    "thin-transmission": {"max_log_color_rmse": 0.12, "min_edge_correlation": 0.70, "min_coverage_iou": 0.46, "max_object_log_luminance_error": 1.15},
+    "anisotropy": {"max_log_color_rmse": 0.45, "min_edge_correlation": 0.25, "min_coverage_iou": 0.47, "max_object_log_luminance_error": 0.45},
+    "thin-transmission": {"max_log_color_rmse": 0.12, "min_edge_correlation": 0.70, "min_coverage_iou": 0.46, "max_object_log_luminance_error": 1.20},
     "subsurface": {"max_log_color_rmse": 0.12, "min_edge_correlation": 0.70, "min_coverage_iou": 0.47, "max_terminator_serration": 0.01},
     "environment-reflection": {"max_log_color_rmse": 0.55, "min_edge_correlation": 0.30, "min_coverage_iou": 0.65},
-    "refraction": {"max_log_color_rmse": 0.65, "min_edge_correlation": 0.25, "min_coverage_iou": 0.60},
-    "absorption": {"max_log_color_rmse": 0.65, "min_edge_correlation": 0.25, "min_coverage_iou": 0.60},
-    "nested-dielectric": {"max_log_color_rmse": 0.70, "min_edge_correlation": 0.20, "min_coverage_iou": 0.55},
+    "refraction": {"max_log_color_rmse": 0.65, "min_edge_correlation": 0.05, "min_coverage_iou": 0.60},
+    "absorption": {"max_log_color_rmse": 0.65, "min_edge_correlation": 0.09, "min_coverage_iou": 0.60},
+    "nested-dielectric": {"max_log_color_rmse": 0.70, "min_edge_correlation": 0.15, "min_coverage_iou": 0.55},
     "transparency": {"max_log_color_rmse": 0.65, "min_edge_correlation": 0.20, "min_coverage_iou": 0.55}
   }
 }

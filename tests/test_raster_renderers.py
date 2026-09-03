@@ -157,6 +157,20 @@ class RasterBackendTests(unittest.TestCase):
         self.assertEqual(decoded["viewport_optics"][0, 2], -2.0)
         self.assertEqual(decoded["viewport_optics"][0, 3], 32.0)
 
+    def test_opaque_prepass_preserves_light_and_shadow_counts(self):
+        camera = np.zeros(1, ol.CAMERA_DTYPE)
+        camera["viewport_optics"][0, 2] = -1.0
+        camera["optical_diagnostic"][0] = (7.0, 3.0, 5.0, 1.0)
+        for implementation in (
+            ol.renderers.raster.VulkanRasterRenderer,
+            ol.renderers.raster.WebGpuRasterRenderer,
+        ):
+            payload = implementation._opaque_camera_payload(camera.tobytes())
+            decoded = np.frombuffer(payload, ol.CAMERA_DTYPE)
+            np.testing.assert_array_equal(
+                decoded["optical_diagnostic"][0], (0.0, 3.0, 5.0, 1.0),
+            )
+
     def test_builtin_scene_program_compiles_for_both_implementations(self):
         target = "spirv" if shutil.which("glslangValidator") else "glsl"
         native = ol.RasterProgram.scene(target=target)

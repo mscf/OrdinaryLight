@@ -44,6 +44,15 @@ def terminator_serration(image, mask):
     return float(np.mean(second_difference[valid_triplets] > 0.01))
 
 
+def object_id_mask(object_ids):
+    """Return visible-object coverage across raster and GI ID conventions."""
+    object_ids = np.asarray(object_ids)
+    mask = object_ids != 0
+    if np.issubdtype(object_ids.dtype, np.unsignedinteger):
+        mask &= object_ids != np.iinfo(object_ids.dtype).max
+    return mask
+
+
 def _render_gi(
     scene, camera, extent, samples, material_modifier=None, *, max_bounces=8,
 ):
@@ -277,8 +286,8 @@ def main():
     )
     metrics = ol.renderer_visual_metrics(
         gi.color, raster.color,
-        reference_mask=gi.object_id > 0,
-        candidate_mask=raster.object_id > 0,
+        reference_mask=object_id_mask(gi.object_id),
+        candidate_mask=object_id_mask(raster.object_id),
     )
     luminance_weights = np.asarray((0.2126, 0.7152, 0.0722), np.float32)
     candidate_sdr = to_sdr(raster.color, exposure=metrics["exposure_scale"])

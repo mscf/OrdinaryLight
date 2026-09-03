@@ -110,6 +110,13 @@ def test_terminator_serration_metric_rejects_high_frequency_teeth():
     assert terminator_serration(serrated, mask) > 0.1
 
 
+def test_visual_parity_object_mask_rejects_gi_background_sentinel():
+    from tests.gates.renderer_visual_parity import object_id_mask
+
+    ids = np.asarray((0, 3, np.iinfo(np.uint32).max), np.uint32)
+    np.testing.assert_array_equal(object_id_mask(ids), (False, True, False))
+
+
 def test_optical_material_parameters_validate_and_pack():
     texture = ol.Texture(np.full((1, 1, 4), 255, np.uint8))
     material = ol.Material(

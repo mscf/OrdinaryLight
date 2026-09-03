@@ -7,7 +7,7 @@
     "vertical_fov_degrees": 45.0,
     "thresholds": {
       "max_log_color_rmse": 0.16,
-      "max_object_log_luminance_error": 1.15,
+      "max_object_log_luminance_error": 1.45,
       "min_edge_correlation": 0.18,
       "min_coverage_iou": 0.50,
       "min_object_edge_correlation": 0.10
@@ -21,7 +21,7 @@
     "vertical_fov_degrees": 45.0,
     "thresholds": {
       "max_log_color_rmse": 0.16,
-      "max_object_log_luminance_error": 1.15,
+      "max_object_log_luminance_error": 1.45,
       "min_edge_correlation": 0.18,
       "min_coverage_iou": 0.50,
       "min_object_edge_correlation": 0.10

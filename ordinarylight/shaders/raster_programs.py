@@ -564,10 +564,12 @@ def scene_fragment(
         + surface_normal.z * half_vector.z,
         0.0,
     )
-    vdoth = osh.maximum(
-        view.x * half_vector.x + view.y * half_vector.y
-        + view.z * half_vector.z,
-        0.0,
+    vdoth = osh.minimum(
+        1.0, osh.maximum(
+            view.x * half_vector.x + view.y * half_vector.y
+            + view.z * half_vector.z,
+            0.0,
+        ),
     )
     sheen_weight = (
         (1.0 - surface_sheen_roughness)
@@ -779,10 +781,12 @@ def scene_fragment(
                 + surface_normal.z * packed_half.z,
                 0.0,
             )
-            packed_vdoth = osh.maximum(
-                view.x * packed_half.x + view.y * packed_half.y
-                + view.z * packed_half.z,
-                0.0,
+            packed_vdoth = osh.minimum(
+                1.0, osh.maximum(
+                    view.x * packed_half.x + view.y * packed_half.y
+                    + view.z * packed_half.z,
+                    0.0,
+                ),
             )
             packed_fresnel = f0 + (osh.vec3(1.0) - f0) * osh.power(
                 osh.vec3(1.0 - packed_vdoth), osh.vec3(5.0),

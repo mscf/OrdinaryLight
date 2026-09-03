@@ -473,7 +473,7 @@ class VulkanRasterRenderer(RendererImplementation):
         camera = np.frombuffer(payload, dtype=CAMERA_DTYPE).copy()
         mode = camera["viewport_optics"][0, 2]
         camera["viewport_optics"][0, 2] = -2.0 if mode < 0.0 else 0.0
-        camera["optical_diagnostic"][0] = 0.0
+        camera["optical_diagnostic"][0, 0] = 0.0
         return camera.tobytes()
 
     @staticmethod

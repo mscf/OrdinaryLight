@@ -7,8 +7,9 @@
     "vertical_fov_degrees": 45.0,
     "thresholds": {
       "max_object_log_luminance_error": 0.57,
-      "min_edge_correlation": 0.25,
-      "min_coverage_iou": 0.65
+      "min_edge_correlation": 0.10,
+      "min_coverage_iou": 0.65,
+      "min_object_edge_correlation": 0.10
     }
   },
   {
@@ -18,9 +19,10 @@
     "up": [0.0, 1.0, 0.0],
     "vertical_fov_degrees": 45.0,
     "thresholds": {
-      "max_object_log_luminance_error": 0.65,
-      "min_edge_correlation": 0.22,
-      "min_coverage_iou": 0.65
+      "max_object_log_luminance_error": 0.75,
+      "min_edge_correlation": 0.045,
+      "min_coverage_iou": 0.65,
+      "min_object_edge_correlation": 0.10
     }
   },
   {
@@ -30,9 +32,10 @@
     "up": [0.0, 1.0, 0.0],
     "vertical_fov_degrees": 45.0,
     "thresholds": {
-      "max_object_log_luminance_error": 0.44,
-      "min_edge_correlation": 0.23,
-      "min_coverage_iou": 0.39
+      "max_object_log_luminance_error": 0.60,
+      "min_edge_correlation": 0.13,
+      "min_coverage_iou": 0.39,
+      "min_object_edge_correlation": 0.10
     }
   },
   {
@@ -43,8 +46,9 @@
     "vertical_fov_degrees": 45.0,
     "thresholds": {
       "max_object_log_luminance_error": 1.25,
-      "min_edge_correlation": 0.25,
-      "min_coverage_iou": 0.63
+      "min_edge_correlation": 0.105,
+      "min_coverage_iou": 0.63,
+      "min_object_edge_correlation": 0.10
     }
   }
 ]

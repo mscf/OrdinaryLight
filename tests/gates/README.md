@@ -43,6 +43,16 @@ captures, difference images, and a JSON report outside the source tree:
 python -m tests.gates.raster_parity
 ```
 
+The ray-marched volume parity matrix separately exercises every authored
+volume showcase: emissive transfer functions, overlapping media, single
+scattering with an embedded opaque shadow caster, and bounded multiple
+scattering. It compares native Vulkan and WebGPU HDR output and writes both
+captures, amplified difference images, and metrics:
+
+```bash
+PYTHONPATH=../ordinaryshade python -m tests.gates.volume_raster_parity
+```
+
 Native analytic-light coverage separately verifies directional and spot
 shadows, point-light cube shadows at an oblique long-shadow regression pose,
 multiple simultaneous shadow-casting lights, and GPU light-array accumulation.
@@ -97,8 +107,10 @@ and separately budgets startup and transition latency:
 python -m tests.gates.transition_latency
 ```
 
-The accepted multi-scene noise baseline covers diffuse, area-light,
-glossy/glass, fast-motion dense geometry, and volume rendering:
+The accepted multi-scene noise baseline exercises the presented ReLAX output
+at one sample per pixel across diffuse, area-light, glossy/glass, fast-motion
+dense geometry, and volume rendering. Independent high-sample frames remain
+the reference:
 
 ```bash
 python -m tests.gates.noise_quality
@@ -114,10 +126,18 @@ python -m tests.gates.noise_quality --accept-baseline
 ```
 
 The tracked baseline contains aggregate metrics and configuration, not large
-HDR captures. Per-frame HDR sequences, the complete CSV, and the run report
-remain under `/tmp/ordinarylight_noise_quality` for inspection.
+HDR captures. Per-frame reference and ReLAX sequences, the complete CSV, and
+the run report remain under `/tmp/ordinarylight_noise_quality` for inspection.
 
-Rigid-object motion has a separate ReLAX gate. It compares actual HDR pixels
+Raw estimator correctness is intentionally kept separate from presented
+denoised quality. The indirect/reuse stages in `validation_matrix` compare raw
+HDR estimators, while `path_termination_quality` checks Russian roulette
+against full paths without allowing denoising to conceal bias. Because
+roulette is inherently a variance/performance tradeoff, that gate enforces a
+strict absolute-bias limit and bounded raw variance amplification; it does not
+require roulette and full-path one-sample captures to have identical noise.
+
+Rigid-object motion has a separate focused ReLAX gate. It compares actual HDR pixels
 against independent high-sample frames for both object and camera motion,
 including stationary-background stability, moving/disoccluded regions, edge
 preservation, and median GPU time:

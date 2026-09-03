@@ -67,6 +67,16 @@ class ValidationTests(unittest.TestCase):
         )
         self.assertEqual(masked["coverage_iou"], 1.0)
 
+    def test_cross_renderer_edge_metric_rejects_path_noise(self):
+        clean = np.zeros((64, 64, 3), np.float32)
+        clean[16:48, 12:52] = (0.8, 0.4, 0.2)
+        generator = np.random.default_rng(7)
+        noisy = np.maximum(
+            clean + generator.normal(0.0, 0.08, clean.shape), 0.0,
+        )
+        metrics = ol.renderer_visual_metrics(noisy, clean)
+        self.assertGreater(metrics["edge_correlation"], 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()

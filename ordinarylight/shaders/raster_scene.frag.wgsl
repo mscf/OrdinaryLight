@@ -255,7 +255,7 @@ fn main(
     }
     let ndotv: f32 = max((((surface_normal.x * view.x) + (surface_normal.y * view.y)) + (surface_normal.z * view.z)), 0.0);
     let ndoth: f32 = max((((surface_normal.x * half_vector.x) + (surface_normal.y * half_vector.y)) + (surface_normal.z * half_vector.z)), 0.0);
-    let vdoth: f32 = max((((view.x * half_vector.x) + (view.y * half_vector.y)) + (view.z * half_vector.z)), 0.0);
+    let vdoth: f32 = min(1.0, max((((view.x * half_vector.x) + (view.y * half_vector.y)) + (view.z * half_vector.z)), 0.0));
     let sheen_weight: f32 = ((1.0 - surface_sheen_roughness) * pow((1.0 - vdoth), 5.0));
     let sheen: vec3<f32> = (surface_sheen_color * sheen_weight);
     let raw_surface_alpha: f32 = (material.w * base_color_sample.w);
@@ -340,7 +340,7 @@ fn main(
             let packed_signed_ndotl: f32 = (((surface_normal.x * packed_incoming.x) + (surface_normal.y * packed_incoming.y)) + (surface_normal.z * packed_incoming.z));
             let packed_ndotl: f32 = max(packed_signed_ndotl, 0.0);
             let packed_ndoth: f32 = max((((surface_normal.x * packed_half.x) + (surface_normal.y * packed_half.y)) + (surface_normal.z * packed_half.z)), 0.0);
-            let packed_vdoth: f32 = max((((view.x * packed_half.x) + (view.y * packed_half.y)) + (view.z * packed_half.z)), 0.0);
+            let packed_vdoth: f32 = min(1.0, max((((view.x * packed_half.x) + (view.y * packed_half.y)) + (view.z * packed_half.z)), 0.0));
             let packed_fresnel: vec3<f32> = (f0 + ((vec3<f32>(1.0) - f0) * pow(vec3<f32>((1.0 - packed_vdoth)), vec3<f32>(5.0))));
             let packed_tangent_dot_half: f32 = (((tangent.x * packed_half.x) + (tangent.y * packed_half.y)) + (tangent.z * packed_half.z));
             let packed_bitangent_dot_half: f32 = (((bitangent.x * packed_half.x) + (bitangent.y * packed_half.y)) + (bitangent.z * packed_half.z));
