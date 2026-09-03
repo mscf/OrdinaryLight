@@ -1192,9 +1192,14 @@ void processPrimaryPixel(uvec2 local_pixel)
 #if WAVE_WORK_COUNTERS
     profileWork(3u, 1u);
 #endif
+    // The custom index is the stable packed-triangle range start assigned to
+    // this scene instance.  Reuse it as a cheap temporal identity key; asking
+    // for the separate hardware instance ID is significantly slower on some
+    // drivers, especially for volume-heavy scenes.
+    uint instance_key =
+        rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
     uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
-        + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
-    uint instance_id = rayQueryGetIntersectionInstanceIdEXT(query, true);
+        + instance_key;
     vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 #if WAVE_ORDINARYSHADE_PRIMARY_SURFACE
     float cone_spread = ordinarylight_primary_cone_spread(
@@ -1870,7 +1875,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         ordinarylight_store_secondary_primary(
             path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf,
             sampled_specular, pbrSpecularProbability(material), position,
-            material.base_roughness.a, primitive, barycentrics, instance_id);
+            material.base_roughness.a, primitive, barycentrics, instance_key);
 #else
         secondary_paths[path_index].primary_throughput =
             vec4(path.throughput.rgb, 1.0 + sampled_specular);
@@ -1881,7 +1886,7 @@ void processPrimaryPixel(uvec2 local_pixel)
             position, 1.0 + clamp(material.base_roughness.a, 0.0, 1.0));
         secondary_paths[path_index].primary_geometry = vec4(
             uintBitsToFloat(primitive), barycentrics,
-            uintBitsToFloat(instance_id));
+            uintBitsToFloat(instance_key));
 #endif
     }
     WAVE_STORE_PATH(path_index, path);

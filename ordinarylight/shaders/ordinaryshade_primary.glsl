@@ -111,13 +111,13 @@ void ordinarylight_store_secondary_hit(uint path_index, vec4 position_valid, vec
     ordinarylight_secondary_paths[path_index].position_valid = position_valid;
     ordinarylight_secondary_paths[path_index].normal_pdf.xyz = normal;
 }
-void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf, float sampled_specular, float specular_probability, vec3 position, float roughness, uint primitive, vec2 barycentrics, uint instance_id)
+void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf, float sampled_specular, float specular_probability, vec3 position, float roughness, uint primitive, vec2 barycentrics, uint instance_key)
 {
     ordinarylight_secondary_paths[path_index].primary_throughput = vec4(throughput, (1.0 + sampled_specular));
     ordinarylight_secondary_paths[path_index].primary_radiance = vec4(radiance, specular_probability);
     ordinarylight_secondary_paths[path_index].normal_pdf.w = pdf;
     ordinarylight_secondary_paths[path_index].primary_position = vec4(position, (1.0 + clamp(roughness, 0.0, 1.0)));
-    ordinarylight_secondary_paths[path_index].primary_geometry = vec4(uintBitsToFloat(primitive), barycentrics, uintBitsToFloat(instance_id));
+    ordinarylight_secondary_paths[path_index].primary_geometry = vec4(uintBitsToFloat(primitive), barycentrics, uintBitsToFloat(instance_key));
 }
 #endif
 #if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION

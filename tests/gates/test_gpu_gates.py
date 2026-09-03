@@ -68,6 +68,9 @@ class VulkanGateTests(unittest.TestCase):
     def test_relax_object_and_camera_motion_quality(self):
         self._run("tests.gates.relax_motion_quality")
 
+    def test_relax_matte_tessellation_quality(self):
+        self._run("tests.gates.relax_tessellation_quality")
+
     def test_resident_transition_latency(self):
         self._run("tests.gates.transition_latency")
 

@@ -154,6 +154,14 @@ preservation, and median GPU time:
 python -m tests.gates.relax_motion_quality
 ```
 
+Smooth matte tessellation has a focused ReLAX gate using the material-program
+room and a close view of its cyan sphere. It projects the sphere's actual mesh
+edges and rejects sparse dark residual concentrated along those edges:
+
+```bash
+python -m tests.gates.relax_tessellation_quality
+```
+
 Replacing its tracked baseline also requires an explicit review reason:
 
 ```bash

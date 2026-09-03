@@ -1,0 +1,6 @@
+{
+  "dark_outlier_p995_p95": 1.3220602929592131,
+  "masked_pixels": 15263,
+  "triangle_edge_dark_excess_p95": 0.002066501881927252,
+  "median_gpu_ms": 0.8296479999999999
+}

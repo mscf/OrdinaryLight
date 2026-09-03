@@ -12,6 +12,7 @@ PYTHON_GATES = (
     "path_termination_quality",
     "raster_lighting",
     "relax_motion_quality",
+    "relax_tessellation_quality",
     "restir_matrix",
     "restir_quality",
     "ser_quality",
@@ -71,6 +72,15 @@ class GateContractTests(unittest.TestCase):
         self.assertEqual(
             set(payload["accepted_timings"]), set(payload["accepted"])
         )
+
+    def test_relax_tessellation_baseline_is_checked_in(self):
+        path = (
+            Path(__file__).parent / "baselines"
+            / "relax_tessellation_quality.json"
+        )
+        payload = __import__("json").loads(path.read_text())
+        self.assertGreater(payload["masked_pixels"], 1000)
+        self.assertIn("triangle_edge_dark_excess_p95", payload)
 
 
 if __name__ == "__main__":
