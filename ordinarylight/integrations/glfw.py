@@ -109,6 +109,27 @@ class NativeViewport:
             self._glfw.window_should_close(self._window)
         )
 
+    def cursor_pixel(self):
+        """Return the cursor in framebuffer pixels, including HiDPI scaling."""
+        cursor_x, cursor_y = self._glfw.get_cursor_pos(self._window)
+        window_width, window_height = self._glfw.get_window_size(self._window)
+        framebuffer_width, framebuffer_height = self._glfw.get_framebuffer_size(
+            self._window
+        )
+        if window_width < 1 or window_height < 1:
+            raise RuntimeError("viewport window has no drawable extent")
+        return (
+            float(cursor_x) * framebuffer_width / window_width,
+            float(cursor_y) * framebuffer_height / window_height,
+        )
+
+    @property
+    def framebuffer_size(self):
+        """Current drawable size used by rendering and pixel inspection."""
+        return tuple(
+            int(value) for value in self._glfw.get_framebuffer_size(self._window)
+        )
+
     def request_close(self):
         if not self._closed:
             self._glfw.set_window_should_close(self._window, True)

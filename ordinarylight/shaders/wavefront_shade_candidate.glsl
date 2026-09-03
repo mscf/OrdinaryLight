@@ -119,6 +119,7 @@ struct SecondaryPathState
     vec4 diffuse_radiance_hit_distance;
     vec4 specular_radiance_hit_distance;
     vec4 primary_position;
+    vec4 primary_geometry;
 };
 
 struct VolumeHeader
@@ -131,6 +132,15 @@ struct VolumeHeader
     vec4 phase_parameters;
     vec4 multiple_scattering_parameters;
     uvec4 acceleration_parameters;
+    uvec4 clip_parameters;
+    vec4 clip_plane_0;
+    vec4 clip_plane_1;
+    vec4 clip_plane_2;
+    vec4 clip_plane_3;
+    vec4 clip_plane_4;
+    vec4 clip_plane_5;
+    vec4 clip_plane_6;
+    vec4 clip_plane_7;
 };
 
 struct ShadeConstants
@@ -1865,6 +1875,10 @@ vec2 shadeVolumeInterval(VolumeHeader header, vec3 origin, vec3 direction)
 
 vec4 shadeVolumeTransferSample(VolumeHeader header, float value)
 {
+    if ((value < 0.0))
+    {
+        return vec4(0.0);
+    }
     uint offset = uint(header.value_parameters.x);
     uint count = uint(header.value_parameters.y);
     float coordinate = (clamp(value, 0.0, 1.0) * float((max(count, uint(1)) - uint(1))));
@@ -1875,6 +1889,62 @@ vec4 shadeVolumeTransferSample(VolumeHeader header, float value)
 
 float shadeVolumeScalar(uint volume_index, VolumeHeader header, vec3 world_position)
 {
+    if ((header.clip_parameters.x > uint(0)))
+    {
+        if ((dot(header.clip_plane_0.xyz, world_position) < header.clip_plane_0.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(1)))
+    {
+        if ((dot(header.clip_plane_1.xyz, world_position) < header.clip_plane_1.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(2)))
+    {
+        if ((dot(header.clip_plane_2.xyz, world_position) < header.clip_plane_2.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(3)))
+    {
+        if ((dot(header.clip_plane_3.xyz, world_position) < header.clip_plane_3.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(4)))
+    {
+        if ((dot(header.clip_plane_4.xyz, world_position) < header.clip_plane_4.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(5)))
+    {
+        if ((dot(header.clip_plane_5.xyz, world_position) < header.clip_plane_5.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(6)))
+    {
+        if ((dot(header.clip_plane_6.xyz, world_position) < header.clip_plane_6.w))
+        {
+            return (-1.0);
+        }
+    }
+    if ((header.clip_parameters.x > uint(7)))
+    {
+        if ((dot(header.clip_plane_7.xyz, world_position) < header.clip_plane_7.w))
+        {
+            return (-1.0);
+        }
+    }
     vec3 local = shadeVolumeLocalCoordinate(header, world_position);
     return texture(volume_textures[volume_index], local).r;
 }

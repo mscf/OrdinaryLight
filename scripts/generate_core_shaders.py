@@ -66,6 +66,7 @@ class SecondaryPathState:
     diffuse_radiance_hit_distance: osh.vec4
     specular_radiance_hit_distance: osh.vec4
     primary_position: osh.vec4
+    primary_geometry: osh.vec4
 
 
 @osh.structure
@@ -341,6 +342,15 @@ class VolumeHeader:
     phase_parameters: osh.vec4
     multiple_scattering_parameters: osh.vec4
     acceleration_parameters: osh.uvec4
+    clip_parameters: osh.uvec4
+    clip_plane_0: osh.vec4
+    clip_plane_1: osh.vec4
+    clip_plane_2: osh.vec4
+    clip_plane_3: osh.vec4
+    clip_plane_4: osh.vec4
+    clip_plane_5: osh.vec4
+    clip_plane_6: osh.vec4
+    clip_plane_7: osh.vec4
 
 
 @osh.structure
@@ -4073,6 +4083,10 @@ def shadeVolumeInterval(
 def shadeVolumeTransferSample(
     header: VolumeHeader, value: osh.f32,
 ) -> osh.vec4:
+    # Negative scalar values are the shared clipping sentinel. Treat them as
+    # empty rather than clamping them to a potentially opaque LUT endpoint.
+    if value < 0.0:
+        return osh.vec4(0.0)
     offset = osh.u32(header.value_parameters.x)
     count = osh.u32(header.value_parameters.y)
     coordinate = (
@@ -4093,6 +4107,30 @@ def shadeVolumeScalar(
     header: VolumeHeader,
     world_position: osh.vec3,
 ) -> osh.f32:
+    if header.clip_parameters.x > osh.u32(0):
+        if osh.dot(header.clip_plane_0.xyz, world_position) < header.clip_plane_0.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(1):
+        if osh.dot(header.clip_plane_1.xyz, world_position) < header.clip_plane_1.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(2):
+        if osh.dot(header.clip_plane_2.xyz, world_position) < header.clip_plane_2.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(3):
+        if osh.dot(header.clip_plane_3.xyz, world_position) < header.clip_plane_3.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(4):
+        if osh.dot(header.clip_plane_4.xyz, world_position) < header.clip_plane_4.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(5):
+        if osh.dot(header.clip_plane_5.xyz, world_position) < header.clip_plane_5.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(6):
+        if osh.dot(header.clip_plane_6.xyz, world_position) < header.clip_plane_6.w:
+            return -1.0
+    if header.clip_parameters.x > osh.u32(7):
+        if osh.dot(header.clip_plane_7.xyz, world_position) < header.clip_plane_7.w:
+            return -1.0
     local = shadeVolumeLocalCoordinate(header, world_position)
     return volume_textures.sample(volume_index, local)
 

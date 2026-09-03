@@ -383,7 +383,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "f75c220e3f06bc113ac4b17136a094503e26790967bfe20897c04bf3393c2fd0",
+          "cache_key": "8b6d2443f36359424281a390385b1e96249712fa2f2fe607108c9c988af72c5f",
           "file": "raster_volume.frag.spv",
           "reflection": {
             "entry_point": "main",
@@ -566,7 +566,7 @@
               1
             ]
           },
-          "sha256": "bc17d693c9b3dcf6d5e141ea3e1ed68da7eea6b2c25b6e88a7199f3a38305c4a"
+          "sha256": "3099bef5461cd188d53ae90370120dedd4b64e20dd260968188a194b3c7db36d"
         },
         "vertex": {
           "cache_key": "a0e38e64d354cd317b919607a3c85005e4e821b8bd816e036776271aa6a23edf",
@@ -872,7 +872,7 @@
       },
       "volume": {
         "fragment": {
-          "cache_key": "5be54ac9c7cd98d4577107c2065bd3010840aad581e48168ea3c7f5a82df54f3",
+          "cache_key": "7237001c10f297aca35377b322e8013b1a53d38b43225b9d43f056abebfae4c5",
           "file": "raster_volume.frag.wgsl",
           "reflection": {
             "entry_point": "main",
@@ -1055,7 +1055,7 @@
               1
             ]
           },
-          "sha256": "fcbfec6207d5be0d4cd50e297460fb436c0c9526f79a3da17a2348914394798f"
+          "sha256": "0dc9fd6b79d3c65896424fcc55d90a431e27e2e1bedf4aa5b1f518bde425c8ca"
         },
         "vertex": {
           "cache_key": "420b9a68760d89696e2cc3382e551f02e771744ac784b2e3325424ef81a6cd4e",

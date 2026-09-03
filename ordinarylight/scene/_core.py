@@ -256,7 +256,10 @@ class Volume:
     visible: bool = True
     name: str | None = None
     metadata: dict = field(default_factory=dict, repr=False)
+    clip_planes: tuple = ()
     id: int | None = field(default=None, init=False)
+    data_revision: int = field(default=0, init=False)
+    dirty_regions: tuple = field(default=(), init=False, repr=False)
 
     def __post_init__(self):
         data = np.array(self.data, dtype=np.float32, copy=True, order="C")
@@ -285,10 +288,22 @@ class Volume:
             raise TypeError("name must be a string or None")
         if not hasattr(self.metadata, "items"):
             raise TypeError("metadata must be a mapping")
+        planes = []
+        if len(self.clip_planes) > 8:
+            raise ValueError("volumes support at most 8 clip planes")
+        for plane in self.clip_planes:
+            values = np.asarray(plane, dtype=np.float32)
+            if values.shape != (4,) or not np.isfinite(values).all():
+                raise ValueError("clip planes must contain finite (nx, ny, nz, offset) values")
+            length = float(np.linalg.norm(values[:3]))
+            if length <= 1e-8:
+                raise ValueError("clip plane normals must be nonzero")
+            planes.append(tuple(map(float, values / length)))
         data.flags.writeable = False
         self.data = data
         self.value_range = value_range
         self.metadata = dict(self.metadata)
+        self.clip_planes = tuple(planes)
 
     @property
     def shape(self):
@@ -1153,8 +1168,14 @@ class Scene:
                     "name": volume.name,
                     "shape": list(volume.shape),
                     "value_range": list(volume.value_range),
+                    "data_revision": volume.data_revision,
+                    "dirty_regions": [
+                        [list(offset), list(shape)]
+                        for offset, shape in volume.dirty_regions
+                    ],
                     "visible": volume.visible,
                     "transform": volume.transform.matrix.tolist(),
+                    "clip_planes": [list(plane) for plane in volume.clip_planes],
                     "material": {
                         "density_scale": volume.material.density_scale,
                         "emission_scale": volume.material.emission_scale,
@@ -1263,7 +1284,7 @@ class Scene:
 
     def add_volume(
         self, data, material=None, *, transform=None, value_range=None,
-        visible=True, name=None, metadata=None,
+        visible=True, name=None, metadata=None, clip_planes=(),
     ):
         """Add a dense scalar field occupying its transformed local unit cube."""
         volume = Volume(
@@ -1274,6 +1295,7 @@ class Scene:
             visible=visible,
             name=name,
             metadata={} if metadata is None else metadata,
+            clip_planes=clip_planes,
         )
         self._attach(volume)
         self._register_material(self._volume_proxy_material)
@@ -1284,6 +1306,7 @@ class Scene:
     def update_volume(
         self, volume, *, data=_UNCHANGED, material=_UNCHANGED,
         transform=_UNCHANGED, value_range=_UNCHANGED, visible=_UNCHANGED,
+        clip_planes=_UNCHANGED,
     ):
         """Atomically replace volume data or placement while preserving its ID."""
         volume = self._resolve(self.volumes, volume, "volume")
@@ -1300,6 +1323,9 @@ class Scene:
             visible=volume.visible if visible is _UNCHANGED else visible,
             name=volume.name,
             metadata=volume.metadata,
+            clip_planes=(
+                volume.clip_planes if clip_planes is _UNCHANGED else clip_planes
+            ),
         )
         data_changed = (
             data is not _UNCHANGED or value_range is not _UNCHANGED
@@ -1309,18 +1335,57 @@ class Scene:
             candidate.transform.matrix, volume.transform.matrix
         )
         visibility_changed = candidate.visible != volume.visible
+        clipping_changed = candidate.clip_planes != volume.clip_planes
         if not (data_changed or material_changed or transform_changed
-                or visibility_changed):
+                or visibility_changed or clipping_changed):
             return volume
         for attribute in (
             "data", "material", "transform", "value_range", "visible",
+            "clip_planes",
         ):
             setattr(volume, attribute, getattr(candidate, attribute))
+        if data_changed:
+            volume.data_revision += 1
+            volume.dirty_regions = (((0, 0, 0), volume.shape),)
         self._changed(
-            geometry=data_changed or visibility_changed,
-            shading=data_changed or material_changed or visibility_changed,
+            geometry=visibility_changed,
+            shading=(data_changed or material_changed or visibility_changed
+                     or clipping_changed),
             transform=transform_changed,
         )
+        return volume
+
+    def update_volume_region(self, volume, offset, data):
+        """Replace one z/y/x voxel region while preserving volume identity.
+
+        The immutable CPU snapshot is replaced atomically, while the explicit
+        dirty region allows resident render backends to upload only the changed
+        byte and image ranges. Volume bounds and acceleration geometry remain
+        unchanged.
+        """
+        volume = self._resolve(self.volumes, volume, "volume")
+        if len(offset) != 3:
+            raise ValueError("offset must contain z, y, x")
+        offset = tuple(int(value) for value in offset)
+        if any(value < 0 for value in offset):
+            raise ValueError("offset values cannot be negative")
+        patch = np.asarray(data, dtype=np.float32)
+        if patch.ndim != 3 or any(size < 1 for size in patch.shape):
+            raise ValueError("data must be a nonempty three-dimensional array")
+        if not np.isfinite(patch).all():
+            raise ValueError("volume data must contain finite values")
+        stop = tuple(start + size for start, size in zip(offset, patch.shape))
+        if any(end > size for end, size in zip(stop, volume.shape)):
+            raise ValueError("updated region lies outside the volume")
+        replacement = volume.data.copy()
+        replacement[
+            offset[0]:stop[0], offset[1]:stop[1], offset[2]:stop[2]
+        ] = patch
+        replacement.flags.writeable = False
+        volume.data = replacement
+        volume.data_revision += 1
+        volume.dirty_regions = (*volume.dirty_regions, (offset, patch.shape))
+        self._changed(shading=True)
         return volume
 
     def remove_volume(self, volume):

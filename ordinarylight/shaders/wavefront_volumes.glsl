@@ -28,6 +28,8 @@ struct VolumeHeader {
     vec4 phase_parameters;
     vec4 multiple_scattering_parameters;
     uvec4 acceleration_parameters;
+    uvec4 clip_parameters;
+    vec4 clip_planes[8];
 };
 
 layout(set = 0, binding = WAVE_VOLUME_HEADER_BINDING, std430)
@@ -86,6 +88,12 @@ float sampleVolumeTexture(uint index, vec3 coordinate)
 
 float volumeScalar(uint volume_index, VolumeHeader header, vec3 world_position)
 {
+    for (uint plane_index = 0u;
+         plane_index < min(header.clip_parameters.x, 8u); ++plane_index) {
+        vec4 plane = header.clip_planes[plane_index];
+        if (dot(plane.xyz, world_position) < plane.w)
+            return -1.0;
+    }
     vec3 local = clamp(
         (header.world_to_local * vec4(world_position, 1.0)).xyz,
         vec3(0.0), vec3(1.0));
@@ -94,6 +102,8 @@ float volumeScalar(uint volume_index, VolumeHeader header, vec3 world_position)
 
 vec4 volumeTransferSample(VolumeHeader header, float value)
 {
+    if (value < 0.0)
+        return vec4(0.0);
     uint offset = uint(header.value_parameters.x);
     uint count = uint(header.value_parameters.y);
     float coordinate = clamp(value, 0.0, 1.0) * float(max(count, 1u) - 1u);

@@ -16,9 +16,12 @@ VOLUME_HEADER_DTYPE = np.dtype([
     ("phase_parameters", np.float32, (4,)),
     ("multiple_scattering_parameters", np.float32, (4,)),
     ("acceleration_parameters", np.uint32, (4,)),
+    ("clip_parameters", np.uint32, (4,)),
+    ("clip_planes", np.float32, (8, 4)),
 ])
 
 VOLUME_BRICK_SIZE = 8
+VOLUME_MAX_CLIP_PLANES = 8
 
 
 def _transfer_interval_has_opacity(transfer_function, lower, upper):
@@ -133,11 +136,12 @@ def _approximate_light_transmittance(volumes, positions, light_position):
             continue
         ray_indices = np.flatnonzero(valid)
         midpoint = 0.5 * (entry[ray_indices] + exit_distance[ray_indices])
-        samples = sample_trilinear(
-            volume,
-            positions[ray_indices] + directions[ray_indices] * midpoint[:, None],
+        sample_positions = (
+            positions[ray_indices] + directions[ray_indices] * midpoint[:, None]
         )
+        samples = sample_trilinear(volume, sample_positions)
         rgba = volume.material.transfer_function.sample(samples)
+        rgba[~volume_clip_mask(volume, sample_positions)] = 0.0
         alpha = np.clip(
             rgba[:, 3] * volume.material.density_scale, 0.0, 1.0 - 1e-7,
         )
@@ -273,6 +277,18 @@ def sample_trilinear(volume, world_positions):
     return np.asarray(c0 * (1.0 - wz) + c1 * wz, np.float32)
 
 
+def volume_clip_mask(volume, world_positions):
+    """Return which world positions satisfy every volume clipping plane."""
+    positions = np.asarray(world_positions, np.float32)
+    result = np.ones(len(positions), bool)
+    for plane in volume.clip_planes:
+        result &= (
+            positions @ np.asarray(plane[:3], np.float32)
+            >= float(plane[3]) - 1e-6
+        )
+    return result
+
+
 def integrate_volume(
     volume, origins, directions, entries, exits, *, max_distance=None, lights=(),
 ):
@@ -306,6 +322,7 @@ def integrate_volume(
         midpoint_rgba = material.transfer_function.sample(
             sample_trilinear(volume, positions)
         )
+        midpoint_rgba[~volume_clip_mask(volume, positions)] = 0.0
         midpoint_alpha = np.clip(
             midpoint_rgba[:, 3] * material.density_scale,
             0.0, 1.0 - 1e-7,
@@ -329,6 +346,7 @@ def integrate_volume(
         positions = origins[indices] + directions[indices] * distance[:, None]
         scalar = sample_trilinear(volume, positions)
         rgba = material.transfer_function.sample(scalar)
+        rgba[~volume_clip_mask(volume, positions)] = 0.0
         reference_alpha = np.clip(
             rgba[:, 3] * material.density_scale, 0.0, 1.0 - 1e-7
         )
@@ -389,6 +407,8 @@ def integrate_volumes(
             midpoint_rgba = material.transfer_function.sample(
                 sample_trilinear(volume, position[None, :])
             )[0]
+            if not volume_clip_mask(volume, position[None, :])[0]:
+                midpoint_rgba = np.zeros(4, np.float32)
             midpoint_alpha = float(np.clip(
                 midpoint_rgba[3] * material.density_scale,
                 0.0, 1.0 - 1e-7,
@@ -424,6 +444,8 @@ def integrate_volumes(
                     material = volume.material
                     scalar = sample_trilinear(volume, position[None, :])
                     rgba = material.transfer_function.sample(scalar)[0]
+                    if not volume_clip_mask(volume, position[None, :])[0]:
+                        rgba = np.zeros(4, np.float32)
                     reference_alpha = float(np.clip(
                         rgba[3] * material.density_scale, 0.0, 1.0 - 1e-7
                     ))
@@ -489,6 +511,15 @@ def pack_volumes(volumes, *, empty_space_skipping=True):
             *volume.material.scattering_albedo,
             float(volume.material.scattering_orders),
         )
+        if len(volume.clip_planes) > VOLUME_MAX_CLIP_PLANES:
+            raise ValueError(
+                f"volumes support at most {VOLUME_MAX_CLIP_PLANES} clip planes"
+            )
+        headers[index]["clip_parameters"][0] = len(volume.clip_planes)
+        if volume.clip_planes:
+            headers[index]["clip_planes"][:len(volume.clip_planes)] = (
+                volume.clip_planes
+            )
         data = volume.normalized_data.reshape(-1)
         scalar_chunks.append(data)
         brick_offset = scalar_offset + len(data)

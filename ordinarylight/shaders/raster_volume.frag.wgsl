@@ -14,6 +14,15 @@ struct RasterVolumeHeader {
     phase_parameters: vec4<f32>,
     multiple_scattering_parameters: vec4<f32>,
     acceleration_parameters: vec4<u32>,
+    clip_parameters: vec4<u32>,
+    clip_plane_0: vec4<f32>,
+    clip_plane_1: vec4<f32>,
+    clip_plane_2: vec4<f32>,
+    clip_plane_3: vec4<f32>,
+    clip_plane_4: vec4<f32>,
+    clip_plane_5: vec4<f32>,
+    clip_plane_6: vec4<f32>,
+    clip_plane_7: vec4<f32>,
 }
 
 struct RasterVolumeLight {
@@ -194,6 +203,34 @@ fn main(
             let header: RasterVolumeHeader = headers[u32(volume_index)];
             let local: vec3<f32> = (header.world_to_local * vec4<f32>(world_position, 1.0)).xyz;
             if (((((((local.x < 0.0) || (local.x > 1.0)) || (local.y < 0.0)) || (local.y > 1.0)) || (local.z < 0.0)) || (local.z > 1.0))) {
+                continue;
+            }
+            var clipped: bool = false;
+            if ((header.clip_parameters.x > u32(0))) {
+                clipped = (dot(header.clip_plane_0.xyz, world_position) < header.clip_plane_0.w);
+            }
+            if ((header.clip_parameters.x > u32(1))) {
+                clipped = (clipped || (dot(header.clip_plane_1.xyz, world_position) < header.clip_plane_1.w));
+            }
+            if ((header.clip_parameters.x > u32(2))) {
+                clipped = (clipped || (dot(header.clip_plane_2.xyz, world_position) < header.clip_plane_2.w));
+            }
+            if ((header.clip_parameters.x > u32(3))) {
+                clipped = (clipped || (dot(header.clip_plane_3.xyz, world_position) < header.clip_plane_3.w));
+            }
+            if ((header.clip_parameters.x > u32(4))) {
+                clipped = (clipped || (dot(header.clip_plane_4.xyz, world_position) < header.clip_plane_4.w));
+            }
+            if ((header.clip_parameters.x > u32(5))) {
+                clipped = (clipped || (dot(header.clip_plane_5.xyz, world_position) < header.clip_plane_5.w));
+            }
+            if ((header.clip_parameters.x > u32(6))) {
+                clipped = (clipped || (dot(header.clip_plane_6.xyz, world_position) < header.clip_plane_6.w));
+            }
+            if ((header.clip_parameters.x > u32(7))) {
+                clipped = (clipped || (dot(header.clip_plane_7.xyz, world_position) < header.clip_plane_7.w));
+            }
+            if (clipped) {
                 continue;
             }
             var scalar: f32 = 0.0;

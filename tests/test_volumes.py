@@ -284,6 +284,44 @@ class VolumeResourceTests(unittest.TestCase):
         self.assertEqual(scene.revision, revision)
         np.testing.assert_array_equal(volume.data, before)
 
+    def test_region_update_does_not_change_volume_geometry_revision(self):
+        scene = ol.Scene()
+        volume = scene.add_volume(ramp_volume(), value_range=(0, 10))
+        geometry_revision = scene.geometry_revision
+        scene.update_volume_region(
+            volume, (1, 1, 1), np.full((2, 2, 2), 4, np.float32),
+        )
+        self.assertEqual(scene.geometry_revision, geometry_revision)
+        self.assertEqual(volume.data_revision, 1)
+        self.assertEqual(volume.dirty_regions, (((1, 1, 1), (2, 2, 2)),))
+        np.testing.assert_array_equal(volume.data[1:3, 1:3, 1:3], 4)
+
+    def test_reference_integration_obeys_world_clip_planes(self):
+        material = ol.VolumeMaterial(
+            ol.Texture1D(((1, 0, 0, 0.5), (1, 0, 0, 0.5))),
+            step_size=0.05,
+        )
+        clipped_volume = ol.Volume(
+            np.ones((2, 2, 2), np.float32), material,
+            clip_planes=((0, 0, 1, 0.5),),
+        )
+        full_volume = ol.Volume(np.ones((2, 2, 2), np.float32), material)
+        origins = np.asarray(((0.5, 0.5, -1),), np.float32)
+        directions = np.asarray(((0, 0, 1),), np.float32)
+
+        def render(volume):
+            entry, exit = intersect_unit_boxes(origins, directions, (volume,))
+            return integrate_volume(
+                volume, origins, directions, entry[0], exit[0],
+            )
+
+        clipped, clipped_transmittance = render(clipped_volume)
+        full, full_transmittance = render(full_volume)
+        self.assertGreater(full[0, 0], clipped[0, 0])
+        self.assertGreater(clipped[0, 0], 0)
+        self.assertGreater(clipped_transmittance[0], full_transmittance[0])
+        self.assertEqual(clipped_volume.clip_planes, ((0.0, 0.0, 1.0, 0.5),))
+
     def test_sampling_intersection_and_gpu_pack(self):
         scene = ol.Scene()
         volume = scene.add_volume(
@@ -305,6 +343,7 @@ class VolumeResourceTests(unittest.TestCase):
         np.testing.assert_array_equal(
             headers[0]["acceleration_parameters"], 0,
         )
+        np.testing.assert_array_equal(headers[0]["clip_parameters"], 0)
         np.testing.assert_array_equal(
             headers[0]["scattering_parameters"], (1.0, 1.0, 1.0, 0.0),
         )
@@ -325,6 +364,42 @@ class VolumeResourceTests(unittest.TestCase):
         bounds_min, bounds_max = scene.bounds()
         np.testing.assert_allclose(bounds_min, (-0.5, -0.5, 0.0))
         np.testing.assert_allclose(bounds_max, (0.5, 0.5, 1.0))
+
+    def test_gpu_pack_includes_normalized_clip_planes(self):
+        scene = ol.Scene()
+        volume = scene.add_volume(
+            np.ones((2, 2, 2), np.float32),
+            clip_planes=((0, 0, 2, 1), (1, 0, 0, 0.25)),
+        )
+        headers, _scalars, _transfers = pack_volumes((volume,))
+        self.assertEqual(headers[0]["clip_parameters"][0], 2)
+        np.testing.assert_allclose(
+            headers[0]["clip_planes"][:2],
+            ((0, 0, 1, 0.5), (1, 0, 0, 0.25)),
+        )
+        with self.assertRaises(ValueError):
+            ol.Volume(
+                np.ones((2, 2, 2), np.float32),
+                clip_planes=((1, 0, 0, 0),) * 9,
+            )
+
+    def test_clipping_discards_samples_even_with_opaque_low_lut_endpoint(self):
+        volume = ol.Volume(
+            np.zeros((2, 2, 2), np.float32),
+            ol.VolumeMaterial(
+                ol.Texture1D(((4, 0, 0, 1), (4, 0, 0, 1))),
+                step_size=0.1,
+            ),
+            clip_planes=((1, 0, 0, 2),),
+        )
+        origins = np.asarray(((0.5, 0.5, -1),), np.float32)
+        directions = np.asarray(((0, 0, 1),), np.float32)
+        entry, exit = intersect_unit_boxes(origins, directions, (volume,))
+        radiance, transmittance = integrate_volume(
+            volume, origins, directions, entry[0], exit[0]
+        )
+        np.testing.assert_array_equal(radiance, 0.0)
+        np.testing.assert_array_equal(transmittance, 1.0)
 
     def test_emission_absorption_integrator_is_bounded(self):
         transfer = ol.Texture1D(((1, 0, 0, 0.5), (1, 0, 0, 0.5)))

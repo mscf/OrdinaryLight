@@ -27,6 +27,15 @@ class RasterVolumeHeader:
     phase_parameters: osh.vec4
     multiple_scattering_parameters: osh.vec4
     acceleration_parameters: osh.uvec4
+    clip_parameters: osh.uvec4
+    clip_plane_0: osh.vec4
+    clip_plane_1: osh.vec4
+    clip_plane_2: osh.vec4
+    clip_plane_3: osh.vec4
+    clip_plane_4: osh.vec4
+    clip_plane_5: osh.vec4
+    clip_plane_6: osh.vec4
+    clip_plane_7: osh.vec4
 
 
 @osh.structure
@@ -287,6 +296,25 @@ def volume_fragment(
                 or local.y < 0.0 or local.y > 1.0
                 or local.z < 0.0 or local.z > 1.0
             ):
+                continue
+            clipped = False
+            if header.clip_parameters.x > osh.u32(0):
+                clipped = osh.dot(header.clip_plane_0.xyz, world_position) < header.clip_plane_0.w
+            if header.clip_parameters.x > osh.u32(1):
+                clipped = clipped or osh.dot(header.clip_plane_1.xyz, world_position) < header.clip_plane_1.w
+            if header.clip_parameters.x > osh.u32(2):
+                clipped = clipped or osh.dot(header.clip_plane_2.xyz, world_position) < header.clip_plane_2.w
+            if header.clip_parameters.x > osh.u32(3):
+                clipped = clipped or osh.dot(header.clip_plane_3.xyz, world_position) < header.clip_plane_3.w
+            if header.clip_parameters.x > osh.u32(4):
+                clipped = clipped or osh.dot(header.clip_plane_4.xyz, world_position) < header.clip_plane_4.w
+            if header.clip_parameters.x > osh.u32(5):
+                clipped = clipped or osh.dot(header.clip_plane_5.xyz, world_position) < header.clip_plane_5.w
+            if header.clip_parameters.x > osh.u32(6):
+                clipped = clipped or osh.dot(header.clip_plane_6.xyz, world_position) < header.clip_plane_6.w
+            if header.clip_parameters.x > osh.u32(7):
+                clipped = clipped or osh.dot(header.clip_plane_7.xyz, world_position) < header.clip_plane_7.w
+            if clipped:
                 continue
             scalar = 0.0
             if volume_index == 0:

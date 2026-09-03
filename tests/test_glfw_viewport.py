@@ -8,12 +8,16 @@ class FakeGlfw:
     def __init__(self):
         self.closed = False
         self.extent = (640, 360)
+        self.window_extent = (320, 180)
+        self.cursor = (80, 45)
         self.polls = 0
 
     def poll_events(self): self.polls += 1
     def window_should_close(self, _window): return self.closed
     def set_window_should_close(self, _window, value): self.closed = bool(value)
     def get_framebuffer_size(self, _window): return self.extent
+    def get_window_size(self, _window): return self.window_extent
+    def get_cursor_pos(self, _window): return self.cursor
     def wait_events_timeout(self, _timeout): pass
     def destroy_window(self, _window): pass
 
@@ -73,6 +77,11 @@ class NativeViewportTests(unittest.TestCase):
         self.assertEqual(rendered, 2)
         self.assertEqual(len(updates), 2)
         self.assertEqual(len(frames), 2)
+
+    def test_cursor_pixel_uses_framebuffer_scale(self):
+        viewport, _glfw, _presenter = fixture()
+        self.assertEqual(viewport.framebuffer_size, (640, 360))
+        self.assertEqual(viewport.cursor_pixel(), (160.0, 90.0))
 
     def test_scene_camera_reset_close_and_close_request(self):
         viewport, glfw, presenter = fixture()
