@@ -139,6 +139,7 @@ def prepare_relax_signals(
         current_camera.forward.xyz,
     )
     primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
+    instance_id = osh.float_bits_to_uint(secondary.primary_geometry.w)
     barycentrics = secondary.primary_geometry.yz
     weights = osh.vec3(
         1.0 - barycentrics.x - barycentrics.y,
@@ -171,7 +172,10 @@ def prepare_relax_signals(
     # space; current ``view_z`` and previous-frame ``view_z`` are not directly
     # comparable while the camera moves.
     motion_output.store(pixel, osh.vec4(motion, previous_view_z, 0.0))
-    identity_output.store(pixel, osh.uvec4(primitive, 0, 0, 0))
+    # Reprojection still uses the exact triangle and barycentrics above, but
+    # temporal continuity belongs to the scene instance.  Keying history to
+    # the triangle exposes tessellation edges on otherwise smooth surfaces.
+    identity_output.store(pixel, osh.uvec4(instance_id, 0, 0, 0))
 
 
 @osh.structure

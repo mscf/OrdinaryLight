@@ -384,6 +384,8 @@ class DenoiserSignalTests(unittest.TestCase):
             "previous_vertices", "identity_output",
         ):
             self.assertIn(name, source)
+        self.assertIn("primary_geometry.w", source)
+        self.assertIn("identity_output", source)
 
     def test_temporal_kernel_clamps_reprojected_history(self):
         import ordinaryshade as osh

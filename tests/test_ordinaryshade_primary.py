@@ -105,6 +105,10 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
             "uint ordinarylight_secondary_area_sample_count", helper
         )
         self.assertIn('#include "ordinaryshade_primary.glsl"', primary)
+        self.assertIn(
+            "rayQueryGetIntersectionInstanceIdEXT(query, true)", primary
+        )
+        self.assertIn("uintBitsToFloat(instance_id)", primary)
         self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_CAMERA", primary)
         self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_STATE", primary)
         self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE", primary)

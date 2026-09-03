@@ -393,6 +393,7 @@ def ordinarylight_store_secondary_primary(
     roughness: osh.f32,
     primitive: osh.u32,
     barycentrics: osh.vec2,
+    instance_id: osh.u32,
 ) -> osh.void:
     ordinarylight_secondary_paths[path_index].primary_throughput = osh.vec4(
         throughput, 1.0 + sampled_specular
@@ -405,7 +406,8 @@ def ordinarylight_store_secondary_primary(
         position, 1.0 + osh.clamp(roughness, 0.0, 1.0)
     )
     ordinarylight_secondary_paths[path_index].primary_geometry = osh.vec4(
-        osh.uint_bits_to_float(primitive), barycentrics, 0.0
+        osh.uint_bits_to_float(primitive), barycentrics,
+        osh.uint_bits_to_float(instance_id),
     )
 
 

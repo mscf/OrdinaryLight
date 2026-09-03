@@ -1194,6 +1194,7 @@ void processPrimaryPixel(uvec2 local_pixel)
 #endif
     uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)
         + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+    uint instance_id = rayQueryGetIntersectionInstanceIdEXT(query, true);
     vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 #if WAVE_ORDINARYSHADE_PRIMARY_SURFACE
     float cone_spread = ordinarylight_primary_cone_spread(
@@ -1869,7 +1870,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         ordinarylight_store_secondary_primary(
             path_index, path.throughput.rgb, path.radiance.rgb, bsdf_pdf,
             sampled_specular, pbrSpecularProbability(material), position,
-            material.base_roughness.a, primitive, barycentrics);
+            material.base_roughness.a, primitive, barycentrics, instance_id);
 #else
         secondary_paths[path_index].primary_throughput =
             vec4(path.throughput.rgb, 1.0 + sampled_specular);
@@ -1879,7 +1880,8 @@ void processPrimaryPixel(uvec2 local_pixel)
         secondary_paths[path_index].primary_position = vec4(
             position, 1.0 + clamp(material.base_roughness.a, 0.0, 1.0));
         secondary_paths[path_index].primary_geometry = vec4(
-            uintBitsToFloat(primitive), barycentrics, 0.0);
+            uintBitsToFloat(primitive), barycentrics,
+            uintBitsToFloat(instance_id));
 #endif
     }
     WAVE_STORE_PATH(path_index, path);

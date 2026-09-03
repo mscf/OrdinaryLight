@@ -103,6 +103,7 @@ fn main(
     let roughness: f32 = clamp((secondary.primary_position.w - 1.0), 0.0, 1.0);
     let view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
     let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
+    let instance_id: u32 = bitcast<u32>(secondary.primary_geometry.w);
     let barycentrics: vec2<f32> = secondary.primary_geometry.yz;
     let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
     let previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
@@ -118,5 +119,5 @@ fn main(
     textureStore(normal_roughness_output, pixel, vec4<f32>(normal, roughness));
     textureStore(view_z_output, pixel, vec4<f32>(view_z));
     textureStore(motion_output, pixel, vec4<f32>(motion, previous_view_z, 0.0));
-    textureStore(identity_output, pixel, vec4<u32>(primitive, 0, 0, 0));
+    textureStore(identity_output, pixel, vec4<u32>(instance_id, 0, 0, 0));
 }
