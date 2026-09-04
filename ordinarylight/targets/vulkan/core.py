@@ -6850,6 +6850,10 @@ class VulkanRayQueryCore:
             and self.scene_resources.scene_revision == scene.revision
         ):
             resources = self.scene_resources
+            # GPU-resident fields advance independently of the host Scene's
+            # structural/shading revision. Refresh them before taking the
+            # otherwise-valid resident-scene fast path.
+            self._refresh_gpu_volume_sources(scene, resources)
             if resources.previous_transform_revision != scene.transform_revision:
                 # The first frame after a transform consumes the preceding
                 # vertex snapshot. Once that frame is complete, converge the

@@ -539,6 +539,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self._readback_pixels = None
             self._readback_qimage = None
             self.future = None
+            self.renderer_update_future = None
             self.pending_renderer_updates = {}
             self.restart_pending = False
             self.presentation_failed = False
@@ -722,6 +723,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.restart()
 
         def _wait(self):
+            if self.renderer_update_future is not None:
+                future, self.renderer_update_future = (
+                    self.renderer_update_future, None
+                )
+                future.result()
             if self.future is not None:
                 future, self.future = self.future, None
                 return future.result()
@@ -887,7 +893,21 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             elapsed = min(now - self.last_tick, 0.1)
             self.last_tick = now
             item = self.feature.currentData()
-            self._extension_call("advance", self)
+            completed_renderer_update = False
+            if self.renderer_update_future is not None:
+                if not self.renderer_update_future.done():
+                    return
+                try:
+                    self.renderer_update_future.result()
+                except Exception as error:
+                    detail = str(error) or repr(error)
+                    self.status.setText(
+                        "Renderer resource update failed "
+                        f"({type(error).__name__}): {detail}"
+                    )
+                    traceback.print_exception(error)
+                self.renderer_update_future = None
+                completed_renderer_update = True
             if (
                 self.animate.isChecked() and self.controller is not None
                 and item.animate is None
@@ -1123,16 +1143,22 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 if self.restart_pending:
                     QtCore.QTimer.singleShot(0, self._finish_pending_restart)
                     return
-            if self.future is None and self.pending_renderer_updates:
+            # Extensions advance only when the worker is idle. In particular,
+            # an animated compute producer must not enqueue work on every Qt
+            # timer tick while presentation is still in flight.
+            if not completed_renderer_update:
+                self._extension_call("advance", self)
+            if (
+                self.future is None and self.pending_renderer_updates
+                and not completed_renderer_update
+            ):
                 updates = tuple(self.pending_renderer_updates.values())
                 self.pending_renderer_updates.clear()
-                for callback in updates:
-                    try:
+                def apply_updates():
+                    for callback in updates:
                         callback()
-                    except Exception as error:
-                        self.status.setText(
-                            f"Renderer resource update failed: {error}"
-                        )
+                self.renderer_update_future = self.executor.submit(apply_updates)
+                return
             if (
                 self.renderer is None or self.controller is None
                 or self.presentation_failed

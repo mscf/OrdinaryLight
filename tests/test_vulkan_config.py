@@ -177,6 +177,26 @@ class RendererConfigTests(unittest.TestCase):
         self.assertEqual(invalidated, [True])
         self.assertTrue(old.closed)
 
+    def test_resident_scene_refreshes_gpu_volume_sources(self):
+        core = object.__new__(VulkanRayQueryCore)
+        scene = type("Scene", (), {
+            "revision": 7, "transform_revision": 3,
+        })()
+        resources = type("Resources", (), {
+            "scene": scene, "scene_revision": 7,
+            "previous_transform_revision": 3,
+        })()
+        core.scene_resources = resources
+        refreshed = []
+        core._refresh_gpu_volume_sources = (
+            lambda active_scene, active_resources:
+            refreshed.append((active_scene, active_resources))
+        )
+
+        core.upload_window_scene(scene)
+
+        self.assertEqual(refreshed, [(scene, resources)])
+
     def test_hot_reconfigure_updates_core_without_recreation(self):
         backend = object.__new__(VulkanGlobalIlluminationRenderer)
         backend.config = RendererConfig()
