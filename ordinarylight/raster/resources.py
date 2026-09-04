@@ -110,6 +110,7 @@ class RasterVolumeResources:
     transfers: np.ndarray
     scalar_fields: tuple[np.ndarray, ...]
     occupancy_fields: tuple[np.ndarray, ...]
+    gpu_scalar_sources: tuple[object | None, ...] = ()
     brick_size: int = VOLUME_BRICK_SIZE
 
     def __post_init__(self):
@@ -119,6 +120,8 @@ class RasterVolumeResources:
             raise TypeError("volume transfers must be contiguous float32")
         if len(self.scalar_fields) != len(self.occupancy_fields):
             raise ValueError("scalar and occupancy field counts must match")
+        if self.gpu_scalar_sources and len(self.gpu_scalar_sources) != len(self.scalar_fields):
+            raise ValueError("GPU scalar source count must match scalar fields")
         for field in self.scalar_fields + self.occupancy_fields:
             if field.dtype != np.float32 or field.ndim != 3 or not field.flags.c_contiguous:
                 raise TypeError("volume fields must be contiguous float32 3-D arrays")
@@ -136,7 +139,8 @@ def pack_raster_volumes(volumes, *, empty_space_skipping=True):
     )
     occupancy_fields = tuple(
         np.ascontiguousarray(
-            volume_brick_occupancy(volume)
+            (np.ones_like(volume_brick_occupancy(volume))
+             if volume.gpu_source is not None else volume_brick_occupancy(volume))
             if empty_space_skipping else np.ones((1, 1, 1), np.float32),
             dtype=np.float32,
         )
@@ -147,6 +151,7 @@ def pack_raster_volumes(volumes, *, empty_space_skipping=True):
         transfers=np.ascontiguousarray(transfers, dtype=np.float32),
         scalar_fields=scalar_fields,
         occupancy_fields=occupancy_fields,
+        gpu_scalar_sources=tuple(volume.gpu_source for volume in volumes),
     )
 
 

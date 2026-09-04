@@ -46,6 +46,8 @@ class FakePass:
 class FakeEncoder:
     def __init__(self): self.compute_pass = FakePass()
     def begin_compute_pass(self): return self.compute_pass
+    def copy_buffer_to_texture(self, source, destination, size):
+        self.buffer_texture_copy = (source, destination, size)
     def finish(self): return self
 
 
@@ -159,6 +161,27 @@ def test_compute_sequence_reuses_allocations_and_submits_steps_in_order():
     assert len(device.queue.submissions) == 1
     sequence.update("values", np.full(8, 2.0, np.float32))
     np.testing.assert_array_equal(sequence.read("values"), np.full(8, 2.0))
+
+
+def test_compute_sequence_exposes_typed_same_device_buffer_view():
+    device = FakeDevice()
+    shader = program((Resource("volume", "storage_buffer", 0),))
+    sequence = ol.WebGpuComputeSequence(
+        (ol.ComputeStep(shader, (1, 1, 1)),),
+        {"volume": ol.ComputeBuffer(shape=(2, 3, 64), dtype=np.float32)},
+        device=device, _wgpu=FAKE_WGPU,
+    )
+    view = sequence.buffer_view("volume")
+    assert view.device is device
+    assert view.shape == (2, 3, 64)
+    encoder = FakeEncoder()
+    texture = object()
+    view.copy_to_texture(encoder, texture)
+    source, destination, size = encoder.buffer_texture_copy
+    assert source["buffer"] is sequence._buffers["volume"]
+    assert source["bytes_per_row"] == 256
+    assert destination["texture"] is texture
+    assert size == (64, 3, 2)
 
 
 def test_compute_sequence_validates_aliases_and_allocations():

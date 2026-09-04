@@ -43,7 +43,7 @@ class WebGpuRasterRenderer(RendererImplementation):
         camera["optical_diagnostic"][0, 0] = 0.0
         return camera.tobytes()
 
-    def __init__(self, program, *, config=None, state=None, power_preference="high-performance"):
+    def __init__(self, program, *, config=None, state=None, power_preference="high-performance", device=None):
         try:
             import wgpu
         except ImportError as error:
@@ -65,10 +65,13 @@ class WebGpuRasterRenderer(RendererImplementation):
         self.last_timings = {}
         from ...probes import ProbeCaptureManager
         self.probe_capture = ProbeCaptureManager()
-        self.adapter = wgpu.gpu.request_adapter_sync(
-            power_preference=power_preference,
-        )
-        self.device = self.adapter.request_device_sync()
+        self.adapter = None
+        self.device = device
+        if self.device is None:
+            self.adapter = wgpu.gpu.request_adapter_sync(
+                power_preference=power_preference,
+            )
+            self.device = self.adapter.request_device_sync()
         vertex_module = self.device.create_shader_module(code=program.vertex.source)
         fragment_module = self.device.create_shader_module(code=program.fragment.source)
         self._vertex_module = vertex_module
@@ -100,7 +103,8 @@ class WebGpuRasterRenderer(RendererImplementation):
         self._pipelines = {}
         self._shadow_pipeline = None
         self._volume_pipeline = None
-        info = self.adapter.info
+        self._volume_upload_pipeline = None
+        info = self.adapter.info if self.adapter is not None else {}
         self.capabilities = RendererCapabilities(
             renderer="webgpu-raster", features=frozenset({
                 "raster", "offscreen", "depth", "volumes",
@@ -142,6 +146,49 @@ class WebGpuRasterRenderer(RendererImplementation):
             },
         )
         return self._volume_pipeline
+
+    def _upload_gpu_volume(self, encoder, source, shape):
+        """Convert a resident f32 buffer into a filterable 3-D texture."""
+        wgpu = self._wgpu
+        depth, height, width = shape
+        texture = self.device.create_texture(
+            size=(width, height, depth), dimension="3d", format="rgba16float",
+            usage=(wgpu.TextureUsage.TEXTURE_BINDING
+                   | wgpu.TextureUsage.STORAGE_BINDING),
+        )
+        if self._volume_upload_pipeline is None:
+            module = self.device.create_shader_module(code="""
+@group(0) @binding(0) var<storage, read> source: array<f32>;
+@group(0) @binding(1) var destination: texture_storage_3d<rgba16float, write>;
+@compute @workgroup_size(4, 4, 4)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let size = textureDimensions(destination);
+    if (any(id >= size)) { return; }
+    let index = (id.z * size.y + id.y) * size.x + id.x;
+    textureStore(destination, id, vec4<f32>(source[index], 0.0, 0.0, 1.0));
+}
+""")
+            self._volume_upload_pipeline = self.device.create_compute_pipeline(
+                layout="auto", compute={"module": module, "entry_point": "main"},
+            )
+        bind_group = self.device.create_bind_group(
+            layout=self._volume_upload_pipeline.get_bind_group_layout(0),
+            entries=(
+                {"binding": 0, "resource": {
+                    "buffer": source.buffer, "offset": 0,
+                    "size": source.byte_size,
+                }},
+                {"binding": 1, "resource": texture.create_view()},
+            ),
+        )
+        compute_pass = encoder.begin_compute_pass()
+        compute_pass.set_pipeline(self._volume_upload_pipeline)
+        compute_pass.set_bind_group(0, bind_group, (), 0, 0)
+        compute_pass.dispatch_workgroups(
+            (width + 3) // 4, (height + 3) // 4, (depth + 3) // 4,
+        )
+        compute_pass.end()
+        return texture
 
     def _composite_native_volumes(
         self, encoder, mesh, source, depth, shadow_depth, shadow_sampler,
@@ -197,19 +244,31 @@ class WebGpuRasterRenderer(RendererImplementation):
         fields = list(resources.scalar_fields[:4])
         while len(fields) < 4:
             fields.append(np.zeros((1, 1, 1), np.float32))
-        for field in fields:
+        gpu_sources = list(resources.gpu_scalar_sources[:4])
+        while len(gpu_sources) < 4:
+            gpu_sources.append(None)
+        for field, gpu_source in zip(fields, gpu_sources, strict=True):
+            gpu_resident = (
+                gpu_source is not None and gpu_source.device is self.device
+            )
             field = np.ascontiguousarray(field, dtype=np.float16)
             depth_size, height_size, width_size = field.shape
-            texture = self.device.create_texture(
-                size=(width_size, height_size, depth_size), dimension="3d",
-                format="r16float",
-                usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
-            )
-            self.device.queue.write_texture(
-                {"texture": texture}, field,
-                {"bytes_per_row": width_size * 2, "rows_per_image": height_size},
-                (width_size, height_size, depth_size),
-            )
+            if gpu_resident:
+                texture = self._upload_gpu_volume(
+                    encoder, gpu_source, field.shape,
+                )
+            else:
+                texture = self.device.create_texture(
+                    size=(width_size, height_size, depth_size), dimension="3d",
+                    format="r16float",
+                    usage=(wgpu.TextureUsage.TEXTURE_BINDING
+                           | wgpu.TextureUsage.COPY_DST),
+                )
+                self.device.queue.write_texture(
+                    {"texture": texture}, field,
+                    {"bytes_per_row": width_size * 2, "rows_per_image": height_size},
+                    (width_size, height_size, depth_size),
+                )
             textures.append(texture)
         occupancy_textures = []
         occupancy_fields = list(resources.occupancy_fields[:4])
@@ -478,7 +537,11 @@ class WebGpuRasterRenderer(RendererImplementation):
         width, height = int(width), int(height)
         if width < 1 or height < 1:
             raise ValueError("raster target dimensions must be positive")
-        if not len(mesh.vertices):
+        volume_resources = mesh.resources.get("volume_resources")
+        has_volumes = (
+            volume_resources is not None and bool(volume_resources.scalar_fields)
+        )
+        if not len(mesh.vertices) and not has_volumes:
             clear = np.array((0.04, 0.06, 0.1, 1.0), np.float32)
             return np.broadcast_to(clear, (height, width, 4)).copy()
         texture = self.device.create_texture(
@@ -739,8 +802,11 @@ class WebGpuRasterRenderer(RendererImplementation):
         if mesh.indices is None:
             render_pass.draw(mesh.vertices.shape[0])
         else:
+            index_payload = (
+                mesh.indices if mesh.indices.size else np.zeros(1, np.uint32)
+            )
             index_buffer = self.device.create_buffer_with_data(
-                data=mesh.indices, usage=wgpu.BufferUsage.INDEX,
+                data=index_payload, usage=wgpu.BufferUsage.INDEX,
             )
             render_pass.set_index_buffer(index_buffer, "uint32")
             authored_opaque_count = int(mesh.resources.get(

@@ -21,6 +21,18 @@ def ramp_volume():
 
 
 class VolumeResourceTests(unittest.TestCase):
+    def test_volume_accepts_matching_float32_gpu_source(self):
+        source = type("Source", (), {
+            "shape": (2, 3, 64), "dtype": np.dtype(np.float32),
+        })()
+        volume = ol.Volume(np.zeros(source.shape, np.float32), gpu_source=source)
+        self.assertIs(volume.gpu_source, source)
+        from ordinarylight.raster.resources import pack_raster_volumes
+        packed = pack_raster_volumes((volume,))
+        self.assertTrue(np.all(packed.occupancy_fields[0] == 1.0))
+        with self.assertRaisesRegex(ValueError, "gpu_source"):
+            ol.Volume(np.zeros((2, 3, 4), np.float32), gpu_source=source)
+
     def test_brick_occupancy_is_sparse_conservative_and_packable(self):
         data = np.zeros((17, 17, 17), np.float32)
         data[2:5, 2:5, 2:5] = 1.0

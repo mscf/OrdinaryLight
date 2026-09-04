@@ -1,10 +1,11 @@
 """Standalone reflected compute execution."""
 
 from ._core import (
-    ComputeBuffer, ComputeStep, WebGpuComputeSequence, WebGpuComputeSession,
+    ComputeBuffer, ComputeStep, WebGpuBufferView, WebGpuComputeSequence,
+    WebGpuComputeSession,
 )
 
 __all__ = [
-    "ComputeBuffer", "ComputeStep", "WebGpuComputeSequence",
+    "ComputeBuffer", "ComputeStep", "WebGpuBufferView", "WebGpuComputeSequence",
     "WebGpuComputeSession",
 ]

@@ -390,5 +390,15 @@ Every `ComputeStep` maps its reflected names to shared allocation names.
 all steps into one command buffer. Reduction meanings and scratch-planning
 policy remain in downstream bridge packages.
 
+`WebGpuComputeSequence.buffer_view(name)` returns a non-owning
+`WebGpuBufferView` for downstream consumers on the same device. A volume may
+attach a matching float32 rank-three view as `Volume.gpu_source`; the WebGPU
+raster renderer then converts it into a filterable volume texture in a GPU-only
+pass instead of staging the scalar field through NumPy. The renderer accepts
+`device=` for explicit device sharing. `WebGpuBufferView.copy_to_texture()` is
+also available for compatible exact-format copies whose tightly packed rows
+satisfy WebGPU's 256-byte alignment. The view never owns or extends the
+lifetime of its compute sequence.
+
 The API depends only on Ordinary Shade reflection. Domain compilers such as
 OrdinaryLattice remain downstream producers of programs and resource plans.

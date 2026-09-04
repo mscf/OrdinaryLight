@@ -30,7 +30,8 @@ from .lights import (
 )
 from .surface import ArraySurface, RenderSurface
 from .compute import (
-    ComputeBuffer, ComputeStep, WebGpuComputeSequence, WebGpuComputeSession,
+    ComputeBuffer, ComputeStep, WebGpuBufferView, WebGpuComputeSequence,
+    WebGpuComputeSession,
 )
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,

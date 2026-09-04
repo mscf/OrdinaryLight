@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 import numpy as np
@@ -47,6 +47,46 @@ class ComputeStep:
     program: Any
     workgroups: tuple[int, int, int]
     resources: Mapping[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WebGpuBufferView:
+    """A non-owning typed view of a resident WebGPU compute allocation."""
+
+    owner: Any = field(repr=False)
+    name: str
+    shape: tuple[int, ...]
+    dtype: Any
+
+    @property
+    def device(self):
+        return self.owner.device
+
+    @property
+    def buffer(self):
+        """The native buffer handle for same-device backend integrations."""
+        self.owner._require_open()
+        return self.owner._buffers[self.name]
+
+    @property
+    def byte_size(self):
+        return self.owner._descriptions[self.name].byte_size
+
+    def copy_to_texture(self, encoder, texture) -> None:
+        """Encode a tightly packed 3-D buffer-to-texture copy."""
+        self.owner._require_open()
+        dtype = np.dtype(self.dtype)
+        if len(self.shape) != 3:
+            raise ValueError("a volume buffer view requires a three-dimensional shape")
+        depth, height, width = self.shape
+        bytes_per_row = width * dtype.itemsize
+        if bytes_per_row % 256:
+            raise ValueError("WebGPU volume buffer rows must be 256-byte aligned")
+        encoder.copy_buffer_to_texture(
+            {"buffer": self.owner._buffers[self.name], "bytes_per_row": bytes_per_row,
+             "rows_per_image": height},
+            {"texture": texture}, (width, height, depth),
+        )
 
 
 def _validate_program(program):
@@ -315,6 +355,16 @@ class WebGpuComputeSequence:
         result = np.frombuffer(raw, dtype=resolved_dtype).copy()
         return result.reshape(resolved_shape) if resolved_shape else result
 
+    def buffer_view(self, name: str) -> WebGpuBufferView:
+        """Return a non-owning view for same-device GPU consumers."""
+        self._require_open()
+        if name not in self._buffers:
+            raise KeyError(name)
+        description = self._descriptions[name]
+        return WebGpuBufferView(
+            self, name, tuple(description.shape), np.dtype(description.dtype),
+        )
+
     def _require_open(self):
         if self.closed:
             raise RuntimeError("compute sequence is closed")
@@ -332,6 +382,6 @@ class WebGpuComputeSequence:
 
 
 __all__ = [
-    "ComputeBuffer", "ComputeStep", "WebGpuComputeSequence",
+    "ComputeBuffer", "ComputeStep", "WebGpuBufferView", "WebGpuComputeSequence",
     "WebGpuComputeSession",
 ]

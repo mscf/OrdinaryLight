@@ -268,11 +268,19 @@ class Volume:
     id: int | None = field(default=None, init=False)
     data_revision: int = field(default=0, init=False)
     dirty_regions: tuple = field(default=(), init=False, repr=False)
+    gpu_source: object | None = field(default=None, repr=False)
 
     def __post_init__(self):
         data = np.array(self.data, dtype=np.float32, copy=True, order="C")
         if data.ndim != 3 or any(size < 2 for size in data.shape):
             raise ValueError("volume data must have shape (depth, height, width) with dimensions >= 2")
+        if self.gpu_source is not None:
+            source_shape = tuple(getattr(self.gpu_source, "shape", ()))
+            source_dtype = np.dtype(getattr(self.gpu_source, "dtype", np.float32))
+            if source_shape != data.shape or source_dtype != np.dtype(np.float32):
+                raise ValueError(
+                    "gpu_source must expose the volume shape and float32 dtype"
+                )
         if not isinstance(self.missing_data, bool):
             raise TypeError("missing_data must be a bool")
         if not self.missing_data and not np.all(np.isfinite(data)):

@@ -343,6 +343,9 @@ def _surface_aspect_extent(selected_extent, surface_extent):
 def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
     """Run the Qt-owned XCB Vulkan-surface showcase."""
     from ordinarylight.integrations.qt_vulkan import QtVulkanSurface
+    from ordinarylight.integrations.qt_workbench import load_workbench_extension
+
+    extension_factory = load_workbench_extension()
 
     class NativeWindow(QtGui.QWindow):
         def __init__(self):
@@ -401,8 +404,13 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.viewport_stack.addWidget(self.container)
             self.viewport_stack.addWidget(self.readback_image)
             layout.addWidget(self.viewport_stack, 1)
-            panel = QtWidgets.QWidget(); panel.setMaximumWidth(430)
-            form = QtWidgets.QFormLayout(panel); layout.addWidget(panel)
+            panel = QtWidgets.QWidget()
+            form = QtWidgets.QFormLayout(panel)
+            panel_scroll = QtWidgets.QScrollArea()
+            panel_scroll.setWidgetResizable(True)
+            panel_scroll.setMaximumWidth(450)
+            panel_scroll.setWidget(panel)
+            layout.addWidget(panel_scroll)
             self.feature = QtWidgets.QComboBox()
             for item in showcases:
                 self.feature.addItem(item.title, item)
@@ -509,6 +517,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow(paste_pose)
             form.addRow(copy_diagnostics)
             self.status = QtWidgets.QLabel(wordWrap=True); form.addRow(self.status)
+            self.extension = None
+            if extension_factory is not None:
+                self.extension = extension_factory(self, QtCore, QtWidgets)
+                extension_widget = getattr(self.extension, "widget", None)
+                if extension_widget is not None:
+                    form.addRow(extension_widget)
             self.renderer = None
             self.renderer_target = None
             # Track the mode installed on ``renderer`` independently of the
@@ -635,6 +649,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
 
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
+            required_target = item.renderer.get("required_target")
+            if required_target is not None:
+                required_index = self.target.findData(required_target)
+                if required_index >= 0 and required_index != self.target.currentIndex():
+                    self.target.setCurrentIndex(required_index)
             self.description.setText(item.description)
             self.shadows.setChecked(bool(item.renderer.get("shadows", True)))
             supports_light_toggle = bool(
@@ -669,6 +688,24 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             if self.future is None:
                 QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+
+        def show_message(self, message):
+            self.status.setText(str(message))
+
+        def reset_render_sequence(self):
+            reset = getattr(self.renderer, "reset_accumulation", None)
+            if callable(reset):
+                reset()
+
+        def _extension_call(self, method, *args):
+            callback = getattr(self.extension, method, None)
+            if callback is None:
+                return None
+            try:
+                return callback(*args)
+            except Exception as error:
+                self.status.setText(f"Workbench extension failed: {error}")
+                return None
 
         def _finish_pending_restart(self):
             if not self.restart_pending:
@@ -736,6 +773,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     )
                     self._startup_camera = None
                 settings = dict(item.renderer)
+                settings.pop("required_target", None)
                 if target_key == "wavefront-gi":
                     nrd_reference = (
                         requested_denoiser_backend == "nrd-reference"
@@ -825,6 +863,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.status.setText(
                     f"{self.target.currentText()} ready; scene and camera retained"
                 )
+                self._extension_call("scene_changed", self.scene_value)
             except Exception as error:
                 self.renderer = None
                 self.renderer_target = None
@@ -836,6 +875,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             elapsed = min(now - self.last_tick, 0.1)
             self.last_tick = now
             item = self.feature.currentData()
+            self._extension_call("advance", self)
             if (
                 self.animate.isChecked() and self.controller is not None
                 and item.animate is None
@@ -1209,6 +1249,7 @@ def _renderer(
     target = "spirv" if backend_name == "vulkan-raster" else "wgsl"
     settings = dict(showcase.renderer)
     settings.pop("scene_light_toggle", None)
+    settings.pop("required_target", None)
     default_material = settings.get("material_program") or ol.builtin_material
     program = ol.RasterProgram.scene(
         target=target, validate=False,
@@ -1228,7 +1269,12 @@ def _renderer(
         if backend_name == "vulkan-raster" else
         ol.renderers.raster.WebGpuRasterRenderer
     )
-    return ol.Renderer(implementation=implementation_type(program, config=config))
+    implementation_options = {"config": config}
+    if backend_name == "webgpu-raster":
+        shared_device = getattr(scene, "webgpu_device", None)
+        if shared_device is not None:
+            implementation_options["device"] = shared_device
+    return ol.Renderer(implementation=implementation_type(program, **implementation_options))
 
 
 def main():

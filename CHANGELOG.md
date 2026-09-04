@@ -5,6 +5,8 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added same-device WebGPU compute-buffer views and direct GPU-resident volume
+  sources for downstream simulation and visualization integrations.
 - Added an explicit `module:factory` Qt workbench extension hook so downstream
   applications can own domain-specific panels without reverse dependencies.
 
