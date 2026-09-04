@@ -5,6 +5,8 @@ import math
 
 import numpy as np
 
+from ..._vulkan_version import vulkan_api_version
+
 from ...materials import MaterialProgram, modifier_signature
 from ...selection import (
     PickOptions, PickResult, ViewportMapping, pick as cpu_pick,
@@ -702,7 +704,7 @@ def probe_vulkan_devices():
         applicationVersion=vk.VK_MAKE_VERSION(0, 1, 0),
         pEngineName="Ordinary Light",
         engineVersion=vk.VK_MAKE_VERSION(0, 1, 0),
-        apiVersion=vk.VK_MAKE_VERSION(1, 2, 0),
+        apiVersion=vulkan_api_version(vk),
     )
     create_info = vk.VkInstanceCreateInfo(
         sType=vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,

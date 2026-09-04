@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from ..._vulkan_version import vulkan_api_version
+
 from ...cameras import OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from ...effects import (
     BoundingBox, EmissiveHighlight, Isolation, ObjectEffect, Outline, Tint,
@@ -4483,7 +4485,7 @@ class VulkanRayQueryCore:
             applicationVersion=vk.VK_MAKE_VERSION(0, 1, 0),
             pEngineName="Ordinary Light",
             engineVersion=vk.VK_MAKE_VERSION(0, 1, 0),
-            apiVersion=vk.VK_MAKE_VERSION(1, 2, 0),
+            apiVersion=vulkan_api_version(vk),
         )
         if self._external_instance is None:
             self.instance = vk.vkCreateInstance(

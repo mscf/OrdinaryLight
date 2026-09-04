@@ -6,6 +6,8 @@ import hashlib
 
 import numpy as np
 
+from ..._vulkan_version import vulkan_api_version
+
 _OPTICAL_DEBUG_MODES = {
     "off": 0.0, "hit": 1.0, "uv": 2.0, "depth-delta": 3.0,
     "confidence": 4.0, "object-id": 5.0, "depth-trace": 6.0,
@@ -73,7 +75,11 @@ class VulkanRasterRenderer(RendererImplementation):
             sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
             pApplicationName="Ordinary Light Raster", applicationVersion=1,
             pEngineName="Ordinary Light", engineVersion=1,
-            apiVersion=vk.VK_MAKE_VERSION(1, 1, 0),
+            # OrdinaryShade and Ordinary Light's generated compute/material
+            # shaders target Vulkan 1.2 (SPIR-V 1.5). Advertise the same
+            # contract here so drivers do not reject dynamically generated
+            # pipelines even though the fixed raster shaders need less.
+            apiVersion=vulkan_api_version(vk),
         )
         if (instance is None) != (surface is None):
             raise ValueError("instance and surface must be provided together")

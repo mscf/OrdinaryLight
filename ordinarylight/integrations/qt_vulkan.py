@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._vulkan_version import vulkan_api_version
+
 
 class QtVulkanSurface:
     """Own a Vulkan instance/surface pair for a Qt ``QWindow``.
@@ -40,7 +42,7 @@ class QtVulkanSurface:
             applicationVersion=1,
             pEngineName="Ordinary Light",
             engineVersion=1,
-            apiVersion=vk.VK_MAKE_VERSION(1, 1, 0),
+            apiVersion=vulkan_api_version(vk),
         )
         extensions = ["VK_KHR_surface", "VK_KHR_xcb_surface"]
         self.instance = vk.vkCreateInstance(vk.VkInstanceCreateInfo(
