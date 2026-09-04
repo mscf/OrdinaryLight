@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from ..._vulkan_version import vulkan_api_version
+from .._vulkan_version import vulkan_api_version
 
 from ...materials import MaterialProgram, modifier_signature
 from ...selection import (
@@ -1757,6 +1757,11 @@ class VulkanSurfacePresenter(VulkanGlfwPresenter):
     :meth:`close` returns. ordinarylight owns its logical device, swapchain, and
     all rendering resources created against them.
     """
+
+    @property
+    def compute_context(self):
+        """Vulkan objects shared with same-device application compute."""
+        return self._core
 
     def __init__(self, instance, surface, device_name=None, *, config=None):
         from .core import VulkanRayQueryCore

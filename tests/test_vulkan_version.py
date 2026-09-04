@@ -1,4 +1,6 @@
-from ordinarylight._vulkan_version import VULKAN_API_VERSION, vulkan_api_version
+from ordinarylight.targets._vulkan_version import (
+    VULKAN_API_VERSION, vulkan_api_version,
+)
 
 
 def test_vulkan_api_baseline_is_1_2():

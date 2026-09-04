@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from ..._vulkan_version import vulkan_api_version
+from .._vulkan_version import vulkan_api_version
 
 from ...cameras import OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from ...effects import (
@@ -4147,6 +4147,10 @@ class VulkanSceneResources:
         self.volume_dirty_counts = tuple(
             len(volume.dirty_regions) for volume in scene.visible_volumes
         )
+        self.volume_gpu_revisions = tuple(
+            getattr(volume.gpu_source, "revision", None)
+            for volume in scene.visible_volumes
+        )
         self.blases = tuple(core.scene_blases)
         self.instances = tuple(core.scene_instances)
         self.instance_buffer = core.scene_instance_buffer
@@ -5625,6 +5629,60 @@ class VulkanRayQueryCore:
                 vk.vkFreeMemory(self.device, staging.memory, None)
                 self._buffers.remove(staging)
 
+    def _update_sampled_volume_from_gpu(self, texture, source, shape):
+        """Refresh a sampled volume directly from a same-device float buffer."""
+        depth, height, width = map(int, shape)
+        subresource = vk.VkImageSubresourceRange(
+            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
+        )
+
+        def upload(command):
+            vk.vkCmdPipelineBarrier(
+                command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    srcAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                    dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                    oldLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    image=texture.image, subresourceRange=subresource,
+                )],
+            )
+            vk.vkCmdCopyBufferToImage(
+                command, source.buffer, texture.image,
+                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                [vk.VkBufferImageCopy(
+                    bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
+                    imageSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                        mipLevel=0, baseArrayLayer=0, layerCount=1,
+                    ),
+                    imageExtent=vk.VkExtent3D(
+                        width=width, height=height, depth=depth,
+                    ),
+                )],
+            )
+            vk.vkCmdPipelineBarrier(
+                command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+                0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
+                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
+                    oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                    image=texture.image, subresourceRange=subresource,
+                )],
+            )
+
+        self._single_use(upload)
+
     def _create_sampled_texture(self, levels, texture, image_format):
         """Upload a complete RGBA8 mip pyramid to an optimal sampled image."""
         height, width, _ = levels[0].shape
@@ -5767,7 +5825,7 @@ class VulkanRayQueryCore:
         self._sampled_textures.append(result)
         return result
 
-    def _create_sampled_volume(self, data):
+    def _create_sampled_volume(self, data, gpu_source=None):
         """Upload one float32 scalar field to a linearly sampled 3D image."""
         payload = np.ascontiguousarray(data, dtype=np.float32)
         depth, height, width = payload.shape
@@ -5797,12 +5855,20 @@ class VulkanRayQueryCore:
             ), None,
         )
         vk.vkBindImageMemory(self.device, image, memory, 0)
-        staging = self._create_buffer(
+        resident = (
+            gpu_source is not None
+            and getattr(gpu_source, "device", None) == self.device
+            and tuple(getattr(gpu_source, "shape", ())) == payload.shape
+            and np.dtype(getattr(gpu_source, "dtype", None)) == np.dtype(np.float32)
+            and int(getattr(gpu_source, "byte_size", -1)) == payload.nbytes
+        )
+        staging = None if resident else self._create_buffer(
             payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
             | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             data=payload,
         )
+        source_buffer = gpu_source.buffer if resident else staging.buffer
         subresource = vk.VkImageSubresourceRange(
             aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
             baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
@@ -5823,7 +5889,7 @@ class VulkanRayQueryCore:
                 )],
             )
             vk.vkCmdCopyBufferToImage(
-                command, staging.buffer, image,
+                command, source_buffer, image,
                 vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                 [vk.VkBufferImageCopy(
                     bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
@@ -5854,9 +5920,10 @@ class VulkanRayQueryCore:
             )
 
         self._single_use(upload)
-        vk.vkDestroyBuffer(self.device, staging.buffer, None)
-        vk.vkFreeMemory(self.device, staging.memory, None)
-        self._buffers.remove(staging)
+        if staging is not None:
+            vk.vkDestroyBuffer(self.device, staging.buffer, None)
+            vk.vkFreeMemory(self.device, staging.memory, None)
+            self._buffers.remove(staging)
         view = vk.vkCreateImageView(
             self.device, vk.VkImageViewCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -6231,12 +6298,10 @@ class VulkanRayQueryCore:
             raise ValueError(
                 f"Vulkan backend supports at most {MAX_NATIVE_VOLUMES} visible volumes"
             )
-        volume_payloads = [
-            volume.data for volume in scene.visible_volumes
-        ] or [np.zeros((2, 2, 2), np.float32)]
         self.scene_sampled_volumes = [
-            self._create_sampled_volume(payload) for payload in volume_payloads
-        ]
+            self._create_sampled_volume(volume.data, volume.gpu_source)
+            for volume in scene.visible_volumes
+        ] or [self._create_sampled_volume(np.zeros((2, 2, 2), np.float32))]
         self.scene_sampled_textures = []
         if self.native_textures_enabled:
             if len(scene.textures) > MAX_NATIVE_TEXTURES:
@@ -6603,6 +6668,31 @@ class VulkanRayQueryCore:
             or self.scene_resources.scene_revision != scene.revision
         ):
             self.upload_window_scene(scene)
+        else:
+            self._refresh_gpu_volume_sources(scene, self.scene_resources)
+
+    def _refresh_gpu_volume_sources(self, scene, resources):
+        """Copy newly dispatched resident fields into persistent 3-D images."""
+        volumes = scene.visible_volumes
+        revisions = tuple(
+            getattr(volume.gpu_source, "revision", None) for volume in volumes
+        )
+        if revisions == resources.volume_gpu_revisions:
+            return False
+        if len(volumes) != len(resources.scene_sampled_volumes):
+            return False
+        for index, (volume, revision) in enumerate(zip(volumes, revisions, strict=True)):
+            if revision == resources.volume_gpu_revisions[index]:
+                continue
+            source = volume.gpu_source
+            if source is None or getattr(source, "device", None) != self.device:
+                return False
+            self._update_sampled_volume_from_gpu(
+                resources.scene_sampled_volumes[index], source, volume.shape,
+            )
+        resources.volume_gpu_revisions = revisions
+        self._invalidate_scene_history()
+        return True
 
     def trace_wavefront_tile(
         self, camera, width, height, *, tile_origin=(0, 0), tile_extent=None,

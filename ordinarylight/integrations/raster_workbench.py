@@ -731,6 +731,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.renderer_denoiser_backend = None
             if renderer is not None:
                 try:
+                    self._extension_call("renderer_changed", None, None)
                     renderer.close()
                 except Exception as error:
                     errors.append(error)
@@ -862,6 +863,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.gi_diagnostic_warmup = 0
                 self.status.setText(
                     f"{self.target.currentText()} ready; scene and camera retained"
+                )
+                self._extension_call(
+                    "renderer_changed", target_key,
+                    getattr(self.renderer, "compute_context", None),
                 )
                 self._extension_call("scene_changed", self.scene_value)
             except Exception as error:

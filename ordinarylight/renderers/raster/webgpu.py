@@ -27,6 +27,11 @@ class WebGpuRasterRenderer(RendererImplementation):
         name="webgpu-raster", family="raster", graphics_api="webgpu",
     )
 
+    @property
+    def compute_context(self):
+        """WebGPU device shared with same-device application compute."""
+        return self
+
     def request_probe_refresh(self, probe):
         """Request recapture of an ``on-demand`` reflection probe."""
         self.probe_capture.request(probe)

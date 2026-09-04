@@ -32,6 +32,7 @@ from .surface import ArraySurface, RenderSurface
 from .compute import (
     ComputeBuffer, ComputeStep, WebGpuBufferView, WebGpuComputeSequence,
     WebGpuComputeSession,
+    VulkanBufferView, VulkanComputeSequence,
 )
 from .raster import (
     RasterConfig, RasterMesh, RasterPostProcessor, RasterProgram, RasterState,
@@ -260,6 +261,7 @@ __all__ = [
     "ArraySurface",
     "ComputeBuffer", "ComputeStep", "WebGpuComputeSequence",
     "WebGpuComputeSession",
+    "VulkanBufferView", "VulkanComputeSequence",
     "ReferencePathTracer",
     "build_feature_parity_scene",
     "feature_parity_camera",

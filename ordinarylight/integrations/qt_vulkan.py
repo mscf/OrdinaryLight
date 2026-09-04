@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .._vulkan_version import vulkan_api_version
+from ..targets._vulkan_version import vulkan_api_version
 
 
 class QtVulkanSurface:

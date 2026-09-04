@@ -23,8 +23,9 @@ stable shortcuts, not alternate implementations.
   execution sessions for standalone Ordinary Shade compute programs.
   `ComputeBuffer` describes shared allocations, `ComputeStep` maps reflected
   shader resources onto them, `WebGpuComputeSession` runs one persistent
-  pipeline, and `WebGpuComputeSequence` submits ordered multi-pipeline work
-  against shared GPU-resident buffers without intermediate host readback.
+  pipeline, and the WebGPU/Vulkan sequence implementations submit ordered
+  multi-pipeline work against shared GPU-resident buffers without intermediate
+  host readback.
 - `ordinarylight.backends` owns backend implementations and their portable
   configuration objects.
 - Backend-specific controls remain in their backend module and must not leak
@@ -389,6 +390,23 @@ Every `ComputeStep` maps its reflected names to shared allocation names.
 `WebGpuComputeSequence` keeps pipelines and bind groups persistent and encodes
 all steps into one command buffer. Reduction meanings and scratch-planning
 policy remain in downstream bridge packages.
+
+The equivalent native path accepts Ordinary Shade SPIR-V and borrows an
+existing Vulkan renderer's device, queue, and command pool:
+
+```python
+with ol.VulkanComputeSequence(
+    spirv_steps, shared_resources, context=vulkan_renderer,
+) as sequence:
+    sequence.dispatch()
+    resident_field = sequence.buffer_view("result")
+```
+
+`VulkanComputeSequence` builds descriptor layouts from reflection and inserts
+compute-to-compute storage barriers between steps. Its buffers include transfer
+usage, allowing a same-device `VulkanBufferView` to feed a raster volume through
+a direct buffer-to-image copy. The context remains owned by the renderer; close
+the sequence before closing that renderer.
 
 `WebGpuComputeSequence.buffer_view(name)` returns a non-owning
 `WebGpuBufferView` for downstream consumers on the same device. A volume may

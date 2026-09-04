@@ -7,6 +7,8 @@ versioning while its public API develops toward 1.0.
 
 - Raised every Vulkan instance path to the renderer's Vulkan 1.2 baseline,
   matching generated SPIR-V 1.5 shaders in both native Qt and headless use.
+- Added reflected multi-pass SPIR-V compute sequences on an existing Vulkan
+  renderer device and direct resident-buffer uploads into Vulkan raster volumes.
 - Added same-device WebGPU compute-buffer views and direct GPU-resident volume
   sources for downstream simulation and visualization integrations.
 - Added an explicit `module:factory` Qt workbench extension hook so downstream

@@ -6,7 +6,7 @@ import hashlib
 
 import numpy as np
 
-from ..._vulkan_version import vulkan_api_version
+from ...targets._vulkan_version import vulkan_api_version
 
 _OPTICAL_DEBUG_MODES = {
     "off": 0.0, "hit": 1.0, "uv": 2.0, "depth-delta": 3.0,
@@ -37,6 +37,11 @@ class VulkanRasterRenderer(RendererImplementation):
     implementation = RendererImplementationInfo(
         name="vulkan-raster", family="raster", graphics_api="vulkan",
     )
+
+    @property
+    def compute_context(self):
+        """Vulkan objects shared with same-device application compute."""
+        return self
 
     def request_probe_refresh(self, probe):
         """Request recapture of an ``on-demand`` reflection probe."""
@@ -639,8 +644,8 @@ class VulkanRasterRenderer(RendererImplementation):
             codeSize=len(binary), pCode=binary,
         ), None)
 
-    def _volume_texture(self, field, remember):
-        """Upload one immutable scalar field and return its sampled 3-D view."""
+    def _volume_texture(self, field, remember, gpu_source=None):
+        """Create a sampled 3-D image from host data or a resident buffer."""
         vk = self.vk
         field = np.ascontiguousarray(field, dtype=np.float32)
         depth, height, width = field.shape
@@ -671,12 +676,24 @@ class VulkanRasterRenderer(RendererImplementation):
             ), None,
         ))
         vk.vkBindImageMemory(self.device, image, memory, 0)
-        host = (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-        staging, staging_memory = self._buffer(
-            field.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            host, field.tobytes(),
+        resident = (
+            gpu_source is not None
+            and getattr(gpu_source, "device", None) == self.device
+            and tuple(getattr(gpu_source, "shape", ())) == field.shape
+            and np.dtype(getattr(gpu_source, "dtype", None)) == np.dtype(np.float32)
+            and int(getattr(gpu_source, "byte_size", -1)) == field.nbytes
         )
+        if resident:
+            source_buffer = gpu_source.buffer
+            staging = staging_memory = None
+        else:
+            host = (vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                    | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            staging, staging_memory = self._buffer(
+                field.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                host, field.tobytes(),
+            )
+            source_buffer = staging
         command = vk.vkAllocateCommandBuffers(
             self.device, vk.VkCommandBufferAllocateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -709,7 +726,7 @@ class VulkanRasterRenderer(RendererImplementation):
             )],
         )
         vk.vkCmdCopyBufferToImage(
-            command, staging, image, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            command, source_buffer, image, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1, [vk.VkBufferImageCopy(
                 bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
                 imageSubresource=vk.VkImageSubresourceLayers(
@@ -752,8 +769,9 @@ class VulkanRasterRenderer(RendererImplementation):
             vk.vkFreeCommandBuffers(
                 self.device, self.command_pool, 1, [command],
             )
-            vk.vkDestroyBuffer(self.device, staging, None)
-            vk.vkFreeMemory(self.device, staging_memory, None)
+            if staging is not None:
+                vk.vkDestroyBuffer(self.device, staging, None)
+                vk.vkFreeMemory(self.device, staging_memory, None)
         return remember("image_view", vk.vkCreateImageView(
             self.device, vk.VkImageViewCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -980,7 +998,13 @@ class VulkanRasterRenderer(RendererImplementation):
         fields = list(resources.scalar_fields[:4])
         while len(fields) < 4:
             fields.append(np.zeros((1, 1, 1), np.float32))
-        volume_views = [self._volume_texture(field, remember) for field in fields]
+        gpu_sources = list(resources.gpu_scalar_sources[:4])
+        while len(gpu_sources) < 4:
+            gpu_sources.append(None)
+        volume_views = [
+            self._volume_texture(field, remember, gpu_source)
+            for field, gpu_source in zip(fields, gpu_sources, strict=True)
+        ]
         occupancy_fields = list(resources.occupancy_fields[:4])
         while len(occupancy_fields) < 4:
             occupancy_fields.append(np.ones((1, 1, 1), np.float32))
@@ -3573,7 +3597,11 @@ class VulkanRasterRenderer(RendererImplementation):
         # presentation performance.
         if diagnostic_readback:
             self.vk.vkDeviceWaitIdle(self.device)
-        scene_token = (id(scene), scene.revision)
+        gpu_volume_revisions = tuple(
+            getattr(volume.gpu_source, "revision", None)
+            for volume in scene.visible_volumes
+        )
+        scene_token = (id(scene), scene.revision, gpu_volume_revisions)
         if self._present_scene_token != scene_token:
             self.vk.vkDeviceWaitIdle(self.device)
             self._clear_present_cache()
