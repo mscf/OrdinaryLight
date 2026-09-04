@@ -25,21 +25,25 @@ from the steady-state rendering architecture.
 - **CPU readback in the viewer:** direct presentation uses a Qt-owned Vulkan
   surface and never creates a NumPy/QImage frame.
 
+- **Native volumes:** Vulkan and WebGPU sample scalar fields and transfer
+  textures in GPU ray-march passes. Same-device compute-buffer sources avoid
+  host scalar-field readback; CPU slice helpers are compatibility paths.
+- **Named geometry products:** native MRT passes produce depth, world normal,
+  object ID, and motion. NumPy-facing calls read back the requested products.
+
 ## Remaining high-priority transfers
 
-1. **Object/light/material mutation.** Camera state is resident, but object,
-   light, and material mutations still rebuild the flattened stream. Complete
-   the existing storage-buffer ABI so these update compact records instead.
+1. **Object/light/material mutation.** Native paths already consume light and
+   material storage buffers, but scene mutation still triggers packing and
+   resident-resource rebuilds. Extend compact updates and measure when geometry
+   actually needs to be repacked.
 2. **Fine-grained scene mutation.** Scene revision invalidation currently
    rebuilds all resident sets. Track dirty textures, shadow casters, transforms,
    lights, and materials independently.
-3. **Volume slice construction.** Slice topology, transfer-function sampling,
-   sorting, and vertex generation currently run in NumPy. Store volume data and
-   transfer functions as GPU textures and generate/sort sampling in shaders.
-4. **Named geometry products.** The offscreen depth/normal/object-ID products
-   use a CPU rasterizer. Replace this with MRT attachments and asynchronous GPU
-   readback only when a CPU result is explicitly requested.
-5. **CPU fallback lighting/shadows.** Diffuse compatibility paths evaluate
+3. **Per-frame allocation and uploads.** Native volume ray marching and geometry
+   products run on the GPU, but offscreen paths still create transient buffers,
+   textures, and attachments. Measure these costs and extend resource reuse.
+4. **CPU fallback lighting/shadows.** Diffuse compatibility paths evaluate
    lighting and ray/triangle visibility on the CPU. Keep them for reference
    tests, but native backends should never select them during interactive use.
 

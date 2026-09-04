@@ -19,7 +19,7 @@ scene API. Its current public surface includes:
 - `tools/`: developer presentation harnesses and low-level diagnostics
 - `tests/`: unit tests and opt-in GPU gates
 - `artifacts/`: retained historical benchmark evidence; not runtime data
-- `assets/`, `shaders/`, and `scripts/`: fixtures and build tooling
+- `assets/`, `ordinarylight/shaders/`, and `scripts/`: fixtures, shaders, and build tooling
 
 The installable package is organized by domain rather than as a collection of
 flat modules. Public models live in focused namespaces such as
@@ -35,7 +35,8 @@ application code.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e '.[vulkan]'
+python -m pip install -e ../ordinaryshade
+python -m pip install -e '.[vulkan]'
 ```
 
 Inspect Vulkan support:
@@ -134,7 +135,8 @@ with ol.Renderer(renderer_preference="raster") as renderer:
 ```
 
 Release wheels contain CI-compiled SPIR-V and WGSL for the built-in raster
-program, so raster fallback does not import Ordinary Shade at runtime. Python
+program, so loading those artifacts avoids runtime shader compilation.
+Ordinary Shade is a declared core package dependency. Python
 shader definitions remain authoritative: a source checkout whose definitions
 are newer than its artifacts recompiles them with the companion project rather
 than silently using stale output.

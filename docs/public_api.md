@@ -26,10 +26,13 @@ stable shortcuts, not alternate implementations.
   pipeline, and the WebGPU/Vulkan sequence implementations submit ordered
   multi-pipeline work against shared GPU-resident buffers without intermediate
   host readback.
-- `ordinarylight.backends` owns backend implementations and their portable
-  configuration objects.
-- Backend-specific controls remain in their backend module and must not leak
-  into backend-neutral scene resources.
+- `ordinarylight.renderers` owns concrete algorithms (`gi`, `raster`,
+  `reference`, and `hybrid`) and the structural `RendererProtocol`.
+- `ordinarylight.targets` owns execution APIs (`vulkan`, `webgpu`, and `cpu`).
+  Vulkan device discovery, configuration, and presenters live in
+  `ordinarylight.targets.vulkan`.
+- Renderer- and target-specific controls stay outside renderer-neutral scene
+  resources. There is no `ordinarylight.backends` namespace.
 
 The canonical glTF API is:
 
@@ -152,8 +155,8 @@ with ol.Renderer(config=config) as renderer, \
         video.write(frame)
 ```
 
-Install this optional path with `pip install ordinarylight[video-gpu]`. The
-final Vulkan compute pass performs BT.709 limited-range RGBA-to-NV12 conversion
+From a checkout, install this optional path with `pip install -e '.[video-gpu]'`.
+The final Vulkan compute pass performs BT.709 limited-range RGBA-to-NV12 conversion
 into a dedicated pitch-linear external buffer. CUDA imports each of the two
 stable allocations and semaphore pairs once; steady-state frames use only GPU
 wait/signal operations and NVENC. There is no GPU-to-CPU readback, NumPy HDR
@@ -325,33 +328,37 @@ the Qt event loop until in-flight work reaches a safe boundary. Ordinary Light
 resolves only the explicit reference and never imports the downstream package
 by name.
 
-## Backend portability
+## Renderer portability
 
-Backends implement the structural `ordinarylight.backends.RenderBackend`
-contract: `render_frame(...)`, `close()`, and semantic capability metadata.
-Backends with named products additionally implement `render_products(...)`.
-The contract deliberately contains no wavefront, Vulkan, queue, or swapchain
-terminology.
+Implementations satisfy the structural `ordinarylight.renderers.RendererProtocol`:
+`render_frame(...)`, `close()`, and the configuration, device, timing, and
+available-output attributes. Named products use `ProductRendererProtocol` and
+`render_products(...)`. Built-in renderers also derive from
+`RendererImplementation` and expose immutable `implementation_info()` metadata;
+third-party implementations do not need that base class.
 
-Applications can use the same high-level renderer with the Vulkan backend or
-the deterministic CPU reference backend:
+Applications can use the same high-level contract with the deterministic CPU
+reference renderer:
 
 ```python
-backend = ol.backends.ReferenceBackend(ol.backends.ReferenceConfig(seed=7))
-renderer = ol.Renderer(backend=backend)
-print(renderer.capabilities.as_dict())
+import ordinarylight as ol
+
+implementation = ol.renderers.reference.CpuReferenceRenderer(seed=7)
+with ol.Renderer(implementation=implementation) as renderer:
+    print(renderer.capabilities.as_dict())
 ```
 
-The reference backend prioritizes correctness and portability over throughput.
-Use `renderer.capabilities.supports(...)` to select optional behavior rather
-than testing backend class names.
+Use capability discovery for optional behavior. Select a renderer through
+`Renderer(renderer_preference="auto")`, or pass `"gi"` or `"raster"` explicitly.
+`renderer.renderer_selection` reports the choice and any compatibility fallback.
 
-Vulkan-specific construction is canonical under `ordinarylight.backends.vulkan`:
+Vulkan configuration belongs to the execution target; GI is a renderer family:
 
 ```python
-config = ol.backends.vulkan.RendererConfig(max_bounces=8)
-backend = ol.backends.vulkan.VulkanRayTracingBackend(config=config)
-renderer = ol.Renderer(backend=backend)
+config = ol.targets.vulkan.RendererConfig(max_bounces=8)
+implementation = ol.renderers.gi.VulkanGlobalIlluminationRenderer(config=config)
+with ol.Renderer(implementation=implementation) as renderer:
+    hdr = renderer.render(scene, camera, (640, 360))
 ```
 
 ## Standalone compute
@@ -402,7 +409,7 @@ existing Vulkan renderer's device, queue, and command pool:
 
 ```python
 with ol.VulkanComputeSequence(
-    spirv_steps, shared_resources, context=vulkan_renderer,
+    spirv_steps, shared_resources, context=vulkan_renderer.compute_context,
 ) as sequence:
     sequence.dispatch()
     resident_field = sequence.buffer_view("result")
@@ -410,9 +417,11 @@ with ol.VulkanComputeSequence(
 
 `VulkanComputeSequence` builds descriptor layouts from reflection and inserts
 compute-to-compute storage barriers between steps. Its buffers include transfer
-usage, allowing a same-device `VulkanBufferView` to feed a raster volume through
-a direct buffer-to-image copy. The context remains owned by the renderer; close
-the sequence before closing that renderer.
+usage, allowing a same-device `VulkanBufferView` to feed Vulkan raster or
+Wavefront GI volumes through a direct buffer-to-image copy. The concrete Vulkan
+renderer exposes `compute_context`; it remains owned by that renderer. Close
+the sequence before closing the renderer. Compute and presentation must use
+the shared context's synchronization; a buffer view does not transfer ownership.
 
 `WebGpuComputeSequence.buffer_view(name)` returns a non-owning
 `WebGpuBufferView` for downstream consumers on the same device. A volume may

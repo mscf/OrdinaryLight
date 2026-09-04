@@ -1,19 +1,30 @@
 # Using Ordinary Light
 
-Install the portable core for the CPU reference backend, loaders, scene API,
-NumPy outputs, and backend contracts:
+From the Ordinary Light checkout, install the sibling Ordinary Shade compiler
+and the portable core for the CPU reference renderer, loaders, scene API, and
+NumPy outputs. Python 3.10 or newer is required:
 
 ```bash
-python -m pip install ordinarylight
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ../ordinaryshade
+python -m pip install -e .
 ```
 
-Install hardware rendering or an application integration explicitly:
+Install hardware rendering or an application integration explicitly from the
+same checkout:
 
 ```bash
-python -m pip install 'ordinarylight[vulkan]'
-python -m pip install 'ordinarylight[qt]'
-python -m pip install 'ordinarylight[window]'
+python -m pip install -e '.[vulkan]'
+python -m pip install -e '.[webgpu]'
+python -m pip install -e '.[qt]'
+python -m pip install -e '.[window]'
 ```
+
+Vulkan paths require Vulkan 1.2; GI additionally requires hardware ray-query
+support. `Renderer(renderer_preference="auto")` selects GI when available and
+Vulkan raster otherwise. Explicit `"gi"` and `"raster"` requests do not switch
+renderer families silently.
 
 ## Headless stills and named products
 
@@ -24,19 +35,24 @@ caller-owned array, making ownership and allocation explicit:
 import numpy as np
 import ordinarylight as ol
 
-backend = ol.backends.ReferenceBackend(samples_per_pixel=4, seed=7)
-with ol.Renderer(backend=backend) as renderer:
+scene = ol.Scene()
+camera = ol.PerspectiveCamera((0, 0, -5), (0, 0, 0))
+implementation = ol.renderers.reference.CpuReferenceRenderer(
+    samples_per_pixel=4, seed=7,
+)
+with ol.Renderer(implementation=implementation) as renderer:
     destination = np.empty((720, 1280, 4), np.float32)
     renderer.render(scene, camera, (1280, 720), out=destination)
 ```
 
-Backends advertise optional products through `renderer.capabilities`. Request
-only supported products:
+Renderers advertise optional products through `renderer.capabilities`. Within
+an open renderer context, request only supported products:
 
 ```python
-if renderer.capabilities.supports_output("depth"):
+outputs = ("color", "depth", "object_id")
+if all(renderer.capabilities.supports_output(name) for name in outputs):
     frame = renderer.render(
-        scene, camera, (1280, 720), outputs=("color", "depth", "object_id")
+        scene, camera, (1280, 720), outputs=outputs
     )
 ```
 
