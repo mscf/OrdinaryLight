@@ -775,6 +775,11 @@ class _VulkanGlobalIlluminationEngine:
         self._core.reset_accumulation()
 
     @property
+    def compute_context(self):
+        """Vulkan objects shared with same-device application compute."""
+        return self._core
+
+    @property
     def accumulation_state(self):
         """Motion state controlling temporal accumulation."""
         return self._core.accumulation_state

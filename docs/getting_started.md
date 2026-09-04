@@ -84,6 +84,8 @@ ORDINARYLIGHT_SHOWCASE_PATH=examples/workbench_showcase.py \
 ordinarylight-workbench
 ```
 
-The workbench builds scenes away from the Qt event thread and owns native
-Vulkan presentation on its render worker. Application code should share the
+The workbench builds scenes and renderers away from the Qt event thread and
+owns native Vulkan presentation on its render worker. Startup and target
+switches expose an indeterminate progress state; close requests wait
+asynchronously for a safe GPU boundary. Application code should share the
 semantic `Scene` and camera resources, not reach into the workbench internals.

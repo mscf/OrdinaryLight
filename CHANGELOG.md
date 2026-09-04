@@ -5,6 +5,10 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added a public same-device compute context to headless Wavefront GI and moved
+  Qt scene/renderer startup off the event thread, with visible progress,
+  deferred non-blocking close, cancellable extension initialization, and fair
+  compute/presentation scheduling.
 - Raised every Vulkan instance path to the renderer's Vulkan 1.2 baseline,
   matching generated SPIR-V 1.5 shaders in both native Qt and headless use.
 - Added reflected multi-pass SPIR-V compute sequences on an existing Vulkan

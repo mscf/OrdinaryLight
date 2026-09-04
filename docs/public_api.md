@@ -314,10 +314,16 @@ Applications can add an optional domain-specific Qt panel without introducing
 a reverse dependency. Set `ORDINARYLIGHT_WORKBENCH_EXTENSION` to a
 `module:factory` reference. The factory receives the workbench host, `QtCore`,
 and `QtWidgets`, and returns an object with a `widget` plus any of the optional
-`scene_changed`, `mouse_press`, and `advance` callbacks. The host exposes
-`active_scene`, `load_scene_async`, `reset_render_sequence`, and `show_message`
-for extension use. Ordinary Light resolves only the explicit reference and
-never imports the downstream package by name.
+`scene_changed`, `mouse_press`, `advance`, `cancel_pending_updates`,
+`renderer_start_progress`, `renderer_start_failed`,
+`renderer_update_progress`, `renderer_update_completed`, and
+`renderer_update_failed` callbacks. The host exposes `active_scene`,
+`load_scene_async`, `enqueue_renderer_update`, `reset_render_sequence`,
+`ensure_control_visible`, and `show_message` for extension use. Scene and
+renderer creation execute on the presentation worker; close requests remain in
+the Qt event loop until in-flight work reaches a safe boundary. Ordinary Light
+resolves only the explicit reference and never imports the downstream package
+by name.
 
 ## Backend portability
 

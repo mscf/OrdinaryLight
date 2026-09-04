@@ -410,6 +410,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             panel_scroll.setWidgetResizable(True)
             panel_scroll.setMaximumWidth(450)
             panel_scroll.setWidget(panel)
+            self.panel_scroll = panel_scroll
             layout.addWidget(panel_scroll)
             self.feature = QtWidgets.QComboBox()
             for item in showcases:
@@ -491,6 +492,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             button = QtWidgets.QPushButton("Apply and restart renderer")
             button.clicked.connect(self.restart)
+            self.restart_button = button
             copy_pose = QtWidgets.QPushButton("Copy camera pose")
             copy_pose.clicked.connect(self._copy_camera_pose)
             paste_pose = QtWidgets.QPushButton("Paste camera pose")
@@ -516,6 +518,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow(copy_pose)
             form.addRow(paste_pose)
             form.addRow(copy_diagnostics)
+            self.renderer_progress = QtWidgets.QProgressBar()
+            self.renderer_progress.setRange(0, 0)
+            self.renderer_progress.setVisible(False)
+            form.addRow(self.renderer_progress)
             self.status = QtWidgets.QLabel(wordWrap=True); form.addRow(self.status)
             self.extension = None
             if extension_factory is not None:
@@ -539,8 +545,12 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self._readback_pixels = None
             self._readback_qimage = None
             self.future = None
+            self.renderer_start_future = None
+            self.renderer_start_target = None
+            self.renderer_start_denoiser_backend = None
             self.renderer_update_future = None
             self.pending_renderer_updates = {}
+            self.close_pending = False
             self.restart_pending = False
             self.presentation_failed = False
             self.executor = ThreadPoolExecutor(
@@ -674,25 +684,38 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
             if self.scene_value is not None:
+                self._extension_call("cancel_pending_updates")
                 self.restart_pending = True
                 self.status.setText(
                     "Finishing the active frame before switching targets…"
                 )
-                if self.future is None:
+                if (
+                    self.future is None
+                    and self.renderer_start_future is None
+                    and self.renderer_update_future is None
+                ):
                     QtCore.QTimer.singleShot(0, self._finish_pending_restart)
 
         def _scene_light_changed(self, _enabled=None):
             if self.scene_value is None:
                 return
+            self._extension_call("cancel_pending_updates")
             self.restart_pending = True
             self.status.setText(
                 "Finishing the active frame before updating scene lighting…"
             )
-            if self.future is None:
+            if (
+                self.future is None
+                and self.renderer_start_future is None
+                and self.renderer_update_future is None
+            ):
                 QtCore.QTimer.singleShot(0, self._finish_pending_restart)
 
         def show_message(self, message):
             self.status.setText(str(message))
+
+        def ensure_control_visible(self, widget):
+            self.panel_scroll.ensureWidgetVisible(widget)
 
         def reset_render_sequence(self):
             reset = getattr(self.renderer, "reset_accumulation", None)
@@ -717,12 +740,22 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
         def _finish_pending_restart(self):
             if not self.restart_pending:
                 return
-            if self.future is not None:
+            if (
+                self.future is not None
+                or self.renderer_start_future is not None
+                or self.renderer_update_future is not None
+            ):
                 return
             self.restart_pending = False
             self.restart()
 
         def _wait(self):
+            if self.renderer_start_future is not None:
+                future, self.renderer_start_future = (
+                    self.renderer_start_future, None
+                )
+                renderer, _viewport, _scene, _controller, _active = future.result()
+                renderer.close()
             if self.renderer_update_future is not None:
                 future, self.renderer_update_future = (
                     self.renderer_update_future, None
@@ -751,6 +784,17 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             return errors
 
         def restart(self):
+            if (
+                self.future is not None
+                or self.renderer_start_future is not None
+                or self.renderer_update_future is not None
+            ):
+                self._extension_call("cancel_pending_updates")
+                self.restart_pending = True
+                self.status.setText(
+                    "Cancelling initialization before restarting…"
+                )
+                return
             self.restart_pending = False
             target_key = self.target.currentData()
             requested_denoiser_backend = (
@@ -772,116 +816,133 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 ):
                     self.surface.recreate_surface()
                 item = self.feature.currentData()
-                (
-                    self.scene_value, self.controller, self.active_showcase_id,
-                ) = _preserved_view(
-                    item, self.scene_value, self.controller,
-                    self.active_showcase_id,
-                )
-                _set_optional_scene_lights(
-                    self.scene_value, self.scene_lights.isChecked(),
-                )
-                if self._startup_camera is not None:
-                    self.controller = ol.ArcballCameraController.from_camera(
-                        self._startup_camera,
-                    )
-                    self._startup_camera = None
+                previous_scene = self.scene_value
+                previous_controller = self.controller
+                previous_showcase_id = self.active_showcase_id
+                startup_camera = self._startup_camera
+                self._startup_camera = None
+                scene_lights_enabled = self.scene_lights.isChecked()
                 settings = dict(item.renderer)
                 settings.pop("required_target", None)
-                if target_key == "wavefront-gi":
-                    nrd_reference = (
-                        requested_denoiser_backend == "nrd-reference"
+                shadows = self.shadows.isChecked()
+                shadow_map_size = int(self.map_size.currentData())
+                restir_reservoirs = int(self.restir_reservoirs.currentData())
+                denoiser_enabled = self.denoiser.isChecked()
+                denoiser_iterations = int(self.denoiser_iterations.currentData())
+                surface_instance = self.surface.instance
+                surface_handle = self.surface.surface
+
+                def construct_renderer():
+                    scene, controller, active_showcase_id = _preserved_view(
+                        item, previous_scene, previous_controller,
+                        previous_showcase_id,
                     )
-                    gi_config = _gi_config(
-                        item, present=not nrd_reference,
-                        capture=args.diagnostic_frames > 0,
-                        restir_reservoirs=int(
-                            self.restir_reservoirs.currentData()
-                        ),
-                        denoiser_enabled=(
-                            self.denoiser.isChecked() and not nrd_reference
-                        ),
-                        denoiser_iterations=int(
-                            self.denoiser_iterations.currentData()
-                        ),
-                    )
-                    if nrd_reference:
-                        gi_config = replace(
-                            gi_config,
-                            progressive_accumulation=False,
-                            temporal_history=False,
-                            denoiser_enabled=False,
-                            denoiser_signal_capture=True,
-                            direct_swapchain_storage=False,
+                    _set_optional_scene_lights(scene, scene_lights_enabled)
+                    if startup_camera is not None:
+                        controller = ol.ArcballCameraController.from_camera(
+                            startup_camera,
                         )
-                        capture_renderer = ol.VulkanSurfacePresenter(
-                            self.surface.instance, self.surface.surface,
-                            config=gi_config,
+                    if target_key == "wavefront-gi":
+                        nrd_reference = (
+                            requested_denoiser_backend == "nrd-reference"
                         )
-                        self.renderer = _NrdReferencePreview(
-                            gi_config, renderer=capture_renderer,
+                        gi_config = _gi_config(
+                            item, present=not nrd_reference,
+                            capture=args.diagnostic_frames > 0,
+                            restir_reservoirs=restir_reservoirs,
+                            denoiser_enabled=(
+                                denoiser_enabled and not nrd_reference
+                            ),
+                            denoiser_iterations=denoiser_iterations,
                         )
-                        self.viewport_stack.setCurrentWidget(
-                            self.readback_image
+                        if nrd_reference:
+                            gi_config = replace(
+                                gi_config,
+                                progressive_accumulation=False,
+                                temporal_history=False,
+                                denoiser_enabled=False,
+                                denoiser_signal_capture=True,
+                                direct_swapchain_storage=False,
+                            )
+                            capture_renderer = ol.VulkanSurfacePresenter(
+                                surface_instance, surface_handle,
+                                config=gi_config,
+                            )
+                            renderer_result = (
+                                _NrdReferencePreview(
+                                    gi_config, renderer=capture_renderer,
+                                ),
+                                "readback",
+                            )
+                        else:
+                            renderer_result = (
+                                ol.VulkanSurfacePresenter(
+                                    surface_instance, surface_handle,
+                                    config=gi_config,
+                                ),
+                                "direct",
+                            )
+                    elif target_key == "vulkan-raster":
+                        target_settings = dict(settings)
+                        default_material = (
+                            target_settings.get("material_program")
+                            or ol.builtin_material
+                        )
+                        program = ol.RasterProgram.scene(
+                            target="spirv", validate=False,
+                            material_programs=scene.material_programs(
+                                default_material,
+                            ),
+                            material_modifier=target_settings.get(
+                                "material_modifier",
+                                target_settings.get("material_hook"),
+                            ),
+                        )
+                        target_settings.update(
+                            shadows=shadows,
+                            shadow_map_size=shadow_map_size,
+                        )
+                        target_settings.pop("scene_light_toggle", None)
+                        config = ol.RasterConfig(
+                            state=ol.RasterState(cull_mode="none"),
+                            ambient_light=float(
+                                target_settings.pop("ambient_light", 0.08)
+                            ),
+                            **target_settings,
+                        )
+                        renderer_result = (
+                            ol.renderers.raster.VulkanRasterRenderer(
+                                program, config=config,
+                                instance=surface_instance,
+                                surface=surface_handle,
+                            ),
+                            "direct",
                         )
                     else:
-                        self.renderer = ol.VulkanSurfacePresenter(
-                            self.surface.instance, self.surface.surface,
-                            config=gi_config,
+                        renderer_result = (
+                            _renderer(
+                                item, scene, target_key, shadows,
+                                shadow_map_size,
+                            ),
+                            "readback",
                         )
-                        self.viewport_stack.setCurrentWidget(self.container)
-                elif target_key == "vulkan-raster":
-                    default_material = (
-                        settings.get("material_program") or ol.builtin_material
+                    return (
+                        *renderer_result, scene, controller,
+                        active_showcase_id,
                     )
-                    program = ol.RasterProgram.scene(
-                        target="spirv", validate=False,
-                        material_programs=self.scene_value.material_programs(
-                            default_material,
-                        ),
-                        material_modifier=settings.get(
-                            "material_modifier", settings.get("material_hook")
-                        ),
-                    )
-                    settings.update(
-                        shadows=self.shadows.isChecked(),
-                        shadow_map_size=int(self.map_size.currentData()),
-                    )
-                    settings.pop("scene_light_toggle", None)
-                    config = ol.RasterConfig(
-                        state=ol.RasterState(cull_mode="none"),
-                        ambient_light=float(settings.pop("ambient_light", 0.08)),
-                        **settings,
-                    )
-                    self.renderer = ol.renderers.raster.VulkanRasterRenderer(
-                        program, config=config,
-                        instance=self.surface.instance,
-                        surface=self.surface.surface,
-                    )
-                    self.viewport_stack.setCurrentWidget(self.container)
-                else:
-                    self.renderer = _renderer(
-                        item, self.scene_value, target_key,
-                        self.shadows.isChecked(),
-                        int(self.map_size.currentData()),
-                    )
-                    self.viewport_stack.setCurrentWidget(self.readback_image)
-                self.renderer_target = target_key
-                self.renderer_denoiser_backend = requested_denoiser_backend
-                self.presentation_failed = False
-                self.completed.clear()
-                self.diagnostic_frames.clear()
-                self.gi_diagnostic_images.clear()
-                self.gi_diagnostic_metadata.clear()
-                self.gi_diagnostic_warmup = 0
+
+                self.renderer_start_target = target_key
+                self.renderer_start_denoiser_backend = (
+                    requested_denoiser_backend
+                )
+                self.renderer_start_future = self.executor.submit(
+                    construct_renderer
+                )
+                self.renderer_progress.setVisible(True)
+                self.restart_button.setEnabled(False)
                 self.status.setText(
-                    f"{self.target.currentText()} ready; scene and camera retained"
+                    f"Creating {self.target.currentText()} renderer…"
                 )
-                self._extension_call(
-                    "renderer_changed", target_key,
-                    getattr(self.renderer, "compute_context", None),
-                )
-                self._extension_call("scene_changed", self.scene_value)
             except Exception as error:
                 self.renderer = None
                 self.renderer_target = None
@@ -894,20 +955,95 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.last_tick = now
             item = self.feature.currentData()
             completed_renderer_update = False
+            if self.renderer_start_future is not None:
+                if not self.renderer_start_future.done():
+                    self._extension_call("renderer_start_progress")
+                    return
+                target_key = self.renderer_start_target
+                denoiser_backend = self.renderer_start_denoiser_backend
+                try:
+                    (
+                        renderer, viewport, scene, controller,
+                        active_showcase_id,
+                    ) = self.renderer_start_future.result()
+                except Exception as error:
+                    detail = str(error) or repr(error)
+                    self.status.setText(
+                        f"Renderer start failed ({type(error).__name__}): {detail}"
+                    )
+                    handled = bool(self._extension_call(
+                        "renderer_start_failed", error,
+                    ))
+                    if not handled:
+                        traceback.print_exception(error)
+                    self.presentation_failed = True
+                else:
+                    if self.restart_pending or self.close_pending:
+                        renderer.close()
+                    else:
+                        self.renderer = renderer
+                        self.scene_value = scene
+                        self.controller = controller
+                        self.active_showcase_id = active_showcase_id
+                        self.renderer_target = target_key
+                        self.renderer_denoiser_backend = denoiser_backend
+                        self.presentation_failed = False
+                        self.completed.clear()
+                        self.diagnostic_frames.clear()
+                        self.gi_diagnostic_images.clear()
+                        self.gi_diagnostic_metadata.clear()
+                        self.gi_diagnostic_warmup = 0
+                        self.viewport_stack.setCurrentWidget(
+                            self.container
+                            if viewport == "direct" else self.readback_image
+                        )
+                        self.status.setText(
+                            f"{self.target.currentText()} ready; "
+                            "scene and camera retained"
+                        )
+                        self._extension_call(
+                            "renderer_changed", target_key,
+                            getattr(renderer, "compute_context", None),
+                        )
+                        self._extension_call("scene_changed", self.scene_value)
+                self.renderer_start_future = None
+                self.renderer_start_target = None
+                self.renderer_start_denoiser_backend = None
+                self.renderer_progress.setVisible(False)
+                self.restart_button.setEnabled(True)
+                if self.close_pending:
+                    QtCore.QTimer.singleShot(0, self.close)
+                    return
+                if self.restart_pending:
+                    QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+                return
             if self.renderer_update_future is not None:
                 if not self.renderer_update_future.done():
+                    self._extension_call("renderer_update_progress")
                     return
                 try:
                     self.renderer_update_future.result()
                 except Exception as error:
                     detail = str(error) or repr(error)
-                    self.status.setText(
-                        "Renderer resource update failed "
-                        f"({type(error).__name__}): {detail}"
-                    )
-                    traceback.print_exception(error)
+                    handled = bool(self._extension_call(
+                        "renderer_update_failed", error,
+                    ))
+                    if not handled:
+                        self.status.setText(
+                            "Renderer resource update failed "
+                            f"({type(error).__name__}): {detail}"
+                        )
+                        traceback.print_exception(error)
+                else:
+                    self._extension_call("renderer_update_completed")
                 self.renderer_update_future = None
                 completed_renderer_update = True
+                if self.close_pending:
+                    QtCore.QTimer.singleShot(0, self.close)
+                    return
+                if self.restart_pending:
+                    QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+                    return
             if (
                 self.animate.isChecked() and self.controller is not None
                 and item.animate is None
@@ -928,6 +1064,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.presentation_failed = True
                     return
                 self.future = None
+                if self.close_pending:
+                    QtCore.QTimer.singleShot(0, self.close)
+                    return
                 nrd_reference = (
                     self.renderer_target == "wavefront-gi"
                     and self.renderer_denoiser_backend == "nrd-reference"
@@ -1250,6 +1389,17 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
 
         def closeEvent(self, event):
+            self._extension_call("cancel_pending_updates")
+            self.pending_renderer_updates.clear()
+            if (
+                self.future is not None
+                or self.renderer_start_future is not None
+                or self.renderer_update_future is not None
+            ):
+                self.close_pending = True
+                self.status.setText("Cancelling GPU work before closing…")
+                event.ignore()
+                return
             self.timer.stop()
             try:
                 errors = self._close_renderer()
@@ -1264,6 +1414,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             event.accept()
 
     window = DirectWindow(); window.show()
+    if args.close_after_ms > 0:
+        QtCore.QTimer.singleShot(args.close_after_ms, window.close)
     return window
 
 
@@ -1370,6 +1522,8 @@ def main():
         "--switch-target-to", choices=tuple(key for _title, key in TARGETS),
         default="wavefront-gi", help=argparse.SUPPRESS,
     )
+    parser.add_argument("--close-after-ms", type=int, default=0,
+                        help=argparse.SUPPRESS)
     args = parser.parse_args()
     args.diagnostic_camera_pose = None
     if args.diagnostic_pose:
@@ -1389,6 +1543,8 @@ def main():
         parser.error("--diagnostic-warmup-frames must not be negative")
     if args.switch_target_after_frames < 0:
         parser.error("--switch-target-after-frames must not be negative")
+    if args.close_after_ms < 0:
+        parser.error("--close-after-ms must not be negative")
     if args.diagnostic_frames and args.diagnostic_camera_pose is None:
         parser.error("--diagnostic-frames requires --diagnostic-pose")
     if args.diagnostic_frames and args.readback:
