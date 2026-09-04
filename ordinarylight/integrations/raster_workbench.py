@@ -539,6 +539,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self._readback_pixels = None
             self._readback_qimage = None
             self.future = None
+            self.pending_renderer_updates = {}
             self.restart_pending = False
             self.presentation_failed = False
             self.executor = ThreadPoolExecutor(
@@ -697,6 +698,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             if callable(reset):
                 reset()
 
+        def enqueue_renderer_update(self, callback, *, key=None):
+            """Run a resource mutation between renderer worker submissions."""
+            token = id(callback) if key is None else key
+            self.pending_renderer_updates[token] = callback
+
         def _extension_call(self, method, *args):
             callback = getattr(self.extension, method, None)
             if callback is None:
@@ -728,6 +734,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             except Exception as error:
                 errors.append(error)
             renderer, self.renderer = self.renderer, None
+            self.pending_renderer_updates.clear()
             self.renderer_denoiser_backend = None
             if renderer is not None:
                 try:
@@ -1116,6 +1123,16 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 if self.restart_pending:
                     QtCore.QTimer.singleShot(0, self._finish_pending_restart)
                     return
+            if self.future is None and self.pending_renderer_updates:
+                updates = tuple(self.pending_renderer_updates.values())
+                self.pending_renderer_updates.clear()
+                for callback in updates:
+                    try:
+                        callback()
+                    except Exception as error:
+                        self.status.setText(
+                            f"Renderer resource update failed: {error}"
+                        )
             if (
                 self.renderer is None or self.controller is None
                 or self.presentation_failed
