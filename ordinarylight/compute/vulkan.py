@@ -102,6 +102,11 @@ class VulkanComputeSequence:
             self._prepared.append((*prepared, _workgroups(step.workgroups)))
         self._prepared = tuple(self._prepared)
         self.closed = False
+        self.runtime = getattr(context, "runtime", None)
+        if self.runtime is None and callable(getattr(context, "retain", None)):
+            self.runtime = context
+        if self.runtime is not None:
+            self.runtime.retain(self)
 
     def _memory_type(self, bits, flags):
         properties = self.vk.vkGetPhysicalDeviceMemoryProperties(self.physical_device)
@@ -320,6 +325,8 @@ class VulkanComputeSequence:
         self._prepared = ()
         self._buffers.clear()
         self.closed = True
+        if self.runtime is not None:
+            self.runtime.release(self)
 
     def __enter__(self):
         return self

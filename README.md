@@ -1838,6 +1838,12 @@ this targets indirect, reflection, and refraction noise as well.
 
 ## Render pipeline composition
 
+Application renderers can now use a standalone Vulkan runtime, resident scenes,
+ordered GPU passes, versioned transport shaders, and external-HDR output without
+constructing GI. See [renderer extension services](docs/renderer_extensions.md)
+and [the application-indexed lighting example](examples/runtime_surface_samples.py).
+
+
 ### Wavefront execution foundation
 
 The monolithic path tracer remains the active execution strategy, while the

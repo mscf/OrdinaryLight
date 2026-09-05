@@ -33,7 +33,7 @@ class ShaderAbiTests(unittest.TestCase):
 
     def test_volume_header_sources_match_compact_and_generated_forms(self):
         VOLUME_HEADER_ABI.validate_shader_source(
-            (SHADERS / "wavefront_volumes.glsl").read_text()
+            (SHADERS / "transport_v1" / "volumes.glsl").read_text()
         )
         VOLUME_HEADER_ABI.validate_shader_source(
             (SHADERS / "wavefront_shade_candidate.glsl").read_text(),

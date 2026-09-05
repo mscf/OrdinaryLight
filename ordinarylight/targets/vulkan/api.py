@@ -739,10 +739,12 @@ class _VulkanGlobalIlluminationEngine:
         "material_id", "motion",
     )
 
-    def __init__(self, device_name=None, *, config=None):
+    def __init__(self, device_name=None, *, config=None, runtime=None):
+        if runtime is not None and device_name is not None:
+            raise ValueError("A supplied runtime owns device selection")
         if config is not None and device_name is not None:
             raise ValueError("Pass device_name or config, not both")
-        self.config = config or RendererConfig(device_name=device_name)
+        self.config = config or (runtime.config if runtime is not None else RendererConfig(device_name=device_name))
         device_name = self.config.device_name
         devices = probe_vulkan_devices()
         compatible = [device for device in devices if device.supports_hardware_ray_tracing]
@@ -764,10 +766,15 @@ class _VulkanGlobalIlluminationEngine:
 
         self._core = VulkanRayQueryCore(
             config=self.config,
-            headless_surface=self.config.external_image_interop,
+            headless_surface=self.config.external_image_interop if runtime is None else False,
+            runtime=runtime,
         )
         self._output_history = None
         self._gpu_frame_slots = set()
+
+    def use_scene_resources(self, resources):
+        """Borrow a runtime.upload_scene() snapshot; caller retains ownership."""
+        self._core.use_scene_resources(resources)
 
     def reset_output_history(self):
         """Discard prior-frame state used by opt-in motion output."""
@@ -777,7 +784,7 @@ class _VulkanGlobalIlluminationEngine:
     @property
     def compute_context(self):
         """Vulkan objects shared with same-device application compute."""
-        return self._core
+        return self._core.runtime
 
     @property
     def accumulation_state(self):
@@ -1766,9 +1773,9 @@ class VulkanSurfacePresenter(VulkanGlfwPresenter):
     @property
     def compute_context(self):
         """Vulkan objects shared with same-device application compute."""
-        return self._core
+        return self._core.runtime
 
-    def __init__(self, instance, surface, device_name=None, *, config=None):
+    def __init__(self, instance, surface, device_name=None, *, config=None, runtime=None):
         from .core import VulkanRayQueryCore
         from vulkan import ffi
 
@@ -1787,11 +1794,15 @@ class VulkanSurfacePresenter(VulkanGlfwPresenter):
             except (TypeError, ValueError):
                 return value
 
-        self.config = config or RendererConfig(device_name=device_name)
+        self.config = config or (runtime.config if runtime is not None else RendererConfig(device_name=device_name))
+        instance = handle(instance, "VkInstance")
+        surface = handle(surface, "VkSurfaceKHR")
+        if runtime is not None and (runtime.instance != instance or runtime.surface != surface):
+            raise ValueError("Presenter surface must be owned by the supplied runtime")
         self._core = VulkanRayQueryCore(
-            config=self.config,
-            external_instance=handle(instance, "VkInstance"),
-            external_surface=handle(surface, "VkSurfaceKHR"),
+            config=self.config, runtime=runtime,
+            external_instance=instance if runtime is None else None,
+            external_surface=surface if runtime is None else None,
         )
         self.device_name = self._core.device_name
         self._output_history = None

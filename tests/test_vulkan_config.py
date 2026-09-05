@@ -199,8 +199,10 @@ class RendererConfigTests(unittest.TestCase):
 
     def test_gi_renderer_exposes_same_device_compute_context(self):
         backend = object.__new__(VulkanGlobalIlluminationRenderer)
-        backend._core = object()
-        self.assertIs(backend.compute_context, backend._core)
+        from types import SimpleNamespace
+        runtime = object()
+        backend._core = SimpleNamespace(runtime=runtime)
+        self.assertIs(backend.compute_context, runtime)
 
     def test_hot_reconfigure_updates_core_without_recreation(self):
         backend = object.__new__(VulkanGlobalIlluminationRenderer)

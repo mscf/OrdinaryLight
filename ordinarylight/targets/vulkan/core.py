@@ -2,15 +2,12 @@
 
 from importlib.resources import files
 import math
-import os
-from pathlib import Path
 import struct
 import time
 from types import SimpleNamespace
 
 import numpy as np
 
-from .._vulkan_version import vulkan_api_version
 
 from ...cameras import OrthographicCamera, PanoramicCamera, PerspectiveCamera
 from ...effects import (
@@ -20,6 +17,10 @@ from ...effects import (
 from ...integrations.indirect_reuse import IndirectReservoirPlan
 from ...state import AccumulationState
 import vulkan as vk
+from .scene import (
+    SceneTlasInstance as SceneTlasInstance,
+    VulkanSceneResources, VulkanSceneUploader,
+)
 
 
 DEVICE_EXTENSIONS = (
@@ -276,55 +277,6 @@ def _relax_temporal_policy(config, motion_pixels):
             config.denoiser_motion_reactive_sigma if moving else 0.0
         ),
     }
-
-
-class Buffer:
-    def __init__(self, buffer, memory, size):
-        self.buffer = buffer
-        self.memory = memory
-        self.size = size
-
-
-class AccelerationStructure:
-    def __init__(self, handle, storage, scratch=None):
-        self.handle = handle
-        self.storage = storage
-        self.scratch = scratch
-
-
-class SceneBlas:
-    """One refittable BLAS shared by instances of the same mesh resource."""
-
-    def __init__(self, structure, mesh, vertex_buffer):
-        self.structure = structure
-        self.mesh = mesh
-        self.vertex_buffer = vertex_buffer
-        self.indices = mesh.indices.copy()
-        self.vertices = mesh.vertices.copy()
-
-
-class SceneTlasInstance:
-    """One TLAS placement and its global packed-triangle offset."""
-
-    def __init__(self, mesh, blas, triangle_offset):
-        self.mesh = mesh
-        self.blas = blas
-        self.triangle_offset = triangle_offset
-        # Volume bounds are ray-entry proxies, not opaque surfaces.  Keep them
-        # in a separate visibility group so path rays can enter volumes while
-        # binary surface-shadow queries do not mistake the proxy box for an
-        # occluder.
-        self.visibility_mask = (
-            0x02 if mesh.metadata.get("volume_index") is not None else 0x01
-        )
-
-
-class SampledTexture:
-    def __init__(self, image, memory, view, sampler):
-        self.image = image
-        self.memory = memory
-        self.view = view
-        self.sampler = sampler
 
 
 class VulkanWavefrontExecutor:
@@ -4086,93 +4038,7 @@ class VulkanWavefrontExecutor:
                 vk.vkDestroyDescriptorSetLayout(device, layout, None)
 
 
-class VulkanSceneResources:
-    """Owns one uploaded scene's buffers and acceleration structures."""
-
-    def __init__(self, core, scene):
-        self._core = core
-        self.scene = scene
-        self.scene_revision = scene.revision
-        self.geometry_revision = scene.geometry_revision
-        self.shading_revision = scene.shading_revision
-        self.transform_revision = scene.transform_revision
-        self.previous_transform_revision = scene.transform_revision
-        self.texture_signature = tuple(id(item) for item in scene.textures)
-        buffer_start = len(core._buffers)
-        structure_start = len(core._structures)
-        texture_start = len(core._sampled_textures)
-        try:
-            self.tlas = core._build_scene(scene)
-        except Exception:
-            core._release_resources(
-                core._structures[structure_start:], core._buffers[buffer_start:]
-            )
-            core._release_sampled_textures(core._sampled_textures[texture_start:])
-            del core._structures[structure_start:]
-            del core._buffers[buffer_start:]
-            del core._sampled_textures[texture_start:]
-            raise
-        self.vertex_buffer = core.scene_vertex_buffer
-        self.previous_vertex_buffer = core.scene_previous_vertex_buffer
-        positions = scene.render_triangles().reshape((-1, 3))
-        self.vertex_data = np.ascontiguousarray(
-            np.column_stack((positions, np.ones(len(positions), np.float32))),
-            dtype=np.float32,
-        )
-        self.material_buffer = core.scene_material_buffer
-        self.light_buffer = core.scene_light_buffer
-        self.area_light_buffer = core.scene_area_light_buffer
-        self.attribute_buffer = core.scene_attribute_buffer
-        self.custom_attribute_buffer = core.scene_custom_attribute_buffer
-        self.custom_attribute_layout = core.scene_custom_attribute_layout
-        self.texture_buffer = core.scene_texture_buffer
-        self.texture_binding_buffer = core.scene_texture_binding_buffer
-        self.volume_header_buffer = core.scene_volume_header_buffer
-        self.volume_scalar_buffer = core.scene_volume_scalar_buffer
-        self.volume_transfer_buffer = core.scene_volume_transfer_buffer
-        self.triangle_volume_buffer = core.scene_triangle_volume_buffer
-        self.volume_empty_space_skipping = (
-            core.scene_volume_empty_space_skipping
-        )
-        self.sampled_textures = tuple(core._sampled_textures[texture_start:])
-        self.scene_sampled_textures = tuple(core.scene_sampled_textures)
-        self.scene_sampled_volumes = tuple(core.scene_sampled_volumes)
-        self.volume_signature = tuple(
-            (id(volume), volume.shape, volume.visible)
-            for volume in scene.volumes
-        )
-        self.volume_data_revisions = tuple(
-            volume.data_revision for volume in scene.visible_volumes
-        )
-        self.volume_dirty_counts = tuple(
-            len(volume.dirty_regions) for volume in scene.visible_volumes
-        )
-        self.volume_gpu_revisions = tuple(
-            getattr(volume.gpu_source, "revision", None)
-            for volume in scene.visible_volumes
-        )
-        self.blases = tuple(core.scene_blases)
-        self.instances = tuple(core.scene_instances)
-        self.instance_buffer = core.scene_instance_buffer
-        self._structures = core._structures[structure_start:]
-        self._buffers = core._buffers[buffer_start:]
-        self._sampled_textures = core._sampled_textures[texture_start:]
-        del core._structures[structure_start:]
-        del core._buffers[buffer_start:]
-        del core._sampled_textures[texture_start:]
-
-    def close(self):
-        if self._core is None:
-            return
-        self._core._release_resources(self._structures, self._buffers)
-        self._core._release_sampled_textures(self._sampled_textures)
-        self._structures.clear()
-        self._buffers.clear()
-        self._sampled_textures.clear()
-        self._core = None
-
-
-class VulkanRayQueryCore:
+class VulkanRayQueryCore(VulkanSceneUploader):
     """Owns Vulkan resources for a minimal triangle ray-query renderer."""
 
     def _use_opaque_scene_specialization(self, scene):
@@ -4211,7 +4077,10 @@ class VulkanRayQueryCore:
     def __init__(
         self, device_name=None, glfw_window=None, config=None, *,
         external_instance=None, external_surface=None, headless_surface=False,
+        runtime=None,
     ):
+        if config is None and runtime is not None:
+            config = runtime.config
         if config is None:
             from .api import RendererConfig
             config = RendererConfig(device_name=device_name)
@@ -4339,6 +4208,7 @@ class VulkanRayQueryCore:
         self.scene_sampled_textures = []
         self.scene_sampled_volumes = []
         self.scene_resources = None
+        self._borrowed_scene_resources = None
         self.wavefront_executor = None
         self.instance = None
         self.device = None
@@ -4404,14 +4274,45 @@ class VulkanRayQueryCore:
         self.last_timings = {}
         self.wavefront_last_frame_start = None
         self.wavefront_cadence_ms = 0.0
+        from ...runtime.vulkan import VulkanRuntime
+        self.runtime = runtime
+        self._owns_runtime = runtime is None
         try:
-            self._create_instance_and_device(config.device_name)
-            self._load_extension_functions()
-            self._create_command_pool()
+            if runtime is None:
+                runtime = VulkanRuntime(
+                    config=config, glfw_window=glfw_window,
+                    external_instance=external_instance,
+                    external_surface=external_surface,
+                    headless_surface=headless_surface,
+                )
+                self.runtime = runtime
+            else:
+                runtime.require_open()
+                if config.device_name and config.device_name.lower() not in runtime.device_name.lower():
+                    raise ValueError("Renderer device selection differs from its supplied runtime")
+                if config.external_image_interop and not runtime.capabilities.external_memory:
+                    raise ValueError("Runtime did not enable external image interop")
+                if glfw_window is not None or external_instance is not None or headless_surface:
+                    raise ValueError("A supplied runtime owns its surface and interop mode")
+                for name in ("wavefront_ser", "wavefront_native_textures",
+                             "wavefront_pipeline_statistics"):
+                    if getattr(config, name) and not getattr(runtime.config, name):
+                        raise ValueError(f"Runtime did not enable {name}")
+            runtime.retain(self)
+            # Device services belong to the runtime; frame resources remain local.
+            for name, value in vars(runtime).items():
+                if name not in {"config", "lock", "_consumers", "_closed"}:
+                    setattr(self, name, value)
             self._create_pipeline()
         except Exception:
             self.close()
             raise
+
+    def __getattr__(self, name):
+        runtime = self.__dict__.get("runtime")
+        if runtime is not None:
+            return getattr(runtime, name)
+        raise AttributeError(name)
 
     @staticmethod
     def _name(properties):
@@ -4463,553 +4364,6 @@ class VulkanRayQueryCore:
         for frame in self.window_frames:
             frame["wavefront_command_key"] = None
         return True
-
-    def _create_instance_and_device(self, requested_name):
-        instance_extensions = []
-        if self.glfw_window is not None:
-            import glfw
-            instance_extensions = glfw.get_required_instance_extensions()
-        elif self._headless_surface:
-            instance_extensions = [
-                *EXTERNAL_INTEROP_INSTANCE_EXTENSIONS,
-            ]
-            available = {
-                str(item.extensionName).split("\0", 1)[0]
-                for item in vk.vkEnumerateInstanceExtensionProperties(None)
-            }
-            missing = set(instance_extensions) - available
-            if missing:
-                raise RuntimeError(
-                    "Vulkan GPU interop requires unavailable instance "
-                    f"extensions: {sorted(missing)}"
-                )
-        app = vk.VkApplicationInfo(
-            sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            pApplicationName="Ordinary Light",
-            applicationVersion=vk.VK_MAKE_VERSION(0, 1, 0),
-            pEngineName="Ordinary Light",
-            engineVersion=vk.VK_MAKE_VERSION(0, 1, 0),
-            apiVersion=vulkan_api_version(vk),
-        )
-        if self._external_instance is None:
-            self.instance = vk.vkCreateInstance(
-                vk.VkInstanceCreateInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-                    pApplicationInfo=app,
-                    enabledExtensionCount=len(instance_extensions),
-                    ppEnabledExtensionNames=instance_extensions,
-                ),
-                None,
-            )
-        else:
-            self.instance = self._external_instance
-
-        if self._external_surface is not None:
-            self.surface = self._external_surface
-        elif self.glfw_window is not None:
-            import glfw
-            surface_pointer = vk.ffi.new("VkSurfaceKHR*")
-            result = glfw.create_window_surface(
-                self.instance, self.glfw_window, None, surface_pointer
-            )
-            if result != vk.VK_SUCCESS:
-                raise RuntimeError(f"GLFW Vulkan surface creation failed: {result}")
-            self.surface = surface_pointer[0]
-        if self.surface is not None:
-            self.get_surface_support = vk.vkGetInstanceProcAddr(
-                self.instance, "vkGetPhysicalDeviceSurfaceSupportKHR"
-            )
-
-        candidates = []
-        for physical in vk.vkEnumeratePhysicalDevices(self.instance):
-            properties = vk.vkGetPhysicalDeviceProperties(physical)
-            name = self._name(properties)
-            extensions = {
-                str(item.extensionName).split("\0", 1)[0]
-                for item in vk.vkEnumerateDeviceExtensionProperties(physical, None)
-            }
-            required_extensions = set(DEVICE_EXTENSIONS)
-            if self._headless_surface:
-                required_extensions.update(EXTERNAL_INTEROP_DEVICE_EXTENSIONS)
-            if self.surface is not None:
-                required_extensions.add("VK_KHR_swapchain")
-            if not required_extensions.issubset(extensions):
-                continue
-            if properties.deviceType not in (
-                vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
-                vk.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU,
-            ):
-                continue
-            if requested_name and requested_name.lower() not in name.lower():
-                continue
-            queue_families = vk.vkGetPhysicalDeviceQueueFamilyProperties(physical)
-            queue_index = next(
-                (
-                    index for index, family in enumerate(queue_families)
-                    if family.queueFlags & vk.VK_QUEUE_COMPUTE_BIT
-                    and (self.surface is None or self.get_surface_support(physical, index, self.surface))
-                ),
-                None,
-            )
-            if queue_index is None:
-                continue
-            candidates.append((properties.deviceType, physical, name, queue_index, extensions))
-        if not candidates:
-            raise RuntimeError("No hardware Vulkan adapter supports acceleration structures and ray queries")
-        candidates.sort(key=lambda item: item[0] != vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-        (
-            _, self.physical_device, self.device_name, self.queue_family,
-            device_extensions,
-        ) = candidates[0]
-        selected_properties = vk.vkGetPhysicalDeviceProperties(self.physical_device)
-        id_properties = vk.VkPhysicalDeviceIDProperties()
-        vk.vkGetPhysicalDeviceProperties2(
-            self.physical_device,
-            vk.VkPhysicalDeviceProperties2(pNext=id_properties),
-        )
-        self.device_uuid = bytes(id_properties.deviceUUID).hex()
-        self.timestamp_period = selected_properties.limits.timestampPeriod
-        if self.surface is not None and selected_properties.limits.maxPushConstantsSize < 160:
-            raise RuntimeError(
-                "Temporal window rendering requires 160 bytes of Vulkan push constants; "
-                f"this adapter supports {selected_properties.limits.maxPushConstantsSize}"
-            )
-        queue_info = vk.VkDeviceQueueCreateInfo(
-            sType=vk.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-            queueFamilyIndex=self.queue_family,
-            queueCount=1,
-            pQueuePriorities=[1.0],
-        )
-        ray_query = vk.VkPhysicalDeviceRayQueryFeaturesKHR(
-            sType=vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
-            rayQuery=vk.VK_TRUE,
-        )
-        acceleration = vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR(
-            sType=vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-            pNext=ray_query,
-            accelerationStructure=vk.VK_TRUE,
-        )
-        feature_chain = acceleration
-        ray_pipeline_extension = "VK_KHR_ray_tracing_pipeline"
-        ser_extension = "VK_NV_ray_tracing_invocation_reorder"
-        if ray_pipeline_extension in device_extensions:
-            queried_ray_pipeline = vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR()
-            vk.vkGetPhysicalDeviceFeatures2(
-                self.physical_device,
-                vk.VkPhysicalDeviceFeatures2(pNext=queried_ray_pipeline),
-            )
-            self.ray_pipeline_supported = bool(
-                queried_ray_pipeline.rayTracingPipeline
-            )
-        if self.ray_pipeline_supported and ser_extension in device_extensions:
-            queried_ser = (
-                vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV()
-            )
-            vk.vkGetPhysicalDeviceFeatures2(
-                self.physical_device,
-                vk.VkPhysicalDeviceFeatures2(pNext=queried_ser),
-            )
-            self.ser_supported = bool(
-                queried_ser.rayTracingInvocationReorder
-            )
-            if self.ser_supported:
-                ser_properties = (
-                    vk.VkPhysicalDeviceRayTracingInvocationReorderPropertiesNV()
-                )
-                vk.vkGetPhysicalDeviceProperties2(
-                    self.physical_device,
-                    vk.VkPhysicalDeviceProperties2(pNext=ser_properties),
-                )
-                self.ser_reordering_supported = bool(
-                    ser_properties.rayTracingInvocationReorderReorderingHint
-                    == vk.VK_RAY_TRACING_INVOCATION_REORDER_MODE_REORDER_NV
-                )
-        self.ray_pipeline_enabled = bool(
-            self.ray_pipeline_supported and self.config.wavefront_ser
-        )
-        if self.ray_pipeline_enabled:
-            ray_pipeline_properties = vk.VkPhysicalDeviceRayTracingPipelinePropertiesKHR()
-            vk.vkGetPhysicalDeviceProperties2(
-                self.physical_device,
-                vk.VkPhysicalDeviceProperties2(pNext=ray_pipeline_properties),
-            )
-            self.ray_tracing_shader_group_handle_size = int(
-                ray_pipeline_properties.shaderGroupHandleSize
-            )
-            self.ray_tracing_shader_group_handle_alignment = int(
-                ray_pipeline_properties.shaderGroupHandleAlignment
-            )
-            self.ray_tracing_shader_group_base_alignment = int(
-                ray_pipeline_properties.shaderGroupBaseAlignment
-            )
-            ray_pipeline = vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR(
-                pNext=feature_chain,
-                rayTracingPipeline=vk.VK_TRUE,
-            )
-            feature_chain = ray_pipeline
-        if self.ser_supported and self.config.wavefront_ser:
-            ser_features = (
-                vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV(
-                    pNext=feature_chain,
-                    rayTracingInvocationReorder=vk.VK_TRUE,
-                )
-            )
-            feature_chain = ser_features
-        descriptor_features = vk.VkPhysicalDeviceVulkan12Features(
-            sType=vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
-        )
-        vk.vkGetPhysicalDeviceFeatures2(
-            self.physical_device,
-            vk.VkPhysicalDeviceFeatures2(pNext=descriptor_features),
-        )
-        self.native_textures_supported = bool(
-            descriptor_features.shaderSampledImageArrayNonUniformIndexing
-            and selected_properties.limits.maxPerStageDescriptorSampledImages
-                >= MAX_NATIVE_TEXTURES * 2
-            and selected_properties.limits.maxDescriptorSetSampledImages
-                >= MAX_NATIVE_TEXTURES * 2
-        )
-        if self.config.wavefront_native_textures and self.native_textures_supported:
-            descriptor_indexing = vk.VkPhysicalDeviceVulkan12Features(
-                sType=vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-                pNext=feature_chain,
-                shaderSampledImageArrayNonUniformIndexing=vk.VK_TRUE,
-            )
-            feature_chain = descriptor_indexing
-        pipeline_statistics_extension = (
-            "VK_KHR_pipeline_executable_properties"
-        )
-        if self.config.wavefront_pipeline_statistics:
-            if pipeline_statistics_extension not in device_extensions:
-                raise RuntimeError(
-                    "Vulkan device does not support pipeline executable statistics"
-                )
-            queried_pipeline_statistics = (
-                vk.VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR()
-            )
-            vk.vkGetPhysicalDeviceFeatures2(
-                self.physical_device,
-                vk.VkPhysicalDeviceFeatures2(
-                    pNext=queried_pipeline_statistics
-                ),
-            )
-            if not queried_pipeline_statistics.pipelineExecutableInfo:
-                raise RuntimeError(
-                    "Vulkan device reports pipeline executable statistics disabled"
-                )
-            pipeline_statistics = (
-                vk.VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR(
-                    pNext=feature_chain, pipelineExecutableInfo=vk.VK_TRUE
-                )
-            )
-            feature_chain = pipeline_statistics
-            self.pipeline_statistics_supported = True
-        present_extensions = {"VK_KHR_present_id", "VK_KHR_present_wait"}
-        if self.surface is not None and present_extensions.issubset(device_extensions):
-            queried_wait = vk.VkPhysicalDevicePresentWaitFeaturesKHR()
-            queried_id = vk.VkPhysicalDevicePresentIdFeaturesKHR(pNext=queried_wait)
-            vk.vkGetPhysicalDeviceFeatures2(
-                self.physical_device,
-                vk.VkPhysicalDeviceFeatures2(pNext=queried_id),
-            )
-            self.present_wait_supported = bool(
-                queried_id.presentId and queried_wait.presentWait
-            )
-            if self.present_wait_supported:
-                present_wait = vk.VkPhysicalDevicePresentWaitFeaturesKHR(
-                    pNext=feature_chain,
-                    presentWait=vk.VK_TRUE,
-                )
-                feature_chain = vk.VkPhysicalDevicePresentIdFeaturesKHR(
-                    pNext=present_wait,
-                    presentId=vk.VK_TRUE,
-                )
-        buffer_address = vk.VkPhysicalDeviceBufferDeviceAddressFeatures(
-            sType=vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
-            pNext=feature_chain,
-            bufferDeviceAddress=vk.VK_TRUE,
-        )
-        enabled_device_extensions = list(DEVICE_EXTENSIONS)
-        if self._headless_surface:
-            enabled_device_extensions.extend(EXTERNAL_INTEROP_DEVICE_EXTENSIONS)
-        if self.ray_pipeline_enabled:
-            enabled_device_extensions.append(ray_pipeline_extension)
-        if self.ser_supported and self.config.wavefront_ser:
-            enabled_device_extensions.append(ser_extension)
-        if self.pipeline_statistics_supported:
-            enabled_device_extensions.append(pipeline_statistics_extension)
-        if self.surface is not None:
-            enabled_device_extensions.append("VK_KHR_swapchain")
-            if self.present_wait_supported:
-                enabled_device_extensions.extend(sorted(present_extensions))
-        self.present_pacing_enabled = (
-            self.present_wait_supported
-            and self.config.present_pacing
-        )
-        physical_features = vk.vkGetPhysicalDeviceFeatures(self.physical_device)
-        self.formatless_storage_write_supported = bool(
-            physical_features.shaderStorageImageWriteWithoutFormat
-        )
-        enabled_features = vk.VkPhysicalDeviceFeatures(
-            shaderStorageImageWriteWithoutFormat=(
-                vk.VK_TRUE
-                if self.formatless_storage_write_supported
-                else vk.VK_FALSE
-            ),
-        )
-        device_info = vk.VkDeviceCreateInfo(
-            sType=vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            pNext=buffer_address,
-            pEnabledFeatures=enabled_features,
-            queueCreateInfoCount=1,
-            pQueueCreateInfos=[queue_info],
-            enabledExtensionCount=len(enabled_device_extensions),
-            ppEnabledExtensionNames=enabled_device_extensions,
-        )
-        self.device = vk.vkCreateDevice(self.physical_device, device_info, None)
-        self.queue = vk.vkGetDeviceQueue(self.device, self.queue_family, 0)
-        self.memory_properties = vk.vkGetPhysicalDeviceMemoryProperties(self.physical_device)
-        self._create_pipeline_cache()
-
-    def _resolved_pipeline_cache_path(self):
-        configured = self.config.vulkan_pipeline_cache_path
-        if configured is not None:
-            return Path(configured).expanduser()
-        cache_root = os.environ.get("XDG_CACHE_HOME")
-        if cache_root:
-            root = Path(cache_root)
-        else:
-            root = Path.home() / ".cache"
-        return root / "ordinarylight" / "vulkan" / f"{self.device_uuid}.bin"
-
-    def _create_pipeline_cache(self):
-        if not self.config.vulkan_pipeline_cache:
-            return
-        path = self._resolved_pipeline_cache_path()
-        initial = b""
-        try:
-            initial = path.read_bytes()
-        except (FileNotFoundError, OSError):
-            pass
-        initial_buffer = (
-            vk.ffi.new("uint8_t[]", initial) if initial else None
-        )
-        create_info = vk.VkPipelineCacheCreateInfo(
-            sType=vk.VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-            initialDataSize=len(initial),
-            pInitialData=(
-                vk.ffi.cast("void *", initial_buffer)
-                if initial_buffer is not None else None
-            ),
-        )
-        try:
-            self.pipeline_cache = vk.vkCreatePipelineCache(
-                self.device, create_info, None
-            )
-        except Exception:
-            # Driver updates may invalidate opaque cache data. Rebuild from an
-            # empty cache rather than making renderer construction fail.
-            self.pipeline_cache = vk.vkCreatePipelineCache(
-                self.device,
-                vk.VkPipelineCacheCreateInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-                ),
-                None,
-            )
-        self.pipeline_cache_path = path
-
-    def _save_pipeline_cache(self):
-        if self.pipeline_cache is None or self.pipeline_cache_path is None:
-            return
-        try:
-            size = vk.ffi.new("size_t *")
-            result = vk.lib.vkGetPipelineCacheData(
-                self.device, self.pipeline_cache, size, vk.ffi.NULL
-            )
-            if result != vk.VK_SUCCESS or size[0] == 0:
-                return
-            data = vk.ffi.new("uint8_t[]", size[0])
-            result = vk.lib.vkGetPipelineCacheData(
-                self.device, self.pipeline_cache, size, data
-            )
-            if result != vk.VK_SUCCESS:
-                return
-            path = self.pipeline_cache_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-            temporary.write_bytes(bytes(vk.ffi.buffer(data, size[0])))
-            os.replace(temporary, path)
-        except Exception:
-            # Caching is an optimization; read-only homes and containers must
-            # remain fully supported, and cache persistence must never make
-            # renderer shutdown fail.
-            return
-
-    def _load_extension_functions(self):
-        self.create_as = vk.vkGetDeviceProcAddr(self.device, "vkCreateAccelerationStructureKHR")
-        self.destroy_as = vk.vkGetDeviceProcAddr(self.device, "vkDestroyAccelerationStructureKHR")
-        self.build_as = vk.vkGetDeviceProcAddr(self.device, "vkCmdBuildAccelerationStructuresKHR")
-        self.get_as_sizes = vk.vkGetDeviceProcAddr(self.device, "vkGetAccelerationStructureBuildSizesKHR")
-        self.get_pipeline_executables = None
-        self.get_pipeline_statistics = None
-        self.get_memory_fd = None
-        self.get_semaphore_fd = None
-        if self._headless_surface:
-            self.get_memory_fd = vk.ffi.cast(
-                "PFN_vkGetMemoryFdKHR",
-                vk.lib.vkGetDeviceProcAddr(self.device, b"vkGetMemoryFdKHR"),
-            )
-            self.get_semaphore_fd = vk.ffi.cast(
-                "PFN_vkGetSemaphoreFdKHR",
-                vk.lib.vkGetDeviceProcAddr(self.device, b"vkGetSemaphoreFdKHR"),
-            )
-        self.create_ray_tracing_pipelines = None
-        self.cmd_trace_rays = None
-        self.get_ray_tracing_shader_group_handles = None
-        if self.ray_pipeline_enabled:
-            raw_trace_rays = vk.lib.vkGetDeviceProcAddr(
-                self.device, b"vkCmdTraceRaysKHR"
-            )
-            self.cmd_trace_rays = vk.ffi.cast(
-                "PFN_vkCmdTraceRaysKHR", raw_trace_rays
-            )
-            for attribute, function_name in (
-                ("create_ray_tracing_pipelines",
-                 "vkCreateRayTracingPipelinesKHR"),
-                ("get_ray_tracing_shader_group_handles",
-                 "vkGetRayTracingShaderGroupHandlesKHR"),
-            ):
-                setattr(
-                    self, attribute,
-                    vk.vkGetDeviceProcAddr(self.device, function_name),
-                )
-        if self.pipeline_statistics_supported:
-            raw_properties = vk.lib.vkGetDeviceProcAddr(
-                self.device, b"vkGetPipelineExecutablePropertiesKHR"
-            )
-            raw_statistics = vk.lib.vkGetDeviceProcAddr(
-                self.device, b"vkGetPipelineExecutableStatisticsKHR"
-            )
-            self.get_pipeline_executables = vk.ffi.cast(
-                "PFN_vkGetPipelineExecutablePropertiesKHR", raw_properties
-            )
-            self.get_pipeline_statistics = vk.ffi.cast(
-                "PFN_vkGetPipelineExecutableStatisticsKHR", raw_statistics
-            )
-
-        raw_buffer_address = vk.lib.vkGetDeviceProcAddr(self.device, b"vkGetBufferDeviceAddress")
-        self._raw_buffer_address = vk.ffi.cast("PFN_vkGetBufferDeviceAddress", raw_buffer_address)
-        raw_as_address = vk.lib.vkGetDeviceProcAddr(
-            self.device, b"vkGetAccelerationStructureDeviceAddressKHR"
-        )
-        self._raw_as_address = vk.ffi.cast(
-            "PFN_vkGetAccelerationStructureDeviceAddressKHR", raw_as_address
-        )
-        if self.surface is not None:
-            self.get_surface_capabilities = vk.vkGetInstanceProcAddr(
-                self.instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"
-            )
-            self.get_surface_formats = vk.vkGetInstanceProcAddr(
-                self.instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"
-            )
-            self.get_surface_present_modes = vk.vkGetInstanceProcAddr(
-                self.instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"
-            )
-            self.create_swapchain = vk.vkGetDeviceProcAddr(
-                self.device, "vkCreateSwapchainKHR"
-            )
-            self.destroy_swapchain = vk.vkGetDeviceProcAddr(
-                self.device, "vkDestroySwapchainKHR"
-            )
-            self.get_swapchain_images = vk.vkGetDeviceProcAddr(
-                self.device, "vkGetSwapchainImagesKHR"
-            )
-            self.acquire_next_image = vk.vkGetDeviceProcAddr(
-                self.device, "vkAcquireNextImageKHR"
-            )
-            self.queue_present = vk.vkGetDeviceProcAddr(
-                self.device, "vkQueuePresentKHR"
-            )
-            if self.present_wait_supported:
-                raw_wait_for_present = vk.lib.vkGetDeviceProcAddr(
-                    self.device, b"vkWaitForPresentKHR"
-                )
-                self.wait_for_present = vk.ffi.cast(
-                    "VkResult(*)(VkDevice, VkSwapchainKHR, uint64_t, uint64_t)",
-                    raw_wait_for_present,
-                )
-
-    def query_pipeline_statistics(self, pipeline):
-        """Return executable statistics captured for one diagnostic pipeline."""
-        if not self.pipeline_statistics_supported:
-            return []
-        pipeline_info = vk.VkPipelineInfoKHR(pipeline=pipeline)
-        executable_count = vk.ffi.new("uint32_t *")
-        self.get_pipeline_executables(
-            self.device, vk.ffi.addressof(pipeline_info), executable_count,
-            vk.ffi.NULL,
-        )
-        properties = vk.ffi.new(
-            "VkPipelineExecutablePropertiesKHR[]", executable_count[0]
-        )
-        for item in properties:
-            item.sType = vk.VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR
-        self.get_pipeline_executables(
-            self.device, vk.ffi.addressof(pipeline_info), executable_count,
-            properties,
-        )
-        results = []
-        for index in range(executable_count[0]):
-            executable_info = vk.VkPipelineExecutableInfoKHR(
-                pipeline=pipeline, executableIndex=index
-            )
-            statistic_count = vk.ffi.new("uint32_t *")
-            self.get_pipeline_statistics(
-                self.device, vk.ffi.addressof(executable_info),
-                statistic_count, vk.ffi.NULL,
-            )
-            statistics = vk.ffi.new(
-                "VkPipelineExecutableStatisticKHR[]", statistic_count[0]
-            )
-            for statistic in statistics:
-                statistic.sType = (
-                    vk.VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR
-                )
-            self.get_pipeline_statistics(
-                self.device, vk.ffi.addressof(executable_info),
-                statistic_count, statistics,
-            )
-            values = {}
-            for statistic in statistics:
-                if statistic.format == vk.VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:
-                    value = bool(statistic.value.b32)
-                elif statistic.format == vk.VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
-                    value = int(statistic.value.i64)
-                elif statistic.format == vk.VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:
-                    value = int(statistic.value.u64)
-                else:
-                    value = float(statistic.value.f64)
-                name = vk.ffi.string(statistic.name).decode("utf-8")
-                values[name] = value
-            results.append({
-                "name": vk.ffi.string(properties[index].name).decode("utf-8"),
-                "description": vk.ffi.string(
-                    properties[index].description
-                ).decode("utf-8"),
-                "statistics": values,
-            })
-        return results
-
-    def _create_command_pool(self):
-        self.command_pool = vk.vkCreateCommandPool(
-            self.device,
-            vk.VkCommandPoolCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-                flags=vk.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                queueFamilyIndex=self.queue_family,
-            ),
-            None,
-        )
 
     def _create_pipeline(self):
         image_output = self.surface is not None or self._headless_surface
@@ -5341,1077 +4695,6 @@ class VulkanRayQueryCore:
         return programs, default_program
 
     @staticmethod
-    def _material_attribute_layout(scene, programs, material_modifier=None):
-        """Return the opt-in custom vertex ABI required by material programs."""
-        requirements = {}
-        ordered_names = []
-        for program in programs:
-            for name, components in program.required_attributes:
-                previous = requirements.get(name)
-                if previous is not None and previous != components:
-                    raise ValueError(
-                        f"attribute {name!r} has conflicting material declarations"
-                    )
-                if previous is None:
-                    ordered_names.append(name)
-                requirements[name] = components
-        from ...scene import VertexAttributeLayout
-        if not ordered_names:
-            from ...materials import builtin_material
-            return (
-                None if (
-                    all(program is builtin_material for program in programs)
-                    and material_modifier is None
-                )
-                else VertexAttributeLayout(())
-            )
-        layout = VertexAttributeLayout.from_scene(scene, ordered_names)
-        for name, components in layout.channels:
-            if requirements[name] != components:
-                raise ValueError(
-                    f"mesh attribute {name!r} has {components} components; "
-                    f"material requires {requirements[name]}"
-                )
-        return layout
-
-    def _memory_type(self, bits, flags):
-        for index in range(self.memory_properties.memoryTypeCount):
-            memory_type = self.memory_properties.memoryTypes[index]
-            if bits & (1 << index) and memory_type.propertyFlags & flags == flags:
-                return index
-        raise RuntimeError(f"No Vulkan memory type satisfies flags {flags:#x}")
-
-    def _create_buffer(self, size, usage, memory_flags, data=None, device_address=False):
-        buffer = vk.vkCreateBuffer(
-            self.device,
-            vk.VkBufferCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                size=size,
-                usage=usage,
-                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
-            ),
-            None,
-        )
-        requirements = vk.vkGetBufferMemoryRequirements(self.device, buffer)
-        allocation_flags = None
-        if device_address:
-            allocation_flags = vk.VkMemoryAllocateFlagsInfo(
-                sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-                flags=MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
-            )
-        try:
-            memory = vk.vkAllocateMemory(
-                self.device,
-                vk.VkMemoryAllocateInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                    pNext=allocation_flags,
-                    allocationSize=requirements.size,
-                    memoryTypeIndex=self._memory_type(
-                        requirements.memoryTypeBits, memory_flags),
-                ),
-                None,
-            )
-        except vk.VkErrorOutOfDeviceMemory:
-            vk.vkDestroyBuffer(self.device, buffer, None)
-            raise
-        vk.vkBindBufferMemory(self.device, buffer, memory, 0)
-        result = Buffer(buffer, memory, size)
-        self._buffers.append(result)
-        if data is not None:
-            payload = memoryview(data).cast("B") if not isinstance(data, bytes) else data
-            mapped = vk.vkMapMemory(self.device, memory, 0, len(payload), 0)
-            mapped[:] = payload
-            vk.vkUnmapMemory(self.device, memory)
-        return result
-
-    def _create_exportable_buffer(self, size, usage, memory_flags):
-        """Create a dedicated opaque-FD exportable buffer allocation."""
-        external_info = vk.VkExternalMemoryBufferCreateInfo(
-            handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-        )
-        buffer = vk.vkCreateBuffer(
-            self.device,
-            vk.VkBufferCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                pNext=external_info,
-                size=size, usage=usage,
-                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
-            ), None,
-        )
-        requirements = vk.vkGetBufferMemoryRequirements(self.device, buffer)
-        export_info = vk.VkExportMemoryAllocateInfo(
-            handleTypes=vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-        )
-        dedicated_info = vk.VkMemoryDedicatedAllocateInfo(
-            pNext=export_info, image=vk.VK_NULL_HANDLE, buffer=buffer,
-        )
-        try:
-            memory = vk.vkAllocateMemory(
-                self.device,
-                vk.VkMemoryAllocateInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                    pNext=dedicated_info,
-                    allocationSize=requirements.size,
-                    memoryTypeIndex=self._memory_type(
-                        requirements.memoryTypeBits, memory_flags,
-                    ),
-                ), None,
-            )
-        except Exception:
-            vk.vkDestroyBuffer(self.device, buffer, None)
-            raise
-        vk.vkBindBufferMemory(self.device, buffer, memory, 0)
-        result = Buffer(buffer, memory, int(requirements.size))
-        self._buffers.append(result)
-        return result
-
-    def _create_uploaded_device_buffer(
-        self, data, usage, *, device_address=False,
-    ):
-        """Stage immutable data into shader-fast device-local storage."""
-        payload = np.ascontiguousarray(data)
-        staging = self._create_buffer(
-            payload.nbytes,
-            vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-            | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            data=payload,
-        )
-        destination = self._create_buffer(
-            payload.nbytes,
-            usage | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            device_address=device_address,
-        )
-        self._single_use(lambda command: vk.vkCmdCopyBuffer(
-            command, staging.buffer, destination.buffer, 1,
-            [vk.VkBufferCopy(srcOffset=0, dstOffset=0, size=payload.nbytes)],
-        ))
-        vk.vkDestroyBuffer(self.device, staging.buffer, None)
-        vk.vkFreeMemory(self.device, staging.memory, None)
-        self._buffers.remove(staging)
-        return destination
-
-    def _update_device_buffers(self, updates):
-        """Replace equal-sized device-local buffer contents in one submission."""
-        prepared = []
-        for destination, data in updates:
-            payload = np.ascontiguousarray(data)
-            if payload.nbytes != destination.size:
-                raise ValueError("updated buffer data must retain its byte size")
-            staging = self._create_buffer(
-                payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                data=payload,
-            )
-            prepared.append((staging, destination, payload.nbytes))
-        try:
-            self._single_use(lambda command: [
-                vk.vkCmdCopyBuffer(
-                    command, staging.buffer, destination.buffer, 1,
-                    [vk.VkBufferCopy(srcOffset=0, dstOffset=0, size=size)],
-                )
-                for staging, destination, size in prepared
-            ])
-        finally:
-            for staging, _destination, _size in prepared:
-                vk.vkDestroyBuffer(self.device, staging.buffer, None)
-                vk.vkFreeMemory(self.device, staging.memory, None)
-                self._buffers.remove(staging)
-
-    def _update_device_buffer_regions(self, destination, regions):
-        """Replace byte ranges of one device-local buffer in one submission."""
-        prepared = []
-        for offset, data in regions:
-            payload = np.ascontiguousarray(data)
-            offset = int(offset)
-            if offset < 0 or offset + payload.nbytes > destination.size:
-                raise ValueError("updated buffer region lies outside destination")
-            staging = self._create_buffer(
-                payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                data=payload,
-            )
-            prepared.append((staging, offset, payload.nbytes))
-        try:
-            self._single_use(lambda command: [
-                vk.vkCmdCopyBuffer(
-                    command, staging.buffer, destination.buffer, 1,
-                    [vk.VkBufferCopy(
-                        srcOffset=0, dstOffset=offset, size=size,
-                    )],
-                )
-                for staging, offset, size in prepared
-            ])
-        finally:
-            for staging, _offset, _size in prepared:
-                vk.vkDestroyBuffer(self.device, staging.buffer, None)
-                vk.vkFreeMemory(self.device, staging.memory, None)
-                self._buffers.remove(staging)
-
-    def _update_sampled_volume_regions(self, texture, volume, regions):
-        """Upload z/y/x boxes into an existing shader-readable 3-D image."""
-        prepared = []
-        scalar_data = volume.data
-        for offset, shape in regions:
-            stop = tuple(start + size for start, size in zip(offset, shape))
-            payload = np.ascontiguousarray(scalar_data[
-                offset[0]:stop[0], offset[1]:stop[1], offset[2]:stop[2]
-            ], np.float32)
-            staging = self._create_buffer(
-                payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                data=payload,
-            )
-            prepared.append((staging, offset, shape))
-        subresource = vk.VkImageSubresourceRange(
-            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
-        )
-
-        def upload(command):
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=texture.image, subresourceRange=subresource,
-                )],
-            )
-            for staging, offset, shape in prepared:
-                vk.vkCmdCopyBufferToImage(
-                    command, staging.buffer, texture.image,
-                    vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                    [vk.VkBufferImageCopy(
-                        bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
-                        imageSubresource=vk.VkImageSubresourceLayers(
-                            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                            mipLevel=0, baseArrayLayer=0, layerCount=1,
-                        ),
-                        imageOffset=vk.VkOffset3D(
-                            x=offset[2], y=offset[1], z=offset[0],
-                        ),
-                        imageExtent=vk.VkExtent3D(
-                            width=shape[2], height=shape[1], depth=shape[0],
-                        ),
-                    )],
-                )
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=texture.image, subresourceRange=subresource,
-                )],
-            )
-
-        try:
-            self._single_use(upload)
-        finally:
-            for staging, _offset, _shape in prepared:
-                vk.vkDestroyBuffer(self.device, staging.buffer, None)
-                vk.vkFreeMemory(self.device, staging.memory, None)
-                self._buffers.remove(staging)
-
-    def _update_sampled_volume_from_gpu(self, texture, source, shape):
-        """Refresh a sampled volume directly from a same-device float buffer."""
-        depth, height, width = map(int, shape)
-        subresource = vk.VkImageSubresourceRange(
-            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
-        )
-
-        def upload(command):
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=texture.image, subresourceRange=subresource,
-                )],
-            )
-            vk.vkCmdCopyBufferToImage(
-                command, source.buffer, texture.image,
-                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                [vk.VkBufferImageCopy(
-                    bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
-                    imageSubresource=vk.VkImageSubresourceLayers(
-                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                        mipLevel=0, baseArrayLayer=0, layerCount=1,
-                    ),
-                    imageExtent=vk.VkExtent3D(
-                        width=width, height=height, depth=depth,
-                    ),
-                )],
-            )
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                0, None, 0, None, 1, [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=texture.image, subresourceRange=subresource,
-                )],
-            )
-
-        self._single_use(upload)
-
-    def _create_sampled_texture(self, levels, texture, image_format):
-        """Upload a complete RGBA8 mip pyramid to an optimal sampled image."""
-        height, width, _ = levels[0].shape
-        image = vk.vkCreateImage(
-            self.device,
-            vk.VkImageCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                imageType=vk.VK_IMAGE_TYPE_2D,
-                format=image_format,
-                extent=vk.VkExtent3D(width=width, height=height, depth=1),
-                mipLevels=len(levels), arrayLayers=1,
-                samples=vk.VK_SAMPLE_COUNT_1_BIT,
-                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
-                usage=(vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                       | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
-                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
-                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
-            ), None,
-        )
-        requirements = vk.vkGetImageMemoryRequirements(self.device, image)
-        memory = vk.vkAllocateMemory(
-            self.device,
-            vk.VkMemoryAllocateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                allocationSize=requirements.size,
-                memoryTypeIndex=self._memory_type(
-                    requirements.memoryTypeBits,
-                    vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ),
-            ), None,
-        )
-        vk.vkBindImageMemory(self.device, image, memory, 0)
-        offsets = []
-        chunks = []
-        offset = 0
-        for level in levels:
-            payload = np.ascontiguousarray(level, dtype=np.uint8)
-            offsets.append(offset)
-            chunks.append(payload.reshape(-1))
-            offset += payload.nbytes
-        packed = np.concatenate(chunks)
-        staging = self._create_buffer(
-            packed.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-            | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            data=packed,
-        )
-        subresource = vk.VkImageSubresourceRange(
-            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-            baseMipLevel=0, levelCount=len(levels),
-            baseArrayLayer=0, layerCount=1,
-        )
-        regions = [vk.VkBufferImageCopy(
-            bufferOffset=offsets[index],
-            bufferRowLength=0, bufferImageHeight=0,
-            imageSubresource=vk.VkImageSubresourceLayers(
-                aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                mipLevel=index, baseArrayLayer=0, layerCount=1,
-            ),
-            imageOffset=vk.VkOffset3D(x=0, y=0, z=0),
-            imageExtent=vk.VkExtent3D(
-                width=level.shape[1], height=level.shape[0], depth=1
-            ),
-        ) for index, level in enumerate(levels)]
-
-        def upload(command):
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=0,
-                    dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
-                    newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=image, subresourceRange=subresource,
-                )],
-            )
-            vk.vkCmdCopyBufferToImage(
-                command, staging.buffer, image,
-                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                len(regions), regions,
-            )
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=image, subresourceRange=subresource,
-                )],
-            )
-
-        self._single_use(upload)
-        vk.vkDestroyBuffer(self.device, staging.buffer, None)
-        vk.vkFreeMemory(self.device, staging.memory, None)
-        self._buffers.remove(staging)
-        view = vk.vkCreateImageView(
-            self.device,
-            vk.VkImageViewCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                image=image, viewType=vk.VK_IMAGE_VIEW_TYPE_2D,
-                format=image_format,
-                subresourceRange=subresource,
-            ), None,
-        )
-        address_modes = {
-            "repeat": vk.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            "clamp": vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            "mirror": vk.VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
-        }
-        filtering = (
-            vk.VK_FILTER_LINEAR if texture.linear_filter
-            else vk.VK_FILTER_NEAREST
-        )
-        sampler = vk.vkCreateSampler(
-            self.device,
-            vk.VkSamplerCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                magFilter=filtering, minFilter=filtering,
-                mipmapMode=(vk.VK_SAMPLER_MIPMAP_MODE_LINEAR
-                            if texture.linear_filter
-                            else vk.VK_SAMPLER_MIPMAP_MODE_NEAREST),
-                addressModeU=address_modes[texture.wrap_s],
-                addressModeV=address_modes[texture.wrap_t],
-                addressModeW=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                minLod=0.0, maxLod=float(len(levels) - 1),
-                maxAnisotropy=1.0,
-            ), None,
-        )
-        result = SampledTexture(image, memory, view, sampler)
-        self._sampled_textures.append(result)
-        return result
-
-    def _create_sampled_volume(self, data, gpu_source=None):
-        """Upload one float32 scalar field to a linearly sampled 3D image."""
-        payload = np.ascontiguousarray(data, dtype=np.float32)
-        depth, height, width = payload.shape
-        image = vk.vkCreateImage(
-            self.device, vk.VkImageCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                imageType=vk.VK_IMAGE_TYPE_3D,
-                format=vk.VK_FORMAT_R32_SFLOAT,
-                extent=vk.VkExtent3D(width=width, height=height, depth=depth),
-                mipLevels=1, arrayLayers=1, samples=vk.VK_SAMPLE_COUNT_1_BIT,
-                tiling=vk.VK_IMAGE_TILING_OPTIMAL,
-                usage=(vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                       | vk.VK_IMAGE_USAGE_SAMPLED_BIT),
-                sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
-                initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
-            ), None,
-        )
-        requirements = vk.vkGetImageMemoryRequirements(self.device, image)
-        memory = vk.vkAllocateMemory(
-            self.device, vk.VkMemoryAllocateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                allocationSize=requirements.size,
-                memoryTypeIndex=self._memory_type(
-                    requirements.memoryTypeBits,
-                    vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ),
-            ), None,
-        )
-        vk.vkBindImageMemory(self.device, image, memory, 0)
-        resident = (
-            gpu_source is not None
-            and getattr(gpu_source, "device", None) == self.device
-            and tuple(getattr(gpu_source, "shape", ())) == payload.shape
-            and np.dtype(getattr(gpu_source, "dtype", None)) == np.dtype(np.float32)
-            and int(getattr(gpu_source, "byte_size", -1)) == payload.nbytes
-        )
-        staging = None if resident else self._create_buffer(
-            payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-            | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            data=payload,
-        )
-        source_buffer = gpu_source.buffer if resident else staging.buffer
-        subresource = vk.VkImageSubresourceRange(
-            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-            baseMipLevel=0, levelCount=1, baseArrayLayer=0, layerCount=1,
-        )
-
-        def upload(command):
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                vk.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=0, dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
-                    newLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=image, subresourceRange=subresource,
-                )],
-            )
-            vk.vkCmdCopyBufferToImage(
-                command, source_buffer, image,
-                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                [vk.VkBufferImageCopy(
-                    bufferOffset=0, bufferRowLength=0, bufferImageHeight=0,
-                    imageSubresource=vk.VkImageSubresourceLayers(
-                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                        mipLevel=0, baseArrayLayer=0, layerCount=1,
-                    ),
-                    imageOffset=vk.VkOffset3D(x=0, y=0, z=0),
-                    imageExtent=vk.VkExtent3D(
-                        width=width, height=height, depth=depth,
-                    ),
-                )],
-            )
-            vk.vkCmdPipelineBarrier(
-                command, vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                0, None, 0, None, 1,
-                [vk.VkImageMemoryBarrier(
-                    sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                    srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                    dstAccessMask=vk.VK_ACCESS_SHADER_READ_BIT,
-                    oldLayout=vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    newLayout=vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                    image=image, subresourceRange=subresource,
-                )],
-            )
-
-        self._single_use(upload)
-        if staging is not None:
-            vk.vkDestroyBuffer(self.device, staging.buffer, None)
-            vk.vkFreeMemory(self.device, staging.memory, None)
-            self._buffers.remove(staging)
-        view = vk.vkCreateImageView(
-            self.device, vk.VkImageViewCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                image=image, viewType=vk.VK_IMAGE_VIEW_TYPE_3D,
-                format=vk.VK_FORMAT_R32_SFLOAT,
-                subresourceRange=subresource,
-            ), None,
-        )
-        sampler = vk.vkCreateSampler(
-            self.device, vk.VkSamplerCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                magFilter=vk.VK_FILTER_LINEAR, minFilter=vk.VK_FILTER_LINEAR,
-                mipmapMode=vk.VK_SAMPLER_MIPMAP_MODE_NEAREST,
-                addressModeU=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                addressModeV=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                addressModeW=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                minLod=0.0, maxLod=0.0, maxAnisotropy=1.0,
-            ), None,
-        )
-        result = SampledTexture(image, memory, view, sampler)
-        self._sampled_textures.append(result)
-        return result
-
-    def _release_sampled_textures(self, textures):
-        for texture in reversed(textures):
-            vk.vkDestroySampler(self.device, texture.sampler, None)
-            vk.vkDestroyImageView(self.device, texture.view, None)
-            vk.vkDestroyImage(self.device, texture.image, None)
-            vk.vkFreeMemory(self.device, texture.memory, None)
-
-    def _buffer_address(self, buffer):
-        info = vk.VkBufferDeviceAddressInfo(
-            sType=vk.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            buffer=buffer.buffer,
-        )
-        return self._raw_buffer_address(self.device, vk.ffi.addressof(info))
-
-    def _as_address(self, structure):
-        info = vk.VkAccelerationStructureDeviceAddressInfoKHR(
-            sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-            accelerationStructure=structure.handle,
-        )
-        return self._raw_as_address(self.device, vk.ffi.addressof(info))
-
-    def _single_use(self, record):
-        command = vk.vkAllocateCommandBuffers(
-            self.device,
-            vk.VkCommandBufferAllocateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                commandPool=self.command_pool,
-                level=vk.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                commandBufferCount=1,
-            ),
-        )[0]
-        vk.vkBeginCommandBuffer(
-            command,
-            vk.VkCommandBufferBeginInfo(
-                sType=vk.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                flags=vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            ),
-        )
-        record(command)
-        vk.vkEndCommandBuffer(command)
-        vk.vkQueueSubmit(
-            self.queue,
-            1,
-            [
-                vk.VkSubmitInfo(
-                    sType=vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                    commandBufferCount=1,
-                    pCommandBuffers=[command],
-                )
-            ],
-            vk.VK_NULL_HANDLE,
-        )
-        vk.vkQueueWaitIdle(self.queue)
-        vk.vkFreeCommandBuffers(self.device, self.command_pool, 1, [command])
-
-    def _make_as(
-        self, geometry, primitive_count, structure_type, *, allow_update=False,
-    ):
-        flags = vk.VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
-        if allow_update:
-            flags |= vk.VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR
-        build = vk.VkAccelerationStructureBuildGeometryInfoKHR(
-            sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-            type=structure_type,
-            flags=flags,
-            mode=vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
-            geometryCount=1,
-            pGeometries=[geometry],
-        )
-        sizes = vk.VkAccelerationStructureBuildSizesInfoKHR(
-            sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR
-        )
-        self.get_as_sizes(
-            self.device,
-            vk.VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-            build,
-            [primitive_count],
-            sizes,
-        )
-        storage = self._create_buffer(
-            sizes.accelerationStructureSize,
-            vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
-            vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        )
-        handle = self.create_as(
-            self.device,
-            vk.VkAccelerationStructureCreateInfoKHR(
-                sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-                buffer=storage.buffer,
-                size=sizes.accelerationStructureSize,
-                type=structure_type,
-            ),
-            None,
-        )
-        scratch = self._create_buffer(
-            max(sizes.buildScratchSize, sizes.updateScratchSize),
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            device_address=True,
-        )
-        build.dstAccelerationStructure = handle
-        build.scratchData.deviceAddress = self._buffer_address(scratch)
-        range_info = vk.VkAccelerationStructureBuildRangeInfoKHR(
-            primitiveCount=primitive_count,
-            primitiveOffset=0,
-            firstVertex=0,
-            transformOffset=0,
-        )
-        range_pointer = vk.ffi.addressof(range_info)
-        ranges = vk.ffi.new(
-            "VkAccelerationStructureBuildRangeInfoKHR*[]", [range_pointer]
-        )
-        self._single_use(lambda command: self.build_as(command, 1, [build], ranges))
-        result = AccelerationStructure(handle, storage, scratch)
-        self._structures.append(result)
-        return result
-
-    def _scene_instance_bytes(self, instances):
-        return b"".join(
-            struct.pack(
-                "<12fIIQ",
-                *np.asarray(item.mesh.transform.matrix[:3], np.float32).reshape(-1),
-                (int(item.visibility_mask) << 24) | int(item.triangle_offset),
-                0,
-                self._as_address(item.blas.structure),
-            )
-            for item in instances
-        )
-
-    @staticmethod
-    def _mesh_blas_vertices(mesh):
-        positions = mesh.vertices[mesh.indices].reshape((-1, 3))
-        return np.ascontiguousarray(
-            np.column_stack((
-                positions, np.ones(len(positions), dtype=np.float32),
-            )),
-            dtype=np.float32,
-        )
-
-    def _refit_scene_blases(self, entries):
-        """Update equal-topology BLAS bounds without reallocating them."""
-        builds = []
-        ranges = []
-        range_storage = []
-        for item in entries:
-            mesh = item.mesh
-            triangle_data = vk.VkAccelerationStructureGeometryTrianglesDataKHR(
-                sType=(
-                    vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
-                ),
-                vertexFormat=vk.VK_FORMAT_R32G32B32_SFLOAT,
-                vertexData=vk.VkDeviceOrHostAddressConstKHR(
-                    deviceAddress=self._buffer_address(item.vertex_buffer)
-                ),
-                vertexStride=16,
-                maxVertex=len(mesh.indices) * 3 - 1,
-                indexType=vk.VK_INDEX_TYPE_NONE_KHR,
-            )
-            geometry = vk.VkAccelerationStructureGeometryKHR(
-                sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-                geometryType=vk.VK_GEOMETRY_TYPE_TRIANGLES_KHR,
-                geometry=vk.VkAccelerationStructureGeometryDataKHR(
-                    triangles=triangle_data
-                ),
-                flags=vk.VK_GEOMETRY_OPAQUE_BIT_KHR,
-            )
-            build = vk.VkAccelerationStructureBuildGeometryInfoKHR(
-                sType=(
-                    vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR
-                ),
-                type=vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                flags=(
-                    vk.VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
-                    | vk.VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR
-                ),
-                mode=vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
-                srcAccelerationStructure=item.structure.handle,
-                dstAccelerationStructure=item.structure.handle,
-                geometryCount=1,
-                pGeometries=[geometry],
-            )
-            build.scratchData.deviceAddress = self._buffer_address(
-                item.structure.scratch
-            )
-            range_info = vk.VkAccelerationStructureBuildRangeInfoKHR(
-                primitiveCount=len(mesh.indices), primitiveOffset=0,
-                firstVertex=0, transformOffset=0,
-            )
-            range_storage.append(range_info)
-            range_pointer = vk.ffi.addressof(range_info)
-            ranges.append(range_pointer)
-            builds.append(build)
-        if builds:
-            self._single_use(
-                lambda command: self.build_as(
-                    command, len(builds), builds, ranges
-                )
-            )
-
-    def _tlas_geometry(self, instance_buffer):
-        instance_data = vk.VkAccelerationStructureGeometryInstancesDataKHR(
-            sType=(
-                vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR
-            ),
-            arrayOfPointers=vk.VK_FALSE,
-            data=vk.VkDeviceOrHostAddressConstKHR(
-                deviceAddress=self._buffer_address(instance_buffer)
-            ),
-        )
-        return vk.VkAccelerationStructureGeometryKHR(
-            sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-            geometryType=vk.VK_GEOMETRY_TYPE_INSTANCES_KHR,
-            geometry=vk.VkAccelerationStructureGeometryDataKHR(
-                instances=instance_data
-            ),
-        )
-
-    def _rebuild_scene_tlas(self, tlas, instance_buffer, instance_count):
-        """Rebuild an equal-sized TLAS after instance transforms change."""
-        geometry = self._tlas_geometry(instance_buffer)
-        build = vk.VkAccelerationStructureBuildGeometryInfoKHR(
-            sType=(
-                vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR
-            ),
-            type=vk.VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-            flags=vk.VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-            mode=vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
-            dstAccelerationStructure=tlas.handle,
-            geometryCount=1,
-            pGeometries=[geometry],
-        )
-        build.scratchData.deviceAddress = self._buffer_address(tlas.scratch)
-        range_info = vk.VkAccelerationStructureBuildRangeInfoKHR(
-            primitiveCount=instance_count,
-            primitiveOffset=0, firstVertex=0, transformOffset=0,
-        )
-        range_pointer = vk.ffi.addressof(range_info)
-        ranges = vk.ffi.new(
-            "VkAccelerationStructureBuildRangeInfoKHR*[]", [range_pointer]
-        )
-        self._single_use(
-            lambda command: self.build_as(command, 1, [build], ranges)
-        )
-
-    def _build_scene(self, scene):
-        stage_start = time.perf_counter()
-        programs, default_program = self._ensure_scene_pipeline(scene)
-        custom_attribute_layout = self._material_attribute_layout(
-            scene, programs, self.config.material_modifier
-        )
-        triangles = scene.render_triangles()
-        if not len(triangles):
-            raise ValueError("Vulkan ray-query rendering requires at least one triangle")
-        positions = triangles.reshape((-1, 3))
-        vertices = np.ascontiguousarray(
-            np.column_stack((positions, np.ones(len(positions), dtype=np.float32))),
-            dtype=np.float32,
-        )
-        vertex_buffer = self._create_uploaded_device_buffer(
-            vertices,
-            vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-            | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-            | vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            device_address=True,
-        )
-        self.scene_vertex_buffer = vertex_buffer
-        self.scene_previous_vertex_buffer = self._create_uploaded_device_buffer(
-            vertices, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        material_data = scene.triangle_material_data(programs, default_program)
-        self.scene_material_buffer = self._create_uploaded_device_buffer(
-            material_data,
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        light_data = scene.analytic_light_data()
-        self.scene_light_buffer = self._create_uploaded_device_buffer(
-            light_data,
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        area_light_data = scene.emissive_triangle_data()
-        self.scene_area_light_buffer = self._create_uploaded_device_buffer(
-            area_light_data,
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        attribute_data = scene.triangle_attribute_data()
-        self.scene_attribute_buffer = self._create_uploaded_device_buffer(
-            attribute_data,
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        self.scene_custom_attribute_layout = custom_attribute_layout
-        self.scene_custom_attribute_buffer = None
-        if custom_attribute_layout is not None:
-            custom_attribute_data = custom_attribute_layout.pack(scene)
-            if custom_attribute_data.nbytes == 0:
-                custom_attribute_data = np.zeros(4, np.float32)
-            self.scene_custom_attribute_buffer = (
-                self._create_uploaded_device_buffer(
-                    custom_attribute_data,
-                    vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                )
-            )
-        # Native shaders only consult word zero for bounds checking. Avoid
-        # building and uploading a duplicate packed mip pyramid in that mode.
-        texture_data = (
-            np.asarray([len(scene.textures)], dtype=np.uint32)
-            if self.native_textures_enabled
-            else scene.texture_data()
-        )
-        if self.config.wavefront_device_local_textures:
-            self.scene_texture_buffer = self._create_uploaded_device_buffer(
-                texture_data, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            )
-        else:
-            self.scene_texture_buffer = self._create_buffer(
-                texture_data.nbytes,
-                vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                data=texture_data,
-            )
-        texture_binding_data = scene.texture_binding_data()
-        self.scene_texture_binding_buffer = self._create_uploaded_device_buffer(
-            texture_binding_data,
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        from ...volume import pack_volumes
-        volume_headers, volume_scalars, volume_transfers = pack_volumes(
-            scene.visible_volumes,
-            empty_space_skipping=self.config.volume_empty_space_skipping,
-        )
-        self.scene_volume_empty_space_skipping = bool(
-            np.any(volume_headers["acceleration_parameters"][:, 1:] > 0)
-        )
-        self.scene_volume_header_buffer = self._create_uploaded_device_buffer(
-            volume_headers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        self.scene_volume_scalar_buffer = self._create_uploaded_device_buffer(
-            volume_scalars, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        self.scene_volume_transfer_buffer = self._create_uploaded_device_buffer(
-            volume_transfers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        self.scene_triangle_volume_buffer = self._create_uploaded_device_buffer(
-            scene.triangle_volume_indices(),
-            vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        )
-        if len(scene.visible_volumes) > MAX_NATIVE_VOLUMES:
-            raise ValueError(
-                f"Vulkan backend supports at most {MAX_NATIVE_VOLUMES} visible volumes"
-            )
-        self.scene_sampled_volumes = [
-            self._create_sampled_volume(volume.data, volume.gpu_source)
-            for volume in scene.visible_volumes
-        ] or [self._create_sampled_volume(np.zeros((2, 2, 2), np.float32))]
-        self.scene_sampled_textures = []
-        if self.native_textures_enabled:
-            if len(scene.textures) > MAX_NATIVE_TEXTURES:
-                raise ValueError(
-                    f"Native texture backend supports at most {MAX_NATIVE_TEXTURES} "
-                    f"textures; scene contains {len(scene.textures)}"
-                )
-            textures = scene.textures
-            if not textures:
-                from ...scene import Texture
-                textures = (Texture(np.full((1, 1, 4), 255, np.uint8)),)
-            for texture in textures:
-                self.scene_sampled_textures.extend((
-                    self._create_sampled_texture(
-                        scene._texture_mips(texture.pixels, srgb=True), texture,
-                        vk.VK_FORMAT_R8G8B8A8_SRGB,
-                    ),
-                    self._create_sampled_texture(
-                        scene._texture_mips(texture.pixels, srgb=False), texture,
-                        vk.VK_FORMAT_R8G8B8A8_UNORM,
-                    ),
-                ))
-        self.last_timings["scene_upload_ms"] = (
-            time.perf_counter() - stage_start
-        ) * 1000.0
-        stage_start = time.perf_counter()
-        blases = []
-        instances = []
-        blas_by_geometry = {}
-        triangle_offset = 0
-        for mesh in scene.render_meshes:
-            mesh_triangles = mesh.vertices[mesh.indices]
-            if not len(mesh_triangles):
-                continue
-            if triangle_offset + len(mesh_triangles) > (1 << 24):
-                raise ValueError(
-                    "scene triangle offsets exceed Vulkan's 24-bit instance "
-                    "custom index"
-                )
-            geometry_source = mesh.resource or mesh
-            blas_entry = blas_by_geometry.get(id(geometry_source))
-            if blas_entry is None:
-                object_vertices = self._mesh_blas_vertices(geometry_source)
-                blas_vertices = self._create_uploaded_device_buffer(
-                    object_vertices,
-                    vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                    | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                    device_address=True,
-                )
-                triangle_data = vk.VkAccelerationStructureGeometryTrianglesDataKHR(
-                    sType=(
-                        vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
-                    ),
-                    vertexFormat=vk.VK_FORMAT_R32G32B32_SFLOAT,
-                    vertexData=vk.VkDeviceOrHostAddressConstKHR(
-                        deviceAddress=self._buffer_address(blas_vertices)
-                    ),
-                    vertexStride=16,
-                    maxVertex=len(object_vertices) - 1,
-                    indexType=vk.VK_INDEX_TYPE_NONE_KHR,
-                )
-                geometry = vk.VkAccelerationStructureGeometryKHR(
-                    sType=vk.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-                    geometryType=vk.VK_GEOMETRY_TYPE_TRIANGLES_KHR,
-                    geometry=vk.VkAccelerationStructureGeometryDataKHR(
-                        triangles=triangle_data
-                    ),
-                    flags=vk.VK_GEOMETRY_OPAQUE_BIT_KHR,
-                )
-                blas = self._make_as(
-                    geometry, len(mesh_triangles),
-                    vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                    allow_update=geometry_source.deformable,
-                )
-                blas_entry = SceneBlas(blas, geometry_source, blas_vertices)
-                blas_by_geometry[id(geometry_source)] = blas_entry
-                blases.append(blas_entry)
-            instances.append(SceneTlasInstance(
-                mesh, blas_entry, triangle_offset
-            ))
-            triangle_offset += len(mesh_triangles)
-        self.scene_blases = blases
-        self.scene_instances = instances
-        self.last_timings["blas_count"] = len(blases)
-        self.last_timings["instance_count"] = len(instances)
-        self.last_timings["shared_blas_savings"] = max(
-            0, len(instances) - len(blases)
-        )
-        self.last_timings["blas_ms"] = (time.perf_counter() - stage_start) * 1000.0
-
-        stage_start = time.perf_counter()
-        instance_bytes = self._scene_instance_bytes(instances)
-        instance_buffer = self._create_buffer(
-            len(instance_bytes),
-            vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-            | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            data=instance_bytes,
-            device_address=True,
-        )
-        self.scene_instance_buffer = instance_buffer
-        tlas_geometry = self._tlas_geometry(instance_buffer)
-        tlas = self._make_as(
-            tlas_geometry, len(instances),
-            vk.VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR
-        )
-        self.last_timings["tlas_ms"] = (time.perf_counter() - stage_start) * 1000.0
-        return tlas
-
-    @staticmethod
     def _camera_constants(
         camera, width, height, overlay_fps=None, max_bounces=5, samples=1,
         accumulation_frame=0, previous_camera=None, temporal_history=False,
@@ -6651,13 +4934,6 @@ class VulkanRayQueryCore:
         self._sampled_textures.clear()
         self.scene_sampled_textures = []
 
-    def _release_resources(self, structures, buffers):
-        for structure in reversed(structures):
-            self.destroy_as(self.device, structure.handle, None)
-        for buffer in reversed(buffers):
-            vk.vkDestroyBuffer(self.device, buffer.buffer, None)
-            vk.vkFreeMemory(self.device, buffer.memory, None)
-
     def prepare_window_scene(self, scene):
         """Build persistent acceleration structures for direct presentation."""
         if self.surface is None and not self._headless_surface:
@@ -6679,6 +4955,8 @@ class VulkanRayQueryCore:
         )
         if revisions == resources.volume_gpu_revisions:
             return False
+        if resources is getattr(self, "_borrowed_scene_resources", None):
+            raise ValueError("Borrowed GPU volume changed; upload and bind a new snapshot")
         if len(volumes) != len(resources.scene_sampled_volumes):
             return False
         for index, (volume, revision) in enumerate(zip(volumes, revisions, strict=True)):
@@ -6835,6 +5113,35 @@ class VulkanRayQueryCore:
             result["denoiser_path_signals"] = dispatched[signal_index]
         return result
 
+    def use_scene_resources(self, resources):
+        """Borrow application-owned resident resources on this device."""
+        resources.require_open()
+        if resources.runtime is not self.runtime:
+            raise ValueError("Resident scene belongs to another Vulkan runtime")
+        if resources.scene_revision != resources.scene.revision:
+            raise ValueError("Resident scene snapshot is stale; upload a new snapshot")
+        for name in ("material_program", "material_modifier", "wavefront_native_textures",
+                     "wavefront_device_local_textures", "volume_empty_space_skipping"):
+            if getattr(self.config, name) != getattr(resources._core.config, name):
+                raise ValueError(f"Resident scene has incompatible {name}")
+        vk.vkDeviceWaitIdle(self.device)
+        self._ensure_scene_pipeline(resources.scene)
+        if self.scene_resources is resources:
+            return
+        if self.scene_resources is not None:
+            self._release_scene_resources(self.scene_resources)
+        resources._borrowers.add(self)
+        self._borrowed_scene_resources = resources
+        self._activate_scene_resources(resources)
+        self._invalidate_scene_history()
+
+    def _release_scene_resources(self, resources):
+        if resources is getattr(self, "_borrowed_scene_resources", None):
+            resources._borrowers.discard(self)
+            self._borrowed_scene_resources = None
+        else:
+            resources.close()
+
     def upload_window_scene(self, scene):
         """Transactionally replace the resident scene without rebuilding output.
 
@@ -6844,6 +5151,14 @@ class VulkanRayQueryCore:
         output images, and exported video surfaces.  The previous scene remains
         valid until its replacement has been built successfully.
         """
+        if self.scene_resources is getattr(self, "_borrowed_scene_resources", None) and self.scene_resources is not None:
+            resources = self.scene_resources
+            if resources.scene is scene:
+                if resources.scene_revision != scene.revision or resources.volume_gpu_revisions != tuple(
+                    getattr(volume.gpu_source, "revision", None) for volume in scene.visible_volumes
+                ):
+                    raise ValueError("Borrowed scene changed; upload and bind a new resident snapshot")
+                return
         if (
             self.scene_resources is not None
             and self.scene_resources.scene is scene
@@ -6887,7 +5202,7 @@ class VulkanRayQueryCore:
         self._activate_scene_resources(replacement)
         self._invalidate_scene_history()
         if previous is not None:
-            previous.close()
+            self._release_scene_resources(previous)
 
     _SCENE_STATE_NAMES = (
         "scene_tlas", "scene_vertex_buffer", "scene_previous_vertex_buffer",
@@ -7080,6 +5395,7 @@ class VulkanRayQueryCore:
             )
         resources.shading_revision = scene.shading_revision
         resources.scene_revision = scene.revision
+        resources._update_content_signatures()
         self.last_timings["blas_count"] = len(resources.blases)
         self.last_timings["instance_count"] = len(resources.instances)
         self.last_timings["shared_blas_savings"] = max(
@@ -7136,6 +5452,7 @@ class VulkanRayQueryCore:
             ))
             resources.shading_revision = scene.shading_revision
             resources.scene_revision = scene.revision
+            resources._update_content_signatures()
             self._invalidate_scene_history()
             return True
         dirty_counts = tuple(len(volume.dirty_regions) for volume in volumes)
@@ -7182,6 +5499,7 @@ class VulkanRayQueryCore:
         resources.volume_dirty_counts = dirty_counts
         resources.shading_revision = scene.shading_revision
         resources.scene_revision = scene.revision
+        resources._update_content_signatures()
         self._invalidate_scene_history()
         return True
 
@@ -7320,25 +5638,6 @@ class VulkanRayQueryCore:
         self.swapchain_extent = None
         self.swapchain_wavefront_only = None
         self.wavefront_previous_present_camera = None
-
-    def _image_barrier(self, image, old_layout, new_layout, src_access, dst_access):
-        return vk.VkImageMemoryBarrier(
-            sType=vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            srcAccessMask=src_access,
-            dstAccessMask=dst_access,
-            oldLayout=old_layout,
-            newLayout=new_layout,
-            srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-            dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-            image=image,
-            subresourceRange=vk.VkImageSubresourceRange(
-                aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                baseMipLevel=0,
-                levelCount=1,
-                baseArrayLayer=0,
-                layerCount=1,
-            ),
-        )
 
     def _reset_wavefront_history_chain(self):
         """Return the cross-frame history semaphores to an unsignaled state."""
@@ -10330,6 +8629,15 @@ class VulkanRayQueryCore:
     def close(self):
         if self._closed:
             return
+        if self.scene_resources is not None and self.scene_resources is not self._borrowed_scene_resources:
+            if self.scene_resources._borrowers:
+                raise RuntimeError("Close consumers of this renderer's resident scene first")
+        if self._owns_runtime and self.runtime is not None:
+            from ...runtime.resources import VulkanCompletion
+            allowed = {self, self.scene_resources}
+            if any(consumer not in allowed and not isinstance(consumer, VulkanCompletion)
+                   for consumer in self.runtime._consumers):
+                raise RuntimeError("Close shared compute/resources before their owning renderer")
         self._closed = True
         if self.device:
             device_lost = False
@@ -10378,7 +8686,7 @@ class VulkanRayQueryCore:
                 )
                 self.wavefront_timestamp_query_pool = None
             if self.scene_resources is not None:
-                self.scene_resources.close()
+                self._release_scene_resources(self.scene_resources)
                 self.scene_resources = None
             if self.wavefront_executor is not None:
                 self.wavefront_executor.close()
@@ -10426,23 +8734,14 @@ class VulkanRayQueryCore:
                 vk.vkDestroyPipelineLayout(self.device, self.pipeline_layout, None)
             if self.descriptor_layout:
                 vk.vkDestroyDescriptorSetLayout(self.device, self.descriptor_layout, None)
-            if self.command_pool:
-                vk.vkDestroyCommandPool(self.device, self.command_pool, None)
-            if self.pipeline_cache:
-                vk.vkDestroyPipelineCache(
-                    self.device, self.pipeline_cache, None
-                )
-                self.pipeline_cache = None
-            vk.vkDestroyDevice(self.device, None)
             self.device = None
-        if self.instance:
-            if self.surface and self._owns_surface:
-                destroy_surface = vk.vkGetInstanceProcAddr(self.instance, "vkDestroySurfaceKHR")
-                destroy_surface(self.instance, self.surface, None)
-            self.surface = None
-            if self._owns_instance:
-                vk.vkDestroyInstance(self.instance, None)
-            self.instance = None
+        runtime = self.runtime
+        if runtime is not None:
+            runtime.release(self)
+            if self._owns_runtime:
+                runtime.close()
+        self.instance = None
+        self.surface = None
 
     def __enter__(self):
         return self

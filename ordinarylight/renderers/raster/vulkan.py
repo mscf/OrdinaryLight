@@ -944,6 +944,12 @@ class VulkanRasterRenderer(RendererImplementation):
                 subresourceRange=color_range,
             ), None,
         ))
+        # Keep nested attachment pointers alive through Vulkan creation.
+        render_subpasses = [vk.VkSubpassDescription(
+            pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            colorAttachmentCount=1,
+            pColorAttachments=[vk.VkAttachmentReference(attachment=0, layout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)],
+        )]
         render_pass = remember("render_pass", vk.vkCreateRenderPass(
             self.device, vk.VkRenderPassCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
@@ -959,14 +965,7 @@ class VulkanRasterRenderer(RendererImplementation):
                     finalLayout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 )],
                 subpassCount=1,
-                pSubpasses=[vk.VkSubpassDescription(
-                    pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    colorAttachmentCount=1,
-                    pColorAttachments=[vk.VkAttachmentReference(
-                        attachment=0,
-                        layout=vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                    )],
-                )],
+                pSubpasses=render_subpasses,
             ), None,
         ))
         framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(
@@ -1232,15 +1231,18 @@ class VulkanRasterRenderer(RendererImplementation):
             attachment=0,
             layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         )
+        # Keep nested attachment pointers alive through Vulkan creation.
+        render_subpasses = [vk.VkSubpassDescription(
+            pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            colorAttachmentCount=0,
+            pColorAttachments=None,
+            pDepthStencilAttachment=depth_ref,
+        )]
         render_pass = remember("render_pass", vk.vkCreateRenderPass(
             self.device, vk.VkRenderPassCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
                 attachmentCount=1, pAttachments=attachments,
-                subpassCount=1, pSubpasses=[vk.VkSubpassDescription(
-                    pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    colorAttachmentCount=0, pColorAttachments=None,
-                    pDepthStencilAttachment=depth_ref,
-                )],
+                subpassCount=1, pSubpasses=render_subpasses,
             ), None,
         ))
         framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(
@@ -2050,14 +2052,17 @@ class VulkanRasterRenderer(RendererImplementation):
                 attachment=1,
                 layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             )
+        # Keep nested attachment pointers alive through Vulkan creation.
+        render_subpasses = [vk.VkSubpassDescription(
+            pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            colorAttachmentCount=1,
+            pColorAttachments=[color_ref],
+            pDepthStencilAttachment=depth_ref,
+        )]
         render_pass = remember("render_pass", vk.vkCreateRenderPass(self.device, vk.VkRenderPassCreateInfo(
             sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             attachmentCount=len(attachments), pAttachments=attachments, subpassCount=1,
-            pSubpasses=[vk.VkSubpassDescription(
-                pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                colorAttachmentCount=1, pColorAttachments=[color_ref],
-                pDepthStencilAttachment=depth_ref,
-            )],
+            pSubpasses=render_subpasses,
             dependencyCount=1, pDependencies=[vk.VkSubpassDependency(
                 srcSubpass=0, dstSubpass=vk.VK_SUBPASS_EXTERNAL,
                 srcStageMask=(vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
@@ -2303,16 +2308,18 @@ class VulkanRasterRenderer(RendererImplementation):
                 attachment=1,
                 layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             )
+            # Keep nested attachment pointers alive through Vulkan creation.
+            render_subpasses = [vk.VkSubpassDescription(
+                pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                colorAttachmentCount=1,
+                pColorAttachments=[optical_color_ref],
+                pDepthStencilAttachment=optical_depth_ref,
+            )]
             optical_render_pass = remember("render_pass", vk.vkCreateRenderPass(
                 self.device, vk.VkRenderPassCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
                     attachmentCount=2, pAttachments=optical_attachments,
-                    subpassCount=1, pSubpasses=[vk.VkSubpassDescription(
-                        pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        colorAttachmentCount=1,
-                        pColorAttachments=[optical_color_ref],
-                        pDepthStencilAttachment=optical_depth_ref,
-                    )],
+                    subpassCount=1, pSubpasses=render_subpasses,
                 ), None,
             ))
             optical_framebuffer = remember("framebuffer", vk.vkCreateFramebuffer(

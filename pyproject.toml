@@ -52,6 +52,7 @@ include = ["ordinarylight*"]
 [tool.setuptools.package-data]
 ordinarylight = [
     "shaders/*.spv", "shaders/*.comp", "shaders/*.glsl",
+    "shaders/transport_v1/*.glsl",
     "shaders/*.json", "shaders/*.wgsl", "shaders/*.rgen", "shaders/*.rmiss",
     "showcases/catalog/*.py", "showcases/catalog/*.md",
 ]

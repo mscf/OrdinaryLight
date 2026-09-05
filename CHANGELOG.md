@@ -5,6 +5,17 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Extracted a public Vulkan runtime and reusable resident scene upload service;
+  GI can borrow application-owned runtimes and scene snapshots.
+- Added typed ordered Vulkan passes, persistent allocations, fence completions,
+  versioned transport components and application-identity history contracts.
+- Added independent external-HDR tone mapping, native presentation and RGBA8
+  GPU-frame export. Existing scientific render paths retain their defaults.
+- Fixed Vulkan Raster render-pass CFFI attachment lifetimes uncovered by the
+  RT-volume integration regression.
+
+- Forwarded same-device compute contexts through the high-level `Renderer`, so
+  workbench extensions retain device identity on wrapped rendering paths.
 - Added a public same-device compute context to headless Wavefront GI and moved
   Qt scene/renderer startup off the event thread, with visible progress,
   deferred non-blocking close, cancellable extension initialization, and fair

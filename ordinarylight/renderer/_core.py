@@ -275,6 +275,15 @@ class Renderer:
         return getattr(self._implementation, "device", None)
 
     @property
+    def compute_context(self):
+        """Borrow the implementation's same-device compute context, if available.
+
+        The implementation retains ownership. Consumers must serialize compute
+        with rendering and close their compute sessions before this renderer.
+        """
+        return getattr(self._implementation, "compute_context", None)
+
+    @property
     def last_timings(self):
         """Timing measurements reported by the most recent render."""
         return dict(getattr(self._implementation, "last_timings", {}))

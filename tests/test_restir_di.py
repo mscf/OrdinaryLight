@@ -122,7 +122,7 @@ class DirectLightReservoirTests(unittest.TestCase):
 
         lighting = (
             Path(__file__).parents[1]
-            / "ordinarylight" / "shaders" / "wavefront_lighting.glsl"
+            / "ordinarylight" / "shaders" / "transport_v1" / "lighting.glsl"
         ).read_text()
         primary = (
             Path(__file__).parents[1]

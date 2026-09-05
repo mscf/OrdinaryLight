@@ -144,6 +144,9 @@ _LAZY_VULKAN_EXPORTS = frozenset({
 
 def __getattr__(name):
     """Load optional Vulkan API names only when an application requests them."""
+    if name in {"VulkanRuntime", "VulkanCapabilities"}:
+        from . import runtime
+        return getattr(runtime, name)
     if name in _LAZY_VULKAN_EXPORTS:
         from .targets import vulkan
 
@@ -153,6 +156,7 @@ def __getattr__(name):
     raise AttributeError(name)
 
 __all__ = [
+    "VulkanRuntime", "VulkanCapabilities",
     "Material",
     "MaterialLayer",
     "LayeredMaterialEvaluation",

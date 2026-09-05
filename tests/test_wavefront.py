@@ -66,6 +66,7 @@ class WavefrontLayoutTests(unittest.TestCase):
 
     def test_custom_attribute_storage_is_opt_in_and_scene_owned(self):
         backend = (Path(ol.__file__).parent / "targets" / "vulkan" / "core.py").read_text()
+        backend += (Path(ol.__file__).parent / "targets" / "vulkan" / "scene.py").read_text()
         self.assertIn("self.scene_custom_attribute_buffer = None", backend)
         self.assertIn("if custom_attribute_layout is not None:", backend)
         self.assertIn("custom_attribute_layout.pack(scene)", backend)
@@ -82,6 +83,7 @@ class WavefrontLayoutTests(unittest.TestCase):
         backend = (
             Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
         ).read_text()
+        backend += (Path(ol.__file__).parent / "targets" / "vulkan" / "scene.py").read_text()
         self.assertIn("class SceneBlas:", backend)
         self.assertIn(
             "VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR", backend
@@ -120,7 +122,7 @@ class WavefrontLayoutTests(unittest.TestCase):
             shader_dir / "wavefront_primary_impl.glsl"
         ).read_text()
         shade = (shader_dir / "wavefront_shade.comp").read_text()
-        lighting = (shader_dir / "wavefront_lighting.glsl").read_text()
+        lighting = (shader_dir / "transport_v1" / "lighting.glsl").read_text()
         textures = (shader_dir / "wavefront_textures.glsl").read_text()
         include = '#include "wavefront_lighting.glsl"'
         self.assertIn('#include "wavefront_primary_impl.glsl"', primary)
@@ -173,7 +175,7 @@ class WavefrontLayoutTests(unittest.TestCase):
 
     def test_secondary_nee_uses_temporally_stratified_path_identity(self):
         shader_dir = Path(__file__).parents[1] / "ordinarylight" / "shaders"
-        lighting = (shader_dir / "wavefront_lighting.glsl").read_text()
+        lighting = (shader_dir / "transport_v1" / "lighting.glsl").read_text()
         generate = (shader_dir / "wavefront_generate.comp").read_text()
         primary_impl = (
             shader_dir / "wavefront_primary_impl.glsl"
@@ -391,7 +393,8 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn("self.swapchain_bgra_storage", backend)
         self.assertIn("self.megakernel_swizzle_pipelines", backend)
         self.assertIn("self.ser_reordering_supported", backend)
-        self.assertIn("self.cmd_trace_rays", backend)
+        runtime_source = (Path(ol.__file__).parent / "runtime" / "vulkan.py").read_text()
+        self.assertIn("self.cmd_trace_rays", runtime_source)
         self.assertIn(
             "PIPELINE_BIND_POINT_RAY_TRACING_KHR = 1000165000", backend
         )

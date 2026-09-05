@@ -1,0 +1,13 @@
+#version 460
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0,rgba32f) readonly uniform image2D hdr;
+layout(set=0,binding=1,rgba8) writeonly uniform image2D output_image;
+layout(push_constant) uniform Constants { float exposure; } push;
+void main() {
+    ivec2 p=ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(p,imageSize(output_image)))) return;
+    vec3 x=max(imageLoad(hdr,p).rgb,vec3(0))*push.exposure;
+    vec3 c=clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);
+    c=mix(1.055*pow(c,vec3(1.0/2.4))-0.055,12.92*c,lessThanEqual(c,vec3(0.0031308)));
+    imageStore(output_image,p,vec4(c,1));
+}

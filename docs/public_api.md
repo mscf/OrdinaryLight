@@ -4,6 +4,11 @@
 semantic subpackages own extensible feature families.  Root-level names are
 stable shortcuts, not alternate implementations.
 
+For application rendering algorithms (voxels, probes, lightmaps), see
+[renderer extension services](renderer_extensions.md): `ordinarylight.runtime`,
+`ordinarylight.pipeline.vulkan`, and `ordinarylight.transport`. Existing renderer
+entry points remain compatible; GI compute contexts now expose the public runtime.
+
 ## Namespace ownership
 
 - `ordinarylight.renderer` owns the high-level `Renderer`, `RenderFrame`, and
@@ -363,6 +368,11 @@ with ol.Renderer(implementation=implementation) as renderer:
 
 ## Standalone compute
 
+`Renderer.compute_context` forwards the concrete implementation's borrowed
+same-device context, or returns `None` when unavailable. This preserves device
+identity when an application uses the high-level wrapper. Serialize compute
+with rendering and close compute sessions before closing the renderer.
+
 `ComputeBuffer` describes initialized or zero-filled uniform/storage storage
 without assigning application semantics. `WebGpuComputeSession` consumes a
 compiled WGSL compute shader and its reflected resources, creates one persistent
@@ -419,8 +429,9 @@ with ol.VulkanComputeSequence(
 compute-to-compute storage barriers between steps. Its buffers include transfer
 usage, allowing a same-device `VulkanBufferView` to feed Vulkan raster or
 Wavefront GI volumes through a direct buffer-to-image copy. The concrete Vulkan
-renderer exposes `compute_context`; it remains owned by that renderer. Close
-the sequence before closing the renderer. Compute and presentation must use
+renderer exposes `compute_context`. GI returns `VulkanRuntime`: the default
+constructor owns it, or a caller can supply and retain an independent runtime.
+Close the sequence before its owning renderer/runtime. Compute and presentation must use
 the shared context's synchronization; a buffer view does not transfer ownership.
 
 `WebGpuComputeSequence.buffer_view(name)` returns a non-owning

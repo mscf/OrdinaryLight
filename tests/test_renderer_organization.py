@@ -37,6 +37,17 @@ class RendererOrganizationTests(unittest.TestCase):
     def test_removed_implementation_namespace_is_not_exported(self):
         self.assertFalse(hasattr(ol, "backends"))
 
+    def test_high_level_renderer_preserves_compute_context_identity(self):
+        implementation = ol.renderers.reference.CpuReferenceRenderer()
+        context = object()
+        implementation.compute_context = context
+        with ol.Renderer(implementation=implementation) as renderer:
+            self.assertIs(renderer.compute_context, context)
+        with ol.Renderer(
+            implementation=ol.renderers.reference.CpuReferenceRenderer()
+        ) as renderer:
+            self.assertIsNone(renderer.compute_context)
+
     def test_root_contains_only_package_entrypoints(self):
         root = Path(ol.__file__).parent
         root_modules = {path.name for path in root.glob("*.py")}
