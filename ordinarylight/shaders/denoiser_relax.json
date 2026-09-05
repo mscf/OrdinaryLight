@@ -54,7 +54,7 @@
             },
             {
               "access": "read",
-              "binding": 5,
+              "binding": -1,
               "format": "AtrousConstants",
               "kind": "push_constants",
               "name": "constants",
@@ -112,7 +112,7 @@
             },
             {
               "access": "read",
-              "binding": 4,
+              "binding": -1,
               "format": "ComposeConstants",
               "kind": "push_constants",
               "name": "constants",
@@ -242,7 +242,7 @@
             },
             {
               "access": "read",
-              "binding": 13,
+              "binding": -1,
               "format": "PrepareConstants",
               "kind": "push_constants",
               "name": "constants",
@@ -450,7 +450,7 @@
               "access": "read",
               "binding": 5,
               "format": "AtrousConstants",
-              "kind": "push_constants",
+              "kind": "uniform_buffer",
               "name": "constants",
               "set": 0
             }
@@ -508,7 +508,7 @@
               "access": "read",
               "binding": 4,
               "format": "ComposeConstants",
-              "kind": "push_constants",
+              "kind": "uniform_buffer",
               "name": "constants",
               "set": 0
             }
@@ -638,7 +638,7 @@
               "access": "read",
               "binding": 13,
               "format": "PrepareConstants",
-              "kind": "push_constants",
+              "kind": "uniform_buffer",
               "name": "constants",
               "set": 0
             }

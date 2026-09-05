@@ -449,7 +449,7 @@
               {
                 "access": "read",
                 "binding": 5,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_0",
                 "set": 0
@@ -457,7 +457,7 @@
               {
                 "access": "read",
                 "binding": 6,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_1",
                 "set": 0
@@ -465,7 +465,7 @@
               {
                 "access": "read",
                 "binding": 7,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_2",
                 "set": 0
@@ -473,7 +473,7 @@
               {
                 "access": "read",
                 "binding": 8,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_3",
                 "set": 0
@@ -505,7 +505,7 @@
               {
                 "access": "read",
                 "binding": 12,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_0",
                 "set": 0
@@ -513,7 +513,7 @@
               {
                 "access": "read",
                 "binding": 13,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_1",
                 "set": 0
@@ -521,7 +521,7 @@
               {
                 "access": "read",
                 "binding": 14,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_2",
                 "set": 0
@@ -529,7 +529,7 @@
               {
                 "access": "read",
                 "binding": 15,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_3",
                 "set": 0
@@ -938,7 +938,7 @@
               {
                 "access": "read",
                 "binding": 5,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_0",
                 "set": 0
@@ -946,7 +946,7 @@
               {
                 "access": "read",
                 "binding": 6,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_1",
                 "set": 0
@@ -954,7 +954,7 @@
               {
                 "access": "read",
                 "binding": 7,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_2",
                 "set": 0
@@ -962,7 +962,7 @@
               {
                 "access": "read",
                 "binding": 8,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "volume_3",
                 "set": 0
@@ -994,7 +994,7 @@
               {
                 "access": "read",
                 "binding": 12,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_0",
                 "set": 0
@@ -1002,7 +1002,7 @@
               {
                 "access": "read",
                 "binding": 13,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_1",
                 "set": 0
@@ -1010,7 +1010,7 @@
               {
                 "access": "read",
                 "binding": 14,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_2",
                 "set": 0
@@ -1018,7 +1018,7 @@
               {
                 "access": "read",
                 "binding": 15,
-                "format": "r32f",
+                "format": "rgba",
                 "kind": "sampled_texture_3d",
                 "name": "occupancy_3",
                 "set": 0
