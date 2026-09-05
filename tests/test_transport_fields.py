@@ -160,3 +160,11 @@ def test_custom_resource_declarations_and_reduction_contracts():
         mapping.pack(2)
     with pytest.raises(ValueError, match="uint32"):
         SampleReduction([-1])
+
+
+@pytest.mark.parametrize("version", [0, 3, True, 2.0])
+def test_intersection_program_rejects_unknown_hit_versions(version):
+    from ordinarylight.geometry import IntersectionProgram
+
+    with pytest.raises(ValueError, match="hit_version"):
+        IntersectionProgram("test", "uint test() { return 0u; }", hit_version=version)

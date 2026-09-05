@@ -28,6 +28,8 @@ class VulkanKernel:
     """
 
     def __init__(self, runtime, spirv, bindings, *, push_constant_size=0):
+        if spirv is None:
+            raise TypeError("VulkanKernel requires SPIR-V")
         with runtime.lock:
             self._initialize(
                 runtime, spirv, bindings, push_constant_size=push_constant_size
@@ -108,11 +110,12 @@ class VulkanKernel:
                 if isinstance(owner, (VulkanBuffer, VulkanImage, VulkanSampler)):
                     owner.retain(self)
                     self._retained_allocations.append(owner)
-            self.module = vk.vkCreateShaderModule(
-                runtime.device,
-                vk.VkShaderModuleCreateInfo(codeSize=len(spirv), pCode=spirv),
-                None,
-            )
+            if spirv is not None:
+                self.module = vk.vkCreateShaderModule(
+                    runtime.device,
+                    vk.VkShaderModuleCreateInfo(codeSize=len(spirv), pCode=spirv),
+                    None,
+                )
             descriptors = [
                 vk.VkDescriptorSetLayoutBinding(
                     binding=binding,
@@ -150,20 +153,21 @@ class VulkanKernel:
                 ),
                 None,
             )
-            # Keep the CFFI entry-point storage alive through pipeline creation.
-            stage = vk.VkPipelineShaderStageCreateInfo(
-                stage=vk.VK_SHADER_STAGE_COMPUTE_BIT, module=self.module, pName="main"
-            )
-            info = vk.VkComputePipelineCreateInfo(
-                stage=stage, layout=self.pipeline_layout
-            )
-            self.pipeline = vk.vkCreateComputePipelines(
-                runtime.device,
-                runtime.pipeline_cache or vk.VK_NULL_HANDLE,
-                1,
-                [info],
-                None,
-            )[0]
+            if spirv is not None:
+                # Keep the CFFI entry-point storage alive through pipeline creation.
+                stage = vk.VkPipelineShaderStageCreateInfo(
+                    stage=vk.VK_SHADER_STAGE_COMPUTE_BIT, module=self.module, pName="main"
+                )
+                info = vk.VkComputePipelineCreateInfo(
+                    stage=stage, layout=self.pipeline_layout
+                )
+                self.pipeline = vk.vkCreateComputePipelines(
+                    runtime.device,
+                    runtime.pipeline_cache or vk.VK_NULL_HANDLE,
+                    1,
+                    [info],
+                    None,
+                )[0]
             counts = Counter(
                 kinds[resource.descriptor or resource.kind]
                 for resource in self.bindings.values()
@@ -289,3 +293,18 @@ class VulkanKernel:
 
     def __exit__(self, *_exc):
         self.close()
+
+
+class VulkanDescriptorSet(VulkanKernel):
+    """Internal immutable descriptors using the kernel's resource validation."""
+
+    def __init__(self, runtime, bindings):
+        with runtime.lock:
+            self._initialize(runtime, None, bindings)
+
+    def bind(self, command, pipeline_layout, *, set_index=0):
+        self.require_open()
+        vk.vkCmdBindDescriptorSets(
+            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline_layout, set_index, 1, [self.descriptor], 0, None,
+        )

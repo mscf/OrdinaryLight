@@ -6,3 +6,5 @@ from .gpu import (
     default_material_modifier, material_modifier, modifier_signature,
 )
 from .graph import MaterialGraph as MaterialGraph, MaterialNode as MaterialNode, MaterialResource as MaterialResource
+
+from .resources import VulkanMaterialResources as VulkanMaterialResources

@@ -446,7 +446,7 @@ class MaterialProgram:
 
 
 def material_dispatch_glsl(
-    programs, *, attribute_slots=None, material_modifier=None,
+    programs, *, attribute_slots=None, material_modifier=None, material_resources=None,
 ):
     """Generate evaluator functions and a material-ID dispatcher."""
     from .gpu import material_modifier_glsl
@@ -454,7 +454,9 @@ def material_dispatch_glsl(
     if not programs:
         raise ValueError("At least one material program is required")
     if any(program.resources for program in programs):
-        raise ValueError("External material graph resources need the non-camera transport material_resources adapter")
+        if material_resources is None:
+            raise ValueError("External material graphs require material_resources bindings")
+        material_resources.validate(programs)
     functions = [
         program.glsl(
             f"evaluateMaterial_{index}", attribute_slots=attribute_slots
@@ -494,7 +496,7 @@ def material_dispatch_glsl(
         "    return evaluated;",
         "}",
     ))
-    return "\n".join(lines)
+    return (material_resources.source if material_resources is not None else "") + "\n".join(lines)
 
 
 def material(function):

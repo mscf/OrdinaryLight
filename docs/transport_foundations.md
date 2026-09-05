@@ -112,6 +112,47 @@ Shading normals do not decide medium membership.
 Boundary contains table index (0xffffffff for none), outside medium, inside
 medium, and traversal status. The host `SurfaceHit` names equivalent fields.
 
+## Per-hit custom attributes (version 2)
+
+Existing callbacks default to `IntersectionProgram(hit_version=1)`. Opt into
+`hit_version=2` to replace the final two output arguments with
+`inout OrdinaryLightCustomHit hit`. All earlier arguments are unchanged.
+The runtime initializes the record before each call. Return codes remain 0
+(miss), 1 (hit), and 2 (unresolved/error).
+
+The record contains `float distance`, `vec3 geometric_normal`, `uint flags`,
+`uint material`, `uint boundary`, `uint identity`, `vec2 uv`, and
+`vec3 shading_normal`. Always set distance and geometric normal for a hit.
+Set only the desired override flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `OL_HIT_MATERIAL` | Select `material` from the scene's local custom-material palette. |
+| `OL_HIT_BOUNDARY` | Resolve application boundary ID `boundary` through the scene table; `OL_NO_BOUNDARY` explicitly clears it. |
+| `OL_HIT_IDENTITY` | Return unsigned 32-bit application `identity`, independently of the chunk primitive index. |
+| `OL_HIT_UV` | Supply finite UV coordinates; otherwise zero. |
+| `OL_HIT_SHADING_NORMAL` | Supply an outward unit shading normal in the geometric normal's hemisphere; otherwise use the geometric normal. |
+
+Absent identity/material/boundary flags inherit the enclosing primitive's
+metadata. The inherited material/boundary pair must remain valid at scene
+construction. A callback may override both to choose a different transmission
+class. Material graphs themselves still cannot change transmission class.
+Unknown flags, palette indices, boundary IDs, or incompatible material/boundary
+pairs fail with status 32 before material/boundary dereferences. Nonfinite UVs
+and invalid normals fail with status 1. Application IDs are opaque uint32 values,
+not array indices. Callbacks remain responsible for bounds-checking their own
+resource accesses.
+
+The committed-hit record remains 80 bytes. UVs occupy geometric-normal.w and
+shading-normal.w for both triangles and custom geometry. Optional shading normals
+do not change the dielectric scattering policy.
+
+A heterogeneous chunk can select a material and cell identity on each hit.
+A connected optical region must use one boundary identity across chunks; chunk
+edges and internal cell faces are not automatically optical interfaces.
+OrdinaryLight validates per-hit references, not watertightness or region topology.
+See `examples/custom_hit_attributes.py` for a minimal public-API diagnostic.
+
 ## Declared custom resources
 
 Each `IntersectionProgram` may declare `resources=(IntersectionResource(...),)`.
@@ -264,7 +305,7 @@ The 48-byte `ACCUMULATION_DTYPE` has these groups:
 
 | Group | Components |
 | --- | --- |
-| radiance | RGB sum, reserved |
+| radiance | weighted RGB sum, normalization-weight sum |
 | counts | attempted, valid, ORed status flags, truncated samples |
 | events | diffuse bounces, reflections, transmissions, total internal reflections |
 

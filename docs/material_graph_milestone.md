@@ -82,9 +82,10 @@ checks. Uniform and buffer contents can change without recompiling the material.
 GPU producers participate in execution-graph dependencies; host uploads retain
 explicit synchronization. Applications reset affected history themselves.
 
-This external-resource adapter currently targets non-camera Vulkan transport.
-Resource-free graph programs use existing camera GI/raster/WebGPU material
-compilation; camera compilation rejects external-resource graphs explicitly.
+External-resource graphs also work in Vulkan camera GI through
+`VulkanMaterialResources` (see below). Resource-free graphs continue to use
+existing camera GI/raster/WebGPU material compilation. External-resource graphs
+are not yet supported by the raster/WebGPU graph adapters.
 The camera renderers retain their existing material models and resource systems;
 this milestone does not replace their integrators with the non-camera tracer.
 Triangle hits interpolate texcoord0. Known surface samples accept `texcoords`;
@@ -193,3 +194,45 @@ The non-camera material palette now contains three vec4 records per material
 (albedo/kind, emission/sidedness, roughness/metallic/IOR/reserved). External raw
 palette readers must use the expanded layout. Public fixed-material constructors
 and scene/integrator entry points remain available.
+
+
+## Resource-backed camera GI
+
+Create a fixed binding bundle from the union of graph programs used by the camera
+scene, then pass it through `RendererConfig`:
+
+```python
+program = graph.compile()
+with ol.VulkanMaterialResources(
+    runtime, [program], {"gain": gain_buffer, "texture": (image, sampler)}
+) as bindings:
+    config = ol.RendererConfig(material_resources=bindings)
+    with ol.renderers.gi.VulkanGlobalIlluminationRenderer(
+        runtime=runtime, config=config
+    ) as renderer:
+        # Mesh materials use ol.Material(program=program).
+        frame = renderer.render_wavefront(scene, camera, 640, 480)
+```
+
+Declarations and allocations must match exactly at bundle construction; each
+camera program may use a subset of that declared union. Conflicting declarations,
+wrong allocation types/usages, incompatible runtimes and premature resource close
+are rejected. Bindings occupy descriptor set 1, separate from existing scene
+bindings. Both the monolithic camera renderer and staged primary/secondary
+evaluators use this bundle. Staged resource graphs currently require
+`wavefront` execution; `auto` selects that strategy and other explicit strategies
+are rejected. Raster and WebGPU adapters remain outside this binding contract.
+
+The bundle retains allocations, and attached renderers retain the bundle.
+Close renderers before the bundle, then close allocations and runtime.
+Changing contents does not rebuild descriptors or material pipelines. Call
+`bindings.synchronize(after=[producer_completion])` after GPU producers and before
+rendering; it waits for producers and establishes shader-read visibility and
+GENERAL image layouts. Host uploads also require synchronization before rendering.
+Do not mutate resource contents while a frame is using them. Reset affected
+progressive/temporal histories explicitly; resource edits do not infer invalidation.
+Changing declarations or allocations requires a new bundle and renderer.
+
+Camera GI retains its existing scattering implementation. Tests compare bound
+material evaluation with equivalent constant programs; this is not a claim of
+identical sampling or scattering across camera and non-camera integrators.

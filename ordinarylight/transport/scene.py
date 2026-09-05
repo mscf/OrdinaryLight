@@ -294,7 +294,8 @@ class VulkanTransportScene:
 
             material_bindings, material_declarations, material_owners = (
                 prepare_material_resources(
-                    self, material_resources, max(self.custom_bindings, default=15) + 1
+                    self.runtime, [m.program for m in self.materials],
+                    material_resources, max(self.custom_bindings, default=15) + 1
                 )
             )
             self.custom_bindings.update(material_bindings)

@@ -33,14 +33,34 @@ layout(set=0,binding=7,std430) readonly buffer Boundaries { uvec4 medium_boundar
     source += f"#define OL_ANALYTIC_LIGHT_COUNT {len(scene.lights)}u\n"
     source += scene.custom_declarations
     source += f"\n#define OL_MATERIAL_COUNT {len(scene.materials)}u\n#define OL_BOUNDARY_COUNT {len(scene.boundaries)}u\n"
+    source += f"#define OL_CUSTOM_MATERIAL_OFFSET {len(scene.materials) - len(scene._custom_materials)}u\n"
+    source += """
+#define OL_HIT_MATERIAL 1u
+#define OL_HIT_BOUNDARY 2u
+#define OL_HIT_IDENTITY 4u
+#define OL_HIT_UV 8u
+#define OL_HIT_SHADING_NORMAL 16u
+#define OL_NO_BOUNDARY 0xffffffffu
+struct OrdinaryLightCustomHit {
+    float distance;
+    vec3 geometric_normal;
+    uint flags;
+    uint material;
+    uint boundary;
+    uint identity;
+    vec2 uv;
+    vec3 shading_normal;
+};
+"""
     source += "\n".join(program.source for program in scene.programs.values())
     source += """
 uint ordinarylightCustomIntersect(uint program,vec3 origin,vec3 direction,float t_min,float t_max,
-    vec4 parameters,float tolerance,uint max_steps,out float distance,out vec3 normal) {
+    vec4 parameters,float tolerance,uint max_steps,inout OrdinaryLightCustomHit result) {
     switch(program) {
 """
     for index, program in enumerate(scene.programs.values()):
-        source += f"case {index}u: return {program.name}(origin,direction,t_min,t_max,parameters,tolerance,max_steps,distance,normal);\n"
+        outputs = "result" if program.hit_version == 2 else "result.distance,result.geometric_normal"
+        source += f"case {index}u: return {program.name}(origin,direction,t_min,t_max,parameters,tolerance,max_steps,{outputs});\n"
     source += "default: return 2u;\n}\n}\n"
     source += (
         files("ordinarylight.shaders")

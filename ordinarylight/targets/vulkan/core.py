@@ -602,7 +602,8 @@ class VulkanWavefrontExecutor:
             self.core.device,
             vk.VkPipelineLayoutCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                setLayoutCount=1, pSetLayouts=[descriptor_layout],
+                setLayoutCount=len(self.core._material_set_layouts(descriptor_layout)),
+                pSetLayouts=self.core._material_set_layouts(descriptor_layout),
                 pushConstantRangeCount=1 if push_range else 0,
                 pPushConstantRanges=[push_range] if push_range else None,
             ), None,
@@ -719,6 +720,7 @@ class VulkanWavefrontExecutor:
                 profiling=self.core.config.wavefront_profiling,
                 denoiser_signal_capture=self._denoiser_signals_active(),
                 material_modifier=self.core.config.material_modifier,
+                material_resources=self.core.material_resources,
             )
             shade = compile_wavefront_material_shader(
                 (
@@ -735,6 +737,7 @@ class VulkanWavefrontExecutor:
                 profiling=self.core.config.wavefront_profiling,
                 denoiser_signal_capture=self._denoiser_signals_active(),
                 material_modifier=self.core.config.material_modifier,
+                material_resources=self.core.material_resources,
             )
             self.custom_primary_module, self.custom_primary_pipeline = (
                 self._pipeline_bytes(primary, self.primary_pipeline_layout)
@@ -3214,6 +3217,7 @@ class VulkanWavefrontExecutor:
                     self.primary_pipeline_layout, 0, 1,
                     [self.primary_sets[camera_slot]], 0, None,
                 )
+                self.core._bind_material_resources(command, self.primary_pipeline_layout)
                 inline_bounces = (
                     self.core.config.wavefront_hybrid_inline_bounces
                     if hybrid else self.core.config.max_bounces
@@ -3434,6 +3438,7 @@ class VulkanWavefrontExecutor:
                     self.primary_pipeline_layout, 0, 1,
                     [self.primary_sets[camera_slot]], 0, None,
                 )
+                self.core._bind_material_resources(command, self.primary_pipeline_layout)
                 vk.vkCmdPushConstants(
                     command, self.primary_pipeline_layout,
                     vk.VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -3626,6 +3631,7 @@ class VulkanWavefrontExecutor:
                             ]],
                             0, None,
                         )
+                        self.core._bind_material_resources(command, self.shade_pipeline_layout)
                         vk.vkCmdPushConstants(
                             command, self.shade_pipeline_layout,
                             vk.VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -3650,6 +3656,7 @@ class VulkanWavefrontExecutor:
                         self.shade_pipeline_layout, 0, 1,
                         [self.shade_sets[shade_slot * 2 + current]], 0, None,
                     )
+                    self.core._bind_material_resources(command, self.shade_pipeline_layout)
                     vk.vkCmdPushConstants(
                         command, self.shade_pipeline_layout,
                         vk.VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -4216,6 +4223,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         self.pipeline_cache_path = None
         self.command_pool = None
         self.descriptor_pool = None
+        self.material_resources = None
         self.descriptor_layout = None
         self.pipeline_layout = None
         self.pipeline = None
@@ -4303,6 +4311,11 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             for name, value in vars(runtime).items():
                 if name not in {"config", "lock", "_consumers", "_closed"}:
                     setattr(self, name, value)
+            if config.material_resources is not None:
+                if config.material_resources.runtime is not runtime:
+                    raise ValueError("Camera material resources must share the renderer runtime")
+                config.material_resources.retain(self)
+                self.material_resources = config.material_resources
             self._create_pipeline()
         except Exception:
             self.close()
@@ -4364,6 +4377,15 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         for frame in self.window_frames:
             frame["wavefront_command_key"] = None
         return True
+
+    def _material_set_layouts(self, scene_layout):
+        return [scene_layout] + (
+            [self.material_resources.layout] if self.material_resources is not None else []
+        )
+
+    def _bind_material_resources(self, command, pipeline_layout):
+        if self.material_resources is not None:
+            self.material_resources.bind(command, pipeline_layout)
 
     def _create_pipeline(self):
         image_output = self.surface is not None or self._headless_surface
@@ -4443,8 +4465,8 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             self.device,
             vk.VkPipelineLayoutCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                setLayoutCount=1,
-                pSetLayouts=[self.descriptor_layout],
+                setLayoutCount=len(self._material_set_layouts(self.descriptor_layout)),
+                pSetLayouts=self._material_set_layouts(self.descriptor_layout),
                 pushConstantRangeCount=1,
                 pPushConstantRanges=[push_range],
             ),
@@ -4596,6 +4618,8 @@ class VulkanRayQueryCore(VulkanSceneUploader):
     def _replace_compute_pipeline(self, programs, *, attribute_layout=None):
         """Install a compute pipeline dispatching the supplied material programs."""
         programs = tuple(programs)
+        if self.material_resources is not None:
+            self.material_resources.validate(programs)
         if programs == self.material_programs:
             return
         from ...materials import builtin_material
@@ -4617,6 +4641,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 shader_source_name, programs,
                 attribute_layout=attribute_layout,
                 material_modifier=self.config.material_modifier,
+                material_resources=self.material_resources,
             )
         replacement_module = vk.vkCreateShaderModule(
             self.device,
@@ -4899,6 +4924,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 0,
                 None,
             )
+            self._bind_material_resources(command, self.pipeline_layout)
             vk.vkCmdPushConstants(
                 command,
                 self.pipeline_layout,
@@ -8296,6 +8322,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 command, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self.pipeline_layout,
                 0, 1, [frame["descriptor_set"]], 0, None,
             )
+            self._bind_material_resources(command, self.pipeline_layout)
             vk.vkCmdPushConstants(
                 command, self.pipeline_layout, vk.VK_SHADER_STAGE_COMPUTE_BIT,
                 0, constants.nbytes, vk.ffi.from_buffer(constants),
@@ -8333,6 +8360,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                     self.pipeline_layout, 0, 1, [frame["descriptor_set"]],
                     0, None,
                 )
+                self._bind_material_resources(command, self.pipeline_layout)
                 denoise_constants = constants.copy()
                 denoise_constants[10, 3] = float(iteration + 1)
                 vk.vkCmdPushConstants(
@@ -8376,6 +8404,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 command, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self.pipeline_layout,
                 0, 1, [frame["descriptor_set"]], 0, None,
             )
+            self._bind_material_resources(command, self.pipeline_layout)
             tone_constants = constants.copy()
             if self.denoiser_output_enabled:
                 tone_constants[10, 3] = float(self.config.denoiser_iterations)
@@ -8735,6 +8764,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             if self.descriptor_layout:
                 vk.vkDestroyDescriptorSetLayout(self.device, self.descriptor_layout, None)
             self.device = None
+        if self.material_resources is not None:
+            self.material_resources.release(self)
+            self.material_resources = None
         runtime = self.runtime
         if runtime is not None:
             runtime.release(self)

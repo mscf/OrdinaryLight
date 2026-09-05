@@ -28,6 +28,9 @@ class IntersectionProgram:
                vec4 parameters, float tolerance, uint max_steps,
                out float distance, out vec3 geometric_normal)
 
+    With hit_version=2, replace the final outputs with
+    inout OrdinaryLightCustomHit hit; see docs/transport_foundations.md.
+
     Return 0 for miss, 1 for hit, 2 for unresolved/error. Bounds and hit distances
     are in world units. The callback must respect its declared stepping guarantee.
     Scalar fields require their own root-finding callback, not sphere tracing.
@@ -37,8 +40,11 @@ class IntersectionProgram:
     source: str
     field_kind: FieldKind | None = None
     resources: tuple[IntersectionResource, ...] = ()
+    hit_version: int = 1
 
     def __post_init__(self):
+        if type(self.hit_version) is not int or self.hit_version not in (1, 2):
+            raise ValueError("hit_version must be 1 or 2")
         object.__setattr__(self, "resources", tuple(self.resources))
         if not all(isinstance(r, IntersectionResource) for r in self.resources):
             raise TypeError("Expected IntersectionResource declarations")

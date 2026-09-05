@@ -33,6 +33,7 @@ class RendererConfig:
     present_pacing: bool = False
     material_program: MaterialProgram | None = None
     material_modifier: object | None = None
+    material_resources: object | None = None
     samples_per_pixel: int = 1
     progressive_accumulation: bool = False
     stationary_accumulation: bool = False
@@ -169,6 +170,12 @@ class RendererConfig:
             raise ValueError("present_mode must be 'mailbox', 'immediate', or 'fifo'")
         if self.swapchain_images < 0:
             raise ValueError("swapchain_images cannot be negative")
+        if self.material_resources is not None:
+            from ...materials import VulkanMaterialResources
+            if not isinstance(self.material_resources, VulkanMaterialResources):
+                raise TypeError("material_resources must be VulkanMaterialResources")
+            if self.wavefront_execution_strategy not in {"wavefront", "auto"}:
+                raise ValueError("Resource-backed camera graphs require wavefront or auto execution")
         if self.material_program is not None and not isinstance(
             self.material_program, MaterialProgram
         ):
@@ -612,6 +619,8 @@ class RendererConfig:
 
 def _resolve_execution_strategy(config, scene):
     """Choose an execution kernel without changing rendered results."""
+    if config.material_resources is not None:
+        return "wavefront"
     if config.wavefront_execution_strategy != "auto":
         return config.wavefront_execution_strategy
     if config.wavefront_material_bucketing:
