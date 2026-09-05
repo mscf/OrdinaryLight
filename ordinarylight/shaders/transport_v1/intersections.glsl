@@ -33,6 +33,7 @@ OrdinaryLightHit ordinarylightIntersect(vec3 origin,vec3 direction,float t_min,f
         if (rayQueryGetIntersectionTypeEXT(query,false)!=gl_RayQueryCandidateIntersectionAABBEXT) continue;
         uint index=rayQueryGetIntersectionPrimitiveIndexEXT(query,false);
         CustomRecord geometry=custom_geometry[index];
+        if(geometry.metadata.x==0xffffffffu) continue;
         float near_t=t_min,far_t=t_max;
         if (rayQueryGetIntersectionTypeEXT(query,true)!=gl_RayQueryCommittedIntersectionNoneEXT)
             far_t=min(far_t,rayQueryGetIntersectionTEXT(query,true));

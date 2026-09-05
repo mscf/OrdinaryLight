@@ -17,6 +17,11 @@ accumulation and diagnostic ray queries). Intersection programs can declare
 read-only application buffer/image resources with generated bindings. These
 families own general rendering behavior; voxel construction stays downstream.
 
+[Execution graphs](execution_graph.md) add VulkanGraph, ResourceVersion and
+VulkanOperation under ordinarylight.pipeline.graph. OrdinaryShade reflection
+feeds conservative resource accesses. VulkanFrameRing and VulkanToneMapTarget
+provide bounded reuse and persistent output under ordinarylight.runtime.
+
 ## Namespace ownership
 
 - `ordinarylight.renderer` owns the high-level `Renderer`, `RenderFrame`, and

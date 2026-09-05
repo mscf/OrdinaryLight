@@ -1850,6 +1850,9 @@ sphere, and homogeneous dielectric media. The separately installable
 refraction and absorption, resource-backed custom geometry, reusable GPU inputs,
 many-to-one application-ID accumulation, and HDR output.
 This Vulkan path is independent of the existing camera GI scheduler.
+[Versioned execution graphs](docs/execution_graph.md) compose those operations
+with application kernels, dynamic custom-geometry updates and persistent output.
+The external animated-grid client exercises GPU occupancy and chunk activation.
 
 
 ### Wavefront execution foundation

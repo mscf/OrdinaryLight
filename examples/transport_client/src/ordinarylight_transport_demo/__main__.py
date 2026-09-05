@@ -15,7 +15,8 @@ from ordinarylight.geometry import (
     IntersectionProgram,
     IntersectionResource,
 )
-from ordinarylight.runtime import VulkanOutput
+from ordinarylight.runtime import VulkanOutput, VulkanFrameRing
+from ordinarylight.pipeline.graph import VulkanGraph
 from ordinarylight.transport import (
     VulkanTransportScene,
     TransportMaterial,
@@ -191,6 +192,8 @@ uint bufferSphere(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,ou
                 )
             ]
             display = stack.enter_context(VulkanOutput(runtime))
+            tone = stack.enter_context(display.prepare(accumulation.hdr))
+            ring = stack.enter_context(VulkanFrameRing(runtime, 2))
             for frame_index in range(frames):
                 if frame_index:
                     # Rotate the two sampling frames in the isotropic cavity:
@@ -201,24 +204,40 @@ uint bufferSphere(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,ou
                         materials=np.repeat(np.arange(1, columns + 1), 2),
                     )
                     integrators[0].update_samples(updated, reduction=mappings[0])
+                ring.acquire()
+                graph = VulkanGraph()
+                previous = []
                 for index, integrator in enumerate(integrators):
-                    integrator.accumulate(
-                        samples_per_element=samples_per_frame,
-                        max_bounces=2 if index == 0 else 24,
-                        max_steps=2048,
-                        environment=(1, 1, 1) if index else (0, 0, 0),
-                        seed=73,
+                    name = f"transport_{index}"
+                    graph.add(
+                        name,
+                        integrator.accumulate_operation(
+                            samples_per_element=samples_per_frame,
+                            max_bounces=2 if index == 0 else 24,
+                            max_steps=2048,
+                            environment=(1, 1, 1) if index else (0, 0, 0),
+                            seed=73,
+                        ),
+                        after=previous,
                     )
-                ready = accumulation.resolve()
+                    previous = [name]
+                graph.add("resolve", accumulation.resolve_operation())
+                graph.add("tone_map", tone.operation())
                 if window is not None:
                     glfw.poll_events()
-                    if glfw.window_should_close(window):
-                        break
-                    display.present(
-                        accumulation.hdr,
-                        after=ready,
-                        surface_size=glfw.get_framebuffer_size(window),
+                    operation = display.present_operation(
+                        tone, surface_size=glfw.get_framebuffer_size(window)
                     )
+                    if operation is not None:
+                        graph.add("present", operation)
+                try:
+                    ring.submit(graph.compile())
+                except Exception:
+                    display.cancel_presentation()
+                    ring.cancel()
+                    raise
+                if window is not None and glfw.window_should_close(window):
+                    break
             records = accumulation.read()
             expected = (
                 np.linspace(0.15, 0.8, columns)[:, None] * np.array([2, 1, 0.5]) * 1.25
@@ -226,10 +245,7 @@ uint bufferSphere(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,ou
             np.testing.assert_allclose(
                 accumulation.means()[:columns], expected, rtol=3e-5
             )
-            with display.tone_map(accumulation.hdr, after=ready) as frame:
-                pixels = display.read(
-                    frame
-                )  # Explicit final file export, not the live presentation path.
+            pixels = display.read(tone)  # Explicit final export only.
             output = Path(output)
             output.parent.mkdir(parents=True, exist_ok=True)
             Image.frombytes("RGBA", (columns, 3), pixels).resize(

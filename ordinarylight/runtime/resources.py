@@ -14,20 +14,34 @@ class VulkanCompletion:
         self.complete = False
         runtime.retain(self)
 
+    def poll(self):
+        with self.runtime.lock:
+            if self.complete:
+                return True
+            try:
+                vk.vkGetFenceStatus(self.runtime.device, self.fence)
+            except vk.VkNotReady:
+                return False
+            self._retire()
+            return True
+
     def wait(self):
         with self.runtime.lock:
             if not self.complete:
                 vk.vkWaitForFences(
                     self.runtime.device, 1, [self.fence], vk.VK_TRUE, (1 << 64) - 1
                 )
-                vk.vkDestroyFence(self.runtime.device, self.fence, None)
-                vk.vkFreeCommandBuffers(
-                    self.runtime.device, self.runtime.command_pool, 1, [self.command]
-                )
-                self.complete = True
-                self.resources = ()
-                self.runtime.release(self)
+                self._retire()
         return self
+
+    def _retire(self):
+        vk.vkDestroyFence(self.runtime.device, self.fence, None)
+        vk.vkFreeCommandBuffers(
+            self.runtime.device, self.runtime.command_pool, 1, [self.command]
+        )
+        self.complete = True
+        self.resources = ()
+        self.runtime.release(self)
 
     close = wait
 
@@ -38,22 +52,54 @@ class VulkanCompletion:
         self.wait()
 
 
-def submit(runtime, recorder, *, resources=(), after=()):
-    """Submit on the single runtime queue; explicit dependencies use host waits.
+def submit(
+    runtime,
+    recorder,
+    *,
+    resources=(),
+    after=(),
+    wait_semaphores=(),
+    signal_semaphores=(),
+):
+    """Submit on one queue. Dependencies use queue order and GPU barriers.
 
-    Resource barriers belong to the recorder or VulkanPassPipeline. This first
-    ordered executor deliberately makes no multi-queue or timeline promises.
+    All completion tokens originate on this queue; no cross-queue synchronization
+    is implied. Fence polling retires finished command storage without waiting.
     """
     with runtime.lock:
         runtime.require_open()
-        resources = tuple(resources)
+        waits, signals = tuple(wait_semaphores), tuple(signal_semaphores)
+        for semaphore, stage in waits:
+            if (
+                not isinstance(semaphore, VulkanSemaphore)
+                or semaphore.runtime is not runtime
+                or not stage
+            ):
+                raise ValueError(
+                    "Semaphore waits require same-runtime semaphores and stage masks"
+                )
+        for semaphore in signals:
+            if (
+                not isinstance(semaphore, VulkanSemaphore)
+                or semaphore.runtime is not runtime
+            ):
+                raise ValueError("Semaphore signals require same-runtime semaphores")
+        if (
+            len({s for s, _ in waits}) != len(waits)
+            or len(set(signals)) != len(signals)
+            or {s for s, _ in waits} & set(signals)
+        ):
+            raise ValueError("Binary semaphore uses must be unique within a submission")
+        resources = tuple(resources) + tuple(s for s, _ in waits) + signals
         for dependency in after:
             if (
                 not isinstance(dependency, VulkanCompletion)
                 or dependency.runtime is not runtime
             ):
                 raise ValueError("Completion dependencies must belong to this runtime")
-            dependency.wait()
+        for consumer in tuple(runtime._consumers):
+            if isinstance(consumer, VulkanCompletion):
+                consumer.poll()
         for resource in resources:
             if resource.runtime is not runtime:
                 raise ValueError("Submitted resources must belong to this runtime")
@@ -74,13 +120,43 @@ def submit(runtime, recorder, *, resources=(), after=()):
                     flags=vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
                 ),
             )
+            vk.vkCmdPipelineBarrier(
+                command,
+                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | vk.VK_PIPELINE_STAGE_HOST_BIT,
+                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                0,
+                1,
+                [
+                    vk.VkMemoryBarrier(
+                        srcAccessMask=vk.VK_ACCESS_MEMORY_READ_BIT
+                        | vk.VK_ACCESS_MEMORY_WRITE_BIT
+                        | vk.VK_ACCESS_HOST_WRITE_BIT,
+                        dstAccessMask=vk.VK_ACCESS_MEMORY_READ_BIT
+                        | vk.VK_ACCESS_MEMORY_WRITE_BIT,
+                    )
+                ],
+                0,
+                None,
+                0,
+                None,
+            )
             recorder(command)
             vk.vkEndCommandBuffer(command)
             fence = vk.vkCreateFence(runtime.device, vk.VkFenceCreateInfo(), None)
             vk.vkQueueSubmit(
                 runtime.queue,
                 1,
-                [vk.VkSubmitInfo(commandBufferCount=1, pCommandBuffers=[command])],
+                [
+                    vk.VkSubmitInfo(
+                        commandBufferCount=1,
+                        pCommandBuffers=[command],
+                        waitSemaphoreCount=len(waits),
+                        pWaitSemaphores=[s.handle for s, _ in waits] or None,
+                        pWaitDstStageMask=[stage for _, stage in waits] or None,
+                        signalSemaphoreCount=len(signals),
+                        pSignalSemaphores=[s.handle for s in signals] or None,
+                    )
+                ],
                 fence,
             )
         except Exception:
@@ -332,3 +408,40 @@ class VulkanImage(_Allocation):
             vk.vkFreeMemory(self.runtime.device, self.memory, None)
             self.closed = True
             self.runtime.release(self)
+
+
+class VulkanSemaphore:
+    """Owned binary semaphore for external acquisition/presentation boundaries.
+
+    The application must pair each signal with exactly one wait before reuse.
+    Ordinary single-queue graph dependencies do not require these objects.
+    """
+
+    def __init__(self, runtime):
+        with runtime.lock:
+            runtime.require_open()
+            self.runtime = runtime
+            self.handle = vk.vkCreateSemaphore(
+                runtime.device, vk.VkSemaphoreCreateInfo(), None
+            )
+            self.closed = False
+            runtime.retain(self)
+
+    def require_open(self):
+        self.runtime.require_open()
+        if self.closed:
+            raise RuntimeError("Semaphore is closed")
+
+    def close(self):
+        with self.runtime.lock:
+            if not self.closed:
+                vk.vkDeviceWaitIdle(self.runtime.device)
+                vk.vkDestroySemaphore(self.runtime.device, self.handle, None)
+                self.closed = True
+                self.runtime.release(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()

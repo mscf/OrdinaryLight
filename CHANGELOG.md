@@ -5,6 +5,15 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added single-queue execution graphs with resource versions, alias/hazard checks,
+  OrdinaryShade access-reflection adapters, and recordable rendering operations.
+- Replaced per-dependency host waits with GPU queue ordering/barriers; added
+  bounded frame rings and semaphore-based graph presentation.
+- Added custom-geometry slot activation/removal, bounds refits/rebuilds, and
+  capacity growth preserving unrelated allocations and rebinding integrators.
+- Added persistent tone-map targets and migrated the external client to graphs,
+  including an animated fixed-grid workload with GPU-generated occupancy.
+
 - Added declared read-only buffer/image resources to custom intersections, with
   generated bindings, dependency barriers, and allocation lifetime guards.
 - Added reusable GPU sample allocations and in-place integrator input updates.

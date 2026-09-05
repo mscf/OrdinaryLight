@@ -152,7 +152,9 @@ There is no automatic inference of an application's producer dependency.
 
 Resource contents can change without rebuilding shaders or scenes while their
 allocation and the geometry's conservative AABB remain valid. If an edit moves
-the surface outside its AABB, replace the scene snapshot. Applications must reset
+the surface outside its AABB, request update_custom_geometry with new bounds
+(or its recordable operation). Adding slots beyond capacity uses
+reserve_custom_geometry; see [execution graph](execution_graph.md). Applications must reset
 affected accumulated outputs when the expected lighting changes. Field uploads
 do not perform bounds refits or history invalidation automatically.
 
@@ -284,20 +286,19 @@ PNG/JSON/NPZ exports.
 
 ## Ownership and scheduling direction
 
-Transport scenes are immutable snapshots. They may borrow an existing resident
-scene's triangle buffers/BLASes and own their combined TLAS/custom AABB resources.
-Source scene mutation requires a replacement snapshot. Integrators borrow scenes
-and accumulators: close integrators first, then resources, then the runtime.
-The runtime lock serializes host state and queue/pool use.
+Triangle source scenes remain snapshots; source mutation requires replacement.
+Custom geometry now supports mutable slots, bounds refits/rebuilds, and explicit
+capacity growth. It can borrow triangle buffers/BLASes while owning the combined
+TLAS and custom acceleration data. Integrators borrow scenes and accumulators:
+close integrators first, then resources, then the runtime. The runtime lock
+serializes host state and queue/pool use.
 
-The runtime/pass layer owns completion dependencies, future public scene updates
-and refits, and presentation allocations. Current dependencies still use
-conservative barriers and host waits; timeline scheduling and incremental refits
-are not part of this milestone. Accumulation/HDR allocations are persistent;
-output allocation behavior follows the existing
-[extension interface](renderer_extensions.md). Applications own pass ordering
-and invalidation policy. Voxel identities and artistic averaging remain outside
-the renderer core.
+[Execution graphs](execution_graph.md) compose recordable transport, reduction,
+reset, resolve, acceleration updates, tone mapping and presentation. Same-queue
+dependencies use GPU ordering/barriers. Frame rings bound outstanding work;
+readback, CPU uploads, capacity growth and frame-slot reuse can still wait.
+Accumulation, HDR and prepared tone-map outputs are persistent. Applications
+continue to own history invalidation and whether work needs recomputing.
 
 ## Validation
 
@@ -328,7 +329,7 @@ native GPU presentation.
 
 ## Downstream migration
 
-The external transport client is updated to version 0.2.0 and exercises declared
+The external transport client is updated to version 0.3.0 and exercises declared
 resources, reusable GPU samples, and two-to-one surface reduction. It still
 requires this unreleased OrdinaryLight checkout. OrdinaryShade, OrdinaryLattice,
 OrdinaryScience, LatticeModel, LatticeVisualization and the scientific RT and

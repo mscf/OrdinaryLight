@@ -1,10 +1,14 @@
 """Algorithm-independent GPU services (Vulkan loaded on demand)."""
 
 _MODULES = {
+    "VulkanFrameRing": "frames",
+    "VulkanFrameSlot": "frames",
+    "VulkanToneMapTarget": "output",
     "VulkanRuntime": "vulkan",
     "VulkanCapabilities": "vulkan",
     "VulkanBuffer": "resources",
     "VulkanImage": "resources",
+    "VulkanSemaphore": "resources",
     "VulkanCompletion": "resources",
     "VulkanKernel": "kernel",
     "compile_compute": "kernel",

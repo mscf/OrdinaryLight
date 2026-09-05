@@ -159,10 +159,25 @@ class VulkanRuntime:
         with self.lock:
             return VulkanImage(self, width, height, **options)
 
-    def submit(self, recorder, *, resources=(), after=()):
+    def submit(
+        self,
+        recorder,
+        *,
+        resources=(),
+        after=(),
+        wait_semaphores=(),
+        signal_semaphores=(),
+    ):
         from .resources import submit
 
-        return submit(self, recorder, resources=resources, after=after)
+        return submit(
+            self,
+            recorder,
+            resources=resources,
+            after=after,
+            wait_semaphores=wait_semaphores,
+            signal_semaphores=signal_semaphores,
+        )
 
     def upload_scene(self, scene, *, config=None):
         from ..targets.vulkan.scene import VulkanSceneResources

@@ -45,6 +45,111 @@ class VulkanOutputFrame:
         self.close()
 
 
+class VulkanToneMapTarget(VulkanOutputFrame):
+    """Persistent tone-map image/pipeline; operations can join an application graph."""
+
+    def __init__(self, runtime, hdr, *, exportable=False):
+        hdr.require_open()
+        if (
+            hdr.runtime is not runtime
+            or hdr.format != vk.VK_FORMAT_R32G32B32A32_SFLOAT
+            or not hdr.usage & vk.VK_IMAGE_USAGE_STORAGE_BIT
+        ):
+            raise ValueError("Tone mapping requires same-runtime RGBA32F storage HDR")
+        self.runtime, self.hdr = runtime, hdr
+        self.closed = False
+        self.completion = None
+        self.kernel = None
+        self.image = runtime.image(
+            hdr.width,
+            hdr.height,
+            format=vk.VK_FORMAT_R8G8B8A8_UNORM,
+            exportable=exportable,
+        )
+        try:
+            self.kernel = VulkanKernel(
+                runtime,
+                files("ordinarylight.shaders")
+                .joinpath("external_hdr_tone_map.comp.spv")
+                .read_bytes(),
+                {0: VulkanResource.image(hdr), 1: VulkanResource.image(self.image)},
+                push_constant_size=4,
+            )
+        except Exception:
+            self.image.close()
+            raise
+
+    def require_open(self):
+        if self.closed:
+            raise RuntimeError("Tone-map target is closed")
+        self.kernel.require_open()
+
+    def operation(self, *, exposure=1.0, after=()):
+        from ..pipeline.graph import VulkanOperation
+
+        self.require_open()
+        if not math.isfinite(exposure) or exposure < 0:
+            raise ValueError("Exposure must be finite and nonnegative")
+        uses = (
+            _use(
+                self.hdr,
+                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vk.VK_ACCESS_SHADER_READ_BIT,
+                vk.VK_IMAGE_LAYOUT_GENERAL,
+            ),
+            _use(
+                self.image,
+                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vk.VK_ACCESS_SHADER_WRITE_BIT,
+                vk.VK_IMAGE_LAYOUT_GENERAL,
+            ),
+        )
+        return VulkanOperation(
+            [
+                VulkanPass(
+                    "tone_map",
+                    uses,
+                    lambda command: self.kernel.bind(
+                        command, struct.pack("f", exposure)
+                    ),
+                    ((self.hdr.width + 7) // 8, (self.hdr.height + 7) // 8, 1),
+                )
+            ],
+            validate=self.require_open,
+            dependencies=lambda: tuple(after)
+            + ((self.completion,) if self.completion is not None else ()),
+            submitted=lambda completion: setattr(self, "completion", completion),
+        )
+
+    def wait(self):
+        if self.completion is not None:
+            self.completion.wait()
+        return self
+
+    def close(self):
+        with self.runtime.lock:
+            if self.closed:
+                return
+            self.wait()
+            self.kernel.close()
+            self.image.close()
+            self.closed = True
+
+
+class _SwapchainImage:
+    def __init__(self, output, image):
+        self.output = output
+        self.runtime = output.runtime
+        self.image = image
+        self.layout = vk.VK_IMAGE_LAYOUT_UNDEFINED
+        self.generation = output._swap_generation
+
+    def require_open(self):
+        self.output._require_open()
+        if self.generation != self.output._swap_generation:
+            raise ValueError("Swapchain changed; acquire a new presentation operation")
+
+
 class VulkanOutput:
     """Reusable output stage accepting linear RGBA32F storage images.
 
@@ -58,6 +163,13 @@ class VulkanOutput:
         self.swapchain = None
         self.extent = None
         self.closed = False
+        self._presentation_target = None
+        self._swap_generation = 0
+        self._present_signals = []
+        self._acquire_slots = []
+        self._present_next = 0
+        self._pending_acquire = None
+        self._present_success = False
         runtime.retain(self)
 
     def _require_open(self):
@@ -65,65 +177,17 @@ class VulkanOutput:
         if self.closed:
             raise RuntimeError("Vulkan output is closed")
 
-    def tone_map(self, hdr, *, after, exposure=1.0, exportable=False):
+    def prepare(self, hdr, *, exportable=False):
         self._require_open()
-        hdr.require_open()
-        if hdr.runtime is not self.runtime or after.runtime is not self.runtime:
-            raise ValueError("HDR and completion must belong to the output runtime")
-        if (
-            hdr.format != vk.VK_FORMAT_R32G32B32A32_SFLOAT
-            or not hdr.usage & vk.VK_IMAGE_USAGE_STORAGE_BIT
-        ):
-            raise ValueError("HDR input must be an RGBA32F storage image")
-        if not math.isfinite(exposure) or exposure < 0:
-            raise ValueError("exposure must be finite and nonnegative")
-        output = self.runtime.image(
-            hdr.width,
-            hdr.height,
-            format=vk.VK_FORMAT_R8G8B8A8_UNORM,
-            exportable=exportable,
-        )
-        kernel = None
+        return VulkanToneMapTarget(self.runtime, hdr, exportable=exportable)
+
+    def tone_map(self, hdr, *, after, exposure=1.0, exportable=False):
+        target = self.prepare(hdr, exportable=exportable)
         try:
-            kernel = VulkanKernel(
-                self.runtime,
-                files("ordinarylight.shaders")
-                .joinpath("external_hdr_tone_map.comp.spv")
-                .read_bytes(),
-                {0: VulkanResource.image(hdr), 1: VulkanResource.image(output)},
-                push_constant_size=4,
-            )
-            uses = (
-                _use(
-                    hdr,
-                    vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    vk.VK_ACCESS_SHADER_READ_BIT,
-                    vk.VK_IMAGE_LAYOUT_GENERAL,
-                ),
-                _use(
-                    output,
-                    vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    vk.VK_ACCESS_SHADER_WRITE_BIT,
-                    vk.VK_IMAGE_LAYOUT_GENERAL,
-                ),
-            )
-            completion = VulkanPassPipeline(
-                [
-                    VulkanPass(
-                        "tone_map",
-                        uses,
-                        lambda command: kernel.bind(
-                            command, struct.pack("f", exposure)
-                        ),
-                        ((hdr.width + 7) // 8, (hdr.height + 7) // 8, 1),
-                    )
-                ]
-            ).execute(self.runtime, after=(after,))
-            return VulkanOutputFrame(output, completion, kernel)
+            target.operation(exposure=exposure, after=(after,)).execute(self.runtime)
+            return target
         except Exception:
-            if kernel is not None:
-                kernel.close()
-            output.close()
+            target.close()
             raise
 
     def export(self, hdr, *, after, exposure=1.0):
@@ -262,153 +326,240 @@ class VulkanOutput:
         )
         if self.swapchain is not None:
             r.destroy_swapchain(r.device, self.swapchain, None)
+        from .resources import VulkanSemaphore
+
+        for semaphore in self._present_signals:
+            semaphore.close()
         self.swapchain = replacement
         self.extent = extent
         self.images = list(r.get_swapchain_images(r.device, replacement))
+        self._swap_generation += 1
+        self._swap_images = [_SwapchainImage(self, image) for image in self.images]
+        self._present_signals = [VulkanSemaphore(r) for _ in self.images]
+        if not self._acquire_slots:
+            self._acquire_slots = [[VulkanSemaphore(r), None] for _ in range(2)]
         return True
 
-    def present(self, hdr, *, after, exposure=1.0, surface_size=None):
-        """Tone-map and GPU-blit to the runtime surface; synchronous first version."""
-        self._require_open()
+    def _drop_swapchain(self):
+        vk.vkDeviceWaitIdle(self.runtime.device)
+        for semaphore in self._present_signals:
+            semaphore.close()
+        self._present_signals = []
+        if self.swapchain is not None:
+            self.runtime.destroy_swapchain(self.runtime.device, self.swapchain, None)
+            self.swapchain = None
+        self._swap_generation += 1
+
+    def cancel_presentation(self):
+        """Retire an acquired-but-unsubmitted operation after graph preparation fails."""
         with self.runtime.lock:
-            if not self._ensure_swapchain(*(surface_size or (hdr.width, hdr.height))):
-                return False
-            with self.tone_map(hdr, after=after, exposure=exposure) as frame:
-                r = self.runtime
-                acquired = vk.vkCreateFence(r.device, vk.VkFenceCreateInfo(), None)
-                try:
-                    try:
-                        index = r.acquire_next_image(
-                            r.device,
-                            self.swapchain,
-                            (1 << 64) - 1,
-                            vk.VK_NULL_HANDLE,
-                            acquired,
-                        )
-                    except (vk.VkErrorOutOfDateKhr, vk.VkSuboptimalKhr):
-                        vk.vkDeviceWaitIdle(r.device)
-                        r.destroy_swapchain(r.device, self.swapchain, None)
-                        self.swapchain = None
-                        return False
-                    vk.vkWaitForFences(
-                        r.device, 1, [acquired], vk.VK_TRUE, (1 << 64) - 1
-                    )
-                    target = self.images[index]
+            if self._pending_acquire is not None:
+                semaphore = self._pending_acquire
+                self.runtime.submit(
+                    lambda command: None,
+                    wait_semaphores=[
+                        (semaphore, vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+                    ],
+                ).wait()
+                self._pending_acquire = None
+                self._drop_swapchain()
 
-                    def copy(command):
-                        sub = vk.VkImageSubresourceRange(
-                            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                            levelCount=1,
-                            layerCount=1,
-                        )
+    def present_operation(self, frame, *, surface_size=None):
+        """Acquire a swapchain image and return a single-use graph operation.
 
-                        def barrier(old, new, src, dst):
-                            vk.vkCmdPipelineBarrier(
-                                command,
-                                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                0,
-                                0,
-                                None,
-                                0,
-                                None,
-                                1,
-                                [
-                                    vk.VkImageMemoryBarrier(
-                                        srcAccessMask=src,
-                                        dstAccessMask=dst,
-                                        oldLayout=old,
-                                        newLayout=new,
-                                        srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                        dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                        image=target,
-                                        subresourceRange=sub,
-                                    )
-                                ],
-                            )
+        Acquisition uses a binary semaphore. Only reuse of one of two acquisition
+        slots can wait on the CPU. The operation signals presentation on the GPU.
+        Submit it or call cancel_presentation before requesting another.
+        """
+        from ..pipeline.graph import VulkanOperation
 
-                        barrier(
-                            vk.VK_IMAGE_LAYOUT_UNDEFINED,
-                            vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            0,
-                            vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                        )
-                        layers = vk.VkImageSubresourceLayers(
-                            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
-                        )
-                        vk.vkCmdBlitImage(
-                            command,
-                            frame.image.image,
-                            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                            target,
-                            vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            1,
-                            [
-                                vk.VkImageBlit(
-                                    srcSubresource=layers,
-                                    srcOffsets=[
-                                        vk.VkOffset3D(0, 0, 0),
-                                        vk.VkOffset3D(hdr.width, hdr.height, 1),
-                                    ],
-                                    dstSubresource=layers,
-                                    dstOffsets=[
-                                        vk.VkOffset3D(0, 0, 0),
-                                        vk.VkOffset3D(*self.extent, 1),
-                                    ],
-                                )
+        with self.runtime.lock:
+            self._require_open()
+            if self._pending_acquire is not None:
+                raise RuntimeError(
+                    "Submit or cancel the acquired presentation operation"
+                )
+            source = frame.image
+            source.require_open()
+            if (
+                source.runtime is not self.runtime
+                or source.format != vk.VK_FORMAT_R8G8B8A8_UNORM
+            ):
+                raise ValueError(
+                    "Presentation requires a same-runtime RGBA8 output image"
+                )
+            if not self._ensure_swapchain(
+                *(surface_size or (source.width, source.height))
+            ):
+                return None
+            slot = self._acquire_slots[self._present_next]
+            if slot[1] is not None:
+                slot[1].wait()
+            acquired = slot[0]
+            try:
+                image_index = self.runtime.acquire_next_image(
+                    self.runtime.device,
+                    self.swapchain,
+                    (1 << 64) - 1,
+                    acquired.handle,
+                    vk.VK_NULL_HANDLE,
+                )
+            except vk.VkSuboptimalKhr:
+                # Suboptimal acquisition still signals its semaphore. Consume
+                # that signal before retiring this swapchain.
+                self._pending_acquire = acquired
+                self.cancel_presentation()
+                return None
+            except vk.VkErrorOutOfDateKhr:
+                self._drop_swapchain()
+                return None
+            self._pending_acquire = acquired
+            target = self._swap_images[image_index]
+            finished = self._present_signals[image_index]
+            used = False
+
+            def validate():
+                if used or self._pending_acquire is not acquired:
+                    raise RuntimeError("Presentation operation is single-use")
+                target.require_open()
+                source.require_open()
+
+            def blit(command):
+                layers = vk.VkImageSubresourceLayers(
+                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
+                )
+                vk.vkCmdBlitImage(
+                    command,
+                    source.image,
+                    vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    target.image,
+                    vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    [
+                        vk.VkImageBlit(
+                            srcSubresource=layers,
+                            srcOffsets=[
+                                vk.VkOffset3D(0, 0, 0),
+                                vk.VkOffset3D(source.width, source.height, 1),
                             ],
-                            vk.VK_FILTER_NEAREST,
+                            dstSubresource=layers,
+                            dstOffsets=[
+                                vk.VkOffset3D(0, 0, 0),
+                                vk.VkOffset3D(*self.extent, 1),
+                            ],
                         )
-                        barrier(
-                            vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            vk.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                            vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                            0,
-                        )
+                    ],
+                    vk.VK_FILTER_NEAREST,
+                )
 
-                    VulkanPassPipeline(
-                        [
-                            VulkanPass(
-                                "present_copy",
-                                (
-                                    _use(
-                                        frame.image,
-                                        vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                        vk.VK_ACCESS_TRANSFER_READ_BIT,
-                                        vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                    ),
-                                ),
-                                copy,
-                            )
-                        ]
-                    ).execute(r, after=(frame.completion,)).wait()
-                    try:
-                        r.queue_present(
-                            r.queue,
-                            vk.VkPresentInfoKHR(
-                                swapchainCount=1,
-                                pSwapchains=[self.swapchain],
-                                pImageIndices=[index],
+            def submitted(completion):
+                nonlocal used
+                used = True
+                slot[1] = completion
+                self._pending_acquire = None
+                self._present_next = (self._present_next + 1) % len(self._acquire_slots)
+                self._present_success = True
+                try:
+                    self.runtime.queue_present(
+                        self.runtime.queue,
+                        vk.VkPresentInfoKHR(
+                            waitSemaphoreCount=1,
+                            pWaitSemaphores=[finished.handle],
+                            swapchainCount=1,
+                            pSwapchains=[self.swapchain],
+                            pImageIndices=[image_index],
+                        ),
+                    )
+                except (vk.VkErrorOutOfDateKhr, vk.VkSuboptimalKhr):
+                    self._present_success = False
+                    self._drop_swapchain()
+
+            destination = VulkanResource(target, "image", target.image)
+            return VulkanOperation(
+                [
+                    VulkanPass(
+                        "present_blit",
+                        (
+                            _use(
+                                source,
+                                vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                vk.VK_ACCESS_TRANSFER_READ_BIT,
+                                vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                             ),
-                        )
-                    except (vk.VkErrorOutOfDateKhr, vk.VkSuboptimalKhr):
-                        vk.vkDeviceWaitIdle(r.device)
-                        r.destroy_swapchain(r.device, self.swapchain, None)
-                        self.swapchain = None
-                    vk.vkQueueWaitIdle(r.queue)
-                    return True
-                finally:
-                    vk.vkDestroyFence(r.device, acquired, None)
+                            VulkanResourceUse(
+                                destination,
+                                vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            ),
+                        ),
+                        blit,
+                    ),
+                    VulkanPass(
+                        "present_transition",
+                        (
+                            VulkanResourceUse(
+                                destination,
+                                vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                0,
+                                vk.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                            ),
+                        ),
+                        lambda command: None,
+                    ),
+                ],
+                validate=validate,
+                submitted=submitted,
+                dependencies=lambda: (
+                    (frame.completion,) if frame.completion is not None else ()
+                ),
+                wait_semaphores=[(acquired, vk.VK_PIPELINE_STAGE_TRANSFER_BIT)],
+                signal_semaphores=[finished],
+            )
+
+    def present(self, hdr, *, after, exposure=1.0, surface_size=None):
+        """Reuse tone-map allocations and present through a single graph submission."""
+        from ..pipeline.graph import VulkanGraph
+
+        with self.runtime.lock:
+            self._require_open()
+            if (
+                self._presentation_target is None
+                or self._presentation_target.hdr is not hdr
+            ):
+                if self._presentation_target is not None:
+                    self._presentation_target.close()
+                self._presentation_target = self.prepare(hdr)
+            frame = self._presentation_target
+            operation = self.present_operation(frame, surface_size=surface_size)
+            if operation is None:
+                return False
+            try:
+                graph = VulkanGraph().add(
+                    "tone_map", frame.operation(exposure=exposure)
+                )
+                graph.add("present", operation)
+                graph.compile().execute(self.runtime, after=(after,))
+                return self._present_success
+            except Exception:
+                self.cancel_presentation()
+                raise
 
     def close(self):
         with self.runtime.lock:
             if self.closed:
                 return
+            self.cancel_presentation()
             vk.vkDeviceWaitIdle(self.runtime.device)
-            if self.swapchain is not None:
-                self.runtime.destroy_swapchain(
-                    self.runtime.device, self.swapchain, None
-                )
+            if self._presentation_target is not None:
+                self._presentation_target.close()
+                self._presentation_target = None
+            self._drop_swapchain()
+            for semaphore, completion in self._acquire_slots:
+                if completion is not None:
+                    completion.wait()
+                semaphore.close()
+            self._acquire_slots = []
             self.closed = True
             self.runtime.release(self)
 

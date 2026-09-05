@@ -1,7 +1,6 @@
 """Public triangle/custom-geometry scene for the non-camera transport path."""
 
 from dataclasses import dataclass
-import struct
 
 import numpy as np
 from ._synchronization import serialized
@@ -78,8 +77,9 @@ class VulkanTransportScene:
     """Resident triangles and AABB custom geometry in one hardware TLAS.
 
     Triangles reuse OrdinaryLight's resident buffers and BLASes. Custom callbacks
-    run at ray-query AABB candidates. A snapshot is immutable while consumers
-    use it; a new snapshot replaces it after geometry/material edits.
+    run at ray-query AABB candidates. Triangle source data remain a snapshot;
+    custom slots can update/refit in place or grow at an explicit allocation
+    boundary while preserving triangle, material and history resources.
     """
 
     def __init__(
@@ -95,13 +95,11 @@ class VulkanTransportScene:
         triangle_boundaries=None,
         material_overrides=None,
         custom_resources=None,
+        custom_capacity=None,
+        intersection_programs=(),
     ):
         with runtime.lock:
-            import vulkan as vk
-            from ..targets.vulkan.scene import (
-                VulkanSceneUploader,
-                BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            )
+            from ..targets.vulkan.scene import VulkanSceneUploader
 
             runtime.require_open()
             self.runtime = runtime
@@ -116,6 +114,31 @@ class VulkanTransportScene:
             self.media = tuple(media)
             self.boundaries = tuple(boundaries)
             self.programs = {}
+            from ..geometry import IntersectionProgram
+
+            for program in intersection_programs:
+                if (
+                    not isinstance(program, IntersectionProgram)
+                    or program.name in self.programs
+                ):
+                    raise ValueError("Supply unique IntersectionProgram declarations")
+                self.programs[program.name] = program
+            from operator import index
+
+            self.custom_capacity = (
+                len(self.custom_geometry)
+                if custom_capacity is None
+                else index(custom_capacity)
+            )
+            if (
+                self.custom_capacity < len(self.custom_geometry)
+                or self.custom_capacity < 0
+            ):
+                raise ValueError("Custom capacity must cover supplied geometry")
+            self.geometry_revision = 0
+            self.binding_revision = 0
+            self.last_completion = None
+            self._custom_materials = tuple(custom_materials)
             self._source_scene = scene if resident is None else resident.scene
             if (
                 scene is not None
@@ -152,7 +175,7 @@ class VulkanTransportScene:
                 raise ValueError(
                     "Use emissive geometry and the integrator environment; analytic light sampling is not yet supported here"
                 )
-            custom_materials = tuple(custom_materials)
+            custom_materials = self._custom_materials
             if not all(isinstance(m, TransportMaterial) for m in custom_materials):
                 raise TypeError("Expected TransportMaterial values")
             triangle_boundaries = dict(triangle_boundaries or {})
@@ -206,7 +229,7 @@ class VulkanTransportScene:
                 program_index = list(self.programs).index(program.name)
                 custom_records.append((geometry, program_index, boundary))
             self.materials = tuple(materials) + custom_materials
-            if not self.triangle_count and not self.custom_geometry:
+            if not self.triangle_count and not self.custom_capacity:
                 raise ValueError("Transport scene must contain geometry")
             from ._custom_resources import prepare_resources
 
@@ -270,7 +293,8 @@ class VulkanTransportScene:
                         ("metadata", "<u4", (4,)),
                     ]
                 )
-                packed = np.zeros(max(1, len(custom_records)), custom_dtype)
+                packed = np.zeros(max(1, self.custom_capacity), custom_dtype)
+                packed["metadata"][:, 0] = 0xFFFFFFFF
                 for index, (geometry, program_index, boundary) in enumerate(
                     custom_records
                 ):
@@ -284,65 +308,45 @@ class VulkanTransportScene:
                         geometry.identity,
                     )
                 self._allocate("custom", packed)
-                if custom_records:
-                    aabbs = np.asarray(
-                        [
-                            np.asarray(geometry.bounds).reshape(-1)
-                            for geometry, _, _ in custom_records
-                        ],
-                        np.float32,
-                    )
-                    bounds_buffer = self._builder._create_uploaded_device_buffer(
-                        aabbs,
-                        vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                        | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                        device_address=True,
-                    )
-                    aabb_data = vk.VkAccelerationStructureGeometryAabbsDataKHR(
-                        data=vk.VkDeviceOrHostAddressConstKHR(
-                            deviceAddress=self._builder._buffer_address(bounds_buffer)
-                        ),
-                        stride=24,
-                    )
-                    shape = vk.VkAccelerationStructureGeometryKHR(
-                        geometryType=vk.VK_GEOMETRY_TYPE_AABBS_KHR,
-                        geometry=vk.VkAccelerationStructureGeometryDataKHR(
-                            aabbs=aabb_data
-                        ),
-                        flags=0,
-                    )
-                    blas = self._builder._make_as(
-                        shape,
-                        len(custom_records),
-                        vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                    )
-                    instance_bytes += struct.pack(
-                        "<12fIIQ",
-                        *np.eye(4, dtype=np.float32)[:3].reshape(-1),
-                        2 << 24,
-                        0,
-                        self._builder._as_address(blas),
-                    )
-                instances = self._builder._create_buffer(
-                    len(instance_bytes),
-                    vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                    | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                    vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                    | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    data=instance_bytes,
-                    device_address=True,
+                self._triangle_instance_bytes = instance_bytes
+                from ._dynamic_scene import build_acceleration
+
+                self.custom_geometry = self.custom_geometry + (None,) * (
+                    self.custom_capacity - len(self.custom_geometry)
                 )
-                self.tlas = self._builder._make_as(
-                    self._builder._tlas_geometry(instances),
-                    len(instance_bytes) // 64,
-                    vk.VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-                )
+                self._custom_bounds = np.array(
+                    [
+                        item.bounds
+                        if item is not None
+                        else ((0, 0, 0), (1e-4, 1e-4, 1e-4))
+                        for item in self.custom_geometry
+                    ],
+                    dtype=np.float32,
+                ).reshape((-1, 6))
+                build_acceleration(self)
                 self.scene_revision = (
                     None if self._source_scene is None else self._source_scene.revision
                 )
             except Exception:
                 self.close()
                 raise
+
+    def update_custom_geometry_operation(self, updates, *, mode="auto", after=()):
+        from ._dynamic_scene import update_operation
+
+        with self.runtime.lock:
+            return update_operation(self, updates, mode=mode, after=after)
+
+    def update_custom_geometry(self, updates, *, mode="auto", after=()):
+        return self.update_custom_geometry_operation(
+            updates, mode=mode, after=after
+        ).execute(self.runtime)
+
+    def reserve_custom_geometry(self, capacity):
+        from ._dynamic_scene import reserve
+
+        with self.runtime.lock:
+            return reserve(self, capacity)
 
     def _boundary_index(self, identity, material):
         if material.kind == "dielectric" and identity is None:

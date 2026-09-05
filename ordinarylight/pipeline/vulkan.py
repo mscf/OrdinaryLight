@@ -25,6 +25,11 @@ class VulkanResource:
         if self.kind == "buffer" and self.size <= 0:
             raise ValueError("Buffer views need a positive byte size")
 
+    def version(self, number=0):
+        from .graph import ResourceVersion
+
+        return ResourceVersion(self, number)
+
     @classmethod
     def buffer(cls, allocation):
         return cls(allocation, "buffer", allocation.buffer, allocation.byte_size)
@@ -90,11 +95,16 @@ class VulkanPassPipeline:
         if len({stage.name for stage in self.passes}) != len(self.passes):
             raise ValueError("Pass names must be unique")
 
-    def execute(self, runtime, *, after=()):
+    def execute(self, runtime, *, after=(), wait_semaphores=(), signal_semaphores=()):
         with runtime.lock:
-            return self._execute(runtime, after=after)
+            return self._execute(
+                runtime,
+                after=after,
+                wait_semaphores=wait_semaphores,
+                signal_semaphores=signal_semaphores,
+            )
 
-    def _execute(self, runtime, *, after):
+    def _execute(self, runtime, *, after, wait_semaphores, signal_semaphores):
         owners = tuple(
             dict.fromkeys(
                 use.resource.owner for stage in self.passes for use in stage.uses
@@ -108,6 +118,20 @@ class VulkanPassPipeline:
             owner.require_open()
         states = {}
         layouts = {}
+        image_owners = {}
+        for stage in self.passes:
+            for use in stage.uses:
+                resource = use.resource
+                if resource.kind == "image":
+                    key = (resource.kind, resource.handle)
+                    aliases = image_owners.setdefault(key, set())
+                    if aliases and any(
+                        owner.layout != resource.owner.layout for owner in aliases
+                    ):
+                        raise ValueError(
+                            "Aliased image owners must agree on the imported layout"
+                        )
+                    aliases.add(resource.owner)
 
         def record(command):
             for stage in self.passes:
@@ -122,12 +146,14 @@ class VulkanPassPipeline:
                     src_stage, src_access = previous or (
                         vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
                         | vk.VK_PIPELINE_STAGE_HOST_BIT,
-                        vk.VK_ACCESS_MEMORY_WRITE_BIT | vk.VK_ACCESS_HOST_WRITE_BIT,
+                        vk.VK_ACCESS_MEMORY_READ_BIT
+                        | vk.VK_ACCESS_MEMORY_WRITE_BIT
+                        | vk.VK_ACCESS_HOST_WRITE_BIT,
                     )
                     src_stages |= src_stage
                     dst_stages |= use.stage
                     if resource.kind == "image":
-                        old = layouts.get(resource.owner, resource.owner.layout)
+                        old = layouts.get(key, resource.owner.layout)
                         images.append(
                             vk.VkImageMemoryBarrier(
                                 srcAccessMask=0
@@ -146,7 +172,7 @@ class VulkanPassPipeline:
                                 ),
                             )
                         )
-                        layouts[resource.owner] = use.layout
+                        layouts[key] = use.layout
                     elif resource.kind == "buffer":
                         buffers.append(
                             vk.VkBufferMemoryBarrier(
@@ -206,8 +232,29 @@ class VulkanPassPipeline:
                     None,
                 )
 
-        completion = runtime.submit(record, resources=owners, after=after)
+        completion = runtime.submit(
+            record,
+            resources=owners,
+            after=after,
+            wait_semaphores=wait_semaphores,
+            signal_semaphores=signal_semaphores,
+        )
         # Commit layout state only after successful recording and submission.
-        for owner, layout in layouts.items():
-            owner.layout = layout
+        for key, layout in layouts.items():
+            for owner in image_owners[key]:
+                owner.layout = layout
         return completion
+
+
+def __getattr__(name):
+    if name in {
+        "VulkanGraph",
+        "VulkanOperation",
+        "ResourceVersion",
+        "CompiledVulkanGraph",
+        "reflected_operation",
+    }:
+        from . import graph
+
+        return getattr(graph, name)
+    raise AttributeError(name)

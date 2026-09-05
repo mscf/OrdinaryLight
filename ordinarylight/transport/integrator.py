@@ -87,34 +87,7 @@ class VulkanTransportIntegrator:
                 self._mapped_count = count
                 self._group_count = len(groups)
                 self._initial = self.runtime.buffer(initial.nbytes, data=initial)
-                self.bindings = {
-                    i: scene.resource(name) for i, name in enumerate(SCENE_BINDINGS)
-                }
-                self.bindings.update(scene.custom_bindings)
-                self.bindings.update(
-                    {
-                        8: VulkanResource.buffer(self.samples.buffer),
-                        9: VulkanResource.buffer(self._scratch),
-                        10: VulkanResource.buffer(self._initial),
-                    }
-                )
-                source = (
-                    scene_source(scene)
-                    + shader_source("contracts")
-                    + shader_source("sampling")
-                    + shader_source("dielectric")
-                )
-                source += (
-                    files("ordinarylight.shaders")
-                    .joinpath("transport_v1/integrator.glsl")
-                    .read_text()
-                )
-                self._kernel = VulkanKernel(
-                    self.runtime,
-                    compile_compute(source),
-                    self.bindings,
-                    push_constant_size=64,
-                )
+                self._refresh_scene_bindings()
                 self._reduce_bindings = {
                     0: VulkanResource.buffer(self._scratch),
                     1: VulkanResource.buffer(accumulator.buffer),
@@ -134,6 +107,42 @@ class VulkanTransportIntegrator:
             except Exception:
                 self.close()
                 raise
+
+    def _refresh_scene_bindings(self):
+        scene = self.scene
+        from ..runtime import VulkanKernel, compile_compute
+        from ..pipeline.vulkan import VulkanResource
+
+        if self._kernel is not None:
+            self._kernel.close()
+        self.bindings = {
+            i: scene.resource(name) for i, name in enumerate(SCENE_BINDINGS)
+        }
+        self.bindings.update(scene.custom_bindings)
+        self.bindings.update(
+            {
+                8: VulkanResource.buffer(self.samples.buffer),
+                9: VulkanResource.buffer(self._scratch),
+                10: VulkanResource.buffer(self._initial),
+            }
+        )
+        source = (
+            scene_source(scene)
+            + shader_source("contracts")
+            + shader_source("sampling")
+            + shader_source("dielectric")
+        )
+        source += (
+            files("ordinarylight.shaders")
+            .joinpath("transport_v1/integrator.glsl")
+            .read_text()
+        )
+        self._kernel = VulkanKernel(
+            self.runtime,
+            compile_compute(source),
+            self.bindings,
+            push_constant_size=64,
+        )
 
     @property
     def count(self):
@@ -176,7 +185,7 @@ class VulkanTransportIntegrator:
         self._group_count = len(groups)
 
     @serialized
-    def accumulate(
+    def accumulate_operation(
         self,
         *,
         samples_per_element=1,
@@ -189,7 +198,8 @@ class VulkanTransportIntegrator:
         max_distance=1e6,
         after=(),
     ):
-        from ..pipeline.vulkan import VulkanPass, VulkanPassPipeline
+        from ..pipeline.vulkan import VulkanPass
+        from ..pipeline.graph import VulkanOperation
 
         self.require_open()
         if self.count != self._mapped_count:
@@ -223,35 +233,65 @@ class VulkanTransportIntegrator:
             raise ValueError(
                 "Use a ray epsilon at least twice the positive field tolerance"
             )
-        push = struct.pack(
-            "<6I2fIf2I4f",
-            self.count,
-            samples_per_element,
-            max_bounces,
-            self._sample_offset,
-            seed,
-            self.initial_depth,
-            tolerance,
-            ray_epsilon,
-            max_steps,
-            max_distance,
-            0,
-            0,
-            *environment,
-            0,
-        )
+
+        prepared_offset = [self._sample_offset]
+
+        def prepare(context):
+            offset = context.get(self, self._sample_offset)
+            if offset + samples_per_element >= 2**24:
+                raise ValueError("Transport sample epoch exhausted")
+            prepared_offset[0] = offset
+            context[self] = offset + samples_per_element
+
+        def push():
+            return struct.pack(
+                "<6I2fIf2I4f",
+                self.count,
+                samples_per_element,
+                max_bounces,
+                prepared_offset[0],
+                seed,
+                self.initial_depth,
+                tolerance,
+                ray_epsilon,
+                max_steps,
+                max_distance,
+                0,
+                0,
+                *environment,
+                0,
+            )
+
         uses = resource_uses(self.bindings, writable=(9,))
-        dependencies = tuple(after) + (
-            (self.accumulator.last_completion,)
-            if self.accumulator.last_completion is not None
-            else ()
-        )
-        completion = VulkanPassPipeline(
+        captured_count = self.count
+        captured_groups = self._group_count
+        captured_bindings = self.scene.binding_revision
+
+        def validate():
+            self.require_open()
+            if self.scene.binding_revision != captured_bindings:
+                raise ValueError("Scene bindings changed; recreate transport operation")
+            if (
+                self.count != captured_count
+                or self.count != self._mapped_count
+                or self._group_count != captured_groups
+            ):
+                raise ValueError(
+                    "Sample count changed; recreate the transport operation"
+                )
+            if self._sample_offset + samples_per_element >= 2**24:
+                raise ValueError("Transport sample epoch exhausted")
+
+        def submitted(completion):
+            self.accumulator.last_completion = completion
+            self._sample_offset += samples_per_element
+
+        return VulkanOperation(
             [
                 VulkanPass(
                     "multi_bounce_surface_transport",
                     uses,
-                    lambda command: self._kernel.bind(command, push),
+                    lambda command: self._kernel.bind(command, push()),
                     ((self.count + 63) // 64, 1, 1),
                 ),
                 VulkanPass(
@@ -262,11 +302,21 @@ class VulkanTransportIntegrator:
                     ),
                     ((self._group_count + 63) // 64, 1, 1),
                 ),
-            ]
-        ).execute(self.runtime, after=dependencies)
-        self.accumulator.last_completion = completion
-        self._sample_offset += samples_per_element
-        return completion
+            ],
+            validate=validate,
+            prepare=prepare,
+            dependencies=lambda: tuple(after)
+            + (
+                (self.accumulator.last_completion,)
+                if self.accumulator.last_completion is not None
+                else ()
+            ),
+            submitted=submitted,
+        )
+
+    @serialized
+    def accumulate(self, **kwargs):
+        return self.accumulate_operation(**kwargs).execute(self.runtime)
 
     def require_open(self):
         if self.closed:

@@ -6,10 +6,10 @@ history, and external-HDR output. A renderer can use these without constructing
 the built-in GI algorithm. Existing GI constructors and scientific viewers keep
 their defaults.
 
-This is a first explicit execution interface. It uses one queue, conservative
-barriers and host waits for completion dependencies. It does not implement an
-optimizing render graph, concurrent queues, automatic voxel connectivity, or
-SDF construction.
+The [execution graph](execution_graph.md) extends this interface with resource
+versions, graph compilation, recordable operations, and GPU-side dependencies on
+one queue. Conservative barriers remain; concurrent queues, transient allocation
+aliasing, automatic voxel connectivity and SDF construction are not implemented.
 
 ## Runtime and ownership
 
@@ -255,9 +255,10 @@ a GLSL compiler at runtime. Tone mapping applies the existing ACES approximation
 conversion, and opaque alpha into RGBA8. `VulkanOutput` does not initialize or
 enter GI. `read(frame)` is an explicit diagnostic readback. Native presentation
 uses a GPU blit into a compatible RGBA/BGRA UNORM surface, with no CPU pixel copy.
-The initial presentation path waits synchronously and recreates outputs per call;
-it is not yet a cached frames-in-flight replacement for the scientific viewers'
-existing optimized presentation paths.
+Presentation now reuses a tone-map image/kernel and semaphore resources, with
+bounded acquisition slots. See [execution graph](execution_graph.md) for
+graph-compatible presentation. The one-shot tone_map API still owns its output.
+Existing scientific viewers retain their presentation paths.
 
 Create a runtime with `glfw_window=...`, or paired
 `external_instance=.../external_surface=...`, for presentation. Integer Qt handles

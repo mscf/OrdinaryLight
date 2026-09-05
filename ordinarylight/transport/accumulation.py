@@ -76,19 +76,16 @@ class GpuSampleAccumulator:
             raise RuntimeError("Sample accumulator is closed")
 
     @serialized
-    def resolve(self, *, after=()):
+    def resolve_operation(self, *, after=()):
         import vulkan as vk
         from ..pipeline.vulkan import (
             VulkanResource,
             VulkanResourceUse,
             VulkanPass,
-            VulkanPassPipeline,
+            VulkanOperation,
         )
 
         self.require_open()
-        dependencies = tuple(after) + (
-            (self.last_completion,) if self.last_completion is not None else ()
-        )
         uses = (
             VulkanResourceUse(
                 VulkanResource.buffer(self.buffer),
@@ -102,7 +99,7 @@ class GpuSampleAccumulator:
                 vk.VK_IMAGE_LAYOUT_GENERAL,
             ),
         )
-        self.last_completion = VulkanPassPipeline(
+        return VulkanOperation(
             [
                 VulkanPass(
                     "resolve_sample_hdr",
@@ -112,9 +109,20 @@ class GpuSampleAccumulator:
                     ),
                     ((self.extent[0] * self.extent[1] + 63) // 64, 1, 1),
                 )
-            ]
-        ).execute(self.runtime, after=dependencies)
-        return self.last_completion
+            ],
+            validate=self.require_open,
+            dependencies=lambda: tuple(after)
+            + ((self.last_completion,) if self.last_completion is not None else ()),
+            submitted=lambda completion: setattr(self, "last_completion", completion),
+        )
+
+    @serialized
+    def resolve(self, *, after=()):
+        return self.resolve_operation(after=after).execute(self.runtime)
+
+    @serialized
+    def reset(self, identities=None, *, after=()):
+        return self.reset_operation(identities, after=after).execute(self.runtime)
 
     @serialized
     def read(self, *, strict=True):
@@ -140,22 +148,19 @@ class GpuSampleAccumulator:
         )
 
     @serialized
-    def reset(self, identities=None, *, after=()):
+    def reset_operation(self, identities=None, *, after=()):
         import vulkan as vk
         from ..pipeline.vulkan import (
             VulkanResource,
             VulkanResourceUse,
             VulkanPass,
-            VulkanPassPipeline,
+            VulkanOperation,
         )
 
         self.require_open()
         selected = None if identities is None else tuple(index(i) for i in identities)
         if selected is not None and any(i < 0 or i >= self.capacity for i in selected):
             raise ValueError("Reset identity exceeds accumulator capacity")
-        dependencies = tuple(after) + (
-            (self.last_completion,) if self.last_completion is not None else ()
-        )
 
         def clear(command):
             if selected is None:
@@ -175,10 +180,13 @@ class GpuSampleAccumulator:
             vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
             vk.VK_ACCESS_TRANSFER_WRITE_BIT,
         )
-        self.last_completion = VulkanPassPipeline(
-            [VulkanPass("reset_sample_history", (use,), clear)]
-        ).execute(self.runtime, after=dependencies)
-        return self.last_completion
+        return VulkanOperation(
+            [VulkanPass("reset_sample_history", (use,), clear)],
+            validate=self.require_open,
+            dependencies=lambda: tuple(after)
+            + ((self.last_completion,) if self.last_completion is not None else ()),
+            submitted=lambda completion: setattr(self, "last_completion", completion),
+        )
 
     @serialized
     def close(self):

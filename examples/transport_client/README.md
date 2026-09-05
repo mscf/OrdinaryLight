@@ -26,3 +26,25 @@ The final PNG/JSON/NPZ export intentionally reads the GPU results; live native
 presentation uses the resident HDR image. The diffuse row deliberately stops
 after two bounces, so its truncation counter is expected and its value is checked
 against the finite cavity series. Nonzero invalid-path status raises an error.
+
+Version 0.3.0 composes transport, reduction, HDR resolve, tone mapping and optional
+presentation into an application graph. It keeps a persistent tone-map target
+and uses a two-frame ring. CPU sample updates in the cavity demo intentionally
+remain synchronized uploads.
+
+The second entry point exercises GPU animation in a fixed sparse grid:
+
+```bash
+ordinarylight-animated-grid --frames 8 --output /tmp/grid.png
+ordinarylight-animated-grid --present --frames 120 --output /tmp/grid.png
+# From the source package:
+python -m ordinarylight_transport_demo.animated_grid --frames 8
+```
+
+OrdinaryShade generates occupancy and exports access reflection. OrdinaryLight
+orders the producer, custom-geometry updates, transport, reset/resolve, tone
+mapping and presentation. Chunk capacity grows once; slots are activated and
+removed without moving grid cells. This is a small execution fixture, not a
+voxel authoring or reconstruction engine. Final RGB values are checked against
+an exact emission/environment reference, and only final verification/export
+reads back GPU results. Build from the current unreleased OrdinaryLight source.
