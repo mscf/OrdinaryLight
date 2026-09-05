@@ -122,7 +122,9 @@ class WavefrontLayoutTests(unittest.TestCase):
             shader_dir / "wavefront_primary_impl.glsl"
         ).read_text()
         shade = (shader_dir / "wavefront_shade.comp").read_text()
-        lighting = (shader_dir / "transport_v1" / "lighting.glsl").read_text()
+        from ordinarylight.transport import shader_source
+
+        lighting = shader_source("lighting")
         textures = (shader_dir / "wavefront_textures.glsl").read_text()
         include = '#include "wavefront_lighting.glsl"'
         self.assertIn('#include "wavefront_primary_impl.glsl"', primary)
@@ -175,7 +177,9 @@ class WavefrontLayoutTests(unittest.TestCase):
 
     def test_secondary_nee_uses_temporally_stratified_path_identity(self):
         shader_dir = Path(__file__).parents[1] / "ordinarylight" / "shaders"
-        lighting = (shader_dir / "transport_v1" / "lighting.glsl").read_text()
+        from ordinarylight.transport import shader_source
+
+        lighting = shader_source("lighting")
         generate = (shader_dir / "wavefront_generate.comp").read_text()
         primary_impl = (
             shader_dir / "wavefront_primary_impl.glsl"

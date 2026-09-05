@@ -43,7 +43,10 @@ not yet the general compute-only profile for devices without ray queries.
 `runtime.capabilities` distinguishes enabled ray-pipeline, native-texture,
 external-memory, presentation, and custom-intersection facilities. Ray queries
 are available; built-in scene upload supports triangles. `custom_intersections`
-is currently false: arbitrary SDF/AABB traversal is not promised.
+is true for the new `VulkanTransportScene` AABB callback path, including an
+analytic SDF sphere. Existing camera GI scene upload remains triangle-only.
+See [transport foundations](transport_foundations.md) for the common hit contract,
+non-camera multi-bounce integrator, and dielectric semantics.
 
 `config=RendererConfig(...)` retains the existing device feature policy.
 A borrowed renderer can change rendering options but cannot enable device
@@ -173,7 +176,8 @@ silently inferred by `VulkanKernel`.
 ## Transport ABI v1
 
 `ordinarylight.transport.shader_source(component)` returns include-expanded GLSL
-for `types`, `contracts`, `lighting` or `volumes`. Files are packaged under
+for `types`, `contracts`, `lighting`, `volumes`, `sampling`,
+`dielectric`, or `sdf_sphere`. Files are packaged under
 `ordinarylight/shaders/transport_v1`. For GLSL includes, use the parent `shaders`
 directory as the include root. Built-in GI includes these same components through
 its existing adapter filenames. No OrdinaryShade rewrite is required.

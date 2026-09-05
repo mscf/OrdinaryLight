@@ -5,6 +5,15 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added public application-indexed multi-bounce Vulkan transport for Lambertian
+  and ideal dielectric surfaces, with strict nested media, Fresnel/TIR decisions,
+  distance-dependent absorption, and explicit invalid/truncated path diagnostics.
+- Added common triangle/custom ray-query intersections, bounded field contracts,
+  uniform transforms, CPU composition helpers, and an analytic GPU SDF sphere.
+- Added persistent per-identity GPU accumulation and HDR resolve, plus a separately
+  installable public-API transport client. Existing camera GI shaders and
+  scientific rendering entry points remain unchanged.
+
 - Extracted a public Vulkan runtime and reusable resident scene upload service;
   GI can borrow application-owned runtimes and scene snapshots.
 - Added typed ordered Vulkan passes, persistent allocations, fence completions,

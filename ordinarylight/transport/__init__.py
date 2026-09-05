@@ -5,6 +5,14 @@ from importlib.resources import files
 
 import numpy as np
 
+from .media import (
+    OpticalMedium,
+    MediumBoundary,
+    MediumStack,
+    DielectricEvent,
+    dielectric_event,
+)
+
 TRANSPORT_ABI_VERSION = 1
 # Each group is 16-byte aligned and maps directly to the GLSL contract.
 SURFACE_SAMPLE_DTYPE = np.dtype(
@@ -21,7 +29,15 @@ SURFACE_SAMPLE_DTYPE = np.dtype(
 
 def shader_source(component):
     """Return a versioned, include-expanded transport GLSL component."""
-    if component not in {"types", "lighting", "volumes", "contracts"}:
+    if component not in {
+        "types",
+        "lighting",
+        "volumes",
+        "contracts",
+        "dielectric",
+        "sdf_sphere",
+        "sampling",
+    }:
         raise ValueError("Unknown transport component")
     from ..shaders.compiler import _expanded_shader_source
 
@@ -76,3 +92,41 @@ class SampleHistory:
 
     def __len__(self):
         return len(self._entries)
+
+
+_LAZY = {
+    "VulkanTransportScene": ("scene", "VulkanTransportScene"),
+    "TransportMaterial": ("scene", "TransportMaterial"),
+    "VulkanTransportIntegrator": ("integrator", "VulkanTransportIntegrator"),
+    "GpuSampleAccumulator": ("accumulation", "GpuSampleAccumulator"),
+    "ACCUMULATION_DTYPE": ("accumulation", "ACCUMULATION_DTYPE"),
+    "HIT_DTYPE": ("diagnostics", "HIT_DTYPE"),
+    "intersect_rays": ("diagnostics", "intersect_rays"),
+    "ray_samples": ("samples", "ray_samples"),
+    "surface_samples": ("samples", "surface_samples"),
+}
+
+
+def __getattr__(name):
+    if name in _LAZY:
+        from importlib import import_module
+
+        module, member = _LAZY[name]
+        return getattr(import_module(f"{__name__}.{module}"), member)
+    raise AttributeError(name)
+
+
+__all__ = [
+    "TRANSPORT_ABI_VERSION",
+    "SURFACE_SAMPLE_DTYPE",
+    "shader_source",
+    "shader_directory",
+    "HistoryEntry",
+    "SampleHistory",
+    "OpticalMedium",
+    "MediumBoundary",
+    "MediumStack",
+    "DielectricEvent",
+    "dielectric_event",
+    *_LAZY,
+]

@@ -1843,6 +1843,13 @@ ordered GPU passes, versioned transport shaders, and external-HDR output without
 constructing GI. See [renderer extension services](docs/renderer_extensions.md)
 and [the application-indexed lighting example](examples/runtime_surface_samples.py).
 
+[Transport foundations](docs/transport_foundations.md) add public non-camera
+multi-bounce transport, common triangle/custom intersections, an analytic SDF
+sphere, and homogeneous dielectric media. The separately installable
+[transport client](examples/transport_client) demonstrates diffuse bounces,
+refraction and absorption, persistent application-ID accumulation, and HDR output.
+This Vulkan path is independent of the existing camera GI scheduler.
+
 
 ### Wavefront execution foundation
 

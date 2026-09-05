@@ -37,8 +37,9 @@ class VulkanCapabilities:
     native_textures: bool
     external_memory: bool
     presentation: bool
-    # Built-in scene upload currently accepts triangle geometry only.
-    custom_intersections: bool = False
+    # VulkanTransportScene supports programmable AABB ray-query candidates.
+    # Existing built-in GI Scene upload still accepts triangles only.
+    custom_intersections: bool = True
 
 
 class VulkanRuntime:

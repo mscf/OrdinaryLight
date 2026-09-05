@@ -9,6 +9,12 @@ For application rendering algorithms (voxels, probes, lightmaps), see
 `ordinarylight.pipeline.vulkan`, and `ordinarylight.transport`. Existing renderer
 entry points remain compatible; GI compute contexts now expose the public runtime.
 
+[Transport foundations](transport_foundations.md) document `ordinarylight.geometry`
+(bounded fields, transforms, custom intersection programs and the common hit
+contract) and `ordinarylight.transport` (media, transport scene, non-camera
+integrator, persistent GPU accumulation and diagnostic ray queries). These
+families own general rendering behavior; voxel construction stays downstream.
+
 ## Namespace ownership
 
 - `ordinarylight.renderer` owns the high-level `Renderer`, `RenderFrame`, and
