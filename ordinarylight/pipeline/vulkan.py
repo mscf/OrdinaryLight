@@ -18,12 +18,32 @@ class VulkanResource:
     kind: str
     handle: object
     size: int = 0
+    descriptor: str | None = None
+    offset: int = 0
 
     def __post_init__(self):
-        if self.kind not in {"buffer", "image", "acceleration_structure"}:
+        object.__setattr__(self, "size", index(self.size))
+        object.__setattr__(self, "offset", index(self.offset))
+        if self.kind not in {"buffer", "image", "acceleration_structure", "sampler"}:
             raise ValueError("Unknown Vulkan resource kind")
+        if self.offset < 0 or (self.kind != "buffer" and self.offset):
+            raise ValueError("Only buffer resources support nonnegative offsets")
         if self.kind == "buffer" and self.size <= 0:
             raise ValueError("Buffer views need a positive byte size")
+
+    def byte_range(self, offset, size):
+        """Borrow a bounded descriptor/hazard view relative to this buffer view."""
+        from dataclasses import replace
+
+        offset, size = index(offset), index(size)
+        if (
+            self.kind != "buffer"
+            or offset < 0
+            or size <= 0
+            or offset + size > self.size
+        ):
+            raise ValueError("Buffer range is outside its parent view")
+        return replace(self, offset=self.offset + offset, size=size)
 
     def version(self, number=0):
         from .graph import ResourceVersion
@@ -37,6 +57,26 @@ class VulkanResource:
     @classmethod
     def image(cls, allocation):
         return cls(allocation, "image", allocation.image)
+
+    @classmethod
+    def uniform_buffer(cls, allocation):
+        return cls(
+            allocation,
+            "buffer",
+            allocation.buffer,
+            allocation.byte_size,
+            "uniform_buffer",
+        )
+
+    @classmethod
+    def sampled_image(cls, allocation):
+        return cls(
+            allocation, "image", allocation.image, descriptor="sampled_texture_2d"
+        )
+
+    @classmethod
+    def sampler(cls, allocation):
+        return cls(allocation, "sampler", allocation.handle, descriptor="sampler")
 
 
 @dataclass(frozen=True)
@@ -79,12 +119,20 @@ class VulkanPass:
             if len(groups) != 3 or min(groups) <= 0:
                 raise ValueError("workgroups must contain three positive integers")
             object.__setattr__(self, "workgroups", groups)
-        # Each pass declares one combined use per native resource.
-        keys = [(use.resource.kind, use.resource.handle) for use in self.uses]
-        if len(set(keys)) != len(keys):
-            raise ValueError(
-                "Combine read/write access for duplicate resources in a pass"
-            )
+        # Distinct byte ranges may share an allocation. Overlapping declarations
+        # in a single pass must still be combined by the caller.
+        for i, use in enumerate(self.uses):
+            a = use.resource
+            for other in self.uses[:i]:
+                b = other.resource
+                if (a.kind, a.handle) != (b.kind, b.handle):
+                    continue
+                if a.kind != "buffer" or max(a.offset, b.offset) < min(
+                    a.offset + a.size, b.offset + b.size
+                ):
+                    raise ValueError(
+                        "Combine read/write access for duplicate resources in a pass"
+                    )
 
 
 class VulkanPassPipeline:
@@ -181,7 +229,7 @@ class VulkanPassPipeline:
                                 srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
                                 dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
                                 buffer=resource.handle,
-                                offset=0,
+                                offset=resource.offset,
                                 size=resource.size,
                             )
                         )
@@ -191,7 +239,10 @@ class VulkanPassPipeline:
                                 srcAccessMask=src_access, dstAccessMask=use.access
                             )
                         )
-                    states[key] = (use.stage, use.access)
+                    # Keep all prior stage/access types: an intervening use of a
+                    # disjoint byte range must not hide an earlier overlapping use.
+                    prior = states.get(key, (0, 0))
+                    states[key] = (prior[0] | use.stage, prior[1] | use.access)
                 if stage.uses:
                     vk.vkCmdPipelineBarrier(
                         command,

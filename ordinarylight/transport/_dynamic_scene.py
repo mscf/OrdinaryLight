@@ -25,7 +25,8 @@ def build_acceleration(scene):
             scene._custom_bounds,
             vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
             | 0x00020000
-            | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            | vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             device_address=True,
         )
         scene._custom_shape = vk.VkAccelerationStructureGeometryKHR(
@@ -193,57 +194,7 @@ def update_operation(scene, updates, *, mode, after):
         )
     passes = [VulkanPass("custom_slot_updates", tuple(uses), upload)]
     if rebuild_bounds:
-        build_mode = (
-            vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
-            if mode == "rebuild"
-            else vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
-        )
-        blas = scene._custom_blas
-        passes.append(
-            VulkanPass(
-                "custom_blas_update",
-                (
-                    VulkanResourceUse(
-                        _buffer(scene, scene._bounds_buffer), _BUILD, _READ
-                    ),
-                    VulkanResourceUse(_as(scene, blas), _BUILD, _READ | _WRITE),
-                    VulkanResourceUse(
-                        _buffer(scene, blas.scratch), _BUILD, _READ | _WRITE
-                    ),
-                ),
-                _record_build(
-                    scene,
-                    blas,
-                    scene._custom_shape,
-                    scene.custom_capacity,
-                    vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                    build_mode,
-                ),
-            )
-        )
-        passes.append(
-            VulkanPass(
-                "custom_tlas_update",
-                (
-                    VulkanResourceUse(_as(scene, blas), _BUILD, _READ),
-                    VulkanResourceUse(scene.resource("tlas"), _BUILD, _READ | _WRITE),
-                    VulkanResourceUse(
-                        _buffer(scene, scene._instance_buffer), _BUILD, _READ
-                    ),
-                    VulkanResourceUse(
-                        _buffer(scene, scene.tlas.scratch), _BUILD, _READ | _WRITE
-                    ),
-                ),
-                _record_build(
-                    scene,
-                    scene.tlas,
-                    scene._builder._tlas_geometry(scene._instance_buffer),
-                    scene._instance_count,
-                    vk.VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-                    build_mode,
-                ),
-            )
-        )
+        passes.extend(acceleration_passes(scene, mode))
 
     def validate():
         scene.require_open()
@@ -278,6 +229,14 @@ def reserve(scene, capacity):
     from ..targets.vulkan.scene import VulkanSceneUploader
 
     scene.require_open()
+    if getattr(scene, "_gpu_geometry_clients", ()):
+        raise RuntimeError(
+            "Close GPU geometry update clients before growing scene capacity"
+        )
+    if getattr(scene, "_gpu_geometry_dirty", False):
+        from .gpu_geometry import synchronize_geometry_shadow
+
+        synchronize_geometry_shadow(scene)
     capacity = index(capacity)
     if capacity <= scene.custom_capacity:
         return False
@@ -340,3 +299,55 @@ def reserve(scene, capacity):
     for consumer in tuple(scene._borrowers):
         consumer._refresh_scene_bindings()
     return True
+
+
+def acceleration_passes(scene, mode="refit"):
+    passes = []
+    build_mode = (
+        vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+        if mode == "rebuild"
+        else vk.VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+    )
+    blas = scene._custom_blas
+    passes.append(
+        VulkanPass(
+            "custom_blas_update",
+            (
+                VulkanResourceUse(_buffer(scene, scene._bounds_buffer), _BUILD, _READ),
+                VulkanResourceUse(_as(scene, blas), _BUILD, _READ | _WRITE),
+                VulkanResourceUse(_buffer(scene, blas.scratch), _BUILD, _READ | _WRITE),
+            ),
+            _record_build(
+                scene,
+                blas,
+                scene._custom_shape,
+                scene.custom_capacity,
+                vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                build_mode,
+            ),
+        )
+    )
+    passes.append(
+        VulkanPass(
+            "custom_tlas_update",
+            (
+                VulkanResourceUse(_as(scene, blas), _BUILD, _READ),
+                VulkanResourceUse(scene.resource("tlas"), _BUILD, _READ | _WRITE),
+                VulkanResourceUse(
+                    _buffer(scene, scene._instance_buffer), _BUILD, _READ
+                ),
+                VulkanResourceUse(
+                    _buffer(scene, scene.tlas.scratch), _BUILD, _READ | _WRITE
+                ),
+            ),
+            _record_build(
+                scene,
+                scene.tlas,
+                scene._builder._tlas_geometry(scene._instance_buffer),
+                scene._instance_count,
+                vk.VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+                build_mode,
+            ),
+        )
+    )
+    return passes

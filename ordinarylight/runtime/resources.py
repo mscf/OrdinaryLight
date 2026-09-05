@@ -204,6 +204,7 @@ class VulkanBuffer(_Allocation):
             if usage is not None
             else (
                 vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                | vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                 | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT
                 | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
             )
@@ -445,3 +446,46 @@ class VulkanSemaphore:
 
     def __exit__(self, *_exc):
         self.close()
+
+
+class VulkanSampler(_Allocation):
+    """Owned single-mip color sampler; kernels borrow it like image allocations."""
+
+    def __init__(self, runtime, *, filter="nearest", address="clamp"):
+        filters = {"nearest": vk.VK_FILTER_NEAREST, "linear": vk.VK_FILTER_LINEAR}
+        addresses = {
+            "clamp": vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            "repeat": vk.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        }
+        if filter not in filters or address not in addresses:
+            raise ValueError("Unsupported sampler filter or address mode")
+        with runtime.lock:
+            runtime.require_open()
+            self.runtime = runtime
+            self.handle = vk.vkCreateSampler(
+                runtime.device,
+                vk.VkSamplerCreateInfo(
+                    magFilter=filters[filter],
+                    minFilter=filters[filter],
+                    mipmapMode=vk.VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                    addressModeU=addresses[address],
+                    addressModeV=addresses[address],
+                    addressModeW=addresses[address],
+                    maxLod=0.0,
+                ),
+                None,
+            )
+            self.closed = False
+            self._borrowers = set()
+            runtime.retain(self)
+
+    def close(self):
+        with self.runtime.lock:
+            if self.closed:
+                return
+            if self._borrowers:
+                raise RuntimeError("Close allocation borrowers before the allocation")
+            vk.vkDeviceWaitIdle(self.runtime.device)
+            vk.vkDestroySampler(self.runtime.device, self.handle, None)
+            self.closed = True
+            self.runtime.release(self)

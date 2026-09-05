@@ -164,19 +164,21 @@ images remain allocated between executions. Views retain their owners through
 submission; closing an allocation waits for device work, and subsequent use of
 closed resources is rejected.
 
-Completion dependencies must belong to the same runtime. They currently wait on
-the host before recording; submission itself returns a fence-backed
-`VulkanCompletion`. Waiting releases its fence/command buffer, and is idempotent.
+Completion dependencies must belong to the same runtime. Same-queue ordering and
+GPU barriers establish dependencies without per-token host waits; submission
+returns a fence-backed `VulkanCompletion`. Polling or waiting retires completed
+fence/command storage. Explicit waits are idempotent.
 Raw `runtime.submit(recorder, resources=..., after=...)` is also available; that
 lower-level recorder owns its barriers and layout bookkeeping.
 
 `VulkanKernel` in `ordinarylight.runtime` builds a compute pipeline with immutable
-set-0 storage-buffer/storage-image/AS bindings and optional push constants. It
+set-0 storage/uniform-buffer, storage/sampled-image, sampler and AS bindings, with
+optional push constants. Buffer descriptor views support aligned byte ranges. It
 uses the runtime pipeline cache. `compile_compute()` accepts complete GLSL and
 caches SPIR-V by exact source. The reflected `VulkanComputeSequence` remains the
-convenient path for OrdinaryShade buffer kernels. Sampler arrays, uniform
-buffers and custom descriptor layouts can use native recorders; they are not
-silently inferred by `VulkanKernel`.
+convenient path for OrdinaryShade buffer kernels. General reflected operations
+support the expanded descriptor family. Sampler arrays and custom descriptor
+layouts still require native recorders. See [material graph resources](material_graph_milestone.md).
 
 ## Transport ABI v1
 

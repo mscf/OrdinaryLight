@@ -1,5 +1,9 @@
 # Ordinary Light
 
+See [shared material graphs and extended transport](docs/material_graph_milestone.md)
+for graph-driven emission/PBR/glass, analytic lighting, weighted samples and
+GPU-discovered custom geometry.
+
 `ordinarylight` is a general-purpose path tracer with a renderer-neutral Python
 scene API. Its current public surface includes:
 

@@ -347,6 +347,7 @@ class MaterialProgram:
     name: str
     evaluation: MaterialEvaluation | LayeredMaterialEvaluation | SurfaceResponse
     required_attributes: tuple[tuple[str, int], ...] = ()
+    resources: tuple = ()
 
     @property
     def parameter_layout(self):
@@ -452,6 +453,8 @@ def material_dispatch_glsl(
     programs = tuple(programs)
     if not programs:
         raise ValueError("At least one material program is required")
+    if any(program.resources for program in programs):
+        raise ValueError("External material graph resources need the non-camera transport material_resources adapter")
     functions = [
         program.glsl(
             f"evaluateMaterial_{index}", attribute_slots=attribute_slots

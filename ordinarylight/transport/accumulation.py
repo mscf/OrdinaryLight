@@ -21,7 +21,7 @@ void main() {
     vec3 value=vec3(0);
     if(i<pc.capacity) {
         SampleAccumulation state=accumulated[i];
-        value=state.counts.y>0u?state.radiance.rgb/float(state.counts.y):vec3(0);
+        value=state.radiance.w>0.0?state.radiance.rgb/state.radiance.w:vec3(0);
         if(state.counts.z!=0u) value=vec3(1,0,1);
     }
     imageStore(hdr,ivec2(i%pc.width,i/pc.width),vec4(value,1));
@@ -142,9 +142,9 @@ class GpuSampleAccumulator:
         records = self.read(strict=strict)
         return np.divide(
             records["radiance"][:, :3],
-            records["counts"][:, 1, None],
+            records["radiance"][:, 3, None],
             out=np.zeros((self.capacity, 3), np.float64),
-            where=records["counts"][:, 1, None] != 0,
+            where=records["radiance"][:, 3, None] != 0,
         )
 
     @serialized

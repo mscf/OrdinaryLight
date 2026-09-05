@@ -48,3 +48,15 @@ removed without moving grid cells. This is a small execution fixture, not a
 voxel authoring or reconstruction engine. Final RGB values are checked against
 an exact emission/environment reference, and only final verification/export
 reads back GPU results. Build from the current unreleased OrdinaryLight source.
+
+## Material graph workload (0.4.0)
+
+```bash
+ordinarylight-material-graph --samples 64 --output /tmp/material-graph.png
+```
+
+This additional public-API client renders graph-defined rough metal and emission,
+rough glass, analytic lighting/environment MIS, GPU-discovered sphere slots and
+acceleration refits, unequal coverage weights, persistent HDR and tone mapping.
+The final PNG and JSON report are explicit diagnostic readbacks. See
+[material graph contracts](../../docs/material_graph_milestone.md).

@@ -20,7 +20,7 @@ def compile_compute(source):
 
 
 class VulkanKernel:
-    """Immutable set-0 storage buffer/image/AS descriptors and compute pipeline.
+    """Immutable set-0 buffer/image/sampler/AS descriptors and compute pipeline.
 
     Bindings borrow resources; those must remain open until kernel close.
     Pipeline execution is recorded through VulkanPass, including non-image
@@ -51,6 +51,42 @@ class VulkanKernel:
             if resource.owner.runtime is not runtime:
                 raise ValueError("Kernel resources must belong to this runtime")
             resource.owner.require_open()
+            descriptor = resource.descriptor or resource.kind
+            expected = {
+                "buffer": "buffer",
+                "uniform_buffer": "buffer",
+                "image": "image",
+                "sampled_texture_2d": "image",
+                "sampler": "sampler",
+                "acceleration_structure": "acceleration_structure",
+            }
+            if descriptor not in expected or expected[descriptor] != resource.kind:
+                raise ValueError("Invalid kernel descriptor kind")
+            usage = {
+                "buffer": vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                "uniform_buffer": vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                "image": vk.VK_IMAGE_USAGE_STORAGE_BIT,
+                "sampled_texture_2d": vk.VK_IMAGE_USAGE_SAMPLED_BIT,
+            }.get(descriptor)
+            if usage is not None and not (
+                getattr(resource.owner, "usage", usage) & usage
+            ):
+                raise ValueError("Allocation usage does not support descriptor")
+            if resource.kind == "buffer":
+                alignment = (
+                    limits.minUniformBufferOffsetAlignment
+                    if descriptor == "uniform_buffer"
+                    else limits.minStorageBufferOffsetAlignment
+                )
+                if resource.offset % alignment:
+                    raise ValueError(
+                        "Buffer descriptor offset violates device alignment"
+                    )
+            if (
+                descriptor == "uniform_buffer"
+                and resource.size > limits.maxUniformBufferRange
+            ):
+                raise ValueError("Uniform buffer exceeds device descriptor range")
         self.closed = False
         self.module = self.layout = self.pipeline_layout = self.pipeline = self.pool = (
             None
@@ -60,13 +96,16 @@ class VulkanKernel:
         kinds = dict(
             buffer=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             image=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            uniform_buffer=vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            sampled_texture_2d=vk.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            sampler=vk.VK_DESCRIPTOR_TYPE_SAMPLER,
             acceleration_structure=vk.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
         )
         try:
-            from .resources import VulkanBuffer, VulkanImage
+            from .resources import VulkanBuffer, VulkanImage, VulkanSampler
 
             for owner in dict.fromkeys(r.owner for r in self.bindings.values()):
-                if isinstance(owner, (VulkanBuffer, VulkanImage)):
+                if isinstance(owner, (VulkanBuffer, VulkanImage, VulkanSampler)):
                     owner.retain(self)
                     self._retained_allocations.append(owner)
             self.module = vk.vkCreateShaderModule(
@@ -77,7 +116,7 @@ class VulkanKernel:
             descriptors = [
                 vk.VkDescriptorSetLayoutBinding(
                     binding=binding,
-                    descriptorType=kinds[resource.kind],
+                    descriptorType=kinds[resource.descriptor or resource.kind],
                     descriptorCount=1,
                     stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
                 )
@@ -126,7 +165,8 @@ class VulkanKernel:
                 None,
             )[0]
             counts = Counter(
-                kinds[resource.kind] for resource in self.bindings.values()
+                kinds[resource.descriptor or resource.kind]
+                for resource in self.bindings.values()
             )
             sizes = [
                 vk.VkDescriptorPoolSize(type=kind, descriptorCount=count)
@@ -153,8 +193,14 @@ class VulkanKernel:
                 if resource.kind == "buffer":
                     options["pBufferInfo"] = [
                         vk.VkDescriptorBufferInfo(
-                            buffer=resource.handle, offset=0, range=resource.size
+                            buffer=resource.handle,
+                            offset=resource.offset,
+                            range=resource.size,
                         )
+                    ]
+                elif resource.kind == "sampler":
+                    options["pImageInfo"] = [
+                        vk.VkDescriptorImageInfo(sampler=resource.handle)
                     ]
                 elif resource.kind == "image":
                     options["pImageInfo"] = [
@@ -173,7 +219,7 @@ class VulkanKernel:
                         dstSet=self.descriptor,
                         dstBinding=binding,
                         descriptorCount=1,
-                        descriptorType=kinds[resource.kind],
+                        descriptorType=kinds[resource.descriptor or resource.kind],
                         **options,
                     )
                 )

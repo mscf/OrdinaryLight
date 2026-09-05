@@ -9,6 +9,7 @@ _MODULES = {
     "VulkanBuffer": "resources",
     "VulkanImage": "resources",
     "VulkanSemaphore": "resources",
+    "VulkanSampler": "resources",
     "VulkanCompletion": "resources",
     "VulkanKernel": "kernel",
     "compile_compute": "kernel",

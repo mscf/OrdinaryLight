@@ -22,7 +22,7 @@ SURFACE_SAMPLE_DTYPE = np.dtype(
         ("shading_normal", "<f4", (4,)),
         ("incoming", "<f4", (4,)),
         ("identity", "<u4", (4,)),  # owner ID, sample index, material/primitive, flags
-        ("media", "<u4", (4,)),  # outside, inside, application boundary ID (or 0xffffffff), reserved
+        ("media", "<u4", (4,)),  # outside, inside, application boundary ID (or 0xffffffff), initial stack index
     ]
 )
 
@@ -31,6 +31,8 @@ def shader_source(component):
     """Return a versioned, include-expanded transport GLSL component."""
     if component not in {
         "types",
+        "material_contracts",
+        "bsdf",
         "lighting",
         "volumes",
         "contracts",
@@ -95,6 +97,8 @@ class SampleHistory:
 
 
 _LAZY = {
+    "GpuCustomGeometry": ("gpu_geometry", "GpuCustomGeometry"),
+    "GPU_CUSTOM_GEOMETRY_DTYPE": ("gpu_geometry", "GPU_CUSTOM_GEOMETRY_DTYPE"),
     "GpuTransportSamples": ("gpu_samples", "GpuTransportSamples"),
     "SampleReduction": ("gpu_samples", "SampleReduction"),
     "VulkanTransportScene": ("scene", "VulkanTransportScene"),

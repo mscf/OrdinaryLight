@@ -4,7 +4,7 @@ import numpy as np
 from . import SURFACE_SAMPLE_DTYPE
 
 
-def ray_samples(origins, directions, *, identities=None):
+def ray_samples(origins, directions, *, identities=None, initial_stack=0):
     origins = np.asarray(origins, np.float32)
     directions = np.asarray(directions, np.float32)
     if (
@@ -31,6 +31,14 @@ def ray_samples(origins, directions, *, identities=None):
     samples["incoming"][:, :3] = directions
     samples["identity"][:, 0] = ids
     samples["media"][:, 2] = 0xFFFFFFFF
+    stack_ids = np.broadcast_to(np.asarray(initial_stack), (len(samples),))
+    if (
+        stack_ids.dtype.kind not in "iu"
+        or np.any(stack_ids < 0)
+        or np.any(stack_ids >= 0xFFFFFFFF)
+    ):
+        raise ValueError("Initial stack indices must be uint32 values")
+    samples["media"][:, 3] = stack_ids
     return samples
 
 
@@ -43,10 +51,15 @@ def surface_samples(
     shading_normals=None,
     incoming=None,
     boundaries=None,
+    initial_stack=0,
+    texcoords=None,
 ):
     normals = np.asarray(geometric_normals, np.float32)
     samples = ray_samples(
-        positions, -normals if incoming is None else incoming, identities=identities
+        positions,
+        -normals if incoming is None else incoming,
+        identities=identities,
+        initial_stack=initial_stack,
     )
     shading = (
         normals if shading_normals is None else np.asarray(shading_normals, np.float32)
@@ -69,6 +82,12 @@ def surface_samples(
         raise ValueError("Material indices must be uint32 values")
     samples["geometric_normal"][:, :3] = normals
     samples["shading_normal"][:, :3] = shading
+    if texcoords is not None:
+        texcoords = np.asarray(texcoords, np.float32)
+        if texcoords.shape != (len(samples), 2) or not np.isfinite(texcoords).all():
+            raise ValueError("Surface texture coordinates must be finite (N,2) values")
+        samples["geometric_normal"][:, 3] = texcoords[:, 0]
+        samples["shading_normal"][:, 3] = texcoords[:, 1]
     samples["identity"][:, 2] = materials
     samples["identity"][:, 3] = 1
     if boundaries is not None:

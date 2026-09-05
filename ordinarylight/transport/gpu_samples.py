@@ -25,7 +25,7 @@ def validate_samples(samples, scene=None):
     surface = samples["identity"][:, 3] == 1
     for field in ("geometric_normal", "shading_normal"):
         values = samples[field][surface, :3]
-        if not np.isfinite(values).all() or not np.allclose(
+        if not np.isfinite(samples[field][surface]).all() or not np.allclose(
             np.linalg.norm(values, axis=1), 1, rtol=1e-5
         ):
             raise ValueError("Surface normals must be finite unit vectors")
@@ -55,10 +55,13 @@ class SampleReduction:
     """Map each input slot to an output ID; sums/counts produce a path mean.
 
     Duplicate output IDs are intentional. Grouping is deterministic, with one
-    reducer per output and no float atomics. Each input has equal weight.
+    reducer per output and no float atomics. Contribution and normalization
+    weights default to one; a separate denominator supports explicit estimators.
     """
 
     output_ids: object
+    weights: object = 1.0
+    normalization_weights: object = None
 
     def __post_init__(self):
         ids = np.asarray(self.output_ids)
@@ -73,6 +76,28 @@ class SampleReduction:
         ids = np.array(ids, dtype=np.uint32, copy=True)
         ids.flags.writeable = False
         object.__setattr__(self, "output_ids", ids)
+        for name, source in (
+            ("weights", self.weights),
+            (
+                "normalization_weights",
+                self.weights
+                if self.normalization_weights is None
+                else self.normalization_weights,
+            ),
+        ):
+            values = np.array(
+                np.broadcast_to(np.asarray(source, dtype=np.float32), ids.shape),
+                copy=True,
+            )
+            if not np.isfinite(values).all() or np.any(values < 0):
+                raise ValueError("Reduction weights must be finite and nonnegative")
+            values.flags.writeable = False
+            object.__setattr__(self, name, values)
+
+    def pack_weights(self):
+        return np.column_stack((self.weights, self.normalization_weights)).astype(
+            np.float32
+        )
 
     def pack(self, output_capacity):
         if np.any(self.output_ids >= output_capacity):

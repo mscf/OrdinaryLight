@@ -122,6 +122,35 @@ class VulkanGraph:
         nodes = tuple(self._nodes)
         names = {n.name: i for i, n in enumerate(nodes)}
         edges = {i: set() for i in range(len(nodes))}
+        # Split each allocation at every declared endpoint. Versions and hazards
+        # apply independently to each overlapping interval, including full views.
+        endpoints = {}
+        for node in nodes:
+            resources = [
+                use.resource for stage in node.operation.passes for use in stage.uses
+            ]
+            resources += [value.resource for value in (*node.reads, *node.writes)]
+            for resource in resources:
+                if resource.kind == "buffer":
+                    endpoints.setdefault(_key(resource), set()).update(
+                        (resource.offset, resource.offset + resource.size)
+                    )
+        segments = {
+            key: tuple(zip(points, points[1:]))
+            for key, values in endpoints.items()
+            for points in [sorted(values)]
+        }
+
+        def resource_keys(resource):
+            key = _key(resource)
+            if resource.kind != "buffer":
+                return (key,)
+            return tuple(
+                (*key, start, end)
+                for start, end in segments[key]
+                if resource.offset <= start and end <= resource.offset + resource.size
+            )
+
         accesses, versions, all_keys = [], [], set()
         for i, node in enumerate(nodes):
             for dependency in node.after:
@@ -135,27 +164,27 @@ class VulkanGraph:
                         raise ValueError(
                             "Unsupported access bits; use conservative MEMORY_READ/WRITE declarations"
                         )
-                    key = _key(use.resource)
-                    access[key] = access.get(key, 0) | use.access
-                    all_keys.add(key)
+                    for key in resource_keys(use.resource):
+                        access[key] = access.get(key, 0) | use.access
+                        all_keys.add(key)
             explicit = ({}, {})
             for values, target, mask in (
                 (node.reads, explicit[0], _READ),
                 (node.writes, explicit[1], _WRITE),
             ):
                 for value in values:
-                    key = _key(value.resource)
-                    if key not in access or not access[key] & mask:
-                        raise ValueError(
-                            f"{node.name}: connection does not match declared resource access"
-                        )
-                    if key in target:
-                        raise ValueError("Duplicate aliased version connection")
-                    if mask == _WRITE and value.version == 0:
-                        raise ValueError(
-                            "Version zero is imported and cannot be written"
-                        )
-                    target[key] = value.version
+                    for key in resource_keys(value.resource):
+                        if key not in access or not access[key] & mask:
+                            raise ValueError(
+                                f"{node.name}: connection does not match declared resource access"
+                            )
+                        if key in target:
+                            raise ValueError("Duplicate aliased version connection")
+                        if mask == _WRITE and value.version == 0:
+                            raise ValueError(
+                                "Version zero is imported and cannot be written"
+                            )
+                        target[key] = value.version
             accesses.append(access)
             versions.append(explicit)
 
@@ -300,6 +329,9 @@ def reflected_operation(kernel, reflection, *, workgroups, push_constants=b""):
         resource = kernel.bindings[item.binding]
         kinds = {
             "storage_buffer": "buffer",
+            "uniform_buffer": "buffer",
+            "sampled_texture_2d": "image",
+            "sampler": "sampler",
             "storage_image": "image",
             "acceleration_structure": "acceleration_structure",
         }
@@ -310,6 +342,20 @@ def reflected_operation(kernel, reflection, *, workgroups, push_constants=b""):
         expected = kinds[item.kind]
         if resource.kind != expected:
             raise ValueError("Reflected resource kind disagrees with allocation")
+        expected_descriptor = (
+            {
+                "buffer": "storage_buffer",
+                "image": "storage_image",
+                "acceleration_structure": "acceleration_structure",
+                "sampler": "sampler",
+            }[resource.kind]
+            if resource.descriptor is None
+            else resource.descriptor
+        )
+        if item.kind != expected_descriptor:
+            raise ValueError("Reflected descriptor disagrees with kernel binding")
+        if item.kind == "sampler":
+            continue  # Immutable sampler state has lifetime, but no memory hazards.
         access = {
             "read": vk.VK_ACCESS_SHADER_READ_BIT,
             "write": vk.VK_ACCESS_SHADER_WRITE_BIT,
@@ -317,10 +363,19 @@ def reflected_operation(kernel, reflection, *, workgroups, push_constants=b""):
         }.get(item.access)
         if access is None:
             raise ValueError("Unknown reflected access mode")
+        if item.kind == "uniform_buffer":
+            access = vk.VK_ACCESS_UNIFORM_READ_BIT
         key = _key(resource)
         previous = bindings.get(key)
         if previous:
             access |= previous.access
+            if resource.kind == "buffer":
+                start = min(resource.offset, previous.resource.offset)
+                end = max(
+                    resource.offset + resource.size,
+                    previous.resource.offset + previous.resource.size,
+                )
+                resource = replace(resource, offset=start, size=end - start)
         bindings[key] = VulkanResourceUse(
             resource,
             vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

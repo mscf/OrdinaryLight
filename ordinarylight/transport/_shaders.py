@@ -19,7 +19,7 @@ def scene_source(scene):
 #extension GL_EXT_ray_query : require
 layout(local_size_x=64) in;
 struct CustomRecord { vec4 lower; vec4 upper; vec4 parameters; uvec4 metadata; };
-struct TransportMaterialRecord { vec4 albedo_kind; vec4 emission; };
+struct TransportMaterialRecord { vec4 albedo_kind; vec4 emission; vec4 optics; };
 layout(set=0,binding=0) uniform accelerationStructureEXT transport_tlas;
 layout(set=0,binding=1,std430) readonly buffer Vertices { vec4 transport_vertices[]; };
 layout(set=0,binding=2,std430) readonly buffer Attributes { vec4 transport_attributes[]; };
@@ -29,6 +29,8 @@ layout(set=0,binding=5,std430) readonly buffer Materials { TransportMaterialReco
 layout(set=0,binding=6,std430) readonly buffer Media { vec4 optical_media[]; };
 layout(set=0,binding=7,std430) readonly buffer Boundaries { uvec4 medium_boundaries[]; };
 """
+    source += "layout(set=0,binding=12,std430) readonly buffer AnalyticLights { vec4 analytic_lights[]; };\n"
+    source += f"#define OL_ANALYTIC_LIGHT_COUNT {len(scene.lights)}u\n"
     source += scene.custom_declarations
     source += f"\n#define OL_MATERIAL_COUNT {len(scene.materials)}u\n#define OL_BOUNDARY_COUNT {len(scene.boundaries)}u\n"
     source += "\n".join(program.source for program in scene.programs.values())
@@ -45,4 +47,34 @@ uint ordinarylightCustomIntersect(uint program,vec3 origin,vec3 direction,float 
         .joinpath("transport_v1/intersections.glsl")
         .read_text()
     )
+    return source
+
+
+def material_source(scene):
+    """Compile the same parameter programs used by camera material evaluation."""
+    from . import shader_source
+    from ..materials import builtin_material
+
+    source = shader_source("types") + shader_source("material_contracts")
+    programs = [material.program or builtin_material for material in scene.materials]
+    source += "\n".join(
+        program.glsl(f"olMaterial_{i}") for i, program in enumerate(programs)
+    )
+    source += """
+MaterialEvaluation ordinarylightEvaluateMaterial(uint index, OrdinaryLightHit hit,
+    vec3 direction, float bounce, float current_ior, float exterior_ior, vec2 randoms) {
+    TransportMaterialRecord fixed_material=transport_materials[index];
+    MaterialData material;
+    material.base_roughness=vec4(fixed_material.albedo_kind.rgb,fixed_material.optics.x);
+    material.emission_metallic=vec4(fixed_material.emission.rgb,fixed_material.optics.y);
+    material.attenuation_transmission=vec4(1,1,1,float(fixed_material.albedo_kind.w==1.0));
+    material.ior_distance=vec4(hit.boundary.x!=0xffffffffu?optical_media[medium_boundaries[hit.boundary.x].y].a:fixed_material.optics.z,1e30,0,0);
+    bool entering=dot(direction,hit.geometric_normal.xyz)<0.0;
+    vec3 normal=entering?hit.shading_normal.xyz:-hit.shading_normal.xyz;
+    vec2 uv=vec2(hit.geometric_normal.w,hit.shading_normal.w);
+    switch(index) {
+"""
+    for i in range(len(programs)):
+        source += f"case {i}u: return olMaterial_{i}(material,normal,uv,direction,entering,randoms.x,randoms.y,bounce,current_ior,exterior_ior);\n"
+    source += "default: return olMaterial_0(material,normal,uv,direction,entering,randoms.x,randoms.y,bounce,current_ior,exterior_ior);\n}\n}\n"
     return source

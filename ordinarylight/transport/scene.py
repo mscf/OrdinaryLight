@@ -14,12 +14,45 @@ class TransportMaterial:
     albedo: tuple[float, float, float] = (0.8, 0.8, 0.8)
     emission: tuple[float, float, float] = (0.0, 0.0, 0.0)
     emission_two_sided: bool = False
+    program: object = None
+    roughness: float = 0.0
+    metallic: float = 0.0
+    ior: float = 1.5
 
     def __post_init__(self):
-        if self.kind not in {"diffuse", "dielectric"}:
+        from ..materials import (
+            MaterialGraph,
+            MaterialProgram,
+            MaterialEvaluation,
+            LayeredMaterialEvaluation,
+        )
+
+        program = (
+            self.program.compile()
+            if isinstance(self.program, MaterialGraph)
+            else self.program
+        )
+        if program is not None:
+            if not isinstance(program, MaterialProgram) or not isinstance(
+                program.evaluation, (MaterialEvaluation, LayeredMaterialEvaluation)
+            ):
+                raise TypeError("Transport graphs must evaluate material parameters")
+            if program.required_attributes:
+                raise ValueError(
+                    "Transport vertex attributes require an explicit attribute binding"
+                )
+            program.glsl()
+        object.__setattr__(self, "program", program)
+        if self.kind not in {"diffuse", "dielectric", "pbr", "emission"}:
             raise ValueError(
-                "Initial transport materials are diffuse or ideal dielectric"
+                "Transport materials are diffuse, dielectric, pbr, or emission"
             )
+        if not np.isfinite(self.ior) or self.ior <= 0:
+            raise ValueError("Material IOR must be finite and positive")
+        if not np.isfinite([self.roughness, self.metallic]).all() or not (
+            0 <= self.roughness <= 1 and 0 <= self.metallic <= 1
+        ):
+            raise ValueError("Roughness and metallic must be finite values in [0,1]")
         albedo, emission = np.asarray(self.albedo), np.asarray(self.emission)
         if (
             albedo.shape != (3,)
@@ -36,14 +69,9 @@ class TransportMaterial:
 
     @classmethod
     def from_material(cls, material):
-        if material.transmission and material.roughness != 0:
-            raise ValueError(
-                "Ideal dielectric transport requires roughness=0 or an explicit override"
-            )
         if (
             any(
                 (
-                    material.metallic,
                     material.clearcoat,
                     material.anisotropy,
                     material.subsurface,
@@ -58,18 +86,26 @@ class TransportMaterial:
                 "Supply an explicit TransportMaterial override for unsupported material lobes"
             )
         return cls(
-            "dielectric" if material.transmission else "diffuse",
+            "dielectric" if material.transmission else "pbr",
             material.base_color,
             material.emission,
             material.emission_two_sided,
+            material.program,
+            material.roughness,
+            material.metallic,
+            material.ior,
         )
 
     def pack(self):
         return (
             *self.albedo,
-            float(self.kind == "dielectric"),
+            float({"diffuse": 0, "dielectric": 1, "pbr": 2, "emission": 3}[self.kind]),
             *self.emission,
             float(self.emission_two_sided),
+            float(self.roughness),
+            float(self.metallic),
+            float(self.ior),
+            0.0,
         )
 
 
@@ -97,6 +133,8 @@ class VulkanTransportScene:
         custom_resources=None,
         custom_capacity=None,
         intersection_programs=(),
+        lights=None,
+        material_resources=None,
     ):
         with runtime.lock:
             from ..targets.vulkan.scene import VulkanSceneUploader
@@ -105,6 +143,8 @@ class VulkanTransportScene:
             self.runtime = runtime
             self.closed = False
             self._borrowers = set()
+            self._gpu_geometry_clients = set()
+            self._gpu_geometry_dirty = False
             self._buffers = {}
             self._custom_owners = ()
             self._resident = None
@@ -113,6 +153,20 @@ class VulkanTransportScene:
             self.custom_geometry = tuple(custom_geometry)
             self.media = tuple(media)
             self.boundaries = tuple(boundaries)
+            from ..scene import Scene
+            from ..lights import PointLight, DirectionalLight, SpotLight
+
+            self.lights = tuple(
+                getattr(scene, "lights", ()) if lights is None else lights
+            )
+            if not all(
+                isinstance(light, (PointLight, DirectionalLight, SpotLight))
+                for light in self.lights
+            ):
+                raise TypeError(
+                    "Transport lights must be point, directional, or spot lights"
+                )
+            light_records = Scene(lights=list(self.lights)).analytic_light_data()
             self.programs = {}
             from ..geometry import IntersectionProgram
 
@@ -236,6 +290,16 @@ class VulkanTransportScene:
             self.custom_bindings, self.custom_declarations, custom_owners = (
                 prepare_resources(self, custom_resources)
             )
+            from ._material_resources import prepare_material_resources
+
+            material_bindings, material_declarations, material_owners = (
+                prepare_material_resources(
+                    self, material_resources, max(self.custom_bindings, default=15) + 1
+                )
+            )
+            self.custom_bindings.update(material_bindings)
+            self.custom_declarations += material_declarations
+            custom_owners = tuple(dict.fromkeys((*custom_owners, *material_owners)))
             runtime.retain(self)
             try:
                 for owner in custom_owners:
@@ -267,6 +331,7 @@ class VulkanTransportScene:
                     "triangles",
                     np.asarray(triangle_records or [(0, 0, 0, 0)], np.uint32),
                 )
+                self._allocate("lights", light_records)
                 self._allocate(
                     "materials",
                     np.asarray([m.pack() for m in self.materials], np.float32),
@@ -354,7 +419,7 @@ class VulkanTransportScene:
                 "Every dielectric surface needs an explicit medium boundary"
             )
         if material.kind != "dielectric" and identity is not None:
-            raise ValueError("Medium boundaries require ideal dielectric material")
+            raise ValueError("Medium boundaries require dielectric material")
         if identity is None:
             return 0xFFFFFFFF
         if identity not in self.boundary_indices:
@@ -398,8 +463,10 @@ class VulkanTransportScene:
 
         if self.closed:
             return
-        if self._borrowers:
-            raise RuntimeError("Close transport integrators before their scene")
+        if self._borrowers or self._gpu_geometry_clients:
+            raise RuntimeError(
+                "Close transport integrators and GPU geometry clients before their scene"
+            )
         vk.vkDeviceWaitIdle(self.runtime.device)
         self._builder._release_resources(
             self._builder._structures, self._builder._buffers

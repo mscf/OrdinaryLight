@@ -5,3 +5,4 @@ from .gpu import (
     SurfaceContext, SurfaceParameters, blend_surface_parameters,
     default_material_modifier, material_modifier, modifier_signature,
 )
+from .graph import MaterialGraph as MaterialGraph, MaterialNode as MaterialNode, MaterialResource as MaterialResource

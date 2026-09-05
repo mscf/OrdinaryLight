@@ -73,8 +73,11 @@ OrdinaryLightHit ordinarylightIntersect(vec3 origin,vec3 direction,float t_min,f
         uvec4 metadata=triangle_records[index];
         hit.identity=uvec4(1,index,metadata.z,metadata.x);
         hit.boundary.x=metadata.y;
-        hit.geometric_normal=vec4(geometric,0);
-        hit.shading_normal=vec4(shading,0);
+        vec2 texcoord=transport_attributes[index*9u+1u].xy*(1.0-uv.x-uv.y)
+                    +transport_attributes[index*9u+4u].xy*uv.x
+                    +transport_attributes[index*9u+7u].xy*uv.y;
+        hit.geometric_normal=vec4(geometric,texcoord.x);
+        hit.shading_normal=vec4(shading,texcoord.y);
     } else {
         CustomRecord geometry=custom_geometry[index];
         hit.identity=uvec4(2,index,geometry.metadata.w,geometry.metadata.y);

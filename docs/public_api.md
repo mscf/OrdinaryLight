@@ -22,6 +22,11 @@ VulkanOperation under ordinarylight.pipeline.graph. OrdinaryShade reflection
 feeds conservative resource accesses. VulkanFrameRing and VulkanToneMapTarget
 provide bounded reuse and persistent output under ordinarylight.runtime.
 
+[Material graphs and extended transport](material_graph_milestone.md) document
+shared `MaterialGraph`/`MaterialNode`/`MaterialResource` definitions, richer BSDFs
+and analytic lighting, per-sample media, weighted reduction, buffer views, sampled
+resource bindings and `GpuCustomGeometry` updates.
+
 ## Namespace ownership
 
 - `ordinarylight.renderer` owns the high-level `Renderer`, `RenderFrame`, and

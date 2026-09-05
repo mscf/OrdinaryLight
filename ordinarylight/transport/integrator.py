@@ -10,20 +10,27 @@ from ._synchronization import serialized
 from . import shader_source
 from .gpu_samples import GpuTransportSamples, SampleReduction, validate_samples
 from ._custom_resources import resource_uses
-from ._shaders import scene_source, SCENE_BINDINGS
+from ._shaders import scene_source, material_source, SCENE_BINDINGS
 from .media import MediumStack
 
 
 class VulkanTransportIntegrator:
     """Path trace arbitrary rays/surfaces into persistent application-ID sums.
 
-    Initial materials: Lambertian diffuse and ideal dielectric. Illumination is
-    constant environment plus emissive surfaces, sampled by BSDF continuation.
+    Materials include graph-evaluated diffuse, PBR, glass and emission. Analytic
+    light NEE and optional environment MIS share BSDF evaluation and PDFs.
     This is a bounded integrator, not the screen-space GI scheduler.
     """
 
     def __init__(
-        self, scene, samples, accumulator, *, initial_boundaries=(), reduction=None
+        self,
+        scene,
+        samples,
+        accumulator,
+        *,
+        initial_boundaries=(),
+        reduction=None,
+        initial_stacks=(),
     ):
         with scene.runtime.lock:
             from ..runtime import VulkanKernel, compile_compute
@@ -54,22 +61,30 @@ class VulkanTransportIntegrator:
             ):
                 raise ValueError("Reduction must map every active input slot")
             groups, order = reduction.pack(accumulator.capacity)
-            initial = np.zeros((8, 4), np.uint32)
-            initial[0, 1] = 0xFFFFFFFF
-            reference = MediumStack()
-            for i, identity in enumerate(initial_boundaries, 1):
-                if identity not in scene.boundary_indices:
-                    raise ValueError("Unknown initial medium boundary")
-                boundary_index = scene.boundary_indices[identity]
-                boundary = scene.boundaries[boundary_index]
-                reference.transmit(boundary, True)
-                initial[i, :2] = (boundary.inside, boundary_index)
-            self.initial_depth = len(reference.media)
+            # Slot zero preserves the legacy integrator-wide default. Samples
+            # select additional validated stacks through the reserved media.w.
+            stacks = (tuple(initial_boundaries), *map(tuple, initial_stacks))
+            initial = np.zeros((len(stacks), 8, 4), np.uint32)
+            for slot, identities in enumerate(stacks):
+                initial[slot, 0, 1] = 0xFFFFFFFF
+                reference = MediumStack()
+                for i, identity in enumerate(identities, 1):
+                    if identity not in scene.boundary_indices:
+                        raise ValueError("Unknown initial medium boundary")
+                    boundary_index = scene.boundary_indices[identity]
+                    boundary = scene.boundaries[boundary_index]
+                    reference.transmit(boundary, True)
+                    initial[slot, i, :2] = (boundary.inside, boundary_index)
+                initial[slot, 0, 2] = len(reference.media)
+            self.initial_depth = int(initial[0, 0, 2])
+            self.initial_stack_count = len(stacks)
+            if prepared is not None and np.any(prepared["media"][:, 3] >= len(stacks)):
+                raise ValueError("Sample initial stack index is out of range")
             self._sample_offset = 0
             self.closed = False
             self._kernel = self._initial = self._reducer = None
             self.samples = None
-            self._scratch = self._groups = self._indices = None
+            self._scratch = self._groups = self._indices = self._weights = None
             self.capacity = capacity
             self.runtime.retain(self)
             scene._borrowers.add(self)
@@ -84,6 +99,9 @@ class VulkanTransportIntegrator:
                 self._scratch = self.runtime.buffer(capacity * 48)
                 self._groups = self.runtime.buffer(capacity * 16, data=groups)
                 self._indices = self.runtime.buffer(capacity * 4, data=order)
+                self._weights = self.runtime.buffer(
+                    capacity * 8, data=reduction.pack_weights()
+                )
                 self._mapped_count = count
                 self._group_count = len(groups)
                 self._initial = self.runtime.buffer(initial.nbytes, data=initial)
@@ -93,6 +111,7 @@ class VulkanTransportIntegrator:
                     1: VulkanResource.buffer(accumulator.buffer),
                     2: VulkanResource.buffer(self._groups),
                     3: VulkanResource.buffer(self._indices),
+                    4: VulkanResource.buffer(self._weights),
                 }
                 self._reducer = VulkanKernel(
                     self.runtime,
@@ -121,6 +140,7 @@ class VulkanTransportIntegrator:
         self.bindings.update(scene.custom_bindings)
         self.bindings.update(
             {
+                12: scene.resource("lights"),
                 8: VulkanResource.buffer(self.samples.buffer),
                 9: VulkanResource.buffer(self._scratch),
                 10: VulkanResource.buffer(self._initial),
@@ -131,6 +151,12 @@ class VulkanTransportIntegrator:
             + shader_source("contracts")
             + shader_source("sampling")
             + shader_source("dielectric")
+            + material_source(scene)
+        )
+        source += (
+            files("ordinarylight.shaders")
+            .joinpath("transport_v1/bsdf.glsl")
+            .read_text()
         )
         source += (
             files("ordinarylight.shaders")
@@ -153,6 +179,8 @@ class VulkanTransportIntegrator:
         """Upload new inputs without rebuilding kernels; history is not reset."""
         self.require_open()
         prepared = validate_samples(samples, self.scene)
+        if np.any(prepared["media"][:, 3] >= self.initial_stack_count):
+            raise ValueError("Sample initial stack index is out of range")
         if len(prepared) > self.capacity:
             raise ValueError("Sample update exceeds integrator capacity")
         mapping = (
@@ -181,6 +209,7 @@ class VulkanTransportIntegrator:
         self.samples._wait(after)
         self._groups.upload(groups)
         self._indices.upload(order)
+        self._weights.upload(reduction.pack_weights())
         self._mapped_count = self.count
         self._group_count = len(groups)
 
@@ -192,9 +221,10 @@ class VulkanTransportIntegrator:
         max_bounces=8,
         seed=0,
         environment=(0, 0, 0),
+        environment_nee=False,
         tolerance=1e-5,
         ray_epsilon=1e-4,
-        max_steps=256,
+        max_steps=8192,
         max_distance=1e6,
         after=(),
     ):
@@ -256,8 +286,8 @@ class VulkanTransportIntegrator:
                 ray_epsilon,
                 max_steps,
                 max_distance,
-                0,
-                0,
+                self.initial_stack_count,
+                int(bool(environment_nee)),
                 *environment,
                 0,
             )
@@ -333,7 +363,7 @@ class VulkanTransportIntegrator:
             self._kernel.close()
         if self._reducer is not None:
             self._reducer.close()
-        for buffer in (self._scratch, self._groups, self._indices):
+        for buffer in (self._scratch, self._groups, self._indices, self._weights):
             if buffer is not None:
                 buffer.close()
         if self.samples is not None:

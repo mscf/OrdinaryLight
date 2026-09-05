@@ -5,6 +5,17 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added reusable declarative material graphs, including emission, uniforms,
+  storage-buffer and sampled-texture inputs for non-camera transport.
+- Added metallic/rough PBR, rough dielectric scattering, analytic-light NEE and
+  optional environment MIS to non-camera transport.
+- Added per-sample initial medium stacks and explicit contribution/normalization
+  weights; accumulation radiance.w now stores the normalization sum.
+- Added aligned buffer views with interval-based graph hazards, uniform-buffer
+  descriptors, separate sampled-image/sampler bindings and owned samplers.
+- Added GPU record validation and custom-geometry acceleration refits/rebuilds
+  within reserved capacity, plus a public-API material-graph client (0.4.0).
+
 - Added single-queue execution graphs with resource versions, alias/hazard checks,
   OrdinaryShade access-reflection adapters, and recordable rendering operations.
 - Replaced per-dependency host waits with GPU queue ordering/barriers; added

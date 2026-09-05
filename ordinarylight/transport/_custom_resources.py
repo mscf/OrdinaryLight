@@ -53,17 +53,29 @@ def prepare_resources(scene, supplied):
 def resource_uses(bindings, *, writable=()):
     """Combine aliases into a single pass use, with explicit image layouts."""
     import vulkan as vk
+    from dataclasses import replace
     from ..pipeline.vulkan import VulkanResourceUse
 
     combined = {}
     for binding, resource in bindings.items():
+        if resource.kind == "sampler":
+            continue
         key = (resource.kind, resource.handle)
         access = vk.VK_ACCESS_SHADER_READ_BIT
+        if resource.descriptor == "uniform_buffer":
+            access = vk.VK_ACCESS_UNIFORM_READ_BIT
         if binding in writable:
             access |= vk.VK_ACCESS_SHADER_WRITE_BIT
         previous = combined.get(key)
         if previous is not None:
             access |= previous.access
+            if resource.kind == "buffer":
+                start = min(resource.offset, previous.resource.offset)
+                end = max(
+                    resource.offset + resource.size,
+                    previous.resource.offset + previous.resource.size,
+                )
+                resource = replace(resource, offset=start, size=end - start)
         combined[key] = VulkanResourceUse(
             resource,
             vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

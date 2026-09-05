@@ -3,7 +3,7 @@
 OrdinaryLight can execute an application-defined graph of GPU operations without
 prescribing animation, voxelization, denoising, or presentation stages. Only nodes
 added by the application execute. The first implementation uses one Vulkan queue,
-whole-resource access tracking, conservative barriers and explicit resource
+buffer-range access tracking, conservative barriers and explicit resource
 versions. Persistent allocations survive graph executions.
 
 `VulkanPassPipeline` remains the ordered low-level API. `VulkanOperation` groups
@@ -101,13 +101,13 @@ graph.add("populate", operation)
 
 The kernel's bindings connect reflection to actual allocations. The adapter uses
 OrdinaryShade's existing declared `read`, `write`, and `read_write` metadata for
-whole-resource access; it does not claim new compiler effect inference. Aliased
+declared buffer-view ranges and whole images; it does not claim new compiler effect inference. Aliased
 bindings combine their accesses. Atomic buffers must declare read/write access.
 
-The initial adapter supports the `VulkanKernel` descriptor family: set-zero
-storage buffers, storage images, acceleration structures and push constants.
-Uniform-buffer descriptors and sampled textures need a different kernel adapter;
-they are rejected here. Raw shaders can use explicit pass declarations.
+The adapter supports set-zero storage/uniform buffers, storage images, separate
+2D sampled textures and samplers, acceleration structures and push constants.
+See [material graph resource views](material_graph_milestone.md) for binding,
+alignment and lifetime contracts. Raw shaders can use explicit pass declarations.
 Reflection cannot establish application ordering intent, physical alias identity,
 or absence of races within a shader invocation group.
 
@@ -158,8 +158,10 @@ Updates upload changed metadata/bounds with GPU transfer commands, then refit
 the custom BLAS and combined TLAS. `mode="rebuild"` rebuilds in the existing
 allocations; `"auto"` currently chooses refit for bound-bearing updates. Removal
 only disables callback metadata and does not require a bounds update. Triangle
-BLASes are reused. Bounds and metadata requests are host-declared; direct
-GPU-generated acceleration build counts/bounds are not exposed in this milestone.
+BLASes are reused. Host bounds/metadata updates remain available. `GpuCustomGeometry` additionally
+validates GPU-authored records and updates bounds/acceleration within reserved
+capacity; see [GPU-discovered geometry](material_graph_milestone.md). Build counts
+cover the reserved slots; Vulkan memory growth is an explicit host boundary.
 
 Resource-backed occupancy/field data can change within existing conservative
 bounds with **no acceleration update**. The animated client uses this for its

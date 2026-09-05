@@ -6,10 +6,12 @@ boundaries, absorption, and accumulation without constructing the camera GI
 renderer. The [external client package](../examples/transport_client) exercises
 this API using only public imports, without implementing its own transport loop.
 
-The initial material set is Lambertian diffuse and ideal dielectric. Illumination
-is constant environment radiance plus emissive geometry sampled by BSDF
-continuation. Analytic-light NEE/MIS, rough glass, textures, and participating
-scattering are not implemented in this path. Unsupported scene features raise.
+Materials now include diffuse, metallic/rough PBR, ideal/rough dielectric, and
+emission, with shared graph-defined parameter evaluation. Point/directional/spot
+light NEE and optional constant-environment MIS are supported. See
+[material graphs and extended transport](material_graph_milestone.md) for resource
+bindings, medium/weight contracts and current integration boundaries. Participating
+scattering and emissive-area importance sampling are not implemented in this path.
 Existing camera GI, raster, WebGPU, and scientific viewer entry points retain
 their behavior. Custom geometry is currently available through this Vulkan
 transport API, not through those camera renderers.
@@ -196,9 +198,10 @@ output diagnostics. No input readback is required.
 An explicit `SampleReduction` is required when borrowing `GpuTransportSamples`.
 It maps **input slots**, not GPU record identities, to output IDs. Record identities
 remain sampling identity/stream metadata. The map is host-declared and uploaded
-as stable groups; GPU-generated grouping and weighted reductions are deferred.
-Each input contributes equal weight: output radiance is total radiance divided
-by total valid path count, not a sum of already averaged face colors.
+as stable groups; GPU-generated grouping is deferred. Optional contribution and
+normalization weights support unequal coverage and explicit estimators. With the
+default unit weights, output remains total radiance divided by valid path count.
+With weighting, use the normalization sum in `radiance.w`, not the valid count.
 Attempted/valid/truncated counts and events are summed; status flags are ORed.
 
 `set_reduction(mapping, after=...)` changes grouping without rebuilding pipelines.
