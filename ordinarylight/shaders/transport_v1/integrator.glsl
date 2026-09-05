@@ -1,5 +1,5 @@
-// One invocation per application identity. Samples accumulate without float
-// atomics because identities are unique within a dispatch; batches are ordered.
+// One invocation per input slot. A separate deterministic pass reduces slots
+// into output identities, so duplicate destinations never race.
 struct SampleAccumulation { vec4 radiance; uvec4 counts; uvec4 events; };
 layout(set=0,binding=8,std430) readonly buffer Samples { OrdinaryLightSurfaceSample transport_samples[]; };
 layout(set=0,binding=9,std430) buffer Accumulation { SampleAccumulation accumulated[]; };
@@ -15,10 +15,35 @@ void main() {
     uint i=gl_GlobalInvocationID.x; if(i>=pc.count) return;
     OrdinaryLightSurfaceSample input_sample=transport_samples[i];
     uint owner=input_sample.identity.x;
-    SampleAccumulation result=accumulated[owner];
+    SampleAccumulation result=SampleAccumulation(vec4(0),uvec4(0),uvec4(0));
+    bool invalid=any(isnan(input_sample.position))||any(isinf(input_sample.position))||
+        any(isnan(input_sample.incoming))||any(isinf(input_sample.incoming))||
+        abs(dot(input_sample.incoming.xyz,input_sample.incoming.xyz)-1.0)>0.001||
+        input_sample.identity.w>1u;
+    if(input_sample.identity.w==1u) {
+        vec3 gn=input_sample.geometric_normal.xyz, sn=input_sample.shading_normal.xyz;
+        invalid=invalid||any(isnan(gn))||any(isinf(gn))||any(isnan(sn))||any(isinf(sn))||
+            abs(dot(gn,gn)-1.0)>0.001||abs(dot(sn,sn)-1.0)>0.001||dot(gn,sn)<=0.0||
+            input_sample.identity.z>=OL_MATERIAL_COUNT;
+        uint boundary_id=input_sample.media.z, boundary_index=0xffffffffu;
+        if(boundary_id!=0xffffffffu) {
+            for(uint j=0u;j<OL_BOUNDARY_COUNT;++j)
+                if(medium_boundaries[j].z==boundary_id) { boundary_index=j; break; }
+            if(boundary_index==0xffffffffu) invalid=true;
+        }
+        input_sample.media.z=boundary_index;
+        if(!invalid) {
+            bool dielectric=transport_materials[input_sample.identity.z].albedo_kind.w>0.5;
+            if(dielectric!=(boundary_index!=0xffffffffu)) invalid=true;
+        }
+    }
+    if(invalid) {
+        result.counts=uvec4(pc.samples_per_element,0,32,0);
+        accumulated[i]=result; return;
+    }
     for(uint sample_index=0u;sample_index<pc.samples_per_element;++sample_index) {
         uint rng=secondaryNeeHash(owner^secondaryNeeHash(pc.seed)^secondaryNeeHash(
-            pc.sample_offset+sample_index)^secondaryNeeHash(input_sample.identity.y));
+            pc.sample_offset+sample_index)^secondaryNeeHash(input_sample.identity.y)^secondaryNeeHash(i));
         uint medium_stack[8]; uint boundary_stack[8];
         uint depth=pc.initial_depth;
         for(uint j=0u;j<depth;++j) {
@@ -103,5 +128,5 @@ void main() {
         if(truncated) result.counts.w++;
         result.events+=events;
     }
-    accumulated[owner]=result;
+    accumulated[i]=result;
 }

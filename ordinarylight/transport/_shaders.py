@@ -29,6 +29,8 @@ layout(set=0,binding=5,std430) readonly buffer Materials { TransportMaterialReco
 layout(set=0,binding=6,std430) readonly buffer Media { vec4 optical_media[]; };
 layout(set=0,binding=7,std430) readonly buffer Boundaries { uvec4 medium_boundaries[]; };
 """
+    source += scene.custom_declarations
+    source += f"\n#define OL_MATERIAL_COUNT {len(scene.materials)}u\n#define OL_BOUNDARY_COUNT {len(scene.boundaries)}u\n"
     source += "\n".join(program.source for program in scene.programs.values())
     source += """
 uint ordinarylightCustomIntersect(uint program,vec3 origin,vec3 direction,float t_min,float t_max,

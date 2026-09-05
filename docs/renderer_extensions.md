@@ -37,6 +37,11 @@ the device. Outstanding submission completions are waited and retired at runtime
 close. Use context managers or explicit `close()`; garbage collection is not a
 resource management strategy.
 
+Runtime buffer/image allocations now reject close while kernels or transport
+scenes retain them. Close descriptor consumers before their allocations. This
+enforces the existing borrowing contract; source updates remain allowed with
+explicit synchronization.
+
 The initial runtime profile requires a hardware Vulkan 1.2 adapter with
 acceleration structures and ray queries, even for standalone compute. This is
 not yet the general compute-only profile for devices without ray queries.

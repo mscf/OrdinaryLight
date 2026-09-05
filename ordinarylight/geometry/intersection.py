@@ -5,6 +5,7 @@ import re
 
 import numpy as np
 from .fields import FieldKind, vector3
+from .resources import IntersectionResource
 
 
 @dataclass(frozen=True)
@@ -35,8 +36,14 @@ class IntersectionProgram:
     name: str
     source: str
     field_kind: FieldKind | None = None
+    resources: tuple[IntersectionResource, ...] = ()
 
     def __post_init__(self):
+        object.__setattr__(self, "resources", tuple(self.resources))
+        if not all(isinstance(r, IntersectionResource) for r in self.resources):
+            raise TypeError("Expected IntersectionResource declarations")
+        if len({r.name for r in self.resources}) != len(self.resources):
+            raise ValueError("Duplicate intersection resource names")
         if (
             not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.name)
             or not self.source.strip()

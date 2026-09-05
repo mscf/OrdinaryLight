@@ -3,6 +3,8 @@
 Geometry construction and artwork reconstruction remain application concerns.
 """
 
+from .resources import IntersectionResource
+
 from .fields import (
     BoundedField,
     FieldComposition,
@@ -19,6 +21,7 @@ from .intersection import (
 )
 
 __all__ = [
+    "IntersectionResource",
     "BoundedField",
     "FieldComposition",
     "intersect_field",

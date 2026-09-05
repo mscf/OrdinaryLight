@@ -19,7 +19,8 @@ transport API, not through those camera renderers.
 `ordinarylight.geometry` owns bounded fields, transforms, intersection programs,
 and the common hit contract. `ordinarylight.transport` owns medium definitions,
 `VulkanTransportScene`, `VulkanTransportIntegrator`, `GpuSampleAccumulator`,
-`ray_samples`, `surface_samples`, and diagnostic `intersect_rays`.
+`ray_samples`, `surface_samples`, `GpuTransportSamples`, `SampleReduction`, and
+diagnostic `intersect_rays`.
 
 A hardware Vulkan ray-query adapter and `glslangValidator` or `glslc` are required.
 Custom callbacks and transport kernels compile at runtime.
@@ -57,8 +58,9 @@ with VulkanRuntime() as runtime:
 the surface. Material indices refer to the transport scene's table: triangle
 records followed by the custom material palette. Custom geometry material
 indices refer to its local custom palette. Boundary arguments are application
-identities. Sample IDs select accumulator slots, independently of input order
-or camera pixels; they must be unique within an input batch.
+identities. For existing NumPy callers, sample IDs select accumulator slots by default.
+An explicit `SampleReduction` instead maps each input slot to an output ID,
+allowing multiple face samples to contribute to one application output.
 
 ## Fields and custom geometry
 
@@ -91,8 +93,9 @@ uint entry(vec3 origin, vec3 unit_direction, float t_min, float t_max,
 Return 0 for miss, 1 for hit, 2 for unresolved/error. The caller clips the interval
 to the AABB and current closest hit. A hit must return a finite distance inside
 that interval and an outward unit geometric normal. Invalid output fails the
-path. Additional application buffer bindings are not exposed by this initial
-four-parameter callback interface.
+path. Callbacks can additionally declare read-only application buffers/images with
+`IntersectionResource`; the four per-primitive parameters can index those data.
+See the resource binding contract below.
 
 Triangle BLASes and a procedural AABB BLAS share one TLAS and closest-hit query.
 Both produce position/distance, geometric/shading normals, primitive/application/
@@ -107,7 +110,118 @@ Shading normals do not decide medium membership.
 Boundary contains table index (0xffffffff for none), outside medium, inside
 medium, and traversal status. The host `SurfaceHit` names equivalent fields.
 
+## Declared custom resources
+
+Each `IntersectionProgram` may declare `resources=(IntersectionResource(...),)`.
+Supply their allocations by name in `VulkanTransportScene(custom_resources=...)`:
+
+```python
+from ordinarylight.geometry import IntersectionProgram, IntersectionResource
+
+program = IntersectionProgram(
+    "intersectGrid", callback_source,
+    resources=[IntersectionResource("distanceGrid", element_type="float")],
+)
+# callback_source can read distanceGrid[index] and distanceGrid.length().
+# Build CustomGeometry with program, then supply:
+# custom_resources={"distanceGrid": application_buffer}
+```
+
+OrdinaryLight generates read-only declarations and assigns set-0 bindings from
+16 upward, consistently for diagnostic and transport kernels. Callbacks must
+not hard-code those bindings or redeclare the named resources. Shared names
+across programs must have identical declarations and refer to one allocation.
+Missing, extra, conflicting, wrong-kind, wrong-stride and wrong-runtime resources
+are rejected. Multiple names may alias an allocation; pass uses merge aliases.
+
+Buffers are std430 arrays of float/int/uint scalars or two-/four-component vectors.
+Their sizes must be multiples of the declared stride. Current images are
+read-only RGBA32F `image2D` storage images, accessed with `imageLoad`/`imageSize`.
+Dense 3-D fields and sparse structures can live in linear storage buffers;
+3-D images, samplers, descriptor arrays and arbitrary struct declarations are
+not part of this initial resource schema. Callbacks are trusted GLSL: they must
+bounds-check application data accesses and honor their stepping guarantees.
+
+Allocations must belong to the scene runtime and remain alive until consumers
+close. Scenes and descriptor kernels retain them; early close raises before
+destroying Vulkan handles. CPU `buffer.upload()` is synchronized. For GPU writes,
+declare a producer `VulkanPass` and pass its completion through
+`accumulate(after=[producer])` or `intersect_rays(after=[producer])`. Consumers
+declare shader-read barriers and transition images to GENERAL automatically.
+There is no automatic inference of an application's producer dependency.
+
+Resource contents can change without rebuilding shaders or scenes while their
+allocation and the geometry's conservative AABB remain valid. If an edit moves
+the surface outside its AABB, replace the scene snapshot. Applications must reset
+affected accumulated outputs when the expected lighting changes. Field uploads
+do not perform bounds refits or history invalidation automatically.
+
+## Reusable samples and reduction
+
+Existing construction with NumPy `ray_samples`/`surface_samples` still works.
+`integrator.update_samples(new_samples, reduction=..., after=...)` uploads new
+records into the existing allocation without recompiling kernels. The active
+count can change within its capacity; growing capacity requires new inputs and
+an integrator. Updates preserve history and the sampling epoch deliberately.
+
+Use `GpuTransportSamples` for spare capacity or GPU-generated inputs:
+
+```python
+from ordinarylight.transport import GpuTransportSamples, SampleReduction
+
+with GpuTransportSamples(runtime, 64, samples=face_samples) as inputs:
+    mapping = SampleReduction(face_to_output_ids)  # one ID per active input
+    with VulkanTransportIntegrator(
+        scene, inputs, accumulation, reduction=mapping,
+    ) as integrator:
+        # GPU producers bind inputs.buffer using VulkanResource.buffer(...).
+        integrator.accumulate(after=[producer_completion])
+        # Or perform a synchronized CPU update:
+        integrator.update_samples(next_faces, reduction=next_mapping)
+```
+
+GPU inputs use the same 96-byte `SURFACE_SAMPLE_DTYPE`/`OrdinaryLightSurfaceSample`
+layout as host inputs. `identity.w` is 0 for rays or 1 for known surfaces;
+`identity.z` is the known surface's scene material index. `media.z` contains an
+application boundary ID, or 0xffffffff for none. The integrator resolves it on
+the GPU; applications must not pre-remap it to a scene table index. The scene
+boundary table is authoritative; this integrator does not use input media.xy
+to override it. Directions
+and normals must be finite unit vectors. Invalid records produce status 32
+before any material/boundary array dereference, and still propagate to the
+output diagnostics. No input readback is required.
+
+An explicit `SampleReduction` is required when borrowing `GpuTransportSamples`.
+It maps **input slots**, not GPU record identities, to output IDs. Record identities
+remain sampling identity/stream metadata. The map is host-declared and uploaded
+as stable groups; GPU-generated grouping and weighted reductions are deferred.
+Each input contributes equal weight: output radiance is total radiance divided
+by total valid path count, not a sum of already averaged face colors.
+Attempted/valid/truncated counts and events are summed; status flags are ORed.
+
+`set_reduction(mapping, after=...)` changes grouping without rebuilding pipelines.
+After `inputs.set_count(...)` or a count-changing `inputs.update(...)`, set a
+matching reduction before dispatch. A direct `inputs.update(...)` with unchanged
+count preserves the current map. In contrast, `integrator.update_samples(...)`
+without a reduction uses the new host records' output IDs, matching initial
+NumPy construction. Reset affected accumulator IDs explicitly when changing the
+quantity being estimated; updates never silently erase application history.
+
+Close integrators before borrowed inputs. GPU sample generation still needs a
+known host dispatch count; indirect dispatch and GPU-discovered reduction maps
+are not introduced here. Reduction adds one GPU pass and scratch record per
+input; it avoids float atomics and CPU result copies.
+
 ## Dielectric semantics
+
+The scattering-normal policy remains geometric for ideal dielectrics: both
+boundary classification and Fresnel/refraction/reflection use the outward
+geometric normal. Diffuse scattering uses the shading frame with a geometric
+hemisphere check. A GPU parity test verifies that tilted shading normals leave
+dielectric paths unchanged. Intersecting a smooth SDF supplies a smooth geometric
+normal; using a smooth optical normal on blocky intersections is not supported.
+That future mode needs an explicit wrong-hemisphere/throughput policy, rather
+than substituting the normal in the current equations.
 
 Medium zero is vacuum. Each dielectric surface identifies a
 `MediumBoundary(identity, outside, inside)`; multiple faces can share one closed
@@ -135,7 +249,9 @@ is no scattering inside these media.
 
 `GpuSampleAccumulator` owns persistent per-ID sums/counts and an RGBA32F HDR image.
 Multiple integrators on one runtime can share it; submissions chain through its
-last completion. Unique IDs per dispatch avoid float atomics. `reset()` clears
+last completion. Transport writes one temporary record per input slot, then a
+deterministic grouped reduction writes one accumulator record per output ID.
+This supports duplicate destinations without float atomics. `reset()` clears
 all records on the GPU; `reset(identities=[...])` clears selected records.
 Applications decide which identities become invalid.
 
@@ -148,7 +264,8 @@ The 48-byte `ACCUMULATION_DTYPE` has these groups:
 | events | diffuse bounces, reflections, transmissions, total internal reflections |
 
 Status bits are 1 unresolved/invalid intersection, 2 inconsistent boundaries,
-4 stack overflow, 8 escape with an open medium, and 16 nonfinite transport.
+4 stack overflow, 8 escape with an open medium, 16 nonfinite transport, and
+32 invalid GPU input (including out-of-range material/boundary references).
 `read()` and `means()` raise on invalid paths by default; `read(strict=False)`
 exposes diagnostics. HDR resolve marks affected IDs magenta. Excluding invalid
 paths must not be interpreted as a converged estimate.
@@ -199,11 +316,29 @@ ORDINARYLIGHT_TEST_VULKAN_TRANSPORT=1 python -m pytest -q tests/test_transport_g
 The separately installable client renders diffuse cavity samples, SDF glass and
 triangle glass using only these public APIs, including accumulation and HDR.
 
-Foundation validation on the development RTX 4070 Laptop GPU: 547 core tests
-passed (42 optional tests skipped), all eight opt-in transport GPU tests passed,
-and all 440 rebuilt camera shader binaries matched the existing binaries exactly.
-The scientific RT viewer produced identical count volumes on Vulkan GI, Vulkan
-Raster and WebGPU. The likelihood viewer passed its 11 tests and native smoke
-tests on all three targets. The external client was built as a wheel, installed
-under a separate prefix, run outside the checkout, and separately exercised with
+The resource/input extension was validated on the development RTX 4070 Laptop
+GPU with 548 core tests (46 optional tests skipped) and 27 focused CPU/GPU/runtime
+tests with GPU tests enabled. These include resource-backed distance fields,
+GPU-written storage images, GPU-generated samples with input readback forbidden,
+many-to-one reduction, in-place updates, lifetime guards, and the original
+physical references. The scientific RT counts agree exactly across Vulkan GI, Vulkan Raster and
+WebGPU. The likelihood viewer passes its 11 tests and native render/update smoke
+tests on all three targets. The migrated client builds as a wheel and runs with
 native GPU presentation.
+
+## Downstream migration
+
+The external transport client is updated to version 0.2.0 and exercises declared
+resources, reusable GPU samples, and two-to-one surface reduction. It still
+requires this unreleased OrdinaryLight checkout. OrdinaryShade, OrdinaryLattice,
+OrdinaryScience, LatticeModel, LatticeVisualization and the scientific RT and
+likelihood viewers had no callers of the changed low-level transport interfaces
+in the inspected sources. Their current renderer APIs remain compatible; no
+source adaptation was needed in those projects.
+
+For other clients, retain existing NumPy construction or opt into the new input
+and reduction objects. Close kernels before their buffers/images, and close
+transport integrators before their borrowed sample allocations. Reset affected
+output history explicitly after edits. Material/analytic-light expansion should
+continue upstream using shared transport components and parity tests; this
+extension does not claim full access to camera GI behavior.

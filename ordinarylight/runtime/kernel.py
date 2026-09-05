@@ -55,6 +55,7 @@ class VulkanKernel:
         self.module = self.layout = self.pipeline_layout = self.pipeline = self.pool = (
             None
         )
+        self._retained_allocations = []
         runtime.retain(self)
         kinds = dict(
             buffer=vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -62,6 +63,12 @@ class VulkanKernel:
             acceleration_structure=vk.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
         )
         try:
+            from .resources import VulkanBuffer, VulkanImage
+
+            for owner in dict.fromkeys(r.owner for r in self.bindings.values()):
+                if isinstance(owner, (VulkanBuffer, VulkanImage)):
+                    owner.retain(self)
+                    self._retained_allocations.append(owner)
             self.module = vk.vkCreateShaderModule(
                 runtime.device,
                 vk.VkShaderModuleCreateInfo(codeSize=len(spirv), pCode=spirv),
@@ -224,6 +231,9 @@ class VulkanKernel:
             ):
                 if resource is not None:
                     destroy(self.runtime.device, resource, None)
+            for owner in self._retained_allocations:
+                owner.release(self)
+            self._retained_allocations.clear()
             self.closed = True
             self.runtime.release(self)
 

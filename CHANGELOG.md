@@ -5,6 +5,14 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+- Added declared read-only buffer/image resources to custom intersections, with
+  generated bindings, dependency barriers, and allocation lifetime guards.
+- Added reusable GPU sample allocations and in-place integrator input updates.
+  Explicit sample-to-output reduction supports multiple faces per output without
+  floating-point atomics; GPU-generated inputs are validated before traversal.
+- Migrated the external transport client to resource-backed geometry, reusable
+  samples, and many-to-one reduction while preserving existing NumPy callers.
+
 - Added public application-indexed multi-bounce Vulkan transport for Lambertian
   and ideal dielectric surfaces, with strict nested media, Fresnel/TIR decisions,
   distance-dependent absorption, and explicit invalid/truncated path diagnostics.

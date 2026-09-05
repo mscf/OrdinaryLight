@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ordinarylight-transport-demo"
-version = "0.1.0"
+version = "0.2.0"
 description = "An external client of OrdinaryLight's non-camera transport API"
 requires-python = ">=3.11"
 dependencies = ["ordinarylight[vulkan]", "numpy>=1.26", "Pillow>=10"]

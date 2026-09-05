@@ -130,3 +130,33 @@ def test_sample_identity_and_normal_validation():
     assert samples["identity"][0].tolist() == [7, 0, 2, 1]
     assert samples["media"][0, 2] == 10
     np.testing.assert_allclose(samples["geometric_normal"][0, :3], [0, 0, 1])
+
+
+def test_custom_resource_declarations_and_reduction_contracts():
+    from ordinarylight.geometry import IntersectionProgram, IntersectionResource
+    from ordinarylight.transport import SampleReduction
+
+    declaration = IntersectionResource("distanceGrid", element_type="float")
+    assert declaration.stride == 4
+    assert "readonly buffer" in declaration.declaration(16)
+    assert "distanceGrid[]" in declaration.declaration(16)
+    image = IntersectionResource("fieldImage", "image", "rgba32f")
+    assert "readonly uniform image2D" in image.declaration(17)
+    with pytest.raises(ValueError, match="identifier"):
+        IntersectionResource("gl_bad")
+    with pytest.raises(ValueError, match="rgba32f"):
+        IntersectionResource("field", "image", "r32f")
+    with pytest.raises(ValueError, match="Duplicate"):
+        IntersectionProgram(
+            "fieldHit",
+            "uint fieldHit() {return 0u;}",
+            resources=[declaration, declaration],
+        )
+    mapping = SampleReduction([2, 0, 2, 0])
+    groups, indices = mapping.pack(3)
+    np.testing.assert_array_equal(groups[:, :3], [[0, 0, 2], [2, 2, 2]])
+    np.testing.assert_array_equal(indices, [1, 3, 0, 2])
+    with pytest.raises(ValueError, match="capacity"):
+        mapping.pack(2)
+    with pytest.raises(ValueError, match="uint32"):
+        SampleReduction([-1])

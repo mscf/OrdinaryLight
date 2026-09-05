@@ -92,6 +92,15 @@ def submit(runtime, recorder, *, resources=(), after=()):
 
 
 class _Allocation:
+    def retain(self, consumer):
+        with self.runtime.lock:
+            self.require_open()
+            self._borrowers.add(consumer)
+
+    def release(self, consumer):
+        with self.runtime.lock:
+            self._borrowers.discard(consumer)
+
     def require_open(self):
         self.runtime.require_open()
         if self.closed:
@@ -161,6 +170,7 @@ class VulkanBuffer(_Allocation):
                 vk.vkFreeMemory(runtime.device, self.memory, None)
             raise
         self.closed = False
+        self._borrowers = set()
         runtime.retain(self)
         if payload is not None:
             self.upload(payload)
@@ -201,6 +211,8 @@ class VulkanBuffer(_Allocation):
         with self.runtime.lock:
             if self.closed:
                 return
+            if self._borrowers:
+                raise RuntimeError("Close allocation borrowers before the allocation")
             vk.vkDeviceWaitIdle(self.device)
             vk.vkDestroyBuffer(self.device, self.buffer, None)
             vk.vkFreeMemory(self.device, self.memory, None)
@@ -305,12 +317,15 @@ class VulkanImage(_Allocation):
                 vk.vkFreeMemory(runtime.device, self.memory, None)
             raise
         self.closed = False
+        self._borrowers = set()
         runtime.retain(self)
 
     def close(self):
         with self.runtime.lock:
             if self.closed:
                 return
+            if self._borrowers:
+                raise RuntimeError("Close allocation borrowers before the allocation")
             vk.vkDeviceWaitIdle(self.runtime.device)
             vk.vkDestroyImageView(self.runtime.device, self.view, None)
             vk.vkDestroyImage(self.runtime.device, self.image, None)

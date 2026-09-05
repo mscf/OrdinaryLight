@@ -17,17 +17,24 @@ HIT_DTYPE = np.dtype(
 
 
 def intersect_rays(
-    scene, origins, directions, *, t_min=1e-4, t_max=1e6, tolerance=1e-5, max_steps=256
+    scene,
+    origins,
+    directions,
+    *,
+    t_min=1e-4,
+    t_max=1e6,
+    tolerance=1e-5,
+    max_steps=256,
+    after=(),
 ):
-    import vulkan as vk
     from ..runtime import VulkanKernel, compile_compute
     from ..pipeline.vulkan import (
         VulkanResource,
-        VulkanResourceUse,
         VulkanPass,
         VulkanPassPipeline,
     )
     from ._shaders import scene_source, SCENE_BINDINGS
+    from ._custom_resources import resource_uses
 
     scene.require_open()
     origins = np.asarray(origins, np.float32)
@@ -71,6 +78,7 @@ void main() {
             scene.runtime.buffer(len(origins) * HIT_DTYPE.itemsize)
         )
         bindings = {i: scene.resource(name) for i, name in enumerate(SCENE_BINDINGS)}
+        bindings.update(scene.custom_bindings)
         bindings.update(
             {8: VulkanResource.buffer(inputs), 9: VulkanResource.buffer(outputs)}
         )
@@ -79,16 +87,7 @@ void main() {
                 scene.runtime, compile_compute(source), bindings, push_constant_size=20
             )
         )
-        uses = tuple(
-            VulkanResourceUse(
-                resource,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                vk.VK_ACCESS_SHADER_WRITE_BIT
-                if binding == 9
-                else vk.VK_ACCESS_SHADER_READ_BIT,
-            )
-            for binding, resource in bindings.items()
-        )
+        uses = resource_uses(bindings, writable=(9,))
         VulkanPassPipeline(
             [
                 VulkanPass(
@@ -103,5 +102,5 @@ void main() {
                     ((len(origins) + 63) // 64, 1, 1),
                 )
             ]
-        ).execute(scene.runtime).wait()
+        ).execute(scene.runtime, after=after).wait()
         return np.frombuffer(outputs.read(), HIT_DTYPE).copy()

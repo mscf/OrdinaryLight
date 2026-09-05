@@ -3,6 +3,9 @@
 This separately installable package depends only on OrdinaryLight's public APIs.
 It renders three rows of application-indexed samples: an exact two-diffuse-bounce
 cavity result, a refracting/absorbing SDF sphere, and a triangle glass box.
+The sphere reads a declared application storage buffer. Two surface samples per
+diffuse output are reduced explicitly using SampleReduction, and their GPU
+input allocation is updated between frames without recreating integrators.
 The application owns sample identities and display layout. There are no voxel
 reconstruction or artistic averaging algorithms here.
 

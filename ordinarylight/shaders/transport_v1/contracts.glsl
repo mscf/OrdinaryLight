@@ -7,7 +7,7 @@ struct OrdinaryLightSurfaceSample {
     vec4 shading_normal;   // scattering frame; need not match geometry
     vec4 incoming;         // direction travelling toward the surface
     uvec4 identity;        // application owner, sample index, material, flags
-    uvec4 media;           // outside, inside optical medium IDs; reserved x2
+    uvec4 media;           // outside, inside medium IDs; application boundary ID (or 0xffffffff), reserved
 };
 // Medium membership is not inferred from a shading normal. The application
 // supplies IDs and chooses its boundary representation/traversal algorithm.

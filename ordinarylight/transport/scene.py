@@ -94,6 +94,7 @@ class VulkanTransportScene:
         boundaries=(),
         triangle_boundaries=None,
         material_overrides=None,
+        custom_resources=None,
     ):
         with runtime.lock:
             import vulkan as vk
@@ -107,6 +108,7 @@ class VulkanTransportScene:
             self.closed = False
             self._borrowers = set()
             self._buffers = {}
+            self._custom_owners = ()
             self._resident = None
             self._owns_resident = resident is None
             self._builder = VulkanSceneUploader(runtime)
@@ -206,8 +208,16 @@ class VulkanTransportScene:
             self.materials = tuple(materials) + custom_materials
             if not self.triangle_count and not self.custom_geometry:
                 raise ValueError("Transport scene must contain geometry")
+            from ._custom_resources import prepare_resources
+
+            self.custom_bindings, self.custom_declarations, custom_owners = (
+                prepare_resources(self, custom_resources)
+            )
             runtime.retain(self)
             try:
+                for owner in custom_owners:
+                    owner.retain(self)
+                    self._custom_owners += (owner,)
                 if self.triangle_count:
                     self._resident = resident or runtime.upload_scene(
                         self._source_scene
@@ -373,6 +383,8 @@ class VulkanTransportScene:
             and self._source_scene.revision != self.scene_revision
         ):
             raise ValueError("Transport scene changed; upload a replacement snapshot")
+        for owner in self._custom_owners:
+            owner.require_open()
         if self._resident is not None:
             self._resident.require_open()
 
@@ -396,6 +408,9 @@ class VulkanTransportScene:
             self._resident._borrowers.discard(self)
             if self._owns_resident:
                 self._resident.close()
+        for owner in self._custom_owners:
+            owner.release(self)
+        self._custom_owners = ()
         self.closed = True
         self.runtime.release(self)
 

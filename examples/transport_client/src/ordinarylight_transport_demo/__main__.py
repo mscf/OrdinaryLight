@@ -9,13 +9,20 @@ import numpy as np
 from PIL import Image
 
 import ordinarylight as ol
-from ordinarylight.geometry import SdfSphere
+from ordinarylight.geometry import (
+    SdfSphere,
+    CustomGeometry,
+    IntersectionProgram,
+    IntersectionResource,
+)
 from ordinarylight.runtime import VulkanOutput
 from ordinarylight.transport import (
     VulkanTransportScene,
     TransportMaterial,
     VulkanTransportIntegrator,
     GpuSampleAccumulator,
+    GpuTransportSamples,
+    SampleReduction,
     OpticalMedium,
     MediumBoundary,
     ray_samples,
@@ -89,10 +96,35 @@ def run(*, output, frames=4, samples_per_frame=32, columns=64, present=False):
             )
             media = [OpticalMedium(), OpticalMedium(1.5, (0.2, 0.5, 0.8))]
             boundaries = [MediumBoundary(19, 0, 1)]
+            # The optical shape reads application-owned storage; the same
+            # mechanism can carry dense/sparse field data in a derived renderer.
+            sphere_data = stack.enter_context(
+                runtime.buffer(16, data=np.array([0, 0, 0, 1], np.float32))
+            )
+            sphere_program = IntersectionProgram(
+                "bufferSphere",
+                SdfSphere().geometry().program.source
+                + """
+uint bufferSphere(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,out float t,out vec3 n) {
+    uint index=uint(p.x);
+    if(index>=uint(opticalShapes.length())) return 2u;
+    return ordinarylightSdfSphere(o,d,lo,hi,opticalShapes[index],eps,steps,t,n);
+}
+""",
+                resources=[IntersectionResource("opticalShapes")],
+            )
             sphere = stack.enter_context(
                 VulkanTransportScene(
                     runtime,
-                    custom_geometry=[SdfSphere().geometry(boundary=19)],
+                    custom_geometry=[
+                        CustomGeometry(
+                            SdfSphere().bounds,
+                            sphere_program,
+                            (0, 0, 0, 0),
+                            boundary=19,
+                        )
+                    ],
+                    custom_resources={"opticalShapes": sphere_data},
                     custom_materials=[TransportMaterial("dielectric")],
                     media=media,
                     boundaries=boundaries,
@@ -111,8 +143,8 @@ def run(*, output, frames=4, samples_per_frame=32, columns=64, present=False):
             accumulation = stack.enter_context(
                 GpuSampleAccumulator(runtime, columns * 3, extent=(columns, 3))
             )
-            points = np.zeros((columns, 3))
-            normals = np.tile([0, 0, 1], (columns, 1))
+            points = np.zeros((columns * 2, 3))
+            normals = np.tile([[0, 0, 1], [0, 1, 0]], (columns, 1))
             origins = np.column_stack(
                 (
                     np.linspace(-1.2, 1.2, columns),
@@ -125,8 +157,8 @@ def run(*, output, frames=4, samples_per_frame=32, columns=64, present=False):
                 surface_samples(
                     points,
                     normals,
-                    materials=np.arange(1, columns + 1),
-                    identities=np.arange(columns),
+                    materials=np.repeat(np.arange(1, columns + 1), 2),
+                    identities=np.arange(columns * 2),
                 ),
                 ray_samples(
                     origins, directions, identities=np.arange(columns, 2 * columns)
@@ -135,14 +167,40 @@ def run(*, output, frames=4, samples_per_frame=32, columns=64, present=False):
                     origins, directions, identities=np.arange(2 * columns, 3 * columns)
                 ),
             ]
+            mappings = [
+                SampleReduction(np.repeat(np.arange(columns), 2)),
+                SampleReduction(np.arange(columns, 2 * columns)),
+                SampleReduction(np.arange(2 * columns, 3 * columns)),
+            ]
+            # Register all inputs before integrators so ExitStack closes
+            # borrowers before their allocations.
+            gpu_inputs = [
+                stack.enter_context(
+                    GpuTransportSamples(runtime, len(inputs), samples=inputs)
+                )
+                for inputs in sets
+            ]
             integrators = [
                 stack.enter_context(
-                    VulkanTransportIntegrator(scene, inputs, accumulation)
+                    VulkanTransportIntegrator(
+                        scene, inputs, accumulation, reduction=mapping
+                    )
                 )
-                for scene, inputs in zip((diffuse, sphere, triangles), sets)
+                for scene, inputs, mapping in zip(
+                    (diffuse, sphere, triangles), gpu_inputs, mappings
+                )
             ]
             display = stack.enter_context(VulkanOutput(runtime))
-            for _ in range(frames):
+            for frame_index in range(frames):
+                if frame_index:
+                    # Rotate the two sampling frames in the isotropic cavity:
+                    # the expected radiance stays the same, so history is valid.
+                    updated = surface_samples(
+                        points,
+                        -normals if frame_index % 2 else normals,
+                        materials=np.repeat(np.arange(1, columns + 1), 2),
+                    )
+                    integrators[0].update_samples(updated, reduction=mappings[0])
                 for index, integrator in enumerate(integrators):
                     integrator.accumulate(
                         samples_per_element=samples_per_frame,

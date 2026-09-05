@@ -284,3 +284,275 @@ def test_persistent_identity_accumulation_and_selective_reset(runtime):
                 )
                 with pytest.raises(RuntimeError, match="integrators"):
                     scene.close()
+
+
+def test_resource_backed_field_and_image_updates(runtime):
+    from ordinarylight.geometry import (
+        CustomGeometry,
+        IntersectionProgram,
+        IntersectionResource,
+    )
+    from ordinarylight.runtime import VulkanKernel, compile_compute
+    from ordinarylight.pipeline.vulkan import (
+        VulkanResource,
+        VulkanResourceUse,
+        VulkanPass,
+        VulkanPassPipeline,
+    )
+    import vulkan as vk
+
+    # A sampled planar SDF is exact under linear interpolation. Two z layers
+    # make the stepping guarantee independently checkable.
+    source = """
+uint gridHit(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,out float t,out vec3 n) {
+    t=lo; n=vec3(0,0,1);
+    for(uint j=0u;j<steps;++j) {
+        float z=(o.z+t*d.z+1.0)*0.5;
+        float value=mix(distanceGrid[0],distanceGrid[1],z);
+        if(abs(value)<=eps) return 1u;
+        t+=abs(value); if(t>hi) return 0u;
+    }
+    return 2u;
+}
+"""
+    program = IntersectionProgram(
+        "gridHit",
+        source,
+        resources=[IntersectionResource("distanceGrid", element_type="float")],
+    )
+    with runtime.buffer(8, data=np.array([-1, 1], np.float32)) as data:
+        geometry = CustomGeometry(((-1, -1, -1), (1, 1, 1)), program, (0, 0, 0, 0))
+        with VulkanTransportScene(
+            runtime,
+            custom_geometry=[geometry],
+            custom_materials=[TransportMaterial()],
+            custom_resources={"distanceGrid": data},
+        ) as scene:
+            hit = intersect_rays(scene, [[0, 0, 3]], [[0, 0, -1]])
+            assert hit["position_distance"][0, 3] == pytest.approx(3)
+            with pytest.raises(RuntimeError, match="borrowers"):
+                data.close()
+            data.upload(np.array([-1.25, 0.75], np.float32))
+            hit = intersect_rays(scene, [[0, 0, 3]], [[0, 0, -1]])
+            assert hit["position_distance"][0, 3] == pytest.approx(2.75)
+            unresolved = intersect_rays(scene, [[0, 0, 3]], [[0, 0, -1]], max_steps=1)
+            assert unresolved["boundary"][0, 3] == 1
+
+    image_source = (
+        SdfSphere().geometry().program.source
+        + """
+uint imageHit(vec3 o,vec3 d,float lo,float hi,vec4 p,float eps,uint steps,out float t,out vec3 n) {
+    return ordinarylightSdfSphere(o,d,lo,hi,imageLoad(sphereImage,ivec2(0)),eps,steps,t,n);
+}
+"""
+    )
+    image_program = IntersectionProgram(
+        "imageHit",
+        image_source,
+        resources=[IntersectionResource("sphereImage", "image", "rgba32f")],
+    )
+    with runtime.image(1, 1) as field:
+        resource = VulkanResource.image(field)
+        writer_source = """#version 460
+layout(local_size_x=1) in;
+layout(set=0,binding=0,rgba32f) writeonly uniform image2D field;
+void main() { imageStore(field,ivec2(0),vec4(0,0,0,0.5)); }
+"""
+        with VulkanKernel(
+            runtime, compile_compute(writer_source), {0: resource}
+        ) as writer:
+            ready = VulkanPassPipeline(
+                [
+                    VulkanPass(
+                        "field_producer",
+                        (
+                            VulkanResourceUse(
+                                resource,
+                                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                vk.VK_ACCESS_SHADER_WRITE_BIT,
+                                vk.VK_IMAGE_LAYOUT_GENERAL,
+                            ),
+                        ),
+                        writer.bind,
+                        (1, 1, 1),
+                    )
+                ]
+            ).execute(runtime)
+            geometry = CustomGeometry(
+                ((-1, -1, -1), (1, 1, 1)), image_program, (0, 0, 0, 0)
+            )
+            with VulkanTransportScene(
+                runtime,
+                custom_geometry=[geometry],
+                custom_materials=[TransportMaterial("diffuse", (0, 0, 0), (2, 1, 0.5))],
+                custom_resources={"sphereImage": field},
+            ) as scene:
+                hit = intersect_rays(scene, [[0, 0, 3]], [[0, 0, -1]], after=[ready])
+                assert hit["position_distance"][0, 3] == pytest.approx(2.5, abs=1e-5)
+                with GpuSampleAccumulator(runtime, 1) as output:
+                    with VulkanTransportIntegrator(
+                        scene, ray_samples([[0, 0, 3]], [[0, 0, -1]]), output
+                    ) as transport:
+                        transport.accumulate()
+                        np.testing.assert_allclose(output.means(), [[2, 1, 0.5]])
+                with pytest.raises(RuntimeError, match="borrowers"):
+                    field.close()
+
+
+def test_reusable_inputs_and_many_to_one_reduction(runtime):
+    from ordinarylight.transport import GpuTransportSamples, SampleReduction
+
+    with VulkanTransportScene(
+        runtime,
+        custom_geometry=[SdfSphere().geometry()],
+        custom_materials=[
+            TransportMaterial("diffuse", (0, 0, 0)),
+            TransportMaterial("diffuse", (0, 0, 0), (1, 2, 3)),
+            TransportMaterial("diffuse", (0, 0, 0), (3, 4, 5)),
+        ],
+    ) as scene:
+        inputs = surface_samples([[0, 0, 2]] * 3, [[0, 0, 1]] * 3, materials=[1, 2, 1])
+        with (
+            GpuTransportSamples(runtime, 4, samples=inputs) as samples,
+            GpuSampleAccumulator(runtime, 2) as output,
+        ):
+            with VulkanTransportIntegrator(
+                scene, samples, output, reduction=SampleReduction([0, 0, 1])
+            ) as transport:
+                kernel, buffer = transport._kernel, samples.buffer
+                transport.accumulate(samples_per_element=3)
+                np.testing.assert_allclose(output.means(), [[2, 3, 4], [1, 2, 3]])
+                np.testing.assert_array_equal(output.read()["counts"][:, 1], [6, 3])
+                transport.update_samples(inputs[:2], reduction=SampleReduction([1, 1]))
+                output.reset()
+                transport.accumulate(samples_per_element=2)
+                np.testing.assert_allclose(output.means(), [[0, 0, 0], [2, 3, 4]])
+                assert transport._kernel is kernel and samples.buffer is buffer
+                with pytest.raises(RuntimeError, match="integrators"):
+                    samples.close()
+                samples.set_count(1)
+                with pytest.raises(ValueError, match="count changed"):
+                    transport.accumulate()
+                transport.set_reduction(SampleReduction([0]))
+                transport.accumulate()
+                np.testing.assert_allclose(output.means()[0], [1, 2, 3])
+
+
+def test_gpu_generated_samples_without_input_readback_and_invalid_guard(
+    runtime, monkeypatch
+):
+    import vulkan as vk
+    from ordinarylight.runtime import VulkanKernel, compile_compute
+    from ordinarylight.pipeline.vulkan import (
+        VulkanResource,
+        VulkanResourceUse,
+        VulkanPass,
+        VulkanPassPipeline,
+    )
+    from ordinarylight.transport import (
+        GpuTransportSamples,
+        SampleReduction,
+        shader_source,
+    )
+
+    with VulkanTransportScene(
+        runtime,
+        custom_geometry=[SdfSphere().geometry()],
+        custom_materials=[TransportMaterial()],
+    ) as scene:
+        with (
+            GpuTransportSamples(runtime, 2) as inputs,
+            GpuSampleAccumulator(runtime, 1) as output,
+        ):
+            resource = VulkanResource.buffer(inputs.buffer)
+            source = (
+                "#version 460\nlayout(local_size_x=2) in;\n"
+                + shader_source("contracts")
+                + """
+layout(set=0,binding=0,std430) buffer Inputs { OrdinaryLightSurfaceSample samples[]; };
+layout(push_constant) uniform Constants { uint invalid; } pc;
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    OrdinaryLightSurfaceSample s;
+    s.position=vec4(3,0,0,0); s.incoming=vec4(1,0,0,0);
+    s.geometric_normal=vec4(0,0,1,0); s.shading_normal=s.geometric_normal;
+    s.identity=uvec4(i,0,0,0); s.media=uvec4(0,0,0xffffffffu,0);
+    if(pc.invalid==1u && i==0u) { s.identity.w=1u; s.identity.z=0xffffffffu; }
+    samples[i]=s;
+}
+"""
+            )
+            with VulkanKernel(
+                runtime, compile_compute(source), {0: resource}, push_constant_size=4
+            ) as generator:
+
+                def produce(invalid=0):
+                    return VulkanPassPipeline(
+                        [
+                            VulkanPass(
+                                "generate",
+                                (
+                                    VulkanResourceUse(
+                                        resource,
+                                        vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                        vk.VK_ACCESS_SHADER_WRITE_BIT,
+                                    ),
+                                ),
+                                lambda command: generator.bind(
+                                    command, int(invalid).to_bytes(4, "little")
+                                ),
+                                (1, 1, 1),
+                            )
+                        ]
+                    ).execute(runtime)
+
+                monkeypatch.setattr(
+                    inputs.buffer, "read", lambda: pytest.fail("GPU sample readback")
+                )
+                with VulkanTransportIntegrator(
+                    scene, inputs, output, reduction=SampleReduction([0, 0])
+                ) as transport:
+                    ready = produce()
+                    transport.accumulate(
+                        samples_per_element=4,
+                        environment=(0.2, 0.4, 0.6),
+                        after=[ready],
+                    )
+                    np.testing.assert_allclose(
+                        output.means(), [[0.2, 0.4, 0.6]], rtol=1e-6
+                    )
+                    assert output.read()["counts"][0, 1] == 8
+                    output.reset()
+                    transport.accumulate(after=[produce(1)])
+                    records = output.read(strict=False)
+                    np.testing.assert_array_equal(records["counts"][0, :3], [2, 1, 32])
+                    with pytest.raises(RuntimeError, match="invalid paths"):
+                        output.read()
+                with pytest.raises(RuntimeError, match="borrowers"):
+                    inputs.buffer.close()
+
+
+def test_dielectric_shading_normal_does_not_change_boundary_scattering(runtime):
+    with VulkanTransportScene(
+        runtime,
+        custom_geometry=[SdfSphere().geometry(boundary=7)],
+        custom_materials=[TransportMaterial("dielectric")],
+        media=[OpticalMedium(), OpticalMedium(1.5, (0.2, 0.4, 0.6))],
+        boundaries=[MediumBoundary(7, 0, 1)],
+    ) as scene:
+        results = []
+        for shading in ([0, 0, 1], [0.8, 0, 0.6]):
+            inputs = surface_samples(
+                [[0, 0, 1]],
+                [[0, 0, 1]],
+                shading_normals=[shading],
+                materials=0,
+                boundaries=7,
+            )
+            with GpuSampleAccumulator(runtime, 1) as output:
+                with VulkanTransportIntegrator(scene, inputs, output) as transport:
+                    transport.accumulate(
+                        samples_per_element=256, max_bounces=24, environment=(1, 1, 1)
+                    )
+                    results.append(output.read())
+        np.testing.assert_array_equal(results[0], results[1])

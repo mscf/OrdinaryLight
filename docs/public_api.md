@@ -12,7 +12,9 @@ entry points remain compatible; GI compute contexts now expose the public runtim
 [Transport foundations](transport_foundations.md) document `ordinarylight.geometry`
 (bounded fields, transforms, custom intersection programs and the common hit
 contract) and `ordinarylight.transport` (media, transport scene, non-camera
-integrator, persistent GPU accumulation and diagnostic ray queries). These
+integrator, reusable GPU samples, explicit output reduction, persistent GPU
+accumulation and diagnostic ray queries). Intersection programs can declare
+read-only application buffer/image resources with generated bindings. These
 families own general rendering behavior; voxel construction stays downstream.
 
 ## Namespace ownership

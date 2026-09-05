@@ -1,3 +1,5 @@
+#ifndef ORDINARYLIGHT_SDF_SPHERE_V1
+#define ORDINARYLIGHT_SDF_SPHERE_V1 1
 // Exact world-space sphere SDF. Called only inside its declared AABB interval.
 uint ordinarylightSdfSphere(vec3 origin, vec3 direction, float t_min, float t_max,
     vec4 parameters, float tolerance, uint max_steps, out float distance,
@@ -20,3 +22,5 @@ uint ordinarylightSdfSphere(vec3 origin, vec3 direction, float t_min, float t_ma
     }
     return 2u;
 }
+
+#endif

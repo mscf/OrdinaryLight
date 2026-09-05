@@ -7,7 +7,9 @@ import struct
 import numpy as np
 from ._synchronization import serialized
 
-from . import SURFACE_SAMPLE_DTYPE, shader_source
+from . import shader_source
+from .gpu_samples import GpuTransportSamples, SampleReduction, validate_samples
+from ._custom_resources import resource_uses
 from ._shaders import scene_source, SCENE_BINDINGS
 from .media import MediumStack
 
@@ -20,7 +22,9 @@ class VulkanTransportIntegrator:
     This is a bounded integrator, not the screen-space GI scheduler.
     """
 
-    def __init__(self, scene, samples, accumulator, *, initial_boundaries=()):
+    def __init__(
+        self, scene, samples, accumulator, *, initial_boundaries=(), reduction=None
+    ):
         with scene.runtime.lock:
             from ..runtime import VulkanKernel, compile_compute
             from ..pipeline.vulkan import VulkanResource
@@ -32,52 +36,24 @@ class VulkanTransportIntegrator:
             accumulator.require_open()
             if accumulator.runtime is not self.runtime:
                 raise ValueError("Scene and accumulator must share a runtime")
-            samples = np.array(samples, copy=True)
+            self._owns_samples = not isinstance(samples, GpuTransportSamples)
+            prepared = validate_samples(samples, scene) if self._owns_samples else None
+            if not self._owns_samples:
+                samples.require_open()
+                if samples.runtime is not self.runtime:
+                    raise ValueError("GPU samples must share the scene runtime")
+                if reduction is None:
+                    raise ValueError("GPU samples require an explicit SampleReduction")
+            count = len(prepared) if prepared is not None else samples.count
+            capacity = count if prepared is not None else samples.capacity
+            if reduction is None:
+                reduction = SampleReduction(prepared["identity"][:, 0])
             if (
-                samples.dtype != SURFACE_SAMPLE_DTYPE
-                or samples.ndim != 1
-                or not len(samples)
+                not isinstance(reduction, SampleReduction)
+                or len(reduction.output_ids) != count
             ):
-                raise ValueError(
-                    "Use ray_samples() or surface_samples() to supply samples"
-                )
-            ids = samples["identity"][:, 0]
-            if len(np.unique(ids)) != len(ids) or np.max(ids) >= accumulator.capacity:
-                raise ValueError(
-                    "Sample identities must be unique and fit the accumulator"
-                )
-            if (
-                not np.isfinite(samples["position"]).all()
-                or not np.isfinite(samples["incoming"]).all()
-                or not np.allclose(
-                    np.linalg.norm(samples["incoming"][:, :3], axis=1), 1, rtol=1e-5
-                )
-            ):
-                raise ValueError(
-                    "Samples need finite positions and normalized incoming directions"
-                )
-            surface = (samples["identity"][:, 3] & 1) != 0
-            if np.any(samples["identity"][:, 3] > 1):
-                raise ValueError("Unknown sample mode")
-            for i in np.flatnonzero(surface):
-                material_index = int(samples["identity"][i, 2])
-                if material_index >= len(scene.materials):
-                    raise ValueError("Surface sample material is out of range")
-                for field in ("geometric_normal", "shading_normal"):
-                    if not np.isfinite(samples[field][i]).all() or not np.isclose(
-                        np.linalg.norm(samples[field][i, :3]), 1, rtol=1e-5
-                    ):
-                        raise ValueError(
-                            "Surface sample normals must be finite unit vectors"
-                        )
-                boundary = int(samples["media"][i, 2])
-                boundary = None if boundary == 0xFFFFFFFF else boundary
-                samples["media"][i, 2] = scene._boundary_index(
-                    boundary, scene.materials[material_index]
-                )
-                if boundary is not None:
-                    definition = scene.boundaries[scene.boundary_indices[boundary]]
-                    samples["media"][i, :2] = (definition.outside, definition.inside)
+                raise ValueError("Reduction must map every active input slot")
+            groups, order = reduction.pack(accumulator.capacity)
             initial = np.zeros((8, 4), np.uint32)
             initial[0, 1] = 0xFFFFFFFF
             reference = MediumStack()
@@ -89,23 +65,36 @@ class VulkanTransportIntegrator:
                 reference.transmit(boundary, True)
                 initial[i, :2] = (boundary.inside, boundary_index)
             self.initial_depth = len(reference.media)
-            self.count = len(samples)
             self._sample_offset = 0
             self.closed = False
-            self._kernel = self._input = self._initial = None
+            self._kernel = self._initial = self._reducer = None
+            self.samples = None
+            self._scratch = self._groups = self._indices = None
+            self.capacity = capacity
             self.runtime.retain(self)
             scene._borrowers.add(self)
             accumulator._borrowers.add(self)
             try:
-                self._input = self.runtime.buffer(samples.nbytes, data=samples)
+                self.samples = (
+                    GpuTransportSamples(self.runtime, capacity, samples=prepared)
+                    if self._owns_samples
+                    else samples
+                )
+                self.samples._borrowers.add(self)
+                self._scratch = self.runtime.buffer(capacity * 48)
+                self._groups = self.runtime.buffer(capacity * 16, data=groups)
+                self._indices = self.runtime.buffer(capacity * 4, data=order)
+                self._mapped_count = count
+                self._group_count = len(groups)
                 self._initial = self.runtime.buffer(initial.nbytes, data=initial)
                 self.bindings = {
                     i: scene.resource(name) for i, name in enumerate(SCENE_BINDINGS)
                 }
+                self.bindings.update(scene.custom_bindings)
                 self.bindings.update(
                     {
-                        8: VulkanResource.buffer(self._input),
-                        9: VulkanResource.buffer(accumulator.buffer),
+                        8: VulkanResource.buffer(self.samples.buffer),
+                        9: VulkanResource.buffer(self._scratch),
                         10: VulkanResource.buffer(self._initial),
                     }
                 )
@@ -126,9 +115,65 @@ class VulkanTransportIntegrator:
                     self.bindings,
                     push_constant_size=64,
                 )
+                self._reduce_bindings = {
+                    0: VulkanResource.buffer(self._scratch),
+                    1: VulkanResource.buffer(accumulator.buffer),
+                    2: VulkanResource.buffer(self._groups),
+                    3: VulkanResource.buffer(self._indices),
+                }
+                self._reducer = VulkanKernel(
+                    self.runtime,
+                    compile_compute(
+                        files("ordinarylight.shaders")
+                        .joinpath("transport_v1/reduce.glsl")
+                        .read_text()
+                    ),
+                    self._reduce_bindings,
+                    push_constant_size=4,
+                )
             except Exception:
                 self.close()
                 raise
+
+    @property
+    def count(self):
+        return self.samples.count
+
+    @serialized
+    def update_samples(self, samples, *, reduction=None, after=()):
+        """Upload new inputs without rebuilding kernels; history is not reset."""
+        self.require_open()
+        prepared = validate_samples(samples, self.scene)
+        if len(prepared) > self.capacity:
+            raise ValueError("Sample update exceeds integrator capacity")
+        mapping = (
+            SampleReduction(prepared["identity"][:, 0])
+            if reduction is None
+            else reduction
+        )
+        if not isinstance(mapping, SampleReduction) or len(mapping.output_ids) != len(
+            prepared
+        ):
+            raise ValueError("Reduction must map every active input slot")
+        mapping.pack(self.accumulator.capacity)
+        self.samples.update(prepared, after=after)
+        self.set_reduction(mapping)
+
+    @serialized
+    def set_reduction(self, reduction, *, after=()):
+        """Replace output grouping for the current active input count."""
+        self.require_open()
+        if (
+            not isinstance(reduction, SampleReduction)
+            or len(reduction.output_ids) != self.count
+        ):
+            raise ValueError("Reduction must map every active input slot")
+        groups, order = reduction.pack(self.accumulator.capacity)
+        self.samples._wait(after)
+        self._groups.upload(groups)
+        self._indices.upload(order)
+        self._mapped_count = self.count
+        self._group_count = len(groups)
 
     @serialized
     def accumulate(
@@ -144,10 +189,11 @@ class VulkanTransportIntegrator:
         max_distance=1e6,
         after=(),
     ):
-        import vulkan as vk
-        from ..pipeline.vulkan import VulkanResourceUse, VulkanPass, VulkanPassPipeline
+        from ..pipeline.vulkan import VulkanPass, VulkanPassPipeline
 
         self.require_open()
+        if self.count != self._mapped_count:
+            raise ValueError("Sample count changed; call set_reduction before dispatch")
         samples_per_element = index(samples_per_element)
         max_bounces = index(max_bounces)
         seed = index(seed)
@@ -194,16 +240,7 @@ class VulkanTransportIntegrator:
             *environment,
             0,
         )
-        uses = tuple(
-            VulkanResourceUse(
-                resource,
-                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT
-                if binding == 9
-                else vk.VK_ACCESS_SHADER_READ_BIT,
-            )
-            for binding, resource in self.bindings.items()
-        )
+        uses = resource_uses(self.bindings, writable=(9,))
         dependencies = tuple(after) + (
             (self.accumulator.last_completion,)
             if self.accumulator.last_completion is not None
@@ -216,7 +253,15 @@ class VulkanTransportIntegrator:
                     uses,
                     lambda command: self._kernel.bind(command, push),
                     ((self.count + 63) // 64, 1, 1),
-                )
+                ),
+                VulkanPass(
+                    "reduce_transport_samples",
+                    resource_uses(self._reduce_bindings, writable=(1,)),
+                    lambda command: self._reducer.bind(
+                        command, struct.pack("<I", self._group_count)
+                    ),
+                    ((self._group_count + 63) // 64, 1, 1),
+                ),
             ]
         ).execute(self.runtime, after=dependencies)
         self.accumulator.last_completion = completion
@@ -228,6 +273,7 @@ class VulkanTransportIntegrator:
             raise RuntimeError("Transport integrator is closed")
         self.scene.require_open()
         self.accumulator.require_open()
+        self.samples.require_open()
 
     @serialized
     def close(self):
@@ -235,8 +281,15 @@ class VulkanTransportIntegrator:
             return
         if self._kernel is not None:
             self._kernel.close()
-        if self._input is not None:
-            self._input.close()
+        if self._reducer is not None:
+            self._reducer.close()
+        for buffer in (self._scratch, self._groups, self._indices):
+            if buffer is not None:
+                buffer.close()
+        if self.samples is not None:
+            self.samples._borrowers.discard(self)
+            if self._owns_samples:
+                self.samples.close()
         if self._initial is not None:
             self._initial.close()
         self.scene._borrowers.discard(self)
