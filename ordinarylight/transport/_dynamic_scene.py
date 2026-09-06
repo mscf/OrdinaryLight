@@ -267,7 +267,7 @@ def reserve(scene, capacity):
     data = packed.tobytes()
     buffer = None
     try:
-        buffer = scene.runtime.buffer(len(data), data=data)
+        buffer = scene.runtime.buffer(len(data), data=data, memory="device")
         build_acceleration(candidate)
     except Exception:
         candidate._builder._release_resources(

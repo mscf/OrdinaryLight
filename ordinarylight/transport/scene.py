@@ -394,7 +394,11 @@ class VulkanTransportScene:
 
     def _allocate(self, name, data):
         data = np.ascontiguousarray(data)
-        self._buffers[name] = self.runtime.buffer(data.nbytes, data=data)
+        # Traversal randomly reads custom records; keep the large table local
+        # to the device rather than making every candidate fetch host memory.
+        self._buffers[name] = self.runtime.buffer(
+            data.nbytes, data=data, memory="device" if name == "custom" else "host"
+        )
 
     def resource(self, name):
         from ..pipeline.vulkan import VulkanResource

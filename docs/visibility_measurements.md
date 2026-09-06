@@ -233,6 +233,125 @@ The object path ran first; no repeated-trial confidence interval is claimed.
 
 The viewer now uses `BoxBatch.geometries()`, backed by the general public
 `CustomGeometryBatch`. Earlier GPU tables describe the preceding object-based
-setup. Updated GPU validation remains deferred. CPU probe results and its temporary
+setup. GPU validation was deferred for this CPU trial; the subsequent validation
+is recorded below. CPU probe results and its temporary
 driver are `/tmp/bulk-geometry-cpu-results.json` and
 `/tmp/bulk_geometry_cpu_probe.py`.
+
+### GPU validation and custom-metadata placement
+
+The subsequent GPU pass validated bulk construction, slot updates/removal,
+capacity growth and resident HDR output. With the production fix below, 79
+focused tests passed (native presentation deliberately deselected), followed by
+five multi-bounce, dielectric, graph-emission and resource-backed transport tests.
+An earlier 80-test run also exercised the display-enabled presentation regression;
+this does not constitute a fresh four-panel Qt viewer smoke test.
+
+The scientific DMC acceptance script passed baseline, non-basis parameter edits
+and basis changes on WebGPU raster, Vulkan raster and Vulkan GI. All nine cases
+matched their CPU histogram reference exactly, and all three target count volumes
+agreed exactly. Fourteen additional scientific histogram, likelihood-data/display
+and presentation-adapter tests passed. Outputs are in
+`/tmp/scientific-gpu-validation/rt/`.
+
+The first bulk GPU sweep still used host-visible custom scene metadata. At 720p
+with approximately constant coverage, its total GPU interval was 0.455 ms at
+32K boxes, 1.074 ms at 64K, 2.216 ms at 128K, 10.784 ms at 512K and 14.715 ms
+at 1,048,576. At one million boxes, visibility accounted for 14.623 ms, compared
+with 0.021 ms for palette generation and 0.068 ms for tone mapping. This localized
+the expensive stage but did not alone distinguish traversal from metadata access.
+
+A targeted probe changed only custom scene metadata allocation to device-local
+memory. The million-box interval fell to 1.684 ms; the 128K interval fell to
+0.547 ms. This identifies metadata memory placement as a major cause of the
+observed slowdown, without claiming a hardware-counter measurement of bandwidth.
+The production implementation now allocates the custom metadata table in
+device-local memory during both construction and capacity growth. Its record
+format, host/GPU update paths and application identities are unchanged.
+
+The final production sweep measured:
+
+| Boxes | Median GPU output chain | Visibility/HDR stage | Instrumented setup |
+|---|---:|---:|---:|
+| 32,768 | 0.522 ms | 0.436 ms | 0.309 s |
+| 131,072 | 0.699 ms | 0.603 ms | 0.346 s |
+| 524,288 | 1.180 ms | 1.098 ms | 0.439 s |
+| 1,048,576 | 1.685 ms | 1.592 ms | 0.585 s |
+
+The million-box final run used 0.057 s for declarations, 0.190 s for scene
+construction (including 24.3 ms acceleration setup), and 0.201 s for query/output
+setup. Its host submission-through-completion median was 2.887 ms. Process peak
+RSS was 903 MiB; sampled whole-device memory rose about 421 MiB over baseline.
+The additional device memory compared with the earlier 358 MiB increase is
+consistent with relocating the 64 MiB custom record table. Memory sampling has
+the same approximate whole-device limitations described above.
+
+All four final PNGs are byte-identical to the corresponding host-metadata sweep,
+and all hit statuses were valid. The bulk sphere example additionally verifies
+identical complete query records after growing a scene containing moved and
+disabled slots.
+
+Each case used a fresh process, 31 frames and two omitted warmups (29 measured
+frames). Resolution was 1280×720 with one acceleration primitive per box;
+coverage stayed approximately 70%. Desktop graphics and a small resident Python
+GPU process remained, so these are not exclusive-device benchmarks. Timing
+variation at smaller counts should not be interpreted as a precise regression.
+The GPU intervals exclude setup, final export/readback, native presentation and
+GI. Instrumented setup excludes runtime initialization and teardown. The results
+support static million-box visibility, not a universal frame-rate or GI guarantee.
+
+Raw reports/images are under `/tmp/bulk-gpu-validation/` (host metadata),
+`/tmp/bulk-device-metadata/` (targeted probe), and `/tmp/bulk-gpu-final/`
+(production fix). Temporary drivers are `/tmp/bulk_gpu_probe.py`,
+`/tmp/bulk_device_metadata_probe.py` and `/tmp/bulk_gpu_final_probe.py`.
+
+### Ten-million-box allocation, build and growth
+
+A subsequent capacity test used exactly 10,000,000 active boxes with the same
+fixed-coverage distribution, 1280×720 output, 31 frames and two omitted warmups.
+Hit coverage was 69.51% (640,628 rays). The RTX 4070 Laptop GPU had 8,188 MiB total
+memory and approximately 440 MiB occupied before each process started.
+
+| Measurement | 10M active boxes / 10M slots | 10M active boxes / 12M slots after growth |
+|---|---:|---:|
+| Median total GPU output interval | 3.490 ms | 3.426 ms |
+| Median visibility/HDR interval | 2.782 ms | 2.730 ms |
+| Median palette update | 0.644 ms | 0.633 ms |
+| Median tone mapping | 0.058 ms | 0.057 ms |
+| Median host submission through completion | 4.930 ms | 4.700 ms |
+| Instrumented setup, including growth when applicable | 5.438 s | 7.788 s |
+| Process peak RSS | 3,317 MiB | 4,843 MiB |
+| Sampled whole-device memory peak | 3,192 MiB | 5,523 MiB |
+| Peak increase over pre-run device usage | 2,752 MiB | 5,082 MiB |
+
+Initial acceleration setup took 235 ms in the first run. In the growth run,
+initial acceleration setup took 261 ms, followed by 319 ms for the replacement
+acceleration allocation/build. Explicit `reserve_custom_geometry(12000000)` took
+3.315 s in total, including host packing and allocation migration. These are
+wall-clock measurements, not isolated GPU build timestamps.
+
+The two million added slots remained inactive. Growth preserved all ten million
+active boxes, their application records and palette. Both runs returned zero
+invalid statuses and exactly the same hit count; the final PNGs are byte-identical.
+Thus the second column validates additional capacity, not twelve million active
+boxes or a new distribution. The small rendering-time difference is not a claimed
+growth optimization.
+
+Memory monitoring sampled `nvidia-smi` approximately every 0.2 seconds and also
+sampled immediately after acceleration construction. In particular, the growth
+sample captured the old and replacement allocations simultaneously resident at
+5,523 MiB (5.39 GiB) whole-device usage. After retiring the old allocations, usage
+was 3,529 MiB before query/output pipeline preparation. Exact transient peaks may
+still be missed; these are observed peaks, not a strict worst-case memory bound.
+
+This confirms that the tested ten-million-box workload fits with approximately
+2.69 GiB additional peak device usage, and the tested growth path fits on this
+8 GiB-class GPU as well. It does not establish capacity for arbitrarily large
+textures, history buffers or material resources, nor performance for heavily
+overlapping geometry or multi-bounce GI. The fixed-coverage distribution shrinks
+projected box sizes as count increases. Frame timings exclude construction,
+readback/export and presentation; setup excludes runtime initialization/teardown.
+
+Raw reports and PNGs are in `/tmp/ten-million-boxes/` and
+`/tmp/ten-million-growth/`. Temporary instrumentation drivers are
+`/tmp/ten_million_box_probe.py` and `/tmp/ten_million_growth_probe.py`.

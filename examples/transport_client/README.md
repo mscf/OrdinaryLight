@@ -82,17 +82,17 @@ kernels and schedules between growth events.
 
 The `bulk_updates` client exercises general bulk incremental geometry updates
 using analytic SDF spheres: it moves all spheres, changes application identities,
-then disables alternating slots. Queries follow each edit in the graph and check
+then disables alternating slots and grows scene capacity. Queries follow each edit in the graph and check
 distances, identities and validity. It uses only public APIs and no window.
 
 ```bash
-# Runs GPU work; deferred until the GPU is available for validation.
+# Runs offscreen GPU validation.
 python -m ordinarylight_transport_demo.bulk_updates --count 128
 ```
 
 The staging clients own immutable upload snapshots and are closed after their
-operations complete. This example has been added alongside CPU command/packing
-tests; its GPU execution has not yet been validated.
+operations complete. CPU command/packing tests and the offscreen GPU regression pass, including
+identical query results across capacity growth.
 
 ```bash
 python -m ordinarylight_transport_demo.chunk_probe --samples 64 --output /tmp/chunk-probe.json
@@ -215,4 +215,6 @@ Scene construction includes acceleration setup; these are host wall-clock times.
 The viewer now passes `BoxBatch.geometries()` directly to the scene, using the
 general array-backed `CustomGeometryBatch` path. This preserves one acceleration
 primitive per box while avoiding a Python object per box. CPU packing equivalence
-is validated; the updated viewer's GPU validation is deferred.
+and offscreen GPU output are validated. Custom scene metadata now stays in
+device-local memory during creation and growth; see the visibility measurements
+for the million-box follow-up.

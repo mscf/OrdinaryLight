@@ -71,7 +71,16 @@ def run(count=128):
             removed = query.read()
             np.testing.assert_array_equal(removed["identity"][::2, 0], 0)
             np.testing.assert_array_equal(removed["identity"][1::2, 0], 2)
-        for result in (initial, moved, removed):
+        # Structural growth must preserve both moved and disabled slots.
+        query.close()
+        scene.reserve_custom_geometry(count + 2)
+        with VulkanRayQuery(
+            scene, origins, np.tile([0, 0, -1], (count, 1))
+        ) as grown_query:
+            grown_query.operation().execute(runtime).wait()
+            grown = grown_query.read()
+            np.testing.assert_array_equal(grown, removed)
+        for result in (initial, moved, removed, grown):
             if result["boundary"][:, 3].any():
                 raise RuntimeError("Invalid intersection result")
     return dict(spheres=count, moved=count, removed=(count + 1) // 2, invalid_paths=0)

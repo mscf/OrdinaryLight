@@ -576,7 +576,9 @@ For independent boxes, `batch.geometries()` is the bulk equivalent of
 bounds and full-width metadata and still needs the shared box record allocation.
 The external `hdr_viewer` uses this path. CPU tests compare packed bytes and bounds,
 exercise actual scene-constructor wiring with mocked device boundaries, and check
-sparse edits and growth. Fresh GPU validation remains deferred.
+sparse edits and growth. GPU regressions now also validate construction, edits,
+removals, capacity growth and HDR output. Custom scene records are device-local
+on creation and growth; host uploads and GPU-authored updates retain the same ABI.
 
 ### Bulk incremental host edits
 
@@ -637,7 +639,8 @@ scene-mapped indices, so those payloads are not interchangeable without mapping.
 The existing dictionary-based small-update API remains supported. CPU tests cover
 copy plans, validation, graph ordering, shadow precedence and client lifetime.
 The public `ordinarylight_transport_demo.bulk_updates` sphere example and its
-GPU regression are present but GPU execution remains deferred.
+GPU regression now validate moves, identity changes, removals and capacity growth
+with identical diagnostic results before and after growth.
 
 ## Grouped independent boxes
 

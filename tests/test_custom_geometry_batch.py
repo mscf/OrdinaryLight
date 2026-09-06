@@ -180,9 +180,10 @@ def test_scene_constructor_uploads_bulk_without_expansion(monkeypatch):
 
     allocations = []
 
-    def buffer(size, *, data):
+    def buffer(size, *, data, memory="host"):
         allocation = SimpleNamespace(
             size=size,
+            memory_kind=memory,
             buffer=len(allocations) + 1,
             data=(
                 np.frombuffer(data, np.uint8).copy()
@@ -240,6 +241,7 @@ def test_scene_constructor_uploads_bulk_without_expansion(monkeypatch):
         custom_materials=[TransportMaterial()],
         custom_capacity=4,
     )
+    assert bulk._buffers["custom"].memory_kind == "device"
     assert bulk.custom_geometry.base is batch
     for name in legacy._buffers:
         assert (
@@ -250,10 +252,12 @@ def test_scene_constructor_uploads_bulk_without_expansion(monkeypatch):
     operation = bulk.update_custom_geometry_operation({0: None})
     operation.validate()
     operation.submitted(SimpleNamespace())
+    assert bulk._buffers["custom"].memory_kind == "device"
     assert bulk.custom_geometry.base is batch
     assert bulk.custom_geometry[0] is None
     assert bulk.geometry_revision == 1
     assert bulk.reserve_custom_geometry(6)
+    assert bulk._buffers["custom"].memory_kind == "device"
     assert bulk.custom_geometry.base is batch
     assert len(bulk.custom_geometry) == 6
     from ordinarylight.transport._custom_batch import CUSTOM_DTYPE
