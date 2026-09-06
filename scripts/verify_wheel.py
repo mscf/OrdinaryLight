@@ -8,6 +8,8 @@ from zipfile import ZipFile
 
 
 REQUIRED_SUFFIXES = (
+    "ordinarylight/_presentation/__init__.py",
+    "ordinarylight/_presentation/acquisition.py",
     "ordinarylight/portable/__init__.py",
     "ordinarylight/portable/package.py",
     "ordinarylight/portable/volume.wgsl",
@@ -58,6 +60,7 @@ FORBIDDEN_PREFIXES = (
     "ordinarylight/backends/",
 )
 FORBIDDEN_FILES = (
+    "ordinarylight/_presentation.py",
     "ordinarylight/backend_selection.py",
     "ordinarylight/renderer_selection.py",
     "ordinarylight/cameras.py",
