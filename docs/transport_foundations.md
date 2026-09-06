@@ -531,3 +531,44 @@ interval starting at that surface. This prevents floating-point rounding at a
 clipped entry from skipping directly to the exit and corrupting nested-medium
 tracking. Regression coverage includes fractional-radius spheres and nested
 ideal/rough dielectric paths under both normal policies.
+
+## Grouped independent boxes
+
+`ordinarylight.geometry.BoxBatch` provides a general resource-backed custom
+geometry reference. It packs arbitrary world-space axis-aligned boxes, active
+flags, custom-material indices, boundary application IDs, and full uint32
+application identities. There is no grid or voxel topology requirement.
+
+```python
+batch = BoxBatch(bounds, materials=material_ids, boundaries=boundary_ids,
+                 identities=application_ids)
+# Keep this allocation alive until the scene and its clients are closed.
+records = runtime.buffer(batch.records.nbytes, data=batch.records)
+scene = VulkanTransportScene(
+    runtime, custom_geometry=[batch.geometry()], custom_materials=materials,
+    custom_resources={batch.resource_name: records},
+    media=media, boundaries=boundaries,
+)
+```
+
+`batch.geometry(first, count)` encloses a contiguous record group, including
+inactive records. Bind one shared record allocation while choosing per-box,
+per-group or whole-batch primitives. The immutable host records are `(N, 3, 4)`
+float32 storage: lower.xyz/active, upper.xyz/reserved, then **bitcast uint32**
+material/boundary/identity/reserved. Default boundaries use `0xffffffff` for no
+medium interface. Do not numerically convert the metadata to float; use a uint32
+view. Custom-material indices are relative to the custom palette.
+
+Upload changed contents or declare GPU producer writes through the execution
+graph. Activation and metadata edits need no acceleration update within existing
+bounds; geometry moving outside those bounds requires an explicit bounds update.
+Reset affected lighting history after scene/material edits. Allocation growth
+and producer dependencies retain the existing explicit resource contracts.
+
+Each candidate scans its records, bounded by `max_steps`; active invalid bounds
+or flags report traversal failure. Boxes are independent surfaces, not a solid
+union: shared/internal faces are not removed, and ambiguous touching/overlapping
+glass remains unsupported. No area sampler, smoothing, graph topology, or
+spatial-index builder is implied. The external `chunk_probe` tests grouped hits
+and graph-material radiance against per-box geometry, while analytic regression
+tests separately validate entry/exit distances, normals and full-width IDs.

@@ -21,7 +21,10 @@ from .intersection import (
     intersect_triangle,
 )
 
+from .boxes import BoxBatch
+
 __all__ = [
+    "BoxBatch",
     "IntersectionResource",
     "BoundedField",
     "FieldComposition",

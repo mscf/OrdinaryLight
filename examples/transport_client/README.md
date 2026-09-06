@@ -77,3 +77,23 @@ using `grow_capacity`. It rebinds producers after each migration while preservin
 weighted output history. The JSON report includes the capacity used each frame.
 This illustrates lifecycle correctness; production clients can cache producer
 kernels and schedules between growth events.
+
+## Grouped procedural geometry reference
+
+```bash
+python -m ordinarylight_transport_demo.chunk_probe --samples 64 --output /tmp/chunk-probe.json
+```
+
+This uses public `BoxBatch` geometry to compare eight independent custom primitives
+with two groups of four boxes. It checks hit distances, normals, material and
+application identities, medium boundaries, and multi-bounce radiance across three
+activation/emission-resource states. Materials include diffuse, graph-driven
+metal, ideal glass and resource-backed graph emission. The JSON contains errors
+and elapsed submission/wait times; those small, unordered timings are diagnostic,
+not a throughput benchmark. Emission is reached by BSDF paths; this reference has
+no custom area sampler and does not evaluate emissive NEE performance.
+
+The fixture follows the resident-resource pattern used by vxl8r, but imposes no
+grid layout, voxel identity scheme, reconstruction, or face-averaging policy.
+It scans bounded record groups linearly. It is a correctness reference for a
+future spatial traversal implementation, not a production sparse-grid renderer.
