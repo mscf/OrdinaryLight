@@ -1,6 +1,6 @@
 # Tested source revisions; these APIs are not yet available as coordinated releases.
 # Git access to the upstream repositories is required when building the wheelhouse.
 latticemodel @ git+https://github.com/mscf/LatticeModel.git@48df4d30bb899d5664036278036fba4a15761882
-ordinaryshade @ git+https://github.com/mscf/OrdinaryShade.git@38d479dd983513ff9bc03f67e1edbe4f56460384
-ordinarylattice @ git+https://github.com/mscf/OrdinaryLattice.git@2d076bafe5537ee66c2f1ed60a6208d440107ee5
-ordinaryscience @ git+https://github.com/mscf/OrdinaryScience.git@0992175bed4b87244afb0d0182d8aa9d4617f457
+ordinaryshade @ git+https://github.com/mscf/OrdinaryShade.git@e2259431571269ec7fa8b6ff7ae8a0fd048152b4
+ordinarylattice @ git+https://github.com/mscf/OrdinaryLattice.git@c1485be87067c397223a5f7153bb901b17fc7c34
+ordinaryscience @ git+https://github.com/mscf/OrdinaryScience.git@2b49d381a731ff258a3eac2720a03dd79fbaa60c
