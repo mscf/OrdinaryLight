@@ -1,0 +1,1387 @@
+{
+  "version": "lattice-ir/v1",
+  "graph": {
+    "nodes": [
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "simulation_time"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "dt"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "trial_count"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "ndt"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "sigma_ndt"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "seed"
+        }
+      },
+      {
+        "op": "np.divide",
+        "args": [
+          0,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.5
+        }
+      },
+      {
+        "op": "np.add",
+        "args": [
+          6,
+          7
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.astype",
+        "args": [
+          8
+        ],
+        "attrs": {
+          "dtype": "int64"
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "np.add",
+        "args": [
+          9,
+          10
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.zeros",
+        "args": [
+          2
+        ],
+        "attrs": {
+          "shape_arg_index": 0
+        }
+      },
+      {
+        "op": "np.ones",
+        "args": [
+          2
+        ],
+        "attrs": {
+          "shape_arg_index": 0
+        }
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          13,
+          0
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.linspace",
+        "args": [
+          12,
+          14,
+          11
+        ],
+        "attrs": {
+          "endpoint": true,
+          "axis": 0
+        }
+      },
+      {
+        "op": "dnp.random.key",
+        "args": [
+          5
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0
+        }
+      },
+      {
+        "op": "dnp.random.fold_in",
+        "args": [
+          16,
+          17
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.0
+        }
+      },
+      {
+        "op": "dnp.random.normal",
+        "args": [
+          18,
+          19,
+          4,
+          2
+        ],
+        "attrs": {
+          "size_arg_index": 0
+        }
+      },
+      {
+        "op": "np.add",
+        "args": [
+          3,
+          20
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "drift.v"
+        }
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "np.arange",
+        "args": [
+          23,
+          24
+        ],
+        "attrs": {
+          "stop_is_none": true
+        }
+      },
+      {
+        "op": "np.expand_dims",
+        "args": [
+          25
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "np.divide",
+        "args": [
+          21,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.astype",
+        "args": [
+          27
+        ],
+        "attrs": {
+          "dtype": "int64"
+        }
+      },
+      {
+        "op": "np.expand_dims",
+        "args": [
+          28
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.greater_equal",
+        "args": [
+          26,
+          29
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1.0
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.0
+        }
+      },
+      {
+        "op": "np.where",
+        "args": [
+          30,
+          31,
+          32
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          22,
+          33
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "noise.sigma"
+        }
+      },
+      {
+        "op": "dnp.random.key",
+        "args": [
+          5
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "dnp.random.fold_in",
+        "args": [
+          36,
+          37
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "np.arange",
+        "args": [
+          39,
+          40
+        ],
+        "attrs": {
+          "stop_is_none": true
+        }
+      },
+      {
+        "op": "np.expand_dims",
+        "args": [
+          41
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "np.divide",
+        "args": [
+          21,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.astype",
+        "args": [
+          43
+        ],
+        "attrs": {
+          "dtype": "int64"
+        }
+      },
+      {
+        "op": "np.expand_dims",
+        "args": [
+          44
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.greater_equal",
+        "args": [
+          42,
+          45
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1.0
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.0
+        }
+      },
+      {
+        "op": "np.where",
+        "args": [
+          46,
+          47,
+          48
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.0
+        }
+      },
+      {
+        "op": "dnp.random.normal",
+        "args": [
+          38,
+          52,
+          35,
+          50,
+          51
+        ],
+        "attrs": {
+          "size_template": [
+            {
+              "__arg__": 0
+            },
+            {
+              "__arg__": 1
+            }
+          ]
+        }
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          53,
+          49
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.a"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.peak"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.auc"
+        }
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "runtime_automatic_gamma_peak_auc.congruent"
+        }
+      },
+      {
+        "op": "np.expand_dims",
+        "args": [
+          21
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "np.reshape",
+        "args": [
+          59,
+          60
+        ],
+        "attrs": {
+          "newshape": null,
+          "shape_arg_index": null,
+          "shape_template": [
+            1,
+            {
+              "__arg__": 0
+            }
+          ]
+        }
+      },
+      {
+        "op": "np.subtract",
+        "args": [
+          15,
+          61
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0.0
+        }
+      },
+      {
+        "op": "np.maximum",
+        "args": [
+          62,
+          63
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1.0
+        }
+      },
+      {
+        "op": "np.subtract",
+        "args": [
+          55,
+          65
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.divide",
+        "args": [
+          66,
+          56
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1.0
+        }
+      },
+      {
+        "op": "np.subtract",
+        "args": [
+          55,
+          68
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.power",
+        "args": [
+          64,
+          69
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.negative",
+        "args": [
+          67
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          71,
+          64
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.exp",
+        "args": [
+          72
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          70,
+          73
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.sum",
+        "args": [
+          74
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          75,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "np.reshape",
+        "args": [
+          76,
+          77
+        ],
+        "attrs": {
+          "newshape": null,
+          "shape_arg_index": null,
+          "shape_template": [
+            1,
+            {
+              "__arg__": 0
+            }
+          ]
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1e-12
+        }
+      },
+      {
+        "op": "np.maximum",
+        "args": [
+          78,
+          79
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.divide",
+        "args": [
+          74,
+          80
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          57,
+          81
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1.0
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": -1.0
+        }
+      },
+      {
+        "op": "np.where",
+        "args": [
+          58,
+          83,
+          84
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          82,
+          85
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "offset.value"
+        }
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          34,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          86,
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.add",
+        "args": [
+          88,
+          89
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.sqrt",
+        "args": [
+          1
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          54,
+          91
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.add",
+        "args": [
+          90,
+          92
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.cumsum",
+        "args": [
+          93
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.add",
+        "args": [
+          94,
+          87
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "input",
+        "args": [],
+        "attrs": {
+          "name": "response.boundary"
+        }
+      },
+      {
+        "op": "np.abs",
+        "args": [
+          95
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.greater_equal",
+        "args": [
+          97,
+          96
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.argmax",
+        "args": [
+          98
+        ],
+        "attrs": {
+          "axis": 0
+        }
+      },
+      {
+        "op": "np.shape_at",
+        "args": [
+          15
+        ],
+        "attrs": {
+          "axis": 1
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "np.arange",
+        "args": [
+          100,
+          101
+        ],
+        "attrs": {
+          "stop_is_none": true
+        }
+      },
+      {
+        "op": "np.getitem",
+        "args": [
+          98,
+          99,
+          102
+        ],
+        "attrs": {
+          "index": [
+            {
+              "__dsl_arg__": 0
+            },
+            {
+              "__dsl_arg__": 1
+            }
+          ]
+        }
+      },
+      {
+        "op": "np.getitem",
+        "args": [
+          95,
+          99,
+          102
+        ],
+        "attrs": {
+          "index": [
+            {
+              "__dsl_arg__": 0
+            },
+            {
+              "__dsl_arg__": 1
+            }
+          ]
+        }
+      },
+      {
+        "op": "np.greater_equal",
+        "args": [
+          104,
+          96
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.astype",
+        "args": [
+          105
+        ],
+        "attrs": {
+          "dtype": "int64"
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 2
+        }
+      },
+      {
+        "op": "np.multiply",
+        "args": [
+          106,
+          107
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 1
+        }
+      },
+      {
+        "op": "np.subtract",
+        "args": [
+          108,
+          109
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.getitem",
+        "args": [
+          15,
+          99,
+          102
+        ],
+        "attrs": {
+          "index": [
+            {
+              "__dsl_arg__": 0
+            },
+            {
+              "__dsl_arg__": 1
+            }
+          ]
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": {
+            "__float__": "nan"
+          }
+        }
+      },
+      {
+        "op": "const",
+        "args": [],
+        "attrs": {
+          "value": 0
+        }
+      },
+      {
+        "op": "np.equal",
+        "args": [
+          103,
+          113
+        ],
+        "attrs": {}
+      },
+      {
+        "op": "np.setitem",
+        "args": [
+          111,
+          114,
+          112
+        ],
+        "attrs": {
+          "index": {
+            "__dsl_arg__": 0
+          },
+          "value": {
+            "__dsl_arg__": 1
+          }
+        }
+      }
+    ],
+    "inputs": [
+      "simulation_time",
+      "dt",
+      "trial_count",
+      "ndt",
+      "sigma_ndt",
+      "seed",
+      "drift.v",
+      "noise.sigma",
+      "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.a",
+      "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.peak",
+      "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.auc",
+      "runtime_automatic_gamma_peak_auc.congruent",
+      "offset.value",
+      "response.boundary"
+    ],
+    "outputs": {
+      "time": 15,
+      "ndt_per_trial": 21,
+      "drift_contribution": 34,
+      "automatic_contribution": 86,
+      "noise_contribution": 54,
+      "offset_value": 87,
+      "total": 95,
+      "choices": 110,
+      "rts": 115
+    }
+  },
+  "parameters": {
+    "simulation_time": {
+      "description": "Simulation time",
+      "datatype": "float",
+      "valid_range": [
+        0.5,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 1.0,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": null
+    },
+    "dt": {
+      "description": "Time step",
+      "datatype": "float",
+      "valid_range": [
+        0.001,
+        1.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.001,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": null
+    },
+    "trial_count": {
+      "description": "Trial count",
+      "datatype": "int",
+      "valid_range": [
+        1,
+        5000
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 200,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": null
+    },
+    "ndt": {
+      "description": "Non-decision time",
+      "datatype": "float",
+      "valid_range": [
+        0.1,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.2,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": null
+    },
+    "sigma_ndt": {
+      "description": "Non-decision time noise std",
+      "datatype": "float",
+      "valid_range": [
+        0.0,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.03,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": null
+    },
+    "seed": {
+      "description": "Random seed",
+      "datatype": "int",
+      "valid_range": null,
+      "condition": false,
+      "metadata": {
+        "role": "random_seed"
+      },
+      "details_required": false,
+      "default": null,
+      "required": false,
+      "declared_with_param": false,
+      "promotion_scope": null
+    },
+    "drift.v": {
+      "description": "Drift",
+      "datatype": "float",
+      "valid_range": [
+        0.1,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.5,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "drift"
+      ]
+    },
+    "noise.sigma": {
+      "description": "Noise std",
+      "datatype": "float",
+      "valid_range": [
+        0.0,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.1,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "noise"
+      ]
+    },
+    "offset.value": {
+      "description": "Initial trajectory offset",
+      "datatype": "float",
+      "valid_range": [
+        -5.0,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.0,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "offset"
+      ]
+    },
+    "response.boundary": {
+      "description": "Boundary separation",
+      "datatype": "float",
+      "valid_range": [
+        0.1,
+        5.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 1.0,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "response"
+      ]
+    },
+    "runtime_automatic_gamma_peak_auc.congruent": {
+      "description": "Congruency flag(s)",
+      "datatype": "bool",
+      "valid_range": [
+        0,
+        1
+      ],
+      "condition": true,
+      "details_required": true,
+      "default": true,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "runtime_automatic_gamma_peak_auc"
+      ]
+    },
+    "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.a": {
+      "description": "Gamma shape (>1)",
+      "datatype": "float",
+      "valid_range": [
+        1.1,
+        8.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 2.0,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "runtime_automatic_gamma_peak_auc",
+        "runtime_gamma_peak_auc"
+      ]
+    },
+    "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.auc": {
+      "description": "Area under curve",
+      "datatype": "float",
+      "valid_range": [
+        0.0,
+        10.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.4,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "runtime_automatic_gamma_peak_auc",
+        "runtime_gamma_peak_auc"
+      ]
+    },
+    "runtime_automatic_gamma_peak_auc.runtime_gamma_peak_auc.peak": {
+      "description": "Peak latency after ndt (s)",
+      "datatype": "float",
+      "valid_range": [
+        0.01,
+        1.0
+      ],
+      "condition": false,
+      "details_required": true,
+      "default": 0.15,
+      "required": false,
+      "declared_with_param": true,
+      "promotion_scope": [
+        "runtime_automatic_gamma_peak_auc",
+        "runtime_gamma_peak_auc"
+      ]
+    }
+  },
+  "outputs": {
+    "time": {
+      "description": "Output `time`.",
+      "datatype": "any"
+    },
+    "ndt_per_trial": {
+      "description": "Output `ndt_per_trial`.",
+      "datatype": "any"
+    },
+    "drift_contribution": {
+      "description": "Output `drift_contribution`.",
+      "datatype": "any"
+    },
+    "automatic_contribution": {
+      "description": "Output `automatic_contribution`.",
+      "datatype": "any"
+    },
+    "noise_contribution": {
+      "description": "Output `noise_contribution`.",
+      "datatype": "any"
+    },
+    "offset_value": {
+      "description": "Output `offset_value`.",
+      "datatype": "any"
+    },
+    "total": {
+      "description": "Output `total`.",
+      "datatype": "any"
+    },
+    "choices": {
+      "description": "Output `choices`.",
+      "datatype": "any"
+    },
+    "rts": {
+      "description": "Output `rts`.",
+      "datatype": "any"
+    }
+  },
+  "format_version": "lattice-program/v1",
+  "name": "runtime_dmc_peak_auc",
+  "contract": {
+    "kind": "trajectory_model",
+    "inputs": {},
+    "outputs": {
+      "time": "time_grid",
+      "ndt_per_trial": "trial_parameter",
+      "drift_contribution": "signal_batch",
+      "automatic_contribution": "signal_batch",
+      "noise_contribution": "signal_batch",
+      "offset_value": "initial_state",
+      "total": "trajectory_batch",
+      "choices": "choice",
+      "rts": "event_time"
+    },
+    "tags": [
+      "trajectory",
+      "simulation",
+      "response_optional"
+    ],
+    "metadata": {}
+  },
+  "output_contracts": {
+    "raw": {
+      "adapter": null,
+      "fields": {
+        "time": {
+          "dtype": "any",
+          "shape": [
+            "trial",
+            "time"
+          ],
+          "required": true,
+          "metadata": {},
+          "source": "time"
+        },
+        "ndt_per_trial": {
+          "dtype": "any",
+          "shape": [],
+          "required": true,
+          "metadata": {},
+          "source": "ndt_per_trial"
+        },
+        "drift_contribution": {
+          "dtype": "any",
+          "shape": [],
+          "required": true,
+          "metadata": {},
+          "source": "drift_contribution"
+        },
+        "automatic_contribution": {
+          "dtype": "any",
+          "shape": [],
+          "required": true,
+          "metadata": {},
+          "source": "automatic_contribution"
+        },
+        "noise_contribution": {
+          "dtype": "any",
+          "shape": [],
+          "required": true,
+          "metadata": {},
+          "source": "noise_contribution"
+        },
+        "offset_value": {
+          "dtype": "any",
+          "shape": [],
+          "required": true,
+          "metadata": {},
+          "source": "offset_value"
+        },
+        "total": {
+          "dtype": "any",
+          "shape": [
+            "trial",
+            "time"
+          ],
+          "required": true,
+          "metadata": {},
+          "source": "total"
+        },
+        "choices": {
+          "dtype": "any",
+          "shape": [
+            "trial"
+          ],
+          "required": true,
+          "metadata": {},
+          "source": "choices"
+        },
+        "rts": {
+          "dtype": "any",
+          "shape": [
+            "trial"
+          ],
+          "required": true,
+          "metadata": {},
+          "source": "rts"
+        }
+      },
+      "metadata": {}
+    }
+  },
+  "default_output_contract": "raw"
+}

@@ -1,0 +1,85 @@
+{
+  "browser_checks": [
+    "render",
+    "live update",
+    "presentation independence",
+    "same-runtime restore",
+    "fresh-runtime restore",
+    "invalid restore atomicity",
+    "structural guard",
+    "same-device replacement",
+    "failed replacement recovery"
+  ],
+  "gpu_errors": [],
+  "comparisons": {
+    "initial": {
+      "rts": {
+        "elements": 256,
+        "nonfinite": 32,
+        "max_absolute_error": 0.0
+      },
+      "density": {
+        "elements": 256,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      },
+      "excluded": {
+        "elements": 32,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      }
+    },
+    "updated": {
+      "rts": {
+        "elements": 256,
+        "nonfinite": 34,
+        "max_absolute_error": 0.0
+      },
+      "density": {
+        "elements": 256,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      },
+      "excluded": {
+        "elements": 32,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      }
+    },
+    "replacement": {
+      "rts": {
+        "elements": 384,
+        "nonfinite": 54,
+        "max_absolute_error": 0.0
+      },
+      "density": {
+        "elements": 320,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      },
+      "excluded": {
+        "elements": 32,
+        "nonfinite": 0,
+        "max_absolute_error": 0.0
+      }
+    }
+  },
+  "native_adapter": {
+    "vendor": "NVIDIA",
+    "architecture": "",
+    "device": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "description": "580.95.05",
+    "stackgroup_min_size": 4,
+    "stackgroup_max_size": 128,
+    "vendor_id": 4318,
+    "device_id": 10336,
+    "adapter_type": "DiscreteGPU",
+    "backend_type": "Vulkan"
+  },
+  "browser_adapter": {
+    "vendor": "google",
+    "architecture": "swiftshader",
+    "device": "",
+    "description": ""
+  }
+}

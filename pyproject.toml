@@ -55,4 +55,5 @@ ordinarylight = [
     "shaders/transport_v1/*.glsl",
     "shaders/*.json", "shaders/*.wgsl", "shaders/*.rgen", "shaders/*.rmiss",
     "showcases/catalog/*.py", "showcases/catalog/*.md",
+    "portable/*.wgsl", "portable/web/*.js", "portable/web/*.html",
 ]
