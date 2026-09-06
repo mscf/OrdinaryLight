@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass
 from importlib.resources import files
+from .._presentation import (
+    acquire_image, DEFAULT_ACQUIRE_TIMEOUT_NS, validate_acquire_timeout,
+)
+
 import math
 import struct
 
@@ -157,7 +161,8 @@ class VulkanOutput:
     accumulation, scene upload, or GI initialization occurs on this path.
     """
 
-    def __init__(self, runtime):
+    def __init__(self, runtime, *, acquire_timeout_ns=DEFAULT_ACQUIRE_TIMEOUT_NS):
+        self.acquire_timeout_ns = validate_acquire_timeout(acquire_timeout_ns)
         runtime.require_open()
         self.runtime = runtime
         self.swapchain = None
@@ -367,8 +372,9 @@ class VulkanOutput:
     def present_operation(self, frame, *, surface_size=None):
         """Acquire a swapchain image and return a single-use graph operation.
 
-        Acquisition uses a binary semaphore. Only reuse of one of two acquisition
-        slots can wait on the CPU. The operation signals presentation on the GPU.
+        Acquisition uses a binary semaphore and a finite timeout. Timeout/not-ready
+        returns None without submission. Reusing an acquisition slot can also wait
+        for its previous submission. The operation signals presentation on the GPU.
         Submit it or call cancel_presentation before requesting another.
         """
         from ..pipeline.graph import VulkanOperation
@@ -397,13 +403,12 @@ class VulkanOutput:
                 slot[1].wait()
             acquired = slot[0]
             try:
-                image_index = self.runtime.acquire_next_image(
-                    self.runtime.device,
-                    self.swapchain,
-                    (1 << 64) - 1,
-                    acquired.handle,
-                    vk.VK_NULL_HANDLE,
+                image_index = acquire_image(
+                    self.runtime.acquire_next_image, self.runtime.device,
+                    self.swapchain, acquired.handle, self.acquire_timeout_ns,
                 )
+                if image_index is None:
+                    return None
             except vk.VkSuboptimalKhr:
                 # Suboptimal acquisition still signals its semaphore. Consume
                 # that signal before retiring this swapchain.

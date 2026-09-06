@@ -11,6 +11,8 @@ from typing import Any, Mapping
 
 import numpy as np
 
+from .._presentation import DEFAULT_ACQUIRE_TIMEOUT_NS, validate_acquire_timeout
+
 
 _FORMATS = {
     "float32": (np.float32, 1), "float32x2": (np.float32, 2),
@@ -112,7 +114,10 @@ class RasterConfig:
     material_modifier: object | None = None
     material_hook: object | None = None
 
+    acquire_timeout_ns: int = DEFAULT_ACQUIRE_TIMEOUT_NS
+
     def __post_init__(self):
+        validate_acquire_timeout(self.acquire_timeout_ns)
         if self.ambient_light < 0.0:
             raise ValueError("ambient_light cannot be negative")
         if not 0.0 <= self.temporal_weight < 1.0:

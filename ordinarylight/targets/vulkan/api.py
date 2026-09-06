@@ -1,6 +1,7 @@
 """Vulkan hardware ray-tracing capability discovery and public API."""
 
 from dataclasses import dataclass, replace
+from ..._presentation import DEFAULT_ACQUIRE_TIMEOUT_NS, validate_acquire_timeout
 import math
 
 import numpy as np
@@ -155,7 +156,10 @@ class RendererConfig:
     volume_empty_space_skipping: bool = False
     external_image_interop: bool = False
 
+    acquire_timeout_ns: int = DEFAULT_ACQUIRE_TIMEOUT_NS
+
     def __post_init__(self):
+        validate_acquire_timeout(self.acquire_timeout_ns)
         if not isinstance(self.object_effects, bool):
             raise TypeError("object_effects must be a bool")
         if not isinstance(self.denoiser_signal_capture, bool):

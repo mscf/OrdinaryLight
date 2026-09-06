@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from ..._presentation import acquire_image
 
 import numpy as np
 
@@ -1365,10 +1366,12 @@ class VulkanRasterRenderer(RendererImplementation):
                 vk.VK_TRUE, (1 << 64) - 1,
             )
             image_available = present_frame["image_available"]
-            image_index = self._acquire_next_image(
-                self.device, self._swapchain, (1 << 64) - 1,
-                image_available, vk.VK_NULL_HANDLE,
+            image_index = acquire_image(
+                self._acquire_next_image, self.device, self._swapchain,
+                image_available, self.config.acquire_timeout_ns,
             )
+            if image_index is None:
+                return None
             render_finished = self._render_finished_for_image(image_index)
             cache_key = self._present_cache_key(
                 mesh, image_index, width, height, cache_token,

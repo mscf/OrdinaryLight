@@ -191,7 +191,8 @@ and completion can also be used for explicit final readback. One-shot
 `tone_map()`/`export()` retain their owned-frame interface.
 
 `output.present_operation(target)` acquires a swapchain image and returns a
-single-use operation (or `None` if the surface must be recreated/is unavailable).
+single-use operation (or `None` if the surface must be recreated/is unavailable,
+including acquisition timeout/not-ready).
 Add it to the graph before submission. It declares the GPU blit and layout
 transition, waits on acquisition via a binary semaphore, then signals a
 per-swapchain-image semaphore consumed by presentation. Two persistent acquisition
@@ -250,3 +251,25 @@ well as compute accesses, so graph scheduling orders the producer before validat
 Zero-work batches require no CPU count update. See
 [transport foundations](transport_foundations.md#gpu-authored-counts-and-reduction-maps)
 for sorting/ownership requirements and failure semantics.
+
+### Bounded swapchain acquisition
+
+All Vulkan presentation paths use a finite acquisition timeout, defaulting to
+16,000,000 ns (16 ms). Configure `RendererConfig(acquire_timeout_ns=...)` for
+camera GI, `RasterConfig(acquire_timeout_ns=...)` for Vulkan raster, or
+`VulkanOutput(runtime, acquire_timeout_ns=...)` for reusable output. Zero polls
+without waiting. Negative, noninteger and infinite (`UINT64_MAX`) values are
+rejected.
+
+`VK_TIMEOUT` and `VK_NOT_READY` skip the presentation attempt without resetting
+its frame fence, submitting work, or advancing the presentation slot. The
+acquisition semaphore remains available for retry. GI presentation returns
+`None` instead of the presented extent; raster returns its existing `None`;
+`present_operation` returns `None` and `VulkanOutput.present` returns `False`.
+Callers can process window events and retry on the next iteration. Offscreen
+rendering and headless GI export do not acquire swapchain images.
+
+This addresses the [Vulkan acquisition forward-progress requirement](https://docs.vulkan.org/refpages/latest/refpages/source/vkAcquireNextImageKHR.html).
+It bounds acquisition only: GPU fence waits, swapchain recreation, pacing and
+shutdown have separate synchronization behavior. It does not fix a compositor
+crash or guarantee a bound on the entire presentation call.

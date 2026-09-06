@@ -1,6 +1,8 @@
 """Minimal Vulkan ray-query backend using KHR acceleration structures."""
 
 from importlib.resources import files
+from ..._presentation import acquire_image
+
 import math
 import struct
 import time
@@ -7024,10 +7026,12 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             image_index = 0
         else:
             try:
-                image_index = self.acquire_next_image(
-                    self.device, self.swapchain, (1 << 64) - 1,
-                    frame["image_available"], vk.VK_NULL_HANDLE,
+                image_index = acquire_image(
+                    self.acquire_next_image, self.device, self.swapchain,
+                    frame["image_available"], self.config.acquire_timeout_ns,
                 )
+                if image_index is None:
+                    return None
             except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
                 vk.vkDeviceWaitIdle(self.device)
                 vk.vkDestroySemaphore(
@@ -8224,10 +8228,12 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         timings["timestamp_read_ms"] = (time.perf_counter() - stage_start) * 1000.0
         stage_start = time.perf_counter()
         try:
-            image_index = self.acquire_next_image(
-                self.device, self.swapchain, (1 << 64) - 1,
-                frame["image_available"], vk.VK_NULL_HANDLE,
+            image_index = acquire_image(
+                self.acquire_next_image, self.device, self.swapchain,
+                frame["image_available"], self.config.acquire_timeout_ns,
             )
+            if image_index is None:
+                return None
         except (vk.VkSuboptimalKhr, vk.VkErrorOutOfDateKhr):
             # The binding discards the acquired image index for SUBOPTIMAL but
             # may already have signaled this semaphore. Replace it before reuse.
