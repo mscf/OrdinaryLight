@@ -532,6 +532,113 @@ clipped entry from skipping directly to the exit and corrupting nested-medium
 tracking. Regression coverage includes fractional-radius spheres and nested
 ideal/rough dielectric paths under both normal policies.
 
+## Bulk custom geometry declarations
+
+`ordinarylight.geometry.CustomGeometryBatch` declares many independent primitives
+sharing an arbitrary `IntersectionProgram`, without one Python object per
+primitive. This is a general custom-intersection facility; it has no grid or
+voxel semantics. Pass the batch directly to `custom_geometry`:
+
+```python
+from ordinarylight.geometry import CustomGeometryBatch
+
+geometry = CustomGeometryBatch(
+    bounds, intersection_program, parameters,
+    materials=material_ids, boundaries=boundary_ids, identities=application_ids,
+)
+scene = VulkanTransportScene(
+    runtime, custom_geometry=geometry, custom_materials=materials,
+    custom_resources=resources, media=media, boundaries=boundaries,
+)
+```
+
+Bounds must be nonempty `(N, 2, 3)` finite, nondegenerate float32 bounds.
+Parameters broadcast from `(4,)` to `(N, 4)`. Identifiers are uint32 scalars or
+`(N,)` arrays. Materials index `custom_materials`; boundaries are application
+boundary IDs, with `0xffffffff` reserved for no boundary. The batch snapshots its
+inputs into immutable arrays. Scene construction validates material/boundary
+relationships and maps boundary IDs to scene indices using the same rules as
+individual `CustomGeometry` objects. Resource binding and lifetime rules are
+unchanged.
+
+The existing iterable of `CustomGeometry` remains supported, including mixed
+intersection programs. A batch shares one program; indexing or iterating it
+constructs individual declarations lazily. Pass it directly rather than wrapping
+it in `list` or `tuple` to retain the bulk path. `scene.custom_geometry` is an
+indexable sequence, including `None` for unused capacity. Small host edits retain
+the array-backed base with sparse overrides, and explicit capacity growth repacks
+arrays without expanding the base into individual objects. Existing GPU-authored
+shadow synchronization at capacity growth still reconstructs individual objects;
+this change does not optimize that separate readback path.
+
+For independent boxes, `batch.geometries()` is the bulk equivalent of
+`[batch.geometry(i, 1) for i in range(len(batch.records))]`. It preserves inactive
+bounds and full-width metadata and still needs the shared box record allocation.
+The external `hdr_viewer` uses this path. CPU tests compare packed bytes and bounds,
+exercise actual scene-constructor wiring with mocked device boundaries, and check
+sparse edits and growth. Fresh GPU validation remains deferred.
+
+### Bulk incremental host edits
+
+`scene.prepare_custom_geometry_update(slots, geometry)` returns an owned
+`VulkanCustomGeometryUpdate` staging client. `slots` is a nonempty one-dimensional
+integer array of unique allocated slot indices; `geometry` is a
+`CustomGeometryBatch` with one row per slot, or `None` to disable all selected
+slots. Unsorted indices are accepted and retain their input row association.
+Programs must already be declared by the scene. Material and boundary validation
+matches initial construction.
+
+```python
+with scene.prepare_custom_geometry_update(slot_indices, replacements) as edit:
+    graph = VulkanGraph().add("edit", edit.operation(mode="refit"))
+    graph.add("query", query.operation(), after=("edit",))
+    graph.compile().execute(runtime).wait()
+
+with scene.prepare_custom_geometry_update(removed_slots, None) as removal:
+    removal.operation().execute(runtime).wait()
+```
+
+Preparation snapshots the arrays, packs the shared 64-byte custom record format,
+and allocates a transfer-source staging buffer. Sorted contiguous slots become
+one copy region per destination buffer; large contiguous edits do not produce
+one transfer command per primitive. Fragmented updates split command region
+arrays into bounded groups of 4,096. This uses buffer copies rather than repeated
+`vkCmdUpdateBuffer`, following the
+[Vulkan guidance for large updates](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdUpdateBuffer.html).
+
+An operation can be reused with the same immutable payload. Its graph resource
+declarations cover staging reads, destination writes, and acceleration resources.
+`after` dependencies and the scene's latest completion retain the existing
+ordering rules. `auto` and `refit` conservatively refit for every replacement;
+`rebuild` rebuilds existing acceleration allocations. Removal only disables
+records, retaining prior acceleration bounds, and therefore skips acceleration
+work even with `rebuild`. Resource hazard tracking remains conservative over
+whole resources.
+
+Host shadows change only upon submission. Bulk and individual edits obey
+last-submitted-write precedence. Bulk overrides merge into sorted packed arrays
+without retaining an unbounded list of past frame payloads; individual geometry
+objects are reconstructed only on indexing. Repacking for capacity growth or a
+new scene preserves application IDs and remaps scene-specific indices.
+
+Keep the staging client alive through its operations. Closing waits for its last
+completion and frees staging; close all such clients before closing the scene.
+Explicit scene capacity growth invalidates prepared clients/operations, which
+must be recreated, although stale clients can still be closed. Preparation and
+closing retain the runtime's existing host allocation/synchronization behavior.
+The client does not resize capacity, change dispatch counts, upload a callback's
+separate application resources, or reset lighting history. Applications still
+declare those resource writes and invalidate affected history themselves.
+
+This complements the existing GPU-authored `GpuCustomGeometry` path. Both use the
+same record layout and acceleration machinery. GPU source metadata uses
+custom-local material/application boundary IDs; host staging contains validated,
+scene-mapped indices, so those payloads are not interchangeable without mapping.
+The existing dictionary-based small-update API remains supported. CPU tests cover
+copy plans, validation, graph ordering, shadow precedence and client lifetime.
+The public `ordinarylight_transport_demo.bulk_updates` sphere example and its
+GPU regression are present but GPU execution remains deferred.
+
 ## Grouped independent boxes
 
 `ordinarylight.geometry.BoxBatch` provides a general resource-backed custom
@@ -691,3 +798,39 @@ partition indices and palette buffers as appropriate. Existing query and buffer
 defaults are unchanged; clients opt in explicitly. Ordinary resource lifetime,
 producer ordering and graph dependency rules still apply. Large staging uploads,
 readback, allocation and shutdown are not asynchronous steady-state operations.
+
+### Direct HDR output and presentation composition
+
+Pass a borrowed RGBA32F storage image as `hdr=` alongside `colors=`:
+
+```python
+with runtime.image(width, height) as hdr:
+    with VulkanRayQuery(scene, origins, unit_directions,
+                        colors=palette, memory="device", hdr=hdr) as query:
+        with VulkanOutput(runtime) as output, output.prepare(hdr) as tone:
+            graph = VulkanGraph().add("tone", tone.operation())
+            graph.add("visibility", query.operation())
+            schedule = graph.compile()
+            completion = schedule.execute(runtime)
+```
+
+The image must belong to the same runtime and contain exactly one pixel per ray.
+Ray `i` maps to `(i % width, i // width)`, so image-shaped input is row-major.
+The intersection dispatch writes the stored linear RGBA directly into HDR, while
+retaining compact color/identity/status records for optional diagnostics. There is
+no buffer-to-image copy or CPU readback in this path. Invalid lookups use the same
+black/error-status convention as compact color queries; consumers still own how
+errors are reported. The HDR image may not alias an intersection input image.
+
+The query kernel retains the HDR allocation; close queries and tone-map targets
+before the image. Add a palette-writing GPU producer to the graph and its resource
+uses establish ordering automatically. The graph orders visibility before tone
+mapping by the HDR dependency, regardless of node insertion order.
+
+For a runtime with a window surface, acquire `output.present_operation(tone)` and
+add it to that frame's graph when non-None. Submit the acquired operation exactly
+once; call `output.cancel_presentation()` if graph preparation/submission fails.
+Timeout, unavailable or minimized surfaces can skip presentation while offscreen
+work continues. Rebuild the graph containing presentation each frame, since its
+acquired image is single-use; headless palette/visibility/tone schedules can replay.
+This composes general operations—it does not add voxel lighting or geometry rules.

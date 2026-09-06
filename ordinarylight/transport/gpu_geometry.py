@@ -3,14 +3,9 @@
 from importlib.resources import files
 import numpy as np
 
-GPU_CUSTOM_GEOMETRY_DTYPE = np.dtype(
-    [
-        ("lower", "<f4", (4,)),
-        ("upper", "<f4", (4,)),
-        ("parameters", "<f4", (4,)),
-        ("metadata", "<u4", (4,)),
-    ]
-)
+from ._custom_batch import CUSTOM_DTYPE
+
+GPU_CUSTOM_GEOMETRY_DTYPE = CUSTOM_DTYPE
 
 
 class GpuCustomGeometry:

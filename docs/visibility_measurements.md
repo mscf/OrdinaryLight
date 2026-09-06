@@ -103,3 +103,136 @@ production, tone mapping, presentation and animated scene updates remain outside
 the measurement. Device-local staging is explicitly synchronized; this test does
 not claim those boundary operations are free. Host query/buffer defaults remain
 unchanged, with device-local storage available as an opt-in public API.
+
+## Direct HDR and tone-mapping composition
+
+The `hdr_viewer` public client adds a GPU palette producer and direct HDR image
+writes to fused visibility, followed by persistent ACES/sRGB tone mapping. The
+720p / 8,192-box offscreen run on the same RTX 4070 Laptop GPU used twelve frames,
+with the first two omitted from the medians:
+
+| Interval | Median ms |
+|---|---:|
+| GPU palette producer | 0.0046 |
+| GPU fused visibility and HDR write | 0.2918 |
+| GPU tone mapping | 0.0467 |
+| Total GPU interval | **0.3471** |
+| Host submission through completion | **1.6008** |
+
+No readback occurs in the frame loop. The final PNG and hit diagnostics are read
+only after all measured frames complete; all hit statuses were valid. Independent
+regressions compare tone-mapped pixels with the compact color output, including
+misses, changing palettes and non-square images. This demonstrates the offscreen
+output composition, not native presentation performance. The optional window path
+is wired to bounded acquisition but has not been newly exercised. Geometry/rays
+remain fixed and colors are produced procedurally on the GPU; multi-bounce lighting,
+camera updates and animated geometry are still outside this measurement.
+
+### Box-count scaling probe
+
+A brief offscreen sweep on the same GPU held resolution at 1280×720 and used
+one acceleration primitive per box. Each case ran eleven frames, omitting two
+warmups; case order was randomized. Median total GPU intervals include the palette
+producer, fused visibility/HDR output and tone mapping:
+
+| Layout | 1,024 boxes | 8,192 boxes | 32,768 boxes |
+|---|---:|---:|---:|
+| Fixed box sizes | 0.317 ms | 0.345 ms | 0.394 ms |
+| Approximately fixed projected coverage | 0.327 ms | 0.343 ms | 0.453 ms |
+| Large overlapping boxes | 0.526 ms | 0.648 ms | 0.641 ms |
+
+Fixed-size hit coverage increased from 17% to 85%. The fixed-coverage layout scales
+XY extents by `sqrt(8192 / boxes)` and maintained approximately 70% hit coverage.
+Thus 32 times as many boxes increased total GPU time by about 24% and 38%,
+respectively, rather than linearly. Host submission through completion ranged
+from 1.30 to 1.81 ms. All nine cases returned valid hit statuses.
+
+Large overlapping boxes increase traversal cost here, but are not a guaranteed
+worst case: opaque closest-hit traversal can prune occluded geometry. Their
+8,192-to-32,768 plateau should not be interpreted as a general scaling guarantee.
+This short probe excludes scene construction, uploads, acceleration builds/refits,
+final image export, native presentation and GI. It does not establish scene-editing
+cost or worst-case complexity.
+
+Reproduce a case with `python -m ordinarylight_transport_demo.hdr_viewer
+--boxes 32768 --frames 11 --layout fixed_coverage --output /tmp/scaling.png`.
+Supported layouts are `fixed_size`, `fixed_coverage`, and `overlap`; each JSON
+sidecar includes raw frame timings and hit count.
+
+### Million-box capacity follow-up
+
+The fixed-coverage case was extended to 131,072, 524,288 and 1,048,576 boxes
+at 720p on the same GPU. Each case used a fresh process and eleven frames,
+omitting two warmups. Hit coverage remained 69.6–69.8%; all cases returned zero
+invalid hit statuses. A subsequent 32,768-box control is included below.
+
+| Boxes | Median GPU output chain | Total instrumented setup | Geometry declarations | Scene construction | Acceleration setup, included in scene construction |
+|---|---:|---:|---:|---:|---:|
+| 32,768 control | 0.451 ms | 0.94 s | 0.46 s | 0.15 s | 5.5 ms |
+| 131,072 | 6.208 ms | 2.80 s | 1.84 s | 0.56 s | 12.3 ms |
+| 524,288 | 14.286 ms | 10.29 s | 7.57 s | 2.19 s | 20.2 ms |
+| 1,048,576 | 21.794 ms | 20.95 s | 15.49 s | 4.48 s | 39.2 ms |
+
+Setup covers box generation, record upload/targets, Python geometry declarations,
+scene construction and query/output preparation, excluding runtime initialization
+and teardown. Acceleration setup was measured by a temporary wall-clock wrapper
+around `build_acceleration`: it includes bounds upload, allocation and completed
+BLAS/TLAS builds, and is **not** an isolated GPU build timestamp. GPU output-chain
+timings exclude all setup, final readback/export, GI and native presentation.
+
+| Boxes | Process peak RSS | Sampled device memory increase over pre-run baseline |
+|---|---:|---:|
+| 32,768 control | 738 MiB | 155 MiB |
+| 131,072 | 828 MiB | 171 MiB |
+| 524,288 | 1,182 MiB | 253 MiB |
+| 1,048,576 | 1,632 MiB | 358 MiB |
+
+Host peaks use Linux `ru_maxrss`. Device memory is whole-device `nvidia-smi`
+usage sampled approximately every 0.2 seconds, minus its pre-run baseline; it is
+an approximate increase, not an exact application allocation peak. Other GPU
+applications were active and were left running. Short-lived peaks can be missed.
+
+Concurrent GPU activity limits performance conclusions. The million-box GPU
+interval ranged from 16.06 to 28.14 ms across the nine measured frames, with a
+26.57 ms median host submission-through-completion interval. The 32K control
+nevertheless matched the earlier 0.453 ms result, so contention alone cannot be
+assumed to explain the higher-count slowdown. The earlier modest growth does
+not extrapolate to a million boxes. This establishes capacity for the tested
+static scene, not an interactive GI performance guarantee. CPU declaration and
+scene-packing work dominate initial setup; larger-scene traversal needs separate
+profiling under an isolated GPU workload.
+
+The client now records `setup_seconds` in its report. For example:
+
+```bash
+python -m ordinarylight_transport_demo.hdr_viewer --boxes 1048576 --frames 11 \
+  --layout fixed_coverage --output /tmp/million-box.png
+```
+
+Raw timing reports, profiled reports and images from this run are in
+`/tmp/million-box-probe/`; the temporary memory/build instrumentation driver is
+`/tmp/million_box_probe.py`. These temporary artifacts are not repository fixtures.
+
+### CPU bulk-declaration follow-up
+
+With further GPU profiling deferred, a CPU-only comparison used the same generated
+box records for the object and array-backed declaration paths. Timings cover
+declarations plus scene record/bounds packing, excluding box generation, GPU
+uploads/builds, runtime initialization and rendering:
+
+| Boxes | Object declarations + packing | Bulk declarations + packing |
+|---|---:|---:|
+| 131,072 | 2.263 s | 0.021 s |
+| 1,048,576 | 18.016 s | 0.252 s |
+
+At one million boxes, bulk declarations took 0.059 s and packing took 0.193 s.
+The complete packed custom records and acceleration bounds had identical SHA-256
+digests between paths at both sizes. This single CPU trial demonstrates removal
+of the per-object bottleneck, not a new end-to-end setup or GPU timing result.
+The object path ran first; no repeated-trial confidence interval is claimed.
+
+The viewer now uses `BoxBatch.geometries()`, backed by the general public
+`CustomGeometryBatch`. Earlier GPU tables describe the preceding object-based
+setup. Updated GPU validation remains deferred. CPU probe results and its temporary
+driver are `/tmp/bulk-geometry-cpu-results.json` and
+`/tmp/bulk_geometry_cpu_probe.py`.

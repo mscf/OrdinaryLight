@@ -144,13 +144,20 @@ class VulkanTransportScene:
             self.closed = False
             self._borrowers = set()
             self._gpu_geometry_clients = set()
+            self._custom_update_clients = set()
             self._gpu_geometry_dirty = False
             self._buffers = {}
             self._custom_owners = ()
             self._resident = None
             self._owns_resident = resident is None
             self._builder = VulkanSceneUploader(runtime)
-            self.custom_geometry = tuple(custom_geometry)
+            from ._custom_batch import CustomSlots, prepare_custom_geometry
+
+            self.custom_geometry = (
+                custom_geometry
+                if isinstance(custom_geometry, CustomSlots)
+                else CustomSlots(custom_geometry)
+            )
             self.media = tuple(media)
             self.boundaries = tuple(boundaries)
             from ..scene import Scene
@@ -261,27 +268,9 @@ class VulkanTransportScene:
                         )
                         materials.append(material)
             self.triangle_count = len(triangle_records)
-            custom_records = []
-            for geometry in self.custom_geometry:
-                from ..geometry import CustomGeometry
-
-                if not isinstance(geometry, CustomGeometry) or geometry.material >= len(
-                    custom_materials
-                ):
-                    raise ValueError(
-                        "Custom geometry must reference a supplied custom material"
-                    )
-                material = custom_materials[geometry.material]
-                boundary = self._boundary_index(geometry.boundary, material)
-                program = geometry.program
-                if (
-                    program.name in self.programs
-                    and self.programs[program.name] != program
-                ):
-                    raise ValueError("Conflicting custom intersection program names")
-                self.programs[program.name] = program
-                program_index = list(self.programs).index(program.name)
-                custom_records.append((geometry, program_index, boundary))
+            packed, custom_bounds, self.custom_geometry = prepare_custom_geometry(
+                self, self.custom_geometry, self.custom_capacity
+            )
             self.materials = tuple(materials) + custom_materials
             if not self.triangle_count and not self.custom_capacity:
                 raise ValueError("Transport scene must contain geometry")
@@ -351,44 +340,11 @@ class VulkanTransportScene:
                         np.uint32,
                     ),
                 )
-                custom_dtype = np.dtype(
-                    [
-                        ("lower", "<f4", (4,)),
-                        ("upper", "<f4", (4,)),
-                        ("parameters", "<f4", (4,)),
-                        ("metadata", "<u4", (4,)),
-                    ]
-                )
-                packed = np.zeros(max(1, self.custom_capacity), custom_dtype)
-                packed["metadata"][:, 0] = 0xFFFFFFFF
-                for index, (geometry, program_index, boundary) in enumerate(
-                    custom_records
-                ):
-                    packed[index]["lower"][:3] = geometry.bounds[0]
-                    packed[index]["upper"][:3] = geometry.bounds[1]
-                    packed[index]["parameters"] = geometry.parameters
-                    packed[index]["metadata"] = (
-                        program_index,
-                        self.triangle_count + geometry.material,
-                        boundary,
-                        geometry.identity,
-                    )
                 self._allocate("custom", packed)
                 self._triangle_instance_bytes = instance_bytes
                 from ._dynamic_scene import build_acceleration
 
-                self.custom_geometry = self.custom_geometry + (None,) * (
-                    self.custom_capacity - len(self.custom_geometry)
-                )
-                self._custom_bounds = np.array(
-                    [
-                        item.bounds
-                        if item is not None
-                        else ((0, 0, 0), (1e-4, 1e-4, 1e-4))
-                        for item in self.custom_geometry
-                    ],
-                    dtype=np.float32,
-                ).reshape((-1, 6))
+                self._custom_bounds = custom_bounds
                 build_acceleration(self)
                 self.scene_revision = (
                     None if self._source_scene is None else self._source_scene.revision
@@ -407,6 +363,15 @@ class VulkanTransportScene:
         return self.update_custom_geometry_operation(
             updates, mode=mode, after=after
         ).execute(self.runtime)
+
+    def prepare_custom_geometry_update(self, slots, geometry):
+        """Own staging for bulk replacements, or geometry=None for removal.
+
+        Use the returned context manager's operation() in the execution graph.
+        """
+        from .bulk_updates import VulkanCustomGeometryUpdate
+
+        return VulkanCustomGeometryUpdate(self, slots, geometry)
 
     def reserve_custom_geometry(self, capacity):
         from ._dynamic_scene import reserve
@@ -464,9 +429,9 @@ class VulkanTransportScene:
 
         if self.closed:
             return
-        if self._borrowers or self._gpu_geometry_clients:
+        if self._borrowers or self._gpu_geometry_clients or self._custom_update_clients:
             raise RuntimeError(
-                "Close transport integrators and GPU geometry clients before their scene"
+                "Close transport integrators and geometry update clients before their scene"
             )
         vk.vkDeviceWaitIdle(self.runtime.device)
         self._builder._release_resources(

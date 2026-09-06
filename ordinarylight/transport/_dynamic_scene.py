@@ -202,12 +202,15 @@ def update_operation(scene, updates, *, mode, after):
             raise ValueError("Scene bindings changed; recreate acceleration operation")
 
     def submitted(completion):
-        slots = list(scene.custom_geometry)
-        for slot, geometry in updates.items():
-            slots[slot] = geometry
+        from ._custom_batch import CustomSlots
+
+        slots = scene.custom_geometry
+        if not isinstance(slots, CustomSlots):
+            slots = CustomSlots(slots)
+        slots = slots.updated(updates)
         for slot, value in bounds.items():
             scene._custom_bounds[slot] = value
-        scene.custom_geometry = tuple(slots)
+        scene.custom_geometry = slots
         scene.geometry_revision += 1
         scene.last_completion = completion
 
@@ -258,8 +261,10 @@ def reserve(scene, capacity):
             )
         ),
     )
-    slots = scene.custom_geometry + (None,) * (capacity - scene.custom_capacity)
-    data = b"".join(_pack(scene, geometry) for geometry in slots)
+    from ._custom_batch import prepare_custom_geometry
+
+    packed, _, slots = prepare_custom_geometry(scene, scene.custom_geometry, capacity)
+    data = packed.tobytes()
     buffer = None
     try:
         buffer = scene.runtime.buffer(len(data), data=data)

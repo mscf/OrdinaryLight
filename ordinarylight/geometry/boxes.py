@@ -116,6 +116,24 @@ class BoxBatch:
             identity=identity,
         )
 
+    def geometries(self):
+        """Snapshot one acceleration primitive per box without Python objects.
+
+        The returned CustomGeometryBatch may be passed directly as a scene's
+        custom_geometry. Bind this batch's records as for geometry().
+        """
+        from .batch import CustomGeometryBatch
+
+        parameters = np.zeros((len(self.records), 4), np.float32)
+        parameters[:, 0] = np.arange(len(self.records), dtype=np.float32)
+        parameters[:, 1] = 1
+        metadata = self.records[:, 2].view(np.uint32)
+        return CustomGeometryBatch(
+            self.records[:, :2, :3], self.program, parameters,
+            materials=metadata[:, 0], boundaries=metadata[:, 1],
+            identities=metadata[:, 2],
+        )
+
     def partition(self, max_boxes=8):
         """Spatially partition records while retaining their original buffer slots."""
         return BoxPartition(self, max_boxes=max_boxes)

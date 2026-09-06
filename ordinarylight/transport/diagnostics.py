@@ -33,7 +33,9 @@ class VulkanRayQuery:
     memory="device" keeps query inputs/output device-local with staged host I/O.
     """
 
-    def __init__(self, scene, origins, directions, *, colors=None, memory="host"):
+    def __init__(
+        self, scene, origins, directions, *, colors=None, memory="host", hdr=None
+    ):
         from ..runtime import VulkanKernel, compile_compute
         from ..pipeline.vulkan import VulkanResource
         from ._shaders import scene_source, SCENE_BINDINGS
@@ -89,6 +91,19 @@ layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hit
     hits[i].color=color;
     hits[i].identity=uvec4(hit.identity.x,hit.identity.z,hit.identity.w,status);""",
             )
+        if hdr is not None:
+            if colors is None:
+                raise ValueError("HDR output requires a color palette")
+            source = source.replace(
+                "layout(set=0,binding=10,std430)",
+                "layout(set=0,binding=11,rgba32f) writeonly uniform image2D ordinarylightQueryHdr;\nlayout(set=0,binding=10,std430)",
+            )
+            source = source.replace(
+                "hits[i].color=color;",
+                """hits[i].color=color;
+    uint width=uint(imageSize(ordinarylightQueryHdr).x);
+    imageStore(ordinarylightQueryHdr,ivec2(i%width,i/width),color);""",
+            )
         self.scene, self.runtime = scene, scene.runtime
         self.count = len(origins)
         self.inputs = self.hits = self.kernel = None
@@ -114,6 +129,27 @@ layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hit
                 colors.require_open()
                 if colors.size % 16:
                     raise ValueError("Colors require packed float32 RGBA records")
+            if hdr is not None:
+                from ..runtime.resources import VulkanImage
+
+                if (
+                    not isinstance(hdr, VulkanImage)
+                    or hdr.runtime is not self.runtime
+                    or hdr.format != vk.VK_FORMAT_R32G32B32A32_SFLOAT
+                    or not hdr.usage & vk.VK_IMAGE_USAGE_STORAGE_BIT
+                    or hdr.width * hdr.height != self.count
+                ):
+                    raise ValueError(
+                        "HDR output requires same-runtime RGBA32F storage matching the ray count"
+                    )
+                hdr.require_open()
+                if any(
+                    r.kind == "image" and r.handle == hdr.image
+                    for r in scene.custom_bindings.values()
+                ):
+                    raise ValueError(
+                        "HDR output cannot alias an intersection input image"
+                    )
             self.revision = scene.binding_revision
             self.runtime.retain(self)
             scene._borrowers.add(self)
@@ -136,6 +172,8 @@ layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hit
                 )
                 if colors is not None:
                     bindings[10] = VulkanResource.buffer(colors)
+                if hdr is not None:
+                    bindings[11] = VulkanResource.image(hdr)
                 self.bindings = bindings
                 self.kernel = VulkanKernel(
                     self.runtime,
@@ -181,7 +219,7 @@ layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hit
                 [
                     VulkanPass(
                         "intersections",
-                        resource_uses(self.bindings, writable=(9,)),
+                        resource_uses(self.bindings, writable=(9, 11)),
                         lambda command: self.kernel.bind(command, push),
                         ((self.count + 63) // 64, 1, 1),
                     )

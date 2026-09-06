@@ -97,6 +97,7 @@ class SampleHistory:
 
 
 _LAZY = {
+    "VulkanCustomGeometryUpdate": ("bulk_updates", "VulkanCustomGeometryUpdate"),
     "GpuCustomGeometry": ("gpu_geometry", "GpuCustomGeometry"),
     "GPU_CUSTOM_GEOMETRY_DTYPE": ("gpu_geometry", "GPU_CUSTOM_GEOMETRY_DTYPE"),
     "GpuTransportSamples": ("gpu_samples", "GpuTransportSamples"),

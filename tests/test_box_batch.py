@@ -51,7 +51,8 @@ def test_box_batch_rejects_invalid_bounds(bounds):
     os.environ.get("ORDINARYLIGHT_TEST_VULKAN_TRANSPORT") != "1",
     reason="opt-in grouped box GPU validation",
 )
-def test_grouped_box_hits_against_analytic_intervals_and_resource_edits():
+@pytest.mark.parametrize("bulk", [False, True])
+def test_grouped_box_hits_against_analytic_intervals_and_resource_edits(bulk):
     import ordinarylight as ol
     from ordinarylight.transport import (
         VulkanTransportScene,
@@ -72,7 +73,7 @@ def test_grouped_box_hits_against_analytic_intervals_and_resource_edits():
     ):
         with VulkanTransportScene(
             runtime,
-            custom_geometry=[batch.geometry()],
+            custom_geometry=batch.geometries() if bulk else [batch.geometry()],
             custom_materials=[TransportMaterial(), TransportMaterial()],
             custom_resources={batch.resource_name: buffer},
         ) as scene:

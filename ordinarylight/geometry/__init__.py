@@ -21,6 +21,7 @@ from .intersection import (
     intersect_triangle,
 )
 
+from .batch import CustomGeometryBatch
 from .boxes import BoxBatch, BoxPartition
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "SdfSphere",
     "UniformTransform",
     "CustomGeometry",
+    "CustomGeometryBatch",
     "IntersectionProgram",
     "SurfaceHit",
     "SurfaceSamplingProgram",

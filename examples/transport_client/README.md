@@ -80,6 +80,20 @@ kernels and schedules between growth events.
 
 ## Grouped procedural geometry reference
 
+The `bulk_updates` client exercises general bulk incremental geometry updates
+using analytic SDF spheres: it moves all spheres, changes application identities,
+then disables alternating slots. Queries follow each edit in the graph and check
+distances, identities and validity. It uses only public APIs and no window.
+
+```bash
+# Runs GPU work; deferred until the GPU is available for validation.
+python -m ordinarylight_transport_demo.bulk_updates --count 128
+```
+
+The staging clients own immutable upload snapshots and are closed after their
+operations complete. This example has been added alongside CPU command/packing
+tests; its GPU execution has not yet been validated.
+
 ```bash
 python -m ordinarylight_transport_demo.chunk_probe --samples 64 --output /tmp/chunk-probe.json
 ```
@@ -167,3 +181,38 @@ python -m ordinarylight_transport_demo.color_probe --memory device --output /tmp
 This changes placement for box records, indices, palettes, rays and outputs
 together. Upload/readback staging is outside the timed interval. It therefore
 measures a resident workload, not streaming data from the CPU every frame.
+
+## Resident HDR output loop
+
+```bash
+python -m ordinarylight_transport_demo.hdr_viewer --output /tmp/hdr-viewer.png
+# Optional native-window path (not part of the offscreen validation):
+python -m ordinarylight_transport_demo.hdr_viewer --present --frames 600
+```
+
+The default offscreen client runs twelve frames at 1280×720. A GPU producer changes
+the stored-color palette; fused visibility writes HDR directly, and the persistent
+tone-map target produces RGBA8. The graph performs no CPU image/color readback
+inside the frame loop. Only after the loop does it export a PNG and JSON report.
+The first two frames are omitted from timestamp medians. The `--present` path
+uses the public single-use presentation operation, bounded acquisition and
+cancellation handling; its native-window behavior has not been newly validated.
+
+Render resolution and ray inputs stay fixed; framebuffer resizing affects the
+presentation blit. Box geometry is static, and palette animation demonstrates
+GPU resource updates rather than recomputing illumination. The compact hit buffer
+remains available for diagnostics in addition to direct HDR output. Install the
+client's `present` extra for the optional window path.
+
+For box-count scaling probes, use `--boxes 32768 --frames 11` with
+`--layout fixed_size` (the default), `fixed_coverage` (approximately constant
+projected coverage), or `overlap` (large overlapping boxes). See
+[visibility measurements](../../docs/visibility_measurements.md#box-count-scaling-probe)
+for measured results and limitations.
+JSON reports also include `setup_seconds`, separating box generation, uploads and
+targets, geometry declarations, scene construction, and query/output preparation.
+Scene construction includes acceleration setup; these are host wall-clock times.
+The viewer now passes `BoxBatch.geometries()` directly to the scene, using the
+general array-backed `CustomGeometryBatch` path. This preserves one acceleration
+primitive per box while avoiding a Python object per box. CPU packing equivalence
+is validated; the updated viewer's GPU validation is deferred.
