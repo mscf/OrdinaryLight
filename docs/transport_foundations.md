@@ -572,3 +572,78 @@ glass remains unsupported. No area sampler, smoothing, graph topology, or
 spatial-index builder is implied. The external `chunk_probe` tests grouped hits
 and graph-material radiance against per-box geometry, while analytic regression
 tests separately validate entry/exit distances, normals and full-width IDs.
+
+### Spatial box partitions with stable records
+
+`partition = batch.partition(max_boxes=8)` constructs spatial median groups on
+the CPU. Vulkan builds an acceleration structure over those group bounds; the
+custom callback only scans records in candidate groups. This applies to arbitrary
+box positions and sizes, without a grid or voxel assumption.
+
+```python
+partition = batch.partition(max_boxes=8)
+indices = runtime.buffer(partition.indices.nbytes, data=partition.indices)
+scene = VulkanTransportScene(
+    runtime, custom_geometry=partition.geometries, custom_materials=materials,
+    custom_resources={batch.resource_name: records,
+                      partition.index_resource_name: indices},
+    media=media, boundaries=boundaries,
+)
+```
+
+The immutable uint32 index permutation references original record slots; neither
+record addresses nor application identities change. Group sizes are bounded by
+`max_boxes`. Inactive boxes remain in the partition so activation needs no rebuild.
+The callback checks index ranges before reading records. Keep both buffers alive
+until scene clients close. The index name is the box resource name plus `_indices`.
+
+For moving boxes, `partition.refit(new_bounds)` calculates replacement group
+geometries with the **same index order**. Upload updated box records and apply
+`scene.update_custom_geometry(dict(enumerate(partition.refit(new_bounds))))`
+before tracing (offset the dictionary keys if groups occupy a subrange of a larger
+scene). This computes host bounds; it does not upload data or mutate the partition.
+All bounds, including inactive boxes, must remain finite with positive extents.
+Callers still own producer ordering and lighting-history invalidation. Refit must
+preserve the slot count. Large movements can degrade spatial grouping; rebuilding
+a partition remains an explicit alternative.
+
+Partitioning is optional, not a universal performance default. Small groups use
+more acceleration primitives but do less callback work; large groups do the
+reverse. The external `partition_probe` compares the full scan, spatial groups and
+per-box primitives using warmups and randomized measurement order. Its timings
+include host submission, tracing/reduction and completion; they exclude scene
+construction and readback and are not isolated shader timings. Coincident-surface
+tie ordering across primitives is unspecified. All existing independent-surface
+and medium limitations still apply.
+
+## Persistent visibility queries
+
+`VulkanRayQuery` keeps ray/hit buffers, descriptors and its intersection kernel
+resident. It performs nearest-hit traversal only: no material-graph evaluation,
+scattering, lighting, accumulation or implicit readback. `intersect_rays` remains
+the one-shot convenience wrapper with the same hit layout.
+
+```python
+from ordinarylight.transport import VulkanRayQuery
+from ordinarylight.pipeline.graph import VulkanGraph
+
+with VulkanRayQuery(scene, origins, unit_directions) as query:
+    schedule = VulkanGraph().add("visibility", query.operation(max_steps=8192)).compile()
+    completion = schedule.execute(runtime)
+    # query.hits is a GPU buffer with HIT_DTYPE records for downstream consumers.
+    hits = query.read()  # explicit synchronization and CPU readback, when needed
+```
+
+Replay the compiled schedule with fixed ray count and scene bindings. GPU producers
+can write `query.inputs` (two float32 vec4s per ray: origin and direction) and
+consumers can read `query.hits`; declare their resource uses and dependencies in
+the graph. Host constructor inputs are validated; subsequent GPU inputs must
+remain finite with unit directions. `operation(after=...)` accepts producer
+completion dependencies. Updates within existing geometry/resource bindings use
+the established scene-update contract. Recreate the query after scene bindings
+change or ray count changes. Release consuming kernels/bindings before closing
+queries, and close queries before their scene/runtime. Reads before a first
+submission are rejected.
+
+This is a full 80-byte hit query, not a finished visibility/color pass. A renderer
+can follow it with application-ID color lookup, or supply a fused specialization.

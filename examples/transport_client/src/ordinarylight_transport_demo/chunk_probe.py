@@ -82,19 +82,28 @@ def run(output="/tmp/chunk-probe.json", samples=64):
         gain = stack.enter_context(
             runtime.buffer(16, data=np.array([2, 0.5, 0.1, 0], np.float32))
         )
+        partition = batch.partition(2)
+        index_buffer = stack.enter_context(
+            runtime.buffer(partition.indices.nbytes, data=partition.indices)
+        )
         scenes = []
-        for per_box in [True, False]:
+        for mode in ["per_box", "grouped", "partitioned"]:
+            per_box = mode == "per_box"
             geometry = []
             for first, count in (
                 [(i, 1) for i in range(8)] if per_box else [(0, 4), (4, 4)]
             ):
                 geometry.append(batch.geometry(first, count))
+            resources = {batch.resource_name: storage}
+            if mode == "partitioned":
+                geometry = partition.geometries
+                resources[partition.index_resource_name] = index_buffer
             scenes.append(
                 stack.enter_context(
                     VulkanTransportScene(
                         runtime,
                         custom_geometry=geometry,
-                        custom_resources={batch.resource_name: storage},
+                        custom_resources=resources,
                         custom_materials=[
                             TransportMaterial("diffuse", albedo=(0.4, 0.6, 0.2)),
                             TransportMaterial(
@@ -137,10 +146,12 @@ def run(output="/tmp/chunk-probe.json", samples=64):
                 "shading_normal",
                 "boundary",
             ):
-                np.testing.assert_allclose(hits[0][name], hits[1][name], atol=1e-5)
-            np.testing.assert_array_equal(
-                hits[0]["identity"][:, 2:], hits[1]["identity"][:, 2:]
-            )
+                for actual in hits[1:]:
+                    np.testing.assert_allclose(hits[0][name], actual[name], atol=1e-5)
+            for actual in hits[1:]:
+                np.testing.assert_array_equal(
+                    hits[0]["identity"][:, 2:], actual["identity"][:, 2:]
+                )
             timings = []
             for transport, accumulation in zip(integrators, outputs):
                 accumulation.reset().wait()
@@ -153,7 +164,8 @@ def run(output="/tmp/chunk-probe.json", samples=64):
                 ).wait()
                 timings.append((time.perf_counter() - start) * 1000)
             means = [accumulation.means() for accumulation in outputs]
-            np.testing.assert_allclose(means[0], means[1], rtol=1e-5, atol=1e-6)
+            for actual in means[1:]:
+                np.testing.assert_allclose(means[0], actual, rtol=1e-5, atol=1e-6)
             report["frames"].append(
                 dict(
                     frame=frame,
@@ -161,6 +173,10 @@ def run(output="/tmp/chunk-probe.json", samples=64):
                     max_radiance_error=float(np.max(np.abs(means[0] - means[1]))),
                     per_box_ms=timings[0],
                     chunk_ms=timings[1],
+                    partition_ms=timings[2],
+                    max_partition_radiance_error=float(
+                        np.max(np.abs(means[0] - means[2]))
+                    ),
                 )
             )
     destination = Path(output)

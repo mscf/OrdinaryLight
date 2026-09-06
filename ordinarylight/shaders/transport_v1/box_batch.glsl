@@ -8,8 +8,10 @@ uint OL_BOX_ENTRY(vec3 origin,vec3 direction,float t_min,float t_max,
        any(notEqual(floor(parameters.xy),parameters.xy)) ||
        any(greaterThan(parameters.xy,vec2(16777216.0)))) return 2u;
     uint first=uint(parameters.x),count=uint(parameters.y);
-    if(count>max_steps || first+count>uint(OL_BOX_RESOURCE.length())/3u) return 2u;
-    for(uint i=first;i<first+count;++i) {
+    if(count>max_steps || first+count>OL_BOX_INDEX_COUNT) return 2u;
+    for(uint slot=first;slot<first+count;++slot) {
+        uint i=OL_BOX_INDEX;
+        if(i>=uint(OL_BOX_RESOURCE.length())/3u) return 2u;
         vec4 lower=OL_BOX_RESOURCE[i*3u],upper=OL_BOX_RESOURCE[i*3u+1u];
         if(lower.w==0.0) continue;
         if(lower.w!=1.0 || any(isnan(lower.xyz)) || any(isinf(lower.xyz)) ||

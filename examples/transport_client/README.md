@@ -97,3 +97,42 @@ The fixture follows the resident-resource pattern used by vxl8r, but imposes no
 grid layout, voxel identity scheme, reconstruction, or face-averaging policy.
 It scans bounded record groups linearly. It is a correctness reference for a
 future spatial traversal implementation, not a production sparse-grid renderer.
+
+The `chunk_probe` additionally compares indexed spatial groups produced by
+`BoxBatch.partition`, including graph emission and activation edits.
+
+```bash
+python -m ordinarylight_transport_demo.partition_probe --boxes 8192 --rays 32768 --repeats 11
+```
+
+This larger opaque-emission workload reports raw warm measurement samples for
+linear, spatially partitioned and per-box geometry, with a visibility parity
+check. It uses arbitrary box positions/sizes. It does not measure scene updates,
+material evaluation complexity, dielectric transport, or an entire voxel renderer.
+Choose group sizes against the intended workload; fewer primitives alone do not
+guarantee faster tracing. See `BoxPartition.refit` for stable-slot motion updates.
+
+## GPU visibility timing breakdown
+
+```bash
+python -m ordinarylight_transport_demo.visibility_probe --output /tmp/visibility-probe.json
+```
+
+Uses the same seeded 8,192-box / 32,768-ray workload as `partition_probe`, with
+persistent visibility and zero-bounce transport pipelines. Each layout is tested
+with a reused graph; a transport variant recompiles only the graph each iteration
+(not shaders or pipelines). The report includes the GPU/driver, raw samples and
+medians from 15 randomized rounds after two warmups.
+
+GPU timestamps bracket intersection, transport and reduction passes, and the full
+GPU interval. Timestamp support and valid-bit wrapping are handled. Host timings
+separate execute/record/submit from completion wait. Query-result and hit readback,
+scene construction, partition building and uploads are excluded. Timings include
+profiling instrumentation, and GPU intervals may include scheduling/dependency
+stalls; they are not instruction-level shader profiles. The compiled schedule
+still records/submits command buffers on each execution.
+
+The probe checks full hit identity/distance agreement and matches transport's
+emissive output against the visibility mask. It deliberately omits presentation,
+color lookup, multiple bounces and animated scene updates. See
+[the measurement notes](../../docs/visibility_measurements.md) for the initial run.

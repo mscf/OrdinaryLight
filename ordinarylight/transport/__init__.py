@@ -108,6 +108,7 @@ _LAZY = {
     "GpuSampleAccumulator": ("accumulation", "GpuSampleAccumulator"),
     "ACCUMULATION_DTYPE": ("accumulation", "ACCUMULATION_DTYPE"),
     "HIT_DTYPE": ("diagnostics", "HIT_DTYPE"),
+    "VulkanRayQuery": ("diagnostics", "VulkanRayQuery"),
     "intersect_rays": ("diagnostics", "intersect_rays"),
     "ray_samples": ("samples", "ray_samples"),
     "surface_samples": ("samples", "surface_samples"),
