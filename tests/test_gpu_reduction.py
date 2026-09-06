@@ -166,3 +166,80 @@ def test_invalid_gpu_map_is_rejected_before_accumulation(workload, bad):
     assert not records["counts"][:, 1].any()
     with pytest.raises(RuntimeError, match="invalid"):
         output.read()
+
+
+def test_capacity_migration_preserves_gpu_data_history_and_epoch(workload, monkeypatch):
+    runtime, samples, mapping, output, integrator, producer, bindings = workload
+    completion = schedule(workload).execute(runtime)
+    for buffer in (
+        samples.buffer,
+        mapping.counts,
+        mapping.groups,
+        mapping.indices,
+        mapping.weights,
+    ):
+        monkeypatch.setattr(buffer, "read", lambda: pytest.fail("migration readback"))
+    old_operation = integrator.accumulate_operation()
+    with integrator.grow_capacity(8, group_capacity=4, after=[completion]) as grown:
+        assert integrator.closed
+        assert grown.capacity == 8
+        assert grown._sample_offset == 3
+        assert grown.samples is not samples
+        assert grown.gpu_reduction is not mapping
+        with pytest.raises(RuntimeError):
+            VulkanGraph().add("stale", old_operation).compile().execute(runtime)
+        grown.accumulate(samples_per_element=2).wait()
+        np.testing.assert_allclose(output.means(), [[0.25, 0, 0.75], [0.75, 0, 0.25]])
+        np.testing.assert_array_equal(output.read()["counts"][:, 1], [10, 10])
+        assert grown._sample_offset == 5
+        output.reset().wait()
+        expanded = (
+            PRODUCER.replace("i<4u", "i<8u")
+            .replace("pc.sample_count/2u", "pc.sample_count/4u")
+            .replace("uvec4(i/2u", "uvec4(i/4u")
+            .replace("uvec4(0,0,2,0)", "uvec4(0,0,4,0)")
+            .replace("uvec4(1,2,2,0)", "uvec4(1,4,4,0)")
+        )
+        new_buffers = [grown.samples.buffer] + [
+            getattr(grown.gpu_reduction, name)
+            for name in ("counts", "groups", "indices", "weights")
+        ]
+        new_bindings = {i: VulkanResource.buffer(b) for i, b in enumerate(new_buffers)}
+        with VulkanKernel(
+            runtime, compile_compute(expanded), new_bindings, push_constant_size=8
+        ) as new_producer:
+            new_workload = (
+                runtime,
+                grown.samples,
+                grown.gpu_reduction,
+                output,
+                grown,
+                new_producer,
+                new_bindings,
+            )
+            schedule(new_workload, active=8).execute(runtime).wait()
+            with pytest.raises(RuntimeError, match="bindings"):
+                grown.grow_capacity(12)
+            assert not grown.closed
+        np.testing.assert_allclose(output.means(), [[0.5, 0, 0.5], [0.5, 0, 0.5]])
+        np.testing.assert_array_equal(output.read()["counts"][:, 1], [12, 12])
+        owned_samples, owned_map = grown.samples, grown.gpu_reduction
+        with grown.grow_capacity(12) as final:
+            assert grown.closed
+            final.accumulate().wait()
+            np.testing.assert_allclose(output.means(), [[0.5, 0, 0.5], [0.5, 0, 0.5]])
+            np.testing.assert_array_equal(output.read()["counts"][:, 1], [16, 16])
+    assert owned_samples.closed and owned_map.closed
+    assert not samples.closed and not mapping.closed
+
+
+def test_invalid_capacity_migration_keeps_original_usable(workload):
+    runtime, samples, mapping, output, integrator, producer, bindings = workload
+    for capacity, groups in [(3, 2), (4, 1), (4, 2), (8, 9)]:
+        with pytest.raises(ValueError):
+            integrator.grow_capacity(capacity, group_capacity=groups)
+        assert not integrator.closed
+    with pytest.raises(ValueError, match="dependencies"):
+        integrator.grow_capacity(8, after=[object()])
+    schedule(workload).execute(runtime).wait()
+    np.testing.assert_allclose(output.means(), [[0.25, 0, 0.75], [0.75, 0, 0.25]])

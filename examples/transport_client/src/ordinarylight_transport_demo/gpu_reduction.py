@@ -54,8 +54,8 @@ def run(frames=6, output="/tmp/gpu-reduction.json"):
         raise ValueError("Use at least three frames to exercise every output group")
     with ExitStack() as stack:
         runtime = stack.enter_context(ol.VulkanRuntime())
-        inputs = stack.enter_context(GpuTransportSamples(runtime, 6))
-        mapping = stack.enter_context(GpuSampleReduction(runtime, 6, group_capacity=3))
+        inputs = stack.enter_context(GpuTransportSamples(runtime, 2))
+        mapping = stack.enter_context(GpuSampleReduction(runtime, 2, group_capacity=1))
         accumulation = stack.enter_context(GpuSampleAccumulator(runtime, 3))
         scene = stack.enter_context(
             VulkanTransportScene(
@@ -70,47 +70,60 @@ def run(frames=6, output="/tmp/gpu-reduction.json"):
         transport = stack.enter_context(
             VulkanTransportIntegrator(scene, inputs, accumulation, reduction=mapping)
         )
-        buffers = (
-            inputs.buffer,
-            mapping.counts,
-            mapping.groups,
-            mapping.indices,
-            mapping.weights,
-        )
-        bindings = {
-            i: VulkanResource.buffer(buffer) for i, buffer in enumerate(buffers)
-        }
-        producer = stack.enter_context(
-            VulkanKernel(
-                runtime, compile_compute(PRODUCER), bindings, push_constant_size=4
-            )
-        )
         frame = [0]
-        graph = VulkanGraph().add("transport", transport.accumulate_operation())
-        graph.add(
-            "produce",
-            VulkanPass(
-                "produce",
-                tuple(
-                    VulkanResourceUse(
-                        resource,
-                        vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                        vk.VK_ACCESS_SHADER_WRITE_BIT,
-                    )
-                    for resource in bindings.values()
-                ),
-                lambda command: producer.bind(command, struct.pack("<I", frame[0])),
-                (1, 1, 1),
-            ),
-        )
-        schedule = graph.compile()
+        capacities = []
         for frame[0] in range(frames):
-            schedule.execute(runtime).wait()
+            required_groups = frame[0] % 3 + 1
+            if required_groups * 2 > transport.capacity:
+                transport = stack.enter_context(
+                    transport.grow_capacity(
+                        required_groups * 2, group_capacity=required_groups
+                    )
+                )
+            capacities.append(transport.capacity)
+            mapping = transport.gpu_reduction
+            buffers = (
+                transport.samples.buffer,
+                mapping.counts,
+                mapping.groups,
+                mapping.indices,
+                mapping.weights,
+            )
+            bindings = {
+                i: VulkanResource.buffer(buffer) for i, buffer in enumerate(buffers)
+            }
+            # Bindings must be rebuilt after migration and released before the
+            # next growth or before closing the integrator-owned allocations.
+            with VulkanKernel(
+                runtime, compile_compute(PRODUCER), bindings, push_constant_size=4
+            ) as producer:
+                graph = VulkanGraph().add("transport", transport.accumulate_operation())
+                graph.add(
+                    "produce",
+                    VulkanPass(
+                        "produce",
+                        tuple(
+                            VulkanResourceUse(
+                                resource,
+                                vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                vk.VK_ACCESS_SHADER_WRITE_BIT,
+                            )
+                            for resource in bindings.values()
+                        ),
+                        lambda command: producer.bind(
+                            command, struct.pack("<I", frame[0])
+                        ),
+                        (1, 1, 1),
+                    ),
+                )
+                schedule = graph.compile()
+                schedule.execute(runtime).wait()
         means = accumulation.means()
         np.testing.assert_allclose(means, np.tile([0.25, 0, 0.75], (3, 1)))
         records = accumulation.read()
         report = dict(
             frames=frames,
+            capacities=capacities,
             order=schedule.order,
             means=means.tolist(),
             valid_samples=records["counts"][:, 1].tolist(),

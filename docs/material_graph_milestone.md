@@ -263,3 +263,12 @@ indices and weights. GPU validation precedes indirect trace/reduce dispatch, and
 invalid maps poison the batch's accumulator status rather than accessing unchecked
 indices. Existing CPU grouping and geometric-normal defaults remain supported.
 See [transport foundations](transport_foundations.md) for exact contracts and limits.
+
+### Capacity migration follow-up
+
+GPU-mapped integrators now provide `grow_capacity(...)` for device-to-device
+migration into larger sample/map allocations. The replacement preserves output
+history, initial stacks and the random sample epoch, and owns its new storage.
+Applications rebind producers and rebuild graph operations. Growth remains an
+explicit synchronized allocation step; accumulator capacity and scene capacity
+are separate. See [transport foundations](transport_foundations.md#growing-gpu-mapped-capacity).

@@ -71,3 +71,9 @@ weighted reduction groups. The same compiled graph validates the maps, dispatche
 transport indirectly, and accumulates into three persistent IDs. No sample/count/
 map readbacks or CPU grouping occur; only final means and diagnostics are read for
 verification. Allocation capacities remain explicit and fixed.
+
+The GPU reduction client starts with two sample slots and grows to four and six
+using `grow_capacity`. It rebinds producers after each migration while preserving
+weighted output history. The JSON report includes the capacity used each frame.
+This illustrates lifecycle correctness; production clients can cache producer
+kernels and schedules between growth events.

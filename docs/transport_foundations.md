@@ -207,8 +207,8 @@ do not perform bounds refits or history invalidation automatically.
 Existing construction with NumPy `ray_samples`/`surface_samples` still works.
 `integrator.update_samples(new_samples, reduction=..., after=...)` uploads new
 records into the existing allocation without recompiling kernels. The active
-count can change within its capacity; growing capacity requires new inputs and
-an integrator. Updates preserve history and the sampling epoch deliberately.
+count can change within its capacity. CPU-mapped capacity growth requires new
+inputs and an integrator; GPU-mapped clients can use `grow_capacity` below. Updates preserve history and the sampling epoch deliberately.
 
 Use `GpuTransportSamples` for spare capacity or GPU-generated inputs:
 
@@ -297,6 +297,30 @@ Declare producer writes in a `VulkanGraph`, or pass their completion through
 authoritative active GPU count. Host `update_samples`/`set_reduction` calls are
 rejected on these integrators: update producer buffers instead. Sample IDs can
 still carry independent sample-index metadata in `identity.y`.
+
+### Growing GPU-mapped capacity
+
+`replacement = integrator.grow_capacity(new_capacity, group_capacity=..., after=...)`
+allocates larger input/map storage and copies the existing records on the GPU.
+It preserves active counts, weights, initial medium stacks, the random sampling
+epoch, and the existing accumulator. No input or map readback is performed.
+Group capacity defaults to its current value; request it explicitly when growing
+the number of groups. Shrinking and unchanged capacities are rejected.
+
+On success the source integrator is closed. The replacement owns its new inputs
+and reduction; access them through `replacement.samples` and
+`replacement.gpu_reduction` to bind producers. Release producer/resource bindings
+before migrating owned allocations, and recreate graph operations afterward.
+Externally owned original inputs/maps remain the caller's responsibility. Failed
+validation or replacement allocation leaves the source usable.
+
+This is a synchronized allocation boundary: the migration waits for its copy.
+GPU producers must fit within allocated capacity; this is not GPU heap allocation
+or automatic overflow retry. Added sample slots are zero initialized and added
+weights default to one. Existing active counts are preserved, so new slots are
+inactive until a producer initializes them and expands the counts/maps. Accumulator
+capacity is unchanged. The external `gpu_reduction` client demonstrates two growth
+steps, producer rebinding and uninterrupted weighted history.
 
 Close integrators before the reduction and input objects. Counts start at zero,
 so a newly allocated map cannot dispatch uninitialized samples. Dispatch limits

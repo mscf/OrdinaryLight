@@ -53,6 +53,7 @@ class VulkanTransportIntegrator:
                 reduction if isinstance(reduction, GpuSampleReduction) else None
             )
             self._gpu_plan = None
+            self._owns_reduction = False
             self._owns_samples = not isinstance(samples, GpuTransportSamples)
             if self._gpu_reduction is not None:
                 if self._owns_samples:
@@ -89,6 +90,8 @@ class VulkanTransportIntegrator:
             # Slot zero preserves the legacy integrator-wide default. Samples
             # select additional validated stacks through the reserved media.w.
             stacks = (tuple(initial_boundaries), *map(tuple, initial_stacks))
+            self._initial_boundaries = stacks[0]
+            self._initial_stacks = stacks[1:]
             initial = np.zeros((len(stacks), 8, 4), np.uint32)
             for slot, identities in enumerate(stacks):
                 initial[slot, 0, 1] = 0xFFFFFFFF
@@ -227,6 +230,116 @@ class VulkanTransportIntegrator:
             if self._gpu_reduction is not None
             else self.samples.count
         )
+
+    @serialized
+    def grow_capacity(self, capacity, *, group_capacity=None, after=()):
+        """Return a larger GPU-mapped integrator, closing this one on success.
+
+        Copies device-authored inputs/maps without readback and preserves output
+        history, initial stacks and random sample epoch. The returned integrator
+        owns its new samples and reduction. Rebind producers and recreate graph
+        operations against the returned object. This is a synchronized migration.
+        """
+        import vulkan as vk
+        from ..runtime.resources import submit, VulkanCompletion
+
+        self.require_open()
+        if self._gpu_reduction is None:
+            raise ValueError("Capacity migration requires GPU-authored reduction")
+        capacity = index(capacity)
+        old_map = self._gpu_reduction
+        group_capacity = (
+            old_map.group_capacity if group_capacity is None else index(group_capacity)
+        )
+        if capacity < self.capacity or group_capacity < old_map.group_capacity:
+            raise ValueError("Capacity migration cannot shrink allocations")
+        if capacity == self.capacity and group_capacity == old_map.group_capacity:
+            raise ValueError("Capacity migration must grow at least one allocation")
+        # A prior migration owns its allocations. Reject external bindings before
+        # closing any kernels, so a failed migration cannot damage this client.
+        internal = {self._kernel, self._reducer, self._gpu_plan.kernel}
+        owned = []
+        if self._owns_samples:
+            if self.samples._borrowers - {self}:
+                raise RuntimeError(
+                    "Release other sample clients before capacity migration"
+                )
+            owned.append(self.samples.buffer)
+        if self._owns_reduction:
+            if old_map._borrowers - {self}:
+                raise RuntimeError(
+                    "Release other reduction clients before capacity migration"
+                )
+            owned.extend(
+                getattr(old_map, name)
+                for name in ("counts", "groups", "indices", "weights")
+            )
+        if any(buffer._borrowers - internal for buffer in owned):
+            raise RuntimeError(
+                "Close producer/resource bindings before capacity migration"
+            )
+        dependencies = tuple(after)
+        if any(
+            not isinstance(d, VulkanCompletion) or d.runtime is not self.runtime
+            for d in dependencies
+        ):
+            raise ValueError("Migration dependencies must belong to this runtime")
+        samples = mapping = replacement = None
+        try:
+            samples = GpuTransportSamples(
+                self.runtime, capacity, count=self.samples.count
+            )
+            mapping = GpuSampleReduction(
+                self.runtime, capacity, group_capacity=group_capacity
+            )
+            replacement = VulkanTransportIntegrator(
+                self.scene,
+                samples,
+                self.accumulator,
+                reduction=mapping,
+                initial_boundaries=self._initial_boundaries,
+                initial_stacks=self._initial_stacks,
+            )
+            pairs = [(self.samples.buffer, samples.buffer)] + [
+                (getattr(old_map, name), getattr(mapping, name))
+                for name in ("counts", "groups", "indices", "weights")
+            ]
+
+            def copy(command):
+                for source, destination in pairs:
+                    vk.vkCmdCopyBuffer(
+                        command,
+                        source.buffer,
+                        destination.buffer,
+                        1,
+                        [vk.VkBufferCopy(size=source.size)],
+                    )
+
+            submit(
+                self.runtime,
+                copy,
+                resources=tuple(buffer for pair in pairs for buffer in pair),
+                after=dependencies,
+            ).wait()
+            replacement._sample_offset = self._sample_offset
+            self.close()
+            replacement._owns_samples = True
+            replacement._owns_reduction = True
+            return replacement
+        except Exception:
+            if replacement is not None:
+                replacement.close()
+            if mapping is not None:
+                mapping.close()
+            if samples is not None:
+                samples.close()
+            raise
+
+    @property
+    def gpu_reduction(self):
+        """Borrowed GPU map, or None for CPU-authored grouping."""
+        self.require_open()
+        return self._gpu_reduction
 
     @serialized
     def update_samples(self, samples, *, reduction=None, after=()):
@@ -476,6 +589,8 @@ class VulkanTransportIntegrator:
             self._initial.close()
         if self._gpu_reduction is not None:
             self._gpu_reduction._borrowers.discard(self)
+            if self._owns_reduction:
+                self._gpu_reduction.close()
         self.scene._borrowers.discard(self)
         self.accumulator._borrowers.discard(self)
         self.closed = True
