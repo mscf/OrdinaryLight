@@ -136,3 +136,34 @@ The probe checks full hit identity/distance agreement and matches transport's
 emissive output against the visibility mask. It deliberately omits presentation,
 color lookup, multiple bounces and animated scene updates. See
 [the measurement notes](../../docs/visibility_measurements.md) for the initial run.
+
+## Image-resolution fused color comparison
+
+```bash
+python -m ordinarylight_transport_demo.color_probe --output /tmp/color-probe-720p.json
+```
+
+At 1280×720, compare a persistent full-hit query followed by a GPU color lookup
+with a fused `VulkanRayQuery(colors=palette)` dispatch. Both retain color and basic
+hit diagnostics in the same compact output layout. The probe uses 8,192 boxes,
+nine randomized timing rounds after two warmups, exact output comparisons, and
+GPU timestamps plus host submission/wait measurements. It reports buffer memory
+flags and exports an sRGB preview alongside the JSON after timing finishes.
+
+Ray generation, uploads, readback, PNG encoding, tone mapping and presentation
+are outside the timed interval. Colors are precomputed application data; there
+is no lighting evaluation. The default runtime buffers are host-visible/coherent;
+the report records whether the selected memory type is also device-local. These
+allocation choices must be considered when interpreting image-resolution results.
+
+The color probe now defaults to explicit device-local working buffers. Compare
+both placement policies with:
+
+```bash
+python -m ordinarylight_transport_demo.color_probe --memory host --output /tmp/color-host.json
+python -m ordinarylight_transport_demo.color_probe --memory device --output /tmp/color-device.json
+```
+
+This changes placement for box records, indices, palettes, rays and outputs
+together. Upload/readback staging is outside the timed interval. It therefore
+measures a resident workload, not streaming data from the CPU every frame.

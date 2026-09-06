@@ -15,15 +15,25 @@ HIT_DTYPE = np.dtype(
 )
 
 
+COLOR_HIT_DTYPE = np.dtype(
+    [
+        ("color", "<f4", (4,)),
+        ("identity", "<u4", (4,)),  # hit kind, application ID, material, status
+    ]
+)
+
+
 class VulkanRayQuery:
     """Persistent nearest-hit queries without transport, accumulation or readback.
 
     Inputs are two vec4s per ray (origin and unit direction); hits use HIT_DTYPE.
     GPU producers can bind inputs, declare writes and supply dependencies. The
     caller owns input validity. Recreate this client after scene bindings change.
+    Optional colors fuse dense application-ID lookup into COLOR_HIT_DTYPE output.
+    memory="device" keeps query inputs/output device-local with staged host I/O.
     """
 
-    def __init__(self, scene, origins, directions):
+    def __init__(self, scene, origins, directions, *, colors=None, memory="host"):
         from ..runtime import VulkanKernel, compile_compute
         from ..pipeline.vulkan import VulkanResource
         from ._shaders import scene_source, SCENE_BINDINGS
@@ -56,6 +66,29 @@ class VulkanRayQuery:
     }
     """
         )
+        self.hit_dtype = HIT_DTYPE if colors is None else COLOR_HIT_DTYPE
+        if colors is not None:
+            source = source.replace(
+                "layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightHit hits[]; };",
+                """struct OrdinaryLightColorHit { vec4 color; uvec4 identity; };
+layout(set=0,binding=10,std430) readonly buffer QueryColors { vec4 ordinarylightQueryColors[]; };
+layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hits[]; };""",
+            )
+            source = source.replace(
+                "hits[i]=ordinarylightIntersect(rays[i].origin.xyz,rays[i].direction.xyz,pc.t_min,pc.t_max,pc.tolerance,pc.max_steps);",
+                """OrdinaryLightHit hit=ordinarylightIntersect(rays[i].origin.xyz,rays[i].direction.xyz,pc.t_min,pc.t_max,pc.tolerance,pc.max_steps);
+    uint status=hit.boundary.w;
+    vec4 color=vec4(0,0,0,1);
+    if(status==0u && hit.identity.x!=0u) {
+        if(hit.identity.z>=uint(ordinarylightQueryColors.length())) status=32u;
+        else {
+            color=ordinarylightQueryColors[hit.identity.z];
+            if(any(isnan(color))||any(isinf(color))) { status=16u; color=vec4(0,0,0,1); }
+        }
+    }
+    hits[i].color=color;
+    hits[i].identity=uvec4(hit.identity.x,hit.identity.z,hit.identity.w,status);""",
+            )
         self.scene, self.runtime = scene, scene.runtime
         self.count = len(origins)
         self.inputs = self.hits = self.kernel = None
@@ -70,12 +103,27 @@ class VulkanRayQuery:
             ).limits.maxComputeWorkGroupCount[0]
             if (self.count + 63) // 64 > limit:
                 raise ValueError("Ray count exceeds the device dispatch limit")
+            if colors is not None:
+                from ..runtime.resources import VulkanBuffer
+
+                if (
+                    not isinstance(colors, VulkanBuffer)
+                    or colors.runtime is not self.runtime
+                ):
+                    raise ValueError("Colors must be a same-runtime VulkanBuffer")
+                colors.require_open()
+                if colors.size % 16:
+                    raise ValueError("Colors require packed float32 RGBA records")
             self.revision = scene.binding_revision
             self.runtime.retain(self)
             scene._borrowers.add(self)
             try:
-                self.inputs = self.runtime.buffer(packed.nbytes, data=packed)
-                self.hits = self.runtime.buffer(self.count * HIT_DTYPE.itemsize)
+                self.inputs = self.runtime.buffer(
+                    packed.nbytes, data=packed, memory=memory
+                )
+                self.hits = self.runtime.buffer(
+                    self.count * self.hit_dtype.itemsize, memory=memory
+                )
                 bindings = {
                     i: scene.resource(name) for i, name in enumerate(SCENE_BINDINGS)
                 }
@@ -86,6 +134,8 @@ class VulkanRayQuery:
                         9: VulkanResource.buffer(self.hits),
                     }
                 )
+                if colors is not None:
+                    bindings[10] = VulkanResource.buffer(colors)
                 self.bindings = bindings
                 self.kernel = VulkanKernel(
                     self.runtime,
@@ -147,7 +197,7 @@ class VulkanRayQuery:
             if self.last_completion is None:
                 raise RuntimeError("Submit a ray query before reading hits")
             self.last_completion.wait()
-            return np.frombuffer(self.hits.read(), HIT_DTYPE).copy()
+            return np.frombuffer(self.hits.read(), self.hit_dtype).copy()
 
     def close(self):
         with self.runtime.lock:

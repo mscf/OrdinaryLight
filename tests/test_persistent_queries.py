@@ -69,3 +69,58 @@ def test_persistent_query_replay_input_updates_and_lifetimes(monkeypatch):
             with pytest.raises(RuntimeError, match="closed"):
                 graph.execute(runtime)
             assert inputs.closed and hits.closed
+
+
+@pytest.mark.parametrize("memory", ["host", "device"])
+def test_fused_colors_bounds_errors_and_palette_updates(memory):
+    from ordinarylight.transport import COLOR_HIT_DTYPE
+
+    batch = BoxBatch(
+        [[[-1, -1, -1], [1, 1, 1]], [[2, -1, -1], [4, 1, 1]]], identities=[1, 5]
+    )
+    with (
+        ol.VulkanRuntime() as runtime,
+        runtime.buffer(batch.records.nbytes, data=batch.records) as records,
+    ):
+        with runtime.buffer(
+            32,
+            data=np.array([[0, 0, 0, 1], [2, 0.5, 0.25, 0.8]], np.float32),
+            memory=memory,
+        ) as palette:
+            with VulkanTransportScene(
+                runtime,
+                custom_geometry=[batch.geometry()],
+                custom_resources={batch.resource_name: records},
+                custom_materials=[TransportMaterial()],
+            ) as scene:
+                with VulkanRayQuery(
+                    scene,
+                    [[0, 0, 3], [3, 0, 3], [6, 0, 3]],
+                    [[0, 0, -1]] * 3,
+                    colors=palette,
+                    memory=memory,
+                ) as query:
+                    assert query.hit_dtype == COLOR_HIT_DTYPE
+                    assert query.hits.size == 3 * 32
+                    graph = VulkanGraph().add("fused", query.operation()).compile()
+                    graph.execute(runtime).wait()
+                    result = query.read()
+                    np.testing.assert_allclose(
+                        result["color"],
+                        [[2, 0.5, 0.25, 0.8], [0, 0, 0, 1], [0, 0, 0, 1]],
+                    )
+                    np.testing.assert_array_equal(
+                        result["identity"], [[2, 1, 0, 0], [2, 5, 0, 32], [0, 0, 0, 0]]
+                    )
+                    with pytest.raises(RuntimeError):
+                        palette.close()
+                    palette.upload(
+                        np.array([[0, 0, 0, 1], [0.1, 0.2, 0.3, 1]], np.float32)
+                    )
+                    graph.execute(runtime).wait()
+                    np.testing.assert_allclose(
+                        query.read()["color"][0], [0.1, 0.2, 0.3, 1]
+                    )
+                    palette.upload(np.full((2, 4), np.nan, np.float32))
+                    graph.execute(runtime).wait()
+                    assert query.read()["identity"][0, 3] == 16

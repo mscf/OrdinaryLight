@@ -66,3 +66,40 @@ visibility path for camera queries, measure a fused color lookup at the intended
 resolution, and investigate command recording/submission overhead separately.
 Changing the intersection algorithm alone cannot explain or remove all of the
 previous wall-clock latency.
+
+## 720p fused color and memory-placement follow-up
+
+A second probe traces an orthographic 1280×720 image (921,600 rays) against the
+same 8,192-box distribution and fetches stored linear RGBA by application ID.
+Compare full-hit output plus a separate lookup pass with fused intersection/lookup
+writing the compact 32-byte color/identity/status record. Both layouts produced
+exactly identical output, with 645,656 hits and no invalid lookup/intersection
+statuses. Nine randomized rounds followed two warmups on the same RTX 4070 Laptop
+GPU. Readback and PNG export occur after timing finishes.
+
+| Memory policy | Layout | Separate lookup GPU ms | Fused GPU ms | Fused wall ms |
+|---|---|---:|---:|---:|
+| Host-visible/coherent | Spatial groups | 31.749 | 11.368 | 12.577 |
+| Host-visible/coherent | Per-box primitives | 33.052 | 11.297 | 12.232 |
+| Device-local | Spatial groups | 1.680 | 1.031 | 2.183 |
+| Device-local | Per-box primitives | 0.810 | **0.259** | **1.423** |
+
+The selected host memory type had flags 6 (host-visible/coherent, not device-local);
+the device-local type had flags 1. Placement changed for box records, indices,
+palette, ray input and query output buffers together. This experiment does not
+isolate the contribution of each allocation. All data is uploaded before timing;
+it does not include per-frame CPU streaming costs.
+
+This changes the optimization priority. Memory placement and avoiding large
+intermediate hit buffers have much larger effects here than median spatial
+grouping. With device-local data, per-box primitives clearly outperform the
+initial spatial partition in this fixture. Keep that path as the practical
+baseline; measure update/acceleration costs before adopting groups downstream.
+
+The fused path writes 29.5 MB of compact output per 720p frame instead of writing
+and rereading the 73.7 MB full-hit intermediate and then writing compact output.
+It still exports a GPU buffer, not an image. Camera-ray generation, stored-color
+production, tone mapping, presentation and animated scene updates remain outside
+the measurement. Device-local staging is explicitly synchronized; this test does
+not claim those boundary operations are free. Host query/buffer defaults remain
+unchanged, with device-local storage available as an opt-in public API.

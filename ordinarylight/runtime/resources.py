@@ -191,10 +191,26 @@ class _Allocation:
 
 
 class VulkanBuffer(_Allocation):
-    """Persistent host-coherent storage buffer, optionally device-addressable."""
+    """Persistent storage with explicit host or device-local allocation policy.
 
-    def __init__(self, runtime, size, *, usage=None, data=None, device_address=False):
+    Host memory is the compatibility default. Device-local upload/read use
+    synchronized staging; GPU consumers access the allocation directly.
+    """
+
+    def __init__(
+        self,
+        runtime,
+        size,
+        *,
+        usage=None,
+        data=None,
+        device_address=False,
+        memory="host",
+    ):
         runtime.require_open()
+        if memory not in ("host", "device"):
+            raise ValueError("Buffer memory must be host or device")
+        self.memory_kind = memory
         self.runtime = runtime
         self.size = index(size)
         if self.size <= 0:
@@ -209,6 +225,11 @@ class VulkanBuffer(_Allocation):
                 | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
             )
         )
+        if memory == "device":
+            self.usage |= (
+                vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+                | vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            )
         if device_address:
             self.usage |= 0x00020000
         payload = None if data is None else memoryview(data).cast("B")
@@ -226,17 +247,23 @@ class VulkanBuffer(_Allocation):
         self.memory = None
         try:
             requirements = vk.vkGetBufferMemoryRequirements(runtime.device, self.buffer)
+            required = (
+                vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                if memory == "device"
+                else vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            )
+            memory_index = runtime.memory_type(requirements.memoryTypeBits, required)
+            self.memory_flags = int(
+                runtime.memory_properties.memoryTypes[memory_index].propertyFlags
+            )
             flags = vk.VkMemoryAllocateFlagsInfo(flags=2) if device_address else None
             self.memory = vk.vkAllocateMemory(
                 runtime.device,
                 vk.VkMemoryAllocateInfo(
                     pNext=flags,
                     allocationSize=requirements.size,
-                    memoryTypeIndex=runtime.memory_type(
-                        requirements.memoryTypeBits,
-                        vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                        | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    ),
+                    memoryTypeIndex=memory_index,
                 ),
                 None,
             )
@@ -250,7 +277,11 @@ class VulkanBuffer(_Allocation):
         self._borrowers = set()
         runtime.retain(self)
         if payload is not None:
-            self.upload(payload)
+            try:
+                self.upload(payload)
+            except Exception:
+                self.close()
+                raise
 
     @property
     def byte_size(self):
@@ -267,6 +298,15 @@ class VulkanBuffer(_Allocation):
             raise ValueError("upload exceeds buffer bounds")
         with self.runtime.lock:
             self.require_open()
+            if self.memory_kind == "device":
+                if len(payload):
+                    with VulkanBuffer(
+                        self.runtime, len(payload), data=payload
+                    ) as staging:
+                        self._copy(
+                            staging, self, len(payload), destination_offset=offset
+                        )
+                return
             vk.vkDeviceWaitIdle(self.device)
             mapped = vk.vkMapMemory(self.device, self.memory, 0, self.size, 0)
             try:
@@ -277,12 +317,46 @@ class VulkanBuffer(_Allocation):
     def read(self):
         with self.runtime.lock:
             self.require_open()
+            if self.memory_kind == "device":
+                with VulkanBuffer(self.runtime, self.size) as staging:
+                    self._copy(self, staging, self.size)
+                    return staging.read()
             vk.vkDeviceWaitIdle(self.device)
             mapped = vk.vkMapMemory(self.device, self.memory, 0, self.size, 0)
             try:
                 return bytes(mapped[: self.size])
             finally:
                 vk.vkUnmapMemory(self.device, self.memory)
+
+    def _copy(self, source, destination, size, *, destination_offset=0):
+        def record(command):
+            vk.vkCmdCopyBuffer(
+                command,
+                source.buffer,
+                destination.buffer,
+                1,
+                [vk.VkBufferCopy(dstOffset=destination_offset, size=size)],
+            )
+            vk.vkCmdPipelineBarrier(
+                command,
+                vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | vk.VK_PIPELINE_STAGE_HOST_BIT,
+                0,
+                1,
+                [
+                    vk.VkMemoryBarrier(
+                        srcAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
+                        dstAccessMask=vk.VK_ACCESS_MEMORY_READ_BIT
+                        | vk.VK_ACCESS_HOST_READ_BIT,
+                    )
+                ],
+                0,
+                None,
+                0,
+                None,
+            )
+
+        submit(self.runtime, record, resources=(source, destination)).wait()
 
     def close(self):
         with self.runtime.lock:

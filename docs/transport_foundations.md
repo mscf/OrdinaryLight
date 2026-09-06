@@ -647,3 +647,47 @@ submission are rejected.
 
 This is a full 80-byte hit query, not a finished visibility/color pass. A renderer
 can follow it with application-ID color lookup, or supply a fused specialization.
+
+### Fused stored-color lookup
+
+Pass `colors=palette_buffer` to `VulkanRayQuery` to fetch a stored linear RGBA
+value in the intersection dispatch. The palette is a same-runtime storage buffer
+of float32 vec4s indexed by **application hit identity**. This assumes dense,
+bounded IDs; it is not a hash lookup for arbitrary identifiers. Clients with
+sparse IDs can use the full-hit path or provide dense identities explicitly.
+No voxel, cell, material-graph or lighting policy is implied by the palette.
+
+In this mode `query.hit_dtype` is `COLOR_HIT_DTYPE`: 32 bytes containing float32
+`color[4]` and uint32 `identity[4]` (hit kind, application ID, material index,
+status). Full queries retain the existing 80-byte `HIT_DTYPE` and remain the
+`intersect_rays` default. Misses use black with alpha one and kind zero. Existing
+intersection failures propagate in status; an out-of-range palette ID sets 32,
+and a nonfinite fetched RGBA sets 16. Failed lookups use black with alpha one.
+Consumers must check status rather than treating those pixels as valid shading.
+
+The query kernel retains the palette allocation. Palette contents may change
+through ordinary uploads or declared GPU producers without recompiling the query.
+Release queries before closing the palette. This is a compact GPU buffer output,
+not an image, tone mapper or presentation implementation. It avoids writing and
+rereading the full hit record when only stored color and basic identity are needed.
+
+### Device-local working buffers
+
+`runtime.buffer(size, memory="device", data=...)` selects a device-local memory
+type. The existing `memory="host"` default remains host-visible/coherent for
+compatibility. `buffer.memory_flags` reports the actual Vulkan memory flags;
+unified-memory devices may provide both properties at once.
+
+Device-local `upload(data, offset=...)` and `read()` use temporary staging buffers
+and wait for completion. They preserve the byte-oriented API, including partial
+uploads, but are explicit transfer/synchronization boundaries. GPU kernels and
+graph consumers use the resident allocation directly. Transfer-source/destination
+usage is added for device-local buffers to support staging. Persistent producers
+should write these buffers on the GPU instead of uploading them every frame.
+
+Use `VulkanRayQuery(..., colors=palette, memory="device")` to place ray inputs and
+hit/color output in device-local memory. Set the same policy on box records,
+partition indices and palette buffers as appropriate. Existing query and buffer
+defaults are unchanged; clients opt in explicitly. Ordinary resource lifetime,
+producer ordering and graph dependency rules still apply. Large staging uploads,
+readback, allocation and shutdown are not asynchronous steady-state operations.

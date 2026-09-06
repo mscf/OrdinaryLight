@@ -107,6 +107,7 @@ _LAZY = {
     "VulkanTransportIntegrator": ("integrator", "VulkanTransportIntegrator"),
     "GpuSampleAccumulator": ("accumulation", "GpuSampleAccumulator"),
     "ACCUMULATION_DTYPE": ("accumulation", "ACCUMULATION_DTYPE"),
+    "COLOR_HIT_DTYPE": ("diagnostics", "COLOR_HIT_DTYPE"),
     "HIT_DTYPE": ("diagnostics", "HIT_DTYPE"),
     "VulkanRayQuery": ("diagnostics", "VulkanRayQuery"),
     "intersect_rays": ("diagnostics", "intersect_rays"),
