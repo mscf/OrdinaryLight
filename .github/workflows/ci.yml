@@ -68,7 +68,7 @@ jobs:
       - name: Install build tools
         run: |
           python -m pip install --upgrade build twine
-          python -m pip install -e compatibility/OrdinaryShade
+          python -m pip install -e compatibility/OrdinaryShade -e .
       - name: Compile packaged raster shaders from Python sources
         run: |
           python scripts/generate_raster_artifacts.py
