@@ -54,6 +54,21 @@ try {
     const read=async r=>Object.fromEntries(await Promise.all(Object.keys(r.manifest.outputs).map(async name=>[name,bytes(await r.read(name))])));
     const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     const r=viewer.runtime, device=r.device;
+    const data=await fetchPackage('/initial/manifest.json');
+    const rejectionChecks=[];
+    for(const [label,mutate,expected] of [
+      ['unsupported schema',d=>{d.manifest.schema='unsupported/v99';},'unsupported schema'],
+      ['corrupt payload',d=>{new Uint8Array(d.payload)[0]^=1;},'payload integrity'],
+      ['missing feature',d=>{d.manifest.required_features.push('nonexistent-conformance-feature');},'feature'],
+      ['excessive limit',d=>{d.manifest.required_limits.maxBufferSize=Number.MAX_SAFE_INTEGER;},'limit'],
+    ]) {
+      const invalid=structuredClone(data);mutate(invalid);
+      let message='';
+      try { const unexpected=await PortableRuntime.create(invalid,{device});unexpected.close(); }
+      catch(error) { message=error.message; }
+      check(message.includes(expected),'Missing diagnostic for '+label+': '+message);
+      rejectionChecks.push(label);
+    }
     const errors=[];device.addEventListener('uncapturederror',e=>errors.push(e.error.message));
     device.pushErrorScope('validation');
     const initial=await read(r), snapshot=r.snapshot(), pixels=Array.from(await r.readPixels());
@@ -88,7 +103,7 @@ try {
     await device.queue.onSubmittedWorkDone();
     const gpuError=await device.popErrorScope();check(!gpuError,gpuError?.message);check(!errors.length,errors.join('; '));
     const info=device.adapterInfo;
-    return {initial,updated,replacement,snapshot,replacementSnapshot,pixels,width:512,height:512,
+    return {initial,updated,replacement,snapshot,replacementSnapshot,pixels,width:512,height:512,rejectionChecks,
       browserAdapter:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description},
       checks:['render','live update','presentation independence','same-runtime restore','fresh-runtime restore','invalid restore atomicity','structural guard','same-device replacement','failed replacement recovery'],gpuErrors:errors};
   })()`);

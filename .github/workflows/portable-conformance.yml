@@ -1,0 +1,37 @@
+name: Portable browser/native conformance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    # Requires a desktop display, Chrome, Node >=20, a native WebGPU adapter, and Git credentials
+    # with read access to the pinned upstream repositories on this runner.
+    runs-on: [self-hosted, linux, x64, ordinarylight-gpu]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Choose fresh artifact directories
+        run: |
+          echo "INSTALL_ROOT=$(mktemp -d)/install" >> "$GITHUB_ENV"
+          echo "RESULT_ROOT=$(mktemp -d)/conformance" >> "$GITHUB_ENV"
+      - name: Build and verify isolated wheel installation
+        run: python scripts/check_portable_install.py --output "$INSTALL_ROOT"
+      - name: Install native executor
+        run: '"$INSTALL_ROOT/venv/bin/python" -m pip install "wgpu>=0.32"'
+      - name: Run browser/native conformance
+        run: |
+          "$INSTALL_ROOT/venv/bin/python" examples/portable_volume/run_conformance.py \
+            --output "$RESULT_ROOT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: portable-conformance
+          path: ${{ env.RESULT_ROOT }}
+          if-no-files-found: warn

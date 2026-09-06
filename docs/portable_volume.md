@@ -157,6 +157,12 @@ is suitable). The demo binds only to the loopback interface.
 
 ## Verification
 
+For the automated gate, see [Automated conformance](../examples/portable_volume/README.md#automated-conformance).
+It starts and stops its own server and Chrome profile, runs the browser probe,
+then compares the captures with native execution. The commands below remain
+useful when investigating an already-running browser. Current probes also
+require schema, payload integrity, feature and limit rejection checks.
+
 Run the Python and Node contract gates with the upstream source checkouts:
 
 ```sh

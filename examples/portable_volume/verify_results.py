@@ -20,6 +20,17 @@ def main():
     args = parser.parse_args()
     root = args.directory
     browser = json.loads((root / "browser.json").read_text())
+    required = {
+        "render", "live update", "presentation independence", "same-runtime restore",
+        "fresh-runtime restore", "invalid restore atomicity", "structural guard",
+        "same-device replacement", "failed replacement recovery",
+    }
+    if not required.issubset(browser["checks"]) or browser["gpuErrors"]:
+        raise ValueError("Browser checks are incomplete or GPU errors were reported")
+    if set(browser.get("rejectionChecks", [])) != {
+        "unsupported schema", "corrupt payload", "missing feature", "excessive limit"
+    }:
+        raise ValueError("Package rejection checks are incomplete")
     initial = PortablePackage.read(root / "initial")
     updated = reprepare_volume(
         initial, browser["snapshot"], {"parameters": {"seed": 9}}
@@ -29,6 +40,7 @@ def main():
     )
     report = dict(
         browser_checks=browser["checks"],
+        rejection_checks=browser["rejectionChecks"],
         browser_adapter=browser.get("browserAdapter"),
         gpu_errors=browser["gpuErrors"],
         comparisons={},
