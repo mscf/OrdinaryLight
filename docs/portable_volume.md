@@ -18,9 +18,9 @@ a selected floating vector output, its histogram, and a buffer-backed volume.
 `PreparedBatchedModel.prepare` creates host resource descriptions and compiled
 steps. `BatchedModelSession` creates the native executor afterwards. The RT
 controller exposes `prepare_volume()` and `export_portable()` through the same
-preparation path. Source checkouts containing these evolving upstream modules
-are required; this milestone does not imply they are available in published
-releases.
+preparation path. These evolving upstream APIs are not yet available as
+coordinated published releases. Use the pinned wheel build below or compatible
+development checkouts.
 
 ## Package and ownership contract
 
@@ -77,6 +77,48 @@ right edge. Floating point agreement across backends is measured with tolerance;
 bitwise agreement of transcendental computations is not a portable guarantee.
 
 ## Run the example
+
+### Clean wheel installation
+
+From this checkout, with Python 3.12 or newer and Git access to the upstream
+repositories, run:
+
+```sh
+python scripts/check_portable_install.py --output /tmp/ordinary-portable-install
+```
+
+Choose an output directory that does not already exist. The script builds this
+OrdinaryLight checkout and the four exact revisions in
+[`upstream-requirements.txt`](../examples/portable_volume/upstream-requirements.txt)
+into wheels, downloads their Python dependencies, and installs them into a fresh
+virtual environment using only that wheelhouse. It runs `pip check`, verifies
+the packaged browser assets, and prepares the DMC example outside the checkout
+with isolated Python imports. No `PYTHONPATH`, sibling checkout, `.staging`
+directory, or native `wgpu` installation is needed. Building requires network
+access; installation from the resulting wheelhouse does not.
+
+Run the copied example with the resulting environment:
+
+```sh
+/tmp/ordinary-portable-install/venv/bin/python -I \
+  /tmp/ordinary-portable-install/serve.py \
+  --output /tmp/ordinary-portable-install/viewer --port 8765
+```
+
+Then open `http://127.0.0.1:8765/` in a WebGPU-capable browser. See
+[Linux host diagnostics](webgpu_host_diagnostics.md) if no adapter is available.
+This installation check validates preparation and packaging; browser execution
+and numerical parity are separate checks described below.
+
+The pins identify the experimental API combination because current package
+version floors alone do not distinguish it from earlier source revisions.
+LatticeModel is not available on the configured package index; access to its
+Git repository is required. This is a reproducible upstream source selection,
+not a complete lock of transitive dependencies. Preserve the generated
+wheelhouse when an identical installation is needed. Coordinated release
+versions and updated dependency floors remain a separate release step.
+
+### Development checkouts
 
 In the local development workspace, the launcher supplies the upstream source
 paths and uses this checkout's `.venv`:

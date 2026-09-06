@@ -8,6 +8,11 @@ from zipfile import ZipFile
 
 
 REQUIRED_SUFFIXES = (
+    "ordinarylight/portable/__init__.py",
+    "ordinarylight/portable/package.py",
+    "ordinarylight/portable/volume.wgsl",
+    "ordinarylight/portable/web/runtime.js",
+    "ordinarylight/portable/web/index.html",
     "ordinarylight/__init__.py",
     "ordinarylight/renderer/__init__.py",
     "ordinarylight/renderer/renderer.py",
