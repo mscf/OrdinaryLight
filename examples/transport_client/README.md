@@ -56,7 +56,18 @@ ordinarylight-material-graph --samples 64 --output /tmp/material-graph.png
 ```
 
 This additional public-API client renders graph-defined rough metal and emission,
-rough glass, analytic lighting/environment MIS, GPU-discovered sphere slots and
+rough glass, analytic lighting, environment and emissive-sphere MIS,
+GPU-discovered sphere slots and
 acceleration refits, unequal coverage weights, persistent HDR and tone mapping.
 The final PNG and JSON report are explicit diagnostic readbacks. See
 [material graph contracts](../../docs/material_graph_milestone.md).
+
+## GPU-authored reduction workload
+
+    python -m ordinarylight_transport_demo.gpu_reduction --frames 6 --output /tmp/gpu-reduction.json
+
+A GPU producer generates sample records, changes active counts, and builds ordered
+weighted reduction groups. The same compiled graph validates the maps, dispatches
+transport indirectly, and accumulates into three persistent IDs. No sample/count/
+map readbacks or CPU grouping occur; only final means and diagnostics are read for
+verification. Allocation capacities remain explicit and fixed.

@@ -21,6 +21,37 @@ class SurfaceHit:
 
 
 @dataclass(frozen=True)
+class SurfaceSamplingProgram:
+    """Optional world-area sampling paired with a custom intersection program.
+
+    uint name(vec4 parameters, vec3 randoms, out vec3 position,
+              out vec3 geometric_normal, out float area_pdf);
+    float name_pdf(vec4 parameters, vec3 position, vec3 geometric_normal);
+
+    Return 0 for a null sample, 1 for a sample, 2 for failure. PDFs are
+    unconditional density per world-space area, including null probability.
+    Both entry points may read the enclosing intersection's declared resources.
+    """
+
+    name: str
+    source: str
+
+    def __post_init__(self):
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.name) or not self.source.strip():
+            raise ValueError("Surface sampler needs a GLSL identifier and source")
+
+    @classmethod
+    def sphere(cls):
+        from importlib.resources import files
+
+        return cls(
+            "ordinarylightSampleSphere",
+            files("ordinarylight.shaders")
+            .joinpath("transport_v1/sample_sphere.glsl").read_text(),
+        )
+
+
+@dataclass(frozen=True)
 class IntersectionProgram:
     """A bounded GLSL callback, independent of the voxel representation.
 
@@ -41,8 +72,11 @@ class IntersectionProgram:
     field_kind: FieldKind | None = None
     resources: tuple[IntersectionResource, ...] = ()
     hit_version: int = 1
+    sampling: SurfaceSamplingProgram | None = None
 
     def __post_init__(self):
+        if self.sampling is not None and not isinstance(self.sampling, SurfaceSamplingProgram):
+            raise TypeError("sampling must be SurfaceSamplingProgram or None")
         if type(self.hit_version) is not int or self.hit_version not in (1, 2):
             raise ValueError("hit_version must be 1 or 2")
         object.__setattr__(self, "resources", tuple(self.resources))
@@ -68,6 +102,7 @@ class IntersectionProgram:
             .joinpath("transport_v1/sdf_sphere.glsl")
             .read_text(),
             FieldKind.EXACT_DISTANCE,
+            sampling=SurfaceSamplingProgram.sphere(),
         )
 
 

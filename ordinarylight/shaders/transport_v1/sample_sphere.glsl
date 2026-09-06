@@ -1,0 +1,17 @@
+#ifndef ORDINARYLIGHT_SAMPLE_SPHERE
+#define ORDINARYLIGHT_SAMPLE_SPHERE
+float ordinarylightSampleSphere_pdf(vec4 parameters,vec3 position,vec3 normal) {
+    if(parameters.w<=0.0) return 0.0;
+    return 1.0/(12.566370614359172*parameters.w*parameters.w);
+}
+uint ordinarylightSampleSphere(vec4 parameters,vec3 randoms,
+    out vec3 position,out vec3 normal,out float area_pdf) {
+    if(parameters.w<=0.0) return 2u;
+    float z=1.0-2.0*randoms.x, phi=6.283185307179586*randoms.y;
+    float r=sqrt(max(0.0,1.0-z*z));
+    normal=vec3(r*cos(phi),r*sin(phi),z);
+    position=parameters.xyz+parameters.w*normal;
+    area_pdf=ordinarylightSampleSphere_pdf(parameters,position,normal);
+    return 1u;
+}
+#endif

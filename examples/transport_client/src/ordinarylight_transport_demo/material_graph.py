@@ -129,7 +129,7 @@ def run(output="/tmp/material-graph.png", samples=64):
                 max_bounces=16,
                 max_steps=8192,
                 environment=(0.3, 0.4, 0.6),
-                environment_nee=True,
+                environment_nee=True, emissive_nee=True,
             ),
         )
         schedule.add("geometry", updater.operation())

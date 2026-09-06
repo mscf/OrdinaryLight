@@ -168,3 +168,24 @@ def test_intersection_program_rejects_unknown_hit_versions(version):
 
     with pytest.raises(ValueError, match="hit_version"):
         IntersectionProgram("test", "uint test() { return 0u; }", hit_version=version)
+
+
+def test_optional_surface_sampler_contract():
+    from ordinarylight.geometry import IntersectionProgram, SurfaceSamplingProgram
+
+    assert IntersectionProgram.sdf_sphere().sampling == SurfaceSamplingProgram.sphere()
+    assert (
+        IntersectionProgram("legacy", "uint legacy() { return 0u; }").sampling is None
+    )
+    with pytest.raises(TypeError, match="SurfaceSamplingProgram"):
+        IntersectionProgram(
+            "invalid", "uint invalid() { return 0u; }", sampling=object()
+        )
+    with pytest.raises(ValueError, match="identifier"):
+        SurfaceSamplingProgram("invalid name", "uint sample() { return 0u; }")
+
+
+def test_bounds_clipped_entry_is_not_a_departing_origin_root():
+    distance, normal = SdfSphere(radius=0.1).intersect([0, 0, 0.7], [0, 0, -1])
+    assert distance == pytest.approx(0.6)
+    np.testing.assert_allclose(normal, [0, 0, 1])

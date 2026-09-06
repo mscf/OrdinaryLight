@@ -52,13 +52,15 @@ sources, so their direct samples do not compete with finite-density BSDF samples
 `accumulate(environment_nee=True)` enables uniform-environment next-event sampling
 with power-heuristic MIS on both light samples and BSDF escapes. It defaults off
 to preserve the existing constant-environment sampling sequence/behavior.
-Emissive geometry is visible through BSDF continuation; emissive-area importance
-sampling is not part of this analytic-light implementation.
+Emissive geometry remains visible through BSDF continuation. The optional
+`emissive_nee=True` surface-sampling path adds matched forward/reverse MIS; see
+the follow-up contract below.
 
 Boundary identities and optical media remain authoritative. Graphs cannot
 silently change glass membership, transmission class, medium IOR, or absorption.
 Incompatible outputs produce invalid-path diagnostics. Rough-glass scattering uses
-the geometric normal; the ray origin is offset onto the classified side to avoid
+the geometric normal by default; the opt-in `shading_clipped` policy is described
+below. The ray origin is offset onto the classified geometric side to avoid
 skipping very short grazing chords. Offset distances introduce a finite-epsilon
 approximation, as with other ray-offset methods. The default transport SDF budget
 is 8192 steps; difficult fields may still report traversal diagnostics.
@@ -110,8 +112,9 @@ The 48-byte accumulation record now uses previously reserved `radiance.w` for th
 normalization sum. Integer path/event counts remain unweighted. CPU means and GPU
 HDR resolve use the same denominator. External consumers that previously divided
 RGB sums by valid-path counts must use this sum when weighting is enabled.
-Mappings and weights can be replaced with `set_reduction`; grouping remains
-host-declared. Reset history when changing estimator semantics.
+Host mappings and weights can be replaced with `set_reduction`. The optional
+`GpuSampleReduction` contract accepts GPU-authored counts and maps instead.
+Reset history when changing estimator semantics.
 
 ## Resource views and reflection
 
@@ -236,3 +239,27 @@ Changing declarations or allocations requires a new bundle and renderer.
 Camera GI retains its existing scattering implementation. Tests compare bound
 material evaluation with equivalent constant programs; this is not a claim of
 identical sampling or scattering across camera and non-camera integrators.
+
+
+## Emissive-source MIS follow-up
+
+Non-camera transport now offers `emissive_nee=True` alongside environment MIS.
+It samples triangle surfaces and opt-in custom surface samplers, evaluates the
+actual per-hit graph emission, and balances those estimates with BSDF-hit emission.
+The built-in SDF sphere supplies a sampler. See
+[transport foundations](transport_foundations.md#emissive-geometry-sampling) for
+PDF, visibility and sparse-capacity semantics. This improves small-source
+convergence without asserting camera/non-camera scattering equivalence.
+
+
+## Optical normals and GPU-authored scheduling follow-up
+
+Non-camera accumulation now accepts the explicit experimental
+`dielectric_normal_policy="shading_clipped"` policy. It preserves geometric medium
+classification and treats wrong-hemisphere events as valid null samples.
+
+`GpuSampleReduction` accepts GPU-authored active counts, sorted reduction groups,
+indices and weights. GPU validation precedes indirect trace/reduce dispatch, and
+invalid maps poison the batch's accumulator status rather than accessing unchecked
+indices. Existing CPU grouping and geometric-normal defaults remain supported.
+See [transport foundations](transport_foundations.md) for exact contracts and limits.

@@ -7,8 +7,16 @@ layout(set=0,binding=2,std430) readonly buffer Groups { uvec4 groups[]; };
 layout(set=0,binding=3,std430) readonly buffer Indices { uint indices[]; };
 layout(set=0,binding=4,std430) readonly buffer Weights { vec2 weights[]; };
 layout(push_constant) uniform Constants { uint group_count; } pc;
+#ifdef OL_GPU_REDUCTION
+layout(set=0,binding=5,std430) readonly buffer GpuControl { uvec4 gpu_control; };
+#endif
 void main() {
-    uint i=gl_GlobalInvocationID.x; if(i>=pc.group_count) return;
+    uint i=gl_GlobalInvocationID.x;
+#ifdef OL_GPU_REDUCTION
+    if(gpu_control.z!=0u || i>=min(pc.group_count,gpu_control.y)) return;
+#else
+    if(i>=pc.group_count) return;
+#endif
     uvec4 group=groups[i];
     SampleAccumulation result=accumulated[group.x];
     for(uint j=0u;j<group.z;++j) {

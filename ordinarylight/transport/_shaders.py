@@ -98,3 +98,38 @@ MaterialEvaluation ordinarylightEvaluateMaterial(uint index, OrdinaryLightHit hi
         source += f"case {i}u: return olMaterial_{i}(material,normal,uv,direction,entering,randoms.x,randoms.y,bounce,current_ior,exterior_ior);\n"
     source += "default: return olMaterial_0(material,normal,uv,direction,entering,randoms.x,randoms.y,bounce,current_ior,exterior_ior);\n}\n}\n"
     return source
+
+
+def surface_sampling_source(scene):
+    """Shared forward/reverse area densities for emissive next-event estimation."""
+    samplers = {}
+    for program in scene.programs.values():
+        if program.sampling is not None:
+            sampler = program.sampling
+            previous = samplers.setdefault(sampler.name, sampler)
+            if previous != sampler:
+                raise ValueError("Conflicting custom surface sampling program names")
+    source = (
+        f"\n#define OL_TRIANGLE_COUNT {scene.triangle_count}u\n"
+        f"#define OL_SURFACE_SLOT_COUNT {scene.triangle_count + scene.custom_capacity}u\n"
+        + "\n".join(sampler.source for sampler in samplers.values())
+    )
+    source += """
+uint ordinarylightCustomSurfaceSample(uint program,vec4 parameters,vec3 randoms,
+    out vec3 position,out vec3 normal,out float area_pdf) {
+    switch(program) {
+"""
+    for index, program in enumerate(scene.programs.values()):
+        if program.sampling is not None:
+            source += f"case {index}u: return {program.sampling.name}(parameters,randoms,position,normal,area_pdf);\n"
+    source += "default: return 0u;\n}\n}\n"
+    source += """
+float ordinarylightCustomSurfacePdf(uint program,vec4 parameters,vec3 position,vec3 normal) {
+    switch(program) {
+"""
+    for index, program in enumerate(scene.programs.values()):
+        if program.sampling is not None:
+            source += f"case {index}u: return {program.sampling.name}_pdf(parameters,position,normal);\n"
+    source += "default: return 0.0;\n}\n}\n"
+    source += files("ordinarylight.shaders").joinpath("transport_v1/emissive.glsl").read_text()
+    return source

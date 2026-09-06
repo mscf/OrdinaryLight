@@ -8,10 +8,11 @@ this API using only public imports, without implementing its own transport loop.
 
 Materials now include diffuse, metallic/rough PBR, ideal/rough dielectric, and
 emission, with shared graph-defined parameter evaluation. Point/directional/spot
-light NEE and optional constant-environment MIS are supported. See
+light NEE, optional constant-environment MIS, and opt-in emissive-surface MIS
+are supported. See
 [material graphs and extended transport](material_graph_milestone.md) for resource
 bindings, medium/weight contracts and current integration boundaries. Participating
-scattering and emissive-area importance sampling are not implemented in this path.
+scattering is not implemented in this path.
 Existing camera GI, raster, WebGPU, and scientific viewer entry points retain
 their behavior. Custom geometry is currently available through this Vulkan
 transport API, not through those camera renderers.
@@ -145,7 +146,7 @@ resource accesses.
 
 The committed-hit record remains 80 bytes. UVs occupy geometric-normal.w and
 shading-normal.w for both triangles and custom geometry. Optional shading normals
-do not change the dielectric scattering policy.
+do not change the default dielectric scattering policy.
 
 A heterogeneous chunk can select a material and cell identity on each hit.
 A connected optical region must use one boundary identity across chunks; chunk
@@ -239,7 +240,7 @@ output diagnostics. No input readback is required.
 An explicit `SampleReduction` is required when borrowing `GpuTransportSamples`.
 It maps **input slots**, not GPU record identities, to output IDs. Record identities
 remain sampling identity/stream metadata. The map is host-declared and uploaded
-as stable groups; GPU-generated grouping is deferred. Optional contribution and
+as stable groups. For GPU-authored maps, use the optional contract below. Contribution and
 normalization weights support unequal coverage and explicit estimators. With the
 default unit weights, output remains total radiance divided by valid path count.
 With weighting, use the normalization sum in `radiance.w`, not the valid count.
@@ -253,21 +254,82 @@ without a reduction uses the new host records' output IDs, matching initial
 NumPy construction. Reset affected accumulator IDs explicitly when changing the
 quantity being estimated; updates never silently erase application history.
 
-Close integrators before borrowed inputs. GPU sample generation still needs a
-known host dispatch count; indirect dispatch and GPU-discovered reduction maps
-are not introduced here. Reduction adds one GPU pass and scratch record per
-input; it avoids float atomics and CPU result copies.
+Close integrators before borrowed inputs. The legacy `SampleReduction` path uses
+host-declared active counts and adds one reduction pass and scratch record per
+input. The GPU-authored mode below uses validated indirect dispatch instead.
+Both avoid float atomics and CPU result copies.
+
+## GPU-authored counts and reduction maps
+
+Use `GpuSampleReduction(runtime, capacity, group_capacity=...)` with
+`GpuTransportSamples` and pass it as `VulkanTransportIntegrator(..., reduction=...)`.
+Sample and reduction capacities must match. Changing them requires new input
+and reduction allocations and a new integrator. This API does not allocate sparse
+memory from GPU shaders; scene geometry retains its explicit growth API.
+
+A GPU producer writes these public storage buffers:
+
+| Buffer | Layout |
+| --- | --- |
+| `counts` | One uvec4: active input count, active group count, two ignored words. |
+| `groups` | uvec4 per group: output ID, first index, index count, ignored word. |
+| `indices` | uint per active input: sample slot. |
+| `weights` | vec2 per sample slot: contribution and normalization weights; initially one. |
+
+Groups must have strictly increasing output IDs and partition the active indices
+contiguously, without empty groups. Input indices within each group must be
+strictly increasing, and each referenced sample's `identity.x` must match the
+group output ID. Together with bounded indices and counts, this ensures every
+active sample occurs exactly once. It preserves the deterministic summation order
+of the host grouping implementation. The producer owns grouping/sorting; the
+renderer validates the map rather than constructing it on the CPU.
+
+OrdinaryLight validates counts, ranges, ownership, ordering and finite nonnegative
+weights on the GPU before tracing or reducing. Validated counts generate indirect
+dispatch commands. Both counts may be zero for a no-work batch. Malformed maps
+suppress tracing/reduction and set invalid-input status 32 on **all accumulator
+slots**, without adding contributions. Clear/reset affected history before retrying.
+Malformed sample records retain the existing per-sample transport diagnostics.
+
+Declare producer writes in a `VulkanGraph`, or pass their completion through
+`after`. No count/map readback or CPU grouping is required. The integrator's
+`count` property reports allocated capacity in this mode; `counts.x` is the
+authoritative active GPU count. Host `update_samples`/`set_reduction` calls are
+rejected on these integrators: update producer buffers instead. Sample IDs can
+still carry independent sample-index metadata in `identity.y`.
+
+Close integrators before the reduction and input objects. Counts start at zero,
+so a newly allocated map cannot dispatch uninitialized samples. Dispatch limits
+are checked against the device. GPU validation and command preparation add four
+passes to the existing trace/reduce pair; this is a correctness-oriented contract,
+not a claim that GPU grouping is faster for small CPU-authored batches.
 
 ## Dielectric semantics
 
-The scattering-normal policy remains geometric for ideal dielectrics: both
-boundary classification and Fresnel/refraction/reflection use the outward
-geometric normal. Diffuse scattering uses the shading frame with a geometric
-hemisphere check. A GPU parity test verifies that tilted shading normals leave
-dielectric paths unchanged. Intersecting a smooth SDF supplies a smooth geometric
-normal; using a smooth optical normal on blocky intersections is not supported.
-That future mode needs an explicit wrong-hemisphere/throughput policy, rather
-than substituting the normal in the current equations.
+The default `dielectric_normal_policy="geometric"` keeps boundary classification
+and ideal/rough dielectric scattering on the geometric normal. Existing callers
+retain that behavior, including when custom hits return shading normals.
+
+Opt into `dielectric_normal_policy="shading_clipped"` on an accumulation call
+to use the shading normal for Fresnel, reflection/refraction, rough scattering,
+BSDF evaluation and PDFs. Entry/exit classification, medium stack updates and
+ray displacement still use geometry. If the shading frame hides the incident
+direction, or the selected reflection/transmission crosses the wrong geometric
+hemisphere, that event contributes zero further radiance. It is retained as a
+valid null sample, with its original sampling probability: there is no resampling,
+fallback normal, or renormalization of surviving directions. Previous emission
+and direct-light contributions remain intact.
+
+This is an explicit experimental approximation for optical normals on blocky
+boundaries. Large normal tilts can darken the result; it is not equivalent to
+intersecting a different smooth surface and does not establish energy conservation
+for arbitrary normal fields. This radiance-only integrator retains its eta-squared
+transmission weighting; it does not implement an adjoint/light-tracing normal
+correction. See PBRT's discussions of
+[geometric hemisphere classification](https://www.pbr-book.org/3ed-2018/Materials/BSDFs)
+and [shading-normal transport asymmetry](https://www.pbr-book.org/3ed-2018/Light_Transport_III_Bidirectional_Methods/The_Path-Space_Measurement_Equation).
+Tests cover unchanged equal-normal results, clipped Fresnel branch probabilities,
+unit-environment bounds for ideal/rough custom surfaces, and medium diagnostics.
 
 Medium zero is vacuum. Each dielectric surface identifies a
 `MediumBoundary(identity, outside, inside)`; multiple faces can share one closed
@@ -290,6 +352,56 @@ for its weight. Homogeneous Beer–Lambert absorption is
 `exp(-sigma_a * distance)` per RGB channel, including deliberate outgoing ray
 displacement. Absorption coefficients use inverse world-distance units. There
 is no scattering inside these media.
+
+## Emissive geometry sampling
+
+Pass `emissive_nee=True` to `accumulate` or `accumulate_operation` to sample
+one surface point at every eligible scattering vertex. Triangle geometry is
+sampled uniformly in area. `SdfSphere` includes a uniform sphere sampler.
+BSDF-hit emission and sampled emission use matched area-to-solid-angle PDFs and
+power-heuristic MIS. This option is independent of `environment_nee`; both may
+be enabled together. Both default to false for compatibility.
+
+The initial selection distribution is uniform over all triangle primitives and
+reserved custom slots. Inactive custom slots, custom programs without samplers,
+nonemissive surfaces and occluded points contribute null samples. Their selection
+probability is not redistributed. This deliberately keeps forward/reverse PDFs
+consistent during GPU geometry edits, without discovering emitters on the CPU.
+Large sparse capacities or mostly nonemissive scenes can waste samples; this is
+not yet a power-weighted emitter hierarchy. Unsampled custom emitters retain
+unweighted BSDF-hit emission.
+
+Custom geometry opts in with
+`IntersectionProgram(..., sampling=SurfaceSamplingProgram(name, source))`:
+
+```glsl
+uint name(vec4 parameters, vec3 randoms, out vec3 position,
+          out vec3 geometric_normal, out float area_pdf);
+float name_pdf(vec4 parameters, vec3 position, vec3 geometric_normal);
+```
+
+Coordinates and normals are world-space; densities are per unit world-space
+area, conditional on selecting this primitive but including any null-sample
+probability. Random inputs lie in [0,1). Return 0 for a null sample, 1 for a
+sample, and 2 for failure. The sampler and reverse PDF may read the intersection
+program's declared resources. They must describe the same distribution over the
+actual surface. The runtime cannot prove normalization or full support.
+
+Successful samples require finite positions inside the primitive AABB, unit
+normals, and finite positive densities. Forward and reverse densities must agree
+at sampled points; visible samples must agree with the intersection geometric
+normal. Invalid results fail paths with intersection status 1.
+Visibility queries recover the actual closest-hit material, boundary, UVs and
+application identity; samplers cannot override those attributes. Consequently
+one chunk sampler can illuminate from heterogeneous graph-driven cells.
+Emission sidedness, geometric visibility and homogeneous absorption still apply;
+shadow rays do not transmit through intervening glass.
+
+Changing sampler declarations requires rebuilding the scene/integrator. Updating
+declared resources or existing custom records uses the existing synchronization
+and history-invalidation contracts. Capacity changes rebuild dependent kernels.
+The sample, hit and accumulation buffer layouts and 64-byte transport push
+constant size are unchanged.
 
 ## Accumulation and output
 
@@ -387,3 +499,11 @@ transport integrators before their borrowed sample allocations. Reset affected
 output history explicitly after edits. Material/analytic-light expansion should
 continue upstream using shared transport components and parity tests; this
 extension does not claim full access to camera GI behavior.
+
+### SDF entry-root regression coverage
+
+CPU and GPU traversal distinguish a ray starting near a surface from an AABB-clipped
+interval starting at that surface. This prevents floating-point rounding at a
+clipped entry from skipping directly to the exit and corrupting nested-medium
+tracking. Regression coverage includes fractional-radius spheres and nested
+ideal/rough dielectric paths under both normal policies.

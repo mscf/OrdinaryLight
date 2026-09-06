@@ -194,8 +194,11 @@ def intersect_field(
     distance = near
     start = origin + distance * direction
     start_value = float(field.evaluate(start))
+    # Bounds clipping may round an entry point just inside the field. Root
+    # suppression applies only when the original ray starts near the surface.
     leaving_origin_root = (
-        abs(start_value) <= tolerance
+        abs(float(field.evaluate(origin))) <= tolerance
+        and abs(start_value) <= tolerance
         and start_value * np.dot(field.gradient(start), direction) > 0
     )
     for _ in range(max_steps):

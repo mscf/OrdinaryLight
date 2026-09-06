@@ -9,8 +9,14 @@ from ._synchronization import serialized
 
 from . import shader_source
 from .gpu_samples import GpuTransportSamples, SampleReduction, validate_samples
+from .gpu_reduction import GpuSampleReduction, _GpuReductionPlan, indirect_uses
 from ._custom_resources import resource_uses
-from ._shaders import scene_source, material_source, SCENE_BINDINGS
+from ._shaders import (
+    scene_source,
+    material_source,
+    surface_sampling_source,
+    SCENE_BINDINGS,
+)
 from .media import MediumStack
 
 
@@ -43,7 +49,22 @@ class VulkanTransportIntegrator:
             accumulator.require_open()
             if accumulator.runtime is not self.runtime:
                 raise ValueError("Scene and accumulator must share a runtime")
+            self._gpu_reduction = (
+                reduction if isinstance(reduction, GpuSampleReduction) else None
+            )
+            self._gpu_plan = None
             self._owns_samples = not isinstance(samples, GpuTransportSamples)
+            if self._gpu_reduction is not None:
+                if self._owns_samples:
+                    raise ValueError("GPU reduction requires GpuTransportSamples")
+                reduction.require_open()
+                if (
+                    reduction.runtime is not self.runtime
+                    or reduction.capacity != samples.capacity
+                ):
+                    raise ValueError(
+                        "GPU reduction and samples must share runtime and capacity"
+                    )
             prepared = validate_samples(samples, scene) if self._owns_samples else None
             if not self._owns_samples:
                 samples.require_open()
@@ -53,14 +74,18 @@ class VulkanTransportIntegrator:
                     raise ValueError("GPU samples require an explicit SampleReduction")
             count = len(prepared) if prepared is not None else samples.count
             capacity = count if prepared is not None else samples.capacity
-            if reduction is None:
-                reduction = SampleReduction(prepared["identity"][:, 0])
-            if (
-                not isinstance(reduction, SampleReduction)
-                or len(reduction.output_ids) != count
-            ):
-                raise ValueError("Reduction must map every active input slot")
-            groups, order = reduction.pack(accumulator.capacity)
+            if self._gpu_reduction is not None:
+                count = capacity
+                groups = order = None
+            else:
+                if reduction is None:
+                    reduction = SampleReduction(prepared["identity"][:, 0])
+                if (
+                    not isinstance(reduction, SampleReduction)
+                    or len(reduction.output_ids) != count
+                ):
+                    raise ValueError("Reduction must map every active input slot")
+                groups, order = reduction.pack(accumulator.capacity)
             # Slot zero preserves the legacy integrator-wide default. Samples
             # select additional validated stacks through the reserved media.w.
             stacks = (tuple(initial_boundaries), *map(tuple, initial_stacks))
@@ -97,13 +122,23 @@ class VulkanTransportIntegrator:
                 )
                 self.samples._borrowers.add(self)
                 self._scratch = self.runtime.buffer(capacity * 48)
-                self._groups = self.runtime.buffer(capacity * 16, data=groups)
-                self._indices = self.runtime.buffer(capacity * 4, data=order)
-                self._weights = self.runtime.buffer(
-                    capacity * 8, data=reduction.pack_weights()
-                )
+                if self._gpu_reduction is not None:
+                    reduction._borrowers.add(self)
+                    self._groups = reduction.groups
+                    self._indices = reduction.indices
+                    self._weights = reduction.weights
+                    self._group_count = reduction.group_capacity
+                    self._gpu_plan = _GpuReductionPlan(
+                        reduction, self.samples, accumulator
+                    )
+                else:
+                    self._groups = self.runtime.buffer(capacity * 16, data=groups)
+                    self._indices = self.runtime.buffer(capacity * 4, data=order)
+                    self._weights = self.runtime.buffer(
+                        capacity * 8, data=reduction.pack_weights()
+                    )
+                    self._group_count = len(groups)
                 self._mapped_count = count
-                self._group_count = len(groups)
                 self._initial = self.runtime.buffer(initial.nbytes, data=initial)
                 self._refresh_scene_bindings()
                 self._reduce_bindings = {
@@ -113,13 +148,21 @@ class VulkanTransportIntegrator:
                     3: VulkanResource.buffer(self._indices),
                     4: VulkanResource.buffer(self._weights),
                 }
+                reduce_source = (
+                    files("ordinarylight.shaders")
+                    .joinpath("transport_v1/reduce.glsl")
+                    .read_text()
+                )
+                if self._gpu_plan is not None:
+                    self._reduce_bindings[5] = VulkanResource.buffer(
+                        self._gpu_plan.state
+                    )
+                    reduce_source = reduce_source.replace(
+                        "#version 460", "#version 460\n#define OL_GPU_REDUCTION 1", 1
+                    )
                 self._reducer = VulkanKernel(
                     self.runtime,
-                    compile_compute(
-                        files("ordinarylight.shaders")
-                        .joinpath("transport_v1/reduce.glsl")
-                        .read_text()
-                    ),
+                    compile_compute(reduce_source),
                     self._reduce_bindings,
                     push_constant_size=4,
                 )
@@ -146,6 +189,8 @@ class VulkanTransportIntegrator:
                 10: VulkanResource.buffer(self._initial),
             }
         )
+        if self._gpu_plan is not None:
+            self.bindings[11] = VulkanResource.buffer(self._gpu_plan.state)
         source = (
             scene_source(scene)
             + shader_source("contracts")
@@ -158,11 +203,16 @@ class VulkanTransportIntegrator:
             .joinpath("transport_v1/bsdf.glsl")
             .read_text()
         )
+        source += surface_sampling_source(scene)
         source += (
             files("ordinarylight.shaders")
             .joinpath("transport_v1/integrator.glsl")
             .read_text()
         )
+        if self._gpu_plan is not None:
+            source = source.replace(
+                "#version 460", "#version 460\n#define OL_GPU_REDUCTION 1", 1
+            )
         self._kernel = VulkanKernel(
             self.runtime,
             compile_compute(source),
@@ -172,12 +222,18 @@ class VulkanTransportIntegrator:
 
     @property
     def count(self):
-        return self.samples.count
+        return (
+            self.samples.capacity
+            if self._gpu_reduction is not None
+            else self.samples.count
+        )
 
     @serialized
     def update_samples(self, samples, *, reduction=None, after=()):
         """Upload new inputs without rebuilding kernels; history is not reset."""
         self.require_open()
+        if self._gpu_reduction is not None:
+            raise ValueError("Update GPU reduction buffers and sample storage directly")
         prepared = validate_samples(samples, self.scene)
         if np.any(prepared["media"][:, 3] >= self.initial_stack_count):
             raise ValueError("Sample initial stack index is out of range")
@@ -200,6 +256,8 @@ class VulkanTransportIntegrator:
     def set_reduction(self, reduction, *, after=()):
         """Replace output grouping for the current active input count."""
         self.require_open()
+        if self._gpu_reduction is not None:
+            raise ValueError("Update GPU reduction buffers directly")
         if (
             not isinstance(reduction, SampleReduction)
             or len(reduction.output_ids) != self.count
@@ -222,6 +280,8 @@ class VulkanTransportIntegrator:
         seed=0,
         environment=(0, 0, 0),
         environment_nee=False,
+        emissive_nee=False,
+        dielectric_normal_policy="geometric",
         tolerance=1e-5,
         ray_epsilon=1e-4,
         max_steps=8192,
@@ -232,6 +292,10 @@ class VulkanTransportIntegrator:
         from ..pipeline.graph import VulkanOperation
 
         self.require_open()
+        if dielectric_normal_policy not in {"geometric", "shading_clipped"}:
+            raise ValueError(
+                "dielectric_normal_policy must be geometric or shading_clipped"
+            )
         if self.count != self._mapped_count:
             raise ValueError("Sample count changed; call set_reduction before dispatch")
         samples_per_element = index(samples_per_element)
@@ -287,7 +351,9 @@ class VulkanTransportIntegrator:
                 max_steps,
                 max_distance,
                 self.initial_stack_count,
-                int(bool(environment_nee)),
+                int(bool(environment_nee))
+                | (int(bool(emissive_nee)) << 1)
+                | (int(dielectric_normal_policy == "shading_clipped") << 2),
                 *environment,
                 0,
             )
@@ -316,23 +382,50 @@ class VulkanTransportIntegrator:
             self.accumulator.last_completion = completion
             self._sample_offset += samples_per_element
 
+        def trace(command):
+            self._kernel.bind(command, push())
+            if self._gpu_plan is not None:
+                import vulkan as vk
+
+                vk.vkCmdDispatchIndirect(command, self._gpu_plan.state.buffer, 32)
+
+        def reduce(command):
+            self._reducer.bind(command, struct.pack("<I", self._group_count))
+            if self._gpu_plan is not None:
+                import vulkan as vk
+
+                vk.vkCmdDispatchIndirect(command, self._gpu_plan.state.buffer, 48)
+
+        reduce_uses = resource_uses(self._reduce_bindings, writable=(1,))
+        if self._gpu_plan is not None:
+            uses = indirect_uses(uses, self._gpu_plan.state)
+            reduce_uses = indirect_uses(reduce_uses, self._gpu_plan.state)
+        passes = [
+            VulkanPass(
+                "multi_bounce_surface_transport",
+                uses,
+                trace,
+                None if self._gpu_plan is not None else ((self.count + 63) // 64, 1, 1),
+            ),
+            VulkanPass(
+                "reduce_transport_samples",
+                reduce_uses,
+                reduce,
+                None
+                if self._gpu_plan is not None
+                else ((self._group_count + 63) // 64, 1, 1),
+            ),
+        ]
+        if self._gpu_plan is not None:
+            passes = [
+                self._gpu_plan.phase(0),
+                self._gpu_plan.phase(1, indirect_offset=16),
+                self._gpu_plan.phase(2),
+                *passes,
+                self._gpu_plan.phase(3, indirect_offset=64),
+            ]
         return VulkanOperation(
-            [
-                VulkanPass(
-                    "multi_bounce_surface_transport",
-                    uses,
-                    lambda command: self._kernel.bind(command, push()),
-                    ((self.count + 63) // 64, 1, 1),
-                ),
-                VulkanPass(
-                    "reduce_transport_samples",
-                    resource_uses(self._reduce_bindings, writable=(1,)),
-                    lambda command: self._reducer.bind(
-                        command, struct.pack("<I", self._group_count)
-                    ),
-                    ((self._group_count + 63) // 64, 1, 1),
-                ),
-            ],
+            passes,
             validate=validate,
             prepare=prepare,
             dependencies=lambda: tuple(after)
@@ -354,6 +447,8 @@ class VulkanTransportIntegrator:
         self.scene.require_open()
         self.accumulator.require_open()
         self.samples.require_open()
+        if self._gpu_reduction is not None:
+            self._gpu_reduction.require_open()
 
     @serialized
     def close(self):
@@ -363,7 +458,14 @@ class VulkanTransportIntegrator:
             self._kernel.close()
         if self._reducer is not None:
             self._reducer.close()
-        for buffer in (self._scratch, self._groups, self._indices, self._weights):
+        if self._gpu_plan is not None:
+            self._gpu_plan.close()
+        owned_buffers = (
+            (self._scratch,)
+            if self._gpu_reduction is not None
+            else (self._scratch, self._groups, self._indices, self._weights)
+        )
+        for buffer in owned_buffers:
             if buffer is not None:
                 buffer.close()
         if self.samples is not None:
@@ -372,6 +474,8 @@ class VulkanTransportIntegrator:
                 self.samples.close()
         if self._initial is not None:
             self._initial.close()
+        if self._gpu_reduction is not None:
+            self._gpu_reduction._borrowers.discard(self)
         self.scene._borrowers.discard(self)
         self.accumulator._borrowers.discard(self)
         self.closed = True

@@ -17,6 +17,7 @@ from .intersection import (
     CustomGeometry,
     IntersectionProgram,
     SurfaceHit,
+    SurfaceSamplingProgram,
     intersect_triangle,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "CustomGeometry",
     "IntersectionProgram",
     "SurfaceHit",
+    "SurfaceSamplingProgram",
     "intersect_triangle",
 ]

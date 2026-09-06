@@ -101,6 +101,7 @@ _LAZY = {
     "GPU_CUSTOM_GEOMETRY_DTYPE": ("gpu_geometry", "GPU_CUSTOM_GEOMETRY_DTYPE"),
     "GpuTransportSamples": ("gpu_samples", "GpuTransportSamples"),
     "SampleReduction": ("gpu_samples", "SampleReduction"),
+    "GpuSampleReduction": ("gpu_reduction", "GpuSampleReduction"),
     "VulkanTransportScene": ("scene", "VulkanTransportScene"),
     "TransportMaterial": ("scene", "TransportMaterial"),
     "VulkanTransportIntegrator": ("integrator", "VulkanTransportIntegrator"),

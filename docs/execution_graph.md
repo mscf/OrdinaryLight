@@ -238,3 +238,15 @@ client passed its exact final-radiance reference and ran from an installed wheel
 outside the checkout. Scientific RT volumes agree exactly across all three
 targets; the likelihood viewer passed its 11 tests and native smoke tests on all
 three targets. Shader packaging reports no missing or unmanaged outputs.
+
+
+## GPU-authored transport dispatch
+
+`GpuSampleReduction` lets application producers write sample counts, deterministic
+reduction groups, indices and weights. The transport operation includes count
+validation, map validation, indirect-command preparation, tracing, reduction and
+error propagation. Resource declarations include indirect-command read stages as
+well as compute accesses, so graph scheduling orders the producer before validation.
+Zero-work batches require no CPU count update. See
+[transport foundations](transport_foundations.md#gpu-authored-counts-and-reduction-maps)
+for sorting/ownership requirements and failure semantics.

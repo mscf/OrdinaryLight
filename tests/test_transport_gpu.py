@@ -929,3 +929,20 @@ void main() {
             integral = records[:, 0, :3].mean(axis=0, dtype=np.float64)
             estimate = records[:, 1, :3].mean(axis=0, dtype=np.float64)
             np.testing.assert_allclose(estimate, integral, rtol=0.02, atol=0.005)
+
+
+def test_clipped_sdf_entry_is_not_suppressed_as_origin_root(runtime):
+    with VulkanTransportScene(
+        runtime,
+        custom_geometry=[SdfSphere(radius=0.4).geometry()],
+        custom_materials=[TransportMaterial()],
+    ) as scene:
+        hits = intersect_rays(scene, [[0, 0, 0.9999]], [[0, 0, -1]])
+        assert hits["identity"][0, 0] == 2
+        assert hits["boundary"][0, 3] == 0
+        np.testing.assert_allclose(
+            hits["position_distance"][0, :3], [0, 0, 0.4], atol=1e-6
+        )
+        np.testing.assert_allclose(
+            hits["geometric_normal"][0, :3], [0, 0, 1], atol=1e-6
+        )
