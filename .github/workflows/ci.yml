@@ -31,8 +31,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install Vulkan loader for module collection
-        run: sudo apt-get update && sudo apt-get install --yes libvulkan1
+      - name: Install Vulkan loader and shader compiler
+        run: sudo apt-get update && sudo apt-get install --yes libvulkan1 glslang-tools
       - name: Install unit-test dependencies
         # Vulkan configuration, layout, and shader-contract tests are useful
         # without a GPU, but importing those modules requires the optional
