@@ -157,6 +157,11 @@ is suitable). The demo binds only to the loopback interface.
 
 ## Verification
 
+The [HH voltage example](../examples/portable_volume/README.md#hodgkinhuxley-voltage-example)
+adds deterministic scalar-state scans, time-axis metadata, and voltage-trace
+comparison alongside the existing DMC path. Run the conformance runner with
+`--example hh` to exercise that path; the default remains `--example dmc`.
+
 For the automated gate, see [Automated conformance](../examples/portable_volume/README.md#automated-conformance).
 It starts and stops its own server and Chrome profile, runs the browser probe,
 then compares the captures with native execution. The commands below remain

@@ -49,6 +49,7 @@ try {
   assert(!state.error,state.error);assert(state.ready,'Demo did not become ready');
   const result=await evaluate(`(async()=>{
     const {PortableRuntime,fetchPackage}=await import('./runtime.js');
+    const scenario=await (await fetch('/conformance.json')).json();
     const check=(test,message)=>{if(!test)throw new Error(message);};
     const bytes=buffer=>Array.from(new Uint8Array(buffer));
     const read=async r=>Object.fromEntries(await Promise.all(Object.keys(r.manifest.outputs).map(async name=>[name,bytes(await r.read(name))])));
@@ -73,9 +74,9 @@ try {
     device.pushErrorScope('validation');
     const initial=await read(r), snapshot=r.snapshot(), pixels=Array.from(await r.readPixels());
     check(new Set(pixels.filter((_,i)=>i%4!==3)).size>8,'Volume image is blank');
-    await viewer.update({parameters:{seed:9}});
+    await viewer.update(scenario.live_changes);
     const updated=await read(r);
-    check(!equal(initial.rts,updated.rts),'Live seed update did not change output');
+    check(!equal(initial[scenario.output],updated[scenario.output]),'Live update did not change output');
     check(viewer.runtime===r && r.device===device,'Live edit replaced runtime/device');
     await viewer.update({presentation:{yaw:1.2,mode:'slice'}});
     check(equal(updated,await read(r)),'Presentation edit changed computation');
@@ -85,25 +86,27 @@ try {
     const bad=structuredClone(snapshot);bad.presentation.opacity=-1;
     let rejected=false;try{r.restore(bad);}catch{rejected=true;}
     check(rejected && equal(snapshot,r.snapshot()),'Invalid restore was not atomic');
-    rejected=false;try{r.setParameters({trial_count:24});}catch(e){rejected=e.code==='reprepare-required';}
+    rejected=false;try{r.setParameters(scenario.structural_changes.parameters);}catch(e){rejected=e.code==='reprepare-required';}
     check(rejected && equal(snapshot,r.snapshot()),'Structural edit was accepted as live');
     const restored=await PortableRuntime.create(await fetchPackage('/initial/manifest.json'),{device});
     restored.restore(JSON.parse(JSON.stringify(snapshot)));restored.render(512,512);
     check(equal(initial,await read(restored)),'Fresh runtime restoration changed output');
     check(equal(pixels,Array.from(await restored.readPixels())),'Fresh runtime restoration changed pixels');
     restored.close();
-    await viewer.update({parameters:{trial_count:24},preparation:{bins:20}});
+    await viewer.update(scenario.structural_changes);
     check(viewer.runtime!==r && r.closed,'Structural edit did not replace/close old runtime');
     check(viewer.runtime.device===device,'Replacement allocated a second device');
-    check(viewer.runtime.manifest.science.samples_per_cell===24 && viewer.runtime.manifest.render.dimensions[2]===20,'Replacement shape is wrong');
+    check(viewer.runtime.manifest.science.samples_per_cell===scenario.expected_samples && viewer.runtime.manifest.render.dimensions[2]===scenario.expected_bins,'Replacement shape is wrong');
     const replacement=await read(viewer.runtime), replacementSnapshot=viewer.runtime.snapshot();
     const keep=viewer.runtime;
     rejected=false;try{await viewer.update({preparation:{x:keep.manifest.science.y.name}});}catch{rejected=true;}
     check(rejected && viewer.runtime===keep && !keep.closed,'Failed preparation discarded active runtime');
     await device.queue.onSubmittedWorkDone();
     const gpuError=await device.popErrorScope();check(!gpuError,gpuError?.message);check(!errors.length,errors.join('; '));
+    await new Promise(requestAnimationFrame);
+    const traceImage=document.querySelector('#trace-panel')?.hidden===false?document.querySelector('#trace').toDataURL():null;
     const info=device.adapterInfo;
-    return {initial,updated,replacement,snapshot,replacementSnapshot,pixels,width:512,height:512,rejectionChecks,
+    return {initial,updated,replacement,snapshot,replacementSnapshot,pixels,width:512,height:512,rejectionChecks,scenario,traceImage,
       browserAdapter:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description},
       checks:['render','live update','presentation independence','same-runtime restore','fresh-runtime restore','invalid restore atomicity','structural guard','same-device replacement','failed replacement recovery'],gpuErrors:errors};
   })()`);
