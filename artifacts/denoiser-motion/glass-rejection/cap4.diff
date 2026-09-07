@@ -1,0 +1,11 @@
+--- kernels.py
++++ cap4
+@@ -410,6 +410,8 @@
+                     previous_history_length.load(previous_pixel).r + 1.0,
+                     constants.extent_history.z,
+                 )
++    if identity.load(pixel).r == osh.u32(0) and osh.length(motion_vector) > 1.0:
++        history_length = osh.minimum(history_length, 4.0)
+     if accepted:
+         alpha = 1.0 / osh.maximum(history_length, 1.0)
+         current = osh.vec4(

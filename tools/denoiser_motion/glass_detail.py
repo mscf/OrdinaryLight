@@ -11,26 +11,13 @@ from PIL import Image, ImageDraw
 import ordinarylight as ol
 from ordinarylight.integrations.glfw_platform import load_glfw
 from ordinarylight.integrations.raster_workbench import _gi_config
-from ordinarylight.showcases.materials import diffuse, fresnel_glass, quad, sphere
+from ordinarylight.showcases.glass_detail import build_glass_detail
 
 
 def fixture():
-    scene = ol.Scene()
-    vertices, indices = sphere((0, 1, 0), 1.0)
-    glass = scene.add_mesh(vertices, indices, ol.Material(
-        base_color=(0.97, 0.99, 1), transmission=1, roughness=0,
-        ior=1.52, program=fresnel_glass,
-    ))
-    bars = []
-    for i in range(32):
-        x = -4 + i * 0.25
-        vertices, indices = quad((x, -2, 2), (x + .25, -2, 2),
-                                 (x + .25, 4, 2), (x, 4, 2))
-        color = ((2.0, .3, .05) if i % 4 == 0 else (1.5, 1.5, 1.5)
-                 if i % 2 == 0 else (.015, .015, .015))
-        bars.append(scene.add_mesh(vertices, indices, ol.Material(
-            emission=color, emission_two_sided=True, program=diffuse,
-        )))
+    scene = build_glass_detail()
+    glass = next(mesh for mesh in scene.meshes if mesh.name == "glass-sphere")
+    bars = [mesh for mesh in scene.meshes if mesh.name.startswith("target-bar-")]
     return scene, glass, bars
 
 

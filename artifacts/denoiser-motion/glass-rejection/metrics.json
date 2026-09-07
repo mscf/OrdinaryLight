@@ -1,0 +1,53 @@
+{
+  "camera": {
+    "baseline": {
+      "moving_rmse": 0.06062718577193391,
+      "settled_rmse": 0.016896209671654876,
+      "stopped_std": 0.0018243474397592514
+    },
+    "cap4": {
+      "moving_rmse": 0.06062718577193391,
+      "settled_rmse": 0.016896209671654876,
+      "stopped_std": 0.0018243474397592514
+    },
+    "reactive1": {
+      "moving_rmse": 0.049995567891579634,
+      "settled_rmse": 0.022634879487358466,
+      "stopped_std": 0.006574917799467395
+    }
+  },
+  "glass": {
+    "baseline": {
+      "moving_rmse": 0.15288230404325526,
+      "settled_rmse": 0.037610221678355565,
+      "stopped_std": 0.0053598519720006585
+    },
+    "cap4": {
+      "moving_rmse": 0.12164502756308222,
+      "settled_rmse": 0.019943346719791803,
+      "stopped_std": 0.0025470621577565866
+    },
+    "reactive1": {
+      "moving_rmse": 0.05694306421619008,
+      "settled_rmse": 0.02460831528992571,
+      "stopped_std": 0.006043931008696016
+    }
+  },
+  "target": {
+    "baseline": {
+      "moving_rmse": 0.1750578734562091,
+      "settled_rmse": 0.023258300313175103,
+      "stopped_std": 0.005487189962148873
+    },
+    "cap4": {
+      "moving_rmse": 0.1750578734562091,
+      "settled_rmse": 0.023258300313175103,
+      "stopped_std": 0.005487189962148873
+    },
+    "reactive1": {
+      "moving_rmse": 0.0395540414646697,
+      "settled_rmse": 0.01581278544132752,
+      "stopped_std": 0.0034007674742004604
+    }
+  }
+}

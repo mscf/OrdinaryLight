@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source": "ordinarylight/denoising/kernels.py",
-  "source_sha256": "59ee8a1b57de49931af56efe7d79e5f5af23287cac137a4e0619d1da5ed13e6a",
+  "source_sha256": "a2ca01eb9c66ae846b3faac6de3c604a1d54742b799b03b5b1ac087e82b1a5cb",
   "targets": {
     "spirv": {
       "atrous": {
@@ -129,7 +129,7 @@
         "sha256": "a5f73c231602a541a6bdd7fbce82ffc2260c188415d0916f5c198cec323e1847"
       },
       "prepare": {
-        "cache_key": "2b43d28eb4a9bb8236d471573acf5af0dccc1aa3ce181021dcd17f6ec95e4b86",
+        "cache_key": "d415a9ac3edcc7f5c9f3de39f32e44f918749bd41289b0b30555ef6360b2cba2",
         "file": "denoiser_relax_prepare.comp.spv",
         "reflection": {
           "entry_point": "main",
@@ -256,10 +256,10 @@
             1
           ]
         },
-        "sha256": "03ec46d42d51b22b9fb3d511fb384e0997d45785cfcd18e6171e7e7ad8851938"
+        "sha256": "4300ba490940503a8283ce8dbce96f5f03d5764ef79e81701b176fa8397971bd"
       },
       "temporal": {
-        "cache_key": "b96f4603293a70da4c9529d913796d461153966babe9a429781ca67cb9309ba0",
+        "cache_key": "5a218bb0ef047fc57eb43845dae2091c0881b165d556e3fea9d1bce5d1cfe047",
         "file": "denoiser_relax_temporal.comp.spv",
         "reflection": {
           "entry_point": "main",
@@ -394,7 +394,7 @@
             1
           ]
         },
-        "sha256": "0481b2784ee81445f47fedf475c1f5c7dca7aaaed20f77fa326d31bca72fed0c"
+        "sha256": "908c6c3d56b2691e3c31a6a8957b0f17b781182e9a2a24d8e1d1827fafc0903f"
       }
     },
     "wgsl": {
@@ -523,7 +523,7 @@
         "sha256": "af46e18f29772d05fa9fa41a865aa97c2b479d10e196c4a0d458b6c4a55f2e9f"
       },
       "prepare": {
-        "cache_key": "e46b9898b5f0dab0152d7f92fd6b71459002b19c47fccad070562d16c1e806c3",
+        "cache_key": "45ac44c4bae31b10a579cef104b5086eb7f8fafcc6e92b04a140f2190e5f6a13",
         "file": "denoiser_relax_prepare.comp.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -650,10 +650,10 @@
             1
           ]
         },
-        "sha256": "8e426439f5e50ac7662307b07990a05ac92f6d5e0bd292bc3c0f65de1d2f56c1"
+        "sha256": "bb5c545ea63bc3264494acdbb1484ed3d55a56409ebae1dbbfa99a00a617d85f"
       },
       "temporal": {
-        "cache_key": "711a29ec59b541ab8ffc63a79117414d631f7149e0c6faa13b09d4735dfa1f51",
+        "cache_key": "8a96a4756f3ddb7f8f7ee19cb524651c6e117d99c1cf7a76435575fc3f3cb2a5",
         "file": "denoiser_relax_temporal.comp.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -788,7 +788,7 @@
             1
           ]
         },
-        "sha256": "51485567f314e29a3e5dc363df7bc77a98a8f53ac519c6c68767039548cf865e"
+        "sha256": "4e873916e6de98853779fed05bf0763d5ede0f6d90299eb5d9841d3b2a9cbf01"
       }
     }
   }

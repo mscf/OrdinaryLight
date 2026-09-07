@@ -2314,7 +2314,8 @@ class VulkanWavefrontExecutor:
             [self.relax_prepare_sets[slot]], 0, None,
         )
         constants = bytearray(struct.pack(
-            "8I", image_width, image_height, path_count, 0,
+            "8I", image_width, image_height, path_count,
+            int(self.core.config.denoiser_transmission_motion_cap),
             sample_index, sample_count,
             int(self.core.config.denoiser_sampled_indirect),
             int(self.core.config.denoiser_planar_mirror_guides),

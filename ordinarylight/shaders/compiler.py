@@ -165,6 +165,17 @@ def wavefront_material_shader_source(
             raise RuntimeError("primary denoiser capture anchors changed")
         source = source.replace(capture, capture.replace("transmission", "0.0"))
         source = source.replace(fallback, "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u")
+        marker = "        // Scratch contract: negative alpha marks evaluated primary specular"
+        if source.count(marker) != 1:
+            raise RuntimeError("primary denoiser material marker anchor changed")
+        # Barycentric u is nonnegative. Reserve its sign bit for transmission
+        # without changing the scratch stride or losing coordinate precision.
+        source = source.replace(marker, """        if (material.attenuation_transmission.a > 0.001) {
+            secondary_paths[path_index].primary_geometry.y = uintBitsToFloat(
+                floatBitsToUint(secondary_paths[path_index].primary_geometry.y)
+                | 0x80000000u);
+        }
+""" + marker)
     if shader_name == "wavefront_primary.comp":
         source = source.replace(
             "#version 460\n",

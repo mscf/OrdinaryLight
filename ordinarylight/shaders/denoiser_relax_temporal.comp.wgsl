@@ -101,6 +101,9 @@ fn main(
             }
         }
     }
+    if (((motion_sample.w > 0.5) && (length(motion_vector) > 1.0))) {
+        history_length = min(history_length, 4.0);
+    }
     if (accepted) {
         let alpha: f32 = (1.0 / max(history_length, 1.0));
         current = vec4<f32>(mix(history.rgb, current.rgb, alpha), current.a);

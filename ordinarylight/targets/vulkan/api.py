@@ -85,6 +85,8 @@ class RendererConfig:
     denoiser_sampled_indirect: bool = False
     # Experimental static z=0 mirror and static reflected geometry only.
     denoiser_planar_mirror_guides: bool = False
+    # Experimental four-frame cap on moving transmissive primary surfaces.
+    denoiser_transmission_motion_cap: bool = False
     denoiser_color_weight: float = 4.0
     denoiser_motion_normal_threshold: float = 0.95
     denoiser_motion_depth_threshold: float = 0.005

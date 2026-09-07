@@ -170,7 +170,7 @@ def _gi_config(
     showcase, *, present=False, capture=False, restir_reservoirs=4,
     denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
     denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
-    denoiser_planar_mirror_guides=False,
+    denoiser_planar_mirror_guides=False, denoiser_transmission_motion_cap=False,
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
@@ -185,6 +185,7 @@ def _gi_config(
         denoiser_motion_history_floor=denoiser_motion_history_floor,
         denoiser_sampled_indirect=denoiser_sampled_indirect,
         denoiser_color_weight=denoiser_color_weight,
+        denoiser_transmission_motion_cap=denoiser_transmission_motion_cap,
         denoiser_planar_mirror_guides=(
             denoiser_planar_mirror_guides
             and getattr(showcase, "id", None) == "planar-mirror-guides"
@@ -497,6 +498,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 "Experimental BSDF-based channels. Improves the optics fixture "
                 "but regresses the motion room. Apply and restart to compare."
             )
+            self.transmission_motion_cap = QtWidgets.QCheckBox()
+            self.transmission_motion_cap.setToolTip(
+                "Limit moving glass history to four frames. Experimental; "
+                "applies to custom-material primary transmission guides. Apply and restart."
+            )
             self.planar_mirror_guides = QtWidgets.QCheckBox()
             self.planar_mirror_guides.setToolTip(
                 "Static z=0 planar mirror only. Use the Planar mirror guides scene. "
@@ -515,6 +521,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.evaluated_lobes.setEnabled(gi_selected)
             self.broader_filter.setEnabled(gi_selected)
             self.planar_mirror_guides.setEnabled(gi_selected)
+            self.transmission_motion_cap.setEnabled(gi_selected)
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.slow_diagnostic = QtWidgets.QCheckBox()
@@ -553,6 +560,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Evaluated lobes (experimental)", self.evaluated_lobes)
             form.addRow("Broader spatial filter (experimental)", self.broader_filter)
             form.addRow("Planar mirror guides (experimental)", self.planar_mirror_guides)
+            form.addRow("Glass motion history cap (experimental)", self.transmission_motion_cap)
             form.addRow("Animate scene / camera", self.animate)
             form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
@@ -729,6 +737,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.evaluated_lobes.setEnabled(gi_selected)
             self.broader_filter.setEnabled(gi_selected)
             self.planar_mirror_guides.setEnabled(gi_selected)
+            self.transmission_motion_cap.setEnabled(gi_selected)
             if self.scene_value is not None:
                 self._extension_call("cancel_pending_updates")
                 self.restart_pending = True
@@ -878,6 +887,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 denoiser_history_floor = self.denoiser_history_floor.currentData()
                 evaluated_lobes = self.evaluated_lobes.isChecked()
                 planar_guides = self.planar_mirror_guides.isChecked()
+                transmission_cap = self.transmission_motion_cap.isChecked()
                 color_weight = 2.0 if self.broader_filter.isChecked() else 4.0
                 surface_instance = self.surface.instance
                 surface_handle = self.surface.surface
@@ -908,6 +918,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                             denoiser_sampled_indirect=evaluated_lobes,
                             denoiser_color_weight=color_weight,
                             denoiser_planar_mirror_guides=planar_guides,
+                            denoiser_transmission_motion_cap=transmission_cap,
                         )
                         if nrd_reference:
                             gi_config = replace(

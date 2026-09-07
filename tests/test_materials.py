@@ -26,6 +26,8 @@ class MaterialProgramTests(unittest.TestCase):
         )
         self.assertIn("path.metadata.w, transmission))", ordinary)
         self.assertIn("path.metadata.w, 0.0))", capture)
+        self.assertIn("| 0x80000000u", capture)
+        self.assertNotIn("| 0x80000000u", ordinary)
         fallback = "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u\n            && transmission <= 0.001"
         self.assertIn(fallback, ordinary)
         self.assertNotIn(fallback, capture)

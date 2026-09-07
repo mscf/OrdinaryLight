@@ -189,7 +189,12 @@ def prepare_relax_signals(
     )
     primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
     instance_key = osh.float_bits_to_uint(secondary.primary_geometry.w)
-    barycentrics = secondary.primary_geometry.yz
+    transmissive = (
+        osh.float_bits_to_uint(secondary.primary_geometry.y) & osh.u32(0x80000000)
+    ) != osh.u32(0)
+    barycentrics = osh.vec2(
+        osh.absolute(secondary.primary_geometry.y), secondary.primary_geometry.z,
+    )
     weights = osh.vec3(
         1.0 - barycentrics.x - barycentrics.y,
         barycentrics.x, barycentrics.y,
@@ -245,7 +250,10 @@ def prepare_relax_signals(
     # motion.  Temporal validation must compare values in the same camera
     # space; current ``view_z`` and previous-frame ``view_z`` are not directly
     # comparable while the camera moves.
-    motion_output.store(pixel, osh.vec4(motion, previous_view_z, 0.0))
+    transmission_cap = 0.0
+    if constants.extent_paths.w != osh.u32(0) and transmissive:
+        transmission_cap = 1.0
+    motion_output.store(pixel, osh.vec4(motion, previous_view_z, transmission_cap))
     # Reprojection still uses the exact triangle and barycentrics above, but
     # temporal continuity belongs to the scene instance.  Keying history to
     # the triangle exposes tessellation edges on otherwise smooth surfaces.
@@ -410,6 +418,8 @@ def relax_temporal(
                     previous_history_length.load(previous_pixel).r + 1.0,
                     constants.extent_history.z,
                 )
+    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
+        history_length = osh.minimum(history_length, 4.0)
     if accepted:
         alpha = 1.0 / osh.maximum(history_length, 1.0)
         current = osh.vec4(

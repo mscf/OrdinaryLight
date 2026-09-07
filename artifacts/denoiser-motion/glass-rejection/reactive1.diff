@@ -1,0 +1,39 @@
+--- kernels.py
++++ reactive1
+@@ -305,6 +305,9 @@
+     current_depth = view_z.load(pixel).r
+     motion_sample = motion.load(pixel)
+     motion_vector = motion_sample.xy
++    reactive_sigma = constants.rejection.w
++    if identity.load(pixel).r == osh.u32(0):
++        reactive_sigma = 1.0
+     expected_old_depth = motion_sample.z
+     previous_pixel = osh.ivec2(osh.vec2(pixel) + motion_vector + osh.vec2(0.5))
+     in_bounds = (
+@@ -349,7 +352,7 @@
+                         continue
+                     if neighbor_pixel.x >= extent.x or neighbor_pixel.y >= extent.y:
+                         continue
+-                    if constants.rejection.w > 0.0:
++                    if reactive_sigma > 0.0:
+                         # During motion, a foreground/background mixture can
+                         # make the clamp accept radiance from the wrong surface.
+                         # Derive its statistics only from compatible geometry.
+@@ -379,7 +382,7 @@
+             )
+             neighborhood_deviation = osh.sqrt(neighborhood_variance)
+             clamp_radius = neighborhood_deviation * constants.rejection.z
+-            if constants.rejection.w > 0.0:
++            if reactive_sigma > 0.0:
+                 history_luma = osh.dot(
+                     history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
+                 )
+@@ -391,7 +394,7 @@
+                     osh.vec3(0.2126, 0.7152, 0.0722),
+                 )
+                 reactive_limit = osh.maximum(
+-                    deviation_luma * constants.rejection.w,
++                    deviation_luma * reactive_sigma,
+                     osh.absolute(mean_luma) * 0.1 + 0.01,
+                 )
+                 accepted = (

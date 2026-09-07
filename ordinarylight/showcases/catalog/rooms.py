@@ -17,11 +17,32 @@ from ordinarylight.showcases.rooms import (
 )
 
 
+from ordinarylight.showcases.glass_detail import (
+    animate_glass_detail, build_glass_detail, build_moving_glass_detail,
+    build_moving_glass_target,
+)
+
+GLASS_DETAIL_CAMERA = OrbitCamera(target=(0, 1, 0), radius=-5, height=1, arc_radians=0.3)
+
 ROOM_CAMERA = OrbitCamera(
     target=(0.0, 1.25, 0.0), radius=-8.5, height=3.2, arc_radians=0.48,
 )
 
 SHOWCASES = (
+    Showcase("glass-detail-camera", "Glass detail: camera motion", build_glass_detail,
+             description="Orbit the glass and striped target. Disable Animate to inspect settling.",
+             camera=GLASS_DETAIL_CAMERA, renderer={"denoiser_enabled": True},
+             tags=("raster-feature", "denoising", "glass", "motion")),
+    Showcase("glass-detail-motion", "Glass detail: moving sphere", build_moving_glass_detail,
+             description="The sphere moves for one second, then holds for two. Camera and target stay fixed.",
+             camera=GLASS_DETAIL_CAMERA, renderer={"denoiser_enabled": True},
+             tags=("raster-feature", "denoising", "glass", "motion"),
+             animate=animate_glass_detail),
+    Showcase("glass-detail-target", "Glass detail: moving target", build_moving_glass_target,
+             description="The striped target moves for one second, then holds for two. Glass and camera stay fixed.",
+             camera=GLASS_DETAIL_CAMERA, renderer={"denoiser_enabled": True},
+             tags=("raster-feature", "denoising", "glass", "motion"),
+             animate=animate_glass_detail),
     Showcase("planar-mirror-guides", "Planar mirror guides", build_planar_mirror_guides,
              camera=OrbitCamera(target=(0, 1.8, 0), radius=-7, height=2, arc_radians=0.3),
              renderer={"denoiser_enabled": True},

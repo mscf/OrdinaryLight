@@ -149,7 +149,8 @@ fn main(
     var view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
     let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
     let instance_key: u32 = bitcast<u32>(secondary.primary_geometry.w);
-    let barycentrics: vec2<f32> = secondary.primary_geometry.yz;
+    let transmissive: bool = ((bitcast<u32>(secondary.primary_geometry.y) & u32(2147483648)) != u32(0));
+    let barycentrics: vec2<f32> = vec2<f32>(abs(secondary.primary_geometry.y), secondary.primary_geometry.z);
     let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
     var previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
     if (((((constants.samples.w != u32(0)) && (abs(world_position.z) < 0.0001)) && (abs(normal.z) > 0.9999)) && (roughness <= 0.0011))) {
@@ -177,6 +178,10 @@ fn main(
     }
     textureStore(normal_roughness_output, pixel, vec4<f32>(normal, roughness));
     textureStore(view_z_output, pixel, vec4<f32>(view_z));
-    textureStore(motion_output, pixel, vec4<f32>(motion, previous_view_z, 0.0));
+    var transmission_cap: f32 = 0.0;
+    if (((constants.extent_paths.w != u32(0)) && transmissive)) {
+        transmission_cap = 1.0;
+    }
+    textureStore(motion_output, pixel, vec4<f32>(motion, previous_view_z, transmission_cap));
     textureStore(identity_output, pixel, vec4<u32>(instance_key, 0, 0, 0));
 }

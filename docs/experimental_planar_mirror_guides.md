@@ -70,3 +70,6 @@ now supplies front-surface denoising guides when signal capture is active,
 avoiding the previous raw-output bypass for most transmitted samples. This is
 not refraction-aware background reprojection; fine moving detail through glass
 still needs separate validation. See the [glass comparison](../artifacts/denoiser-motion/glass-transmission/README.md).
+
+For moving-glass and moving-background inspection, use the separate
+[glass-detail viewer scenes](glass_detail_viewer.md).

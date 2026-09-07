@@ -251,3 +251,11 @@ def test_gi_viewer_honors_showcase_restir_override():
     assert viewer._gi_config(SimpleNamespace(renderer={})).wavefront_restir_di
     settings = SimpleNamespace(renderer={"wavefront_restir_di": False})
     assert not viewer._gi_config(settings).wavefront_restir_di
+
+
+def test_transmission_motion_cap_is_opt_in():
+    showcase = SimpleNamespace(renderer={}, id="glass-detail-motion")
+    assert not viewer._gi_config(showcase).denoiser_transmission_motion_cap
+    assert viewer._gi_config(
+        showcase, denoiser_transmission_motion_cap=True,
+    ).denoiser_transmission_motion_cap
