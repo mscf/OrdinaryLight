@@ -1,0 +1,11 @@
+--- original
++++ primary-scatter
+@@ -6078,7 +6078,7 @@
+     float sampled_specular = 0.0;
+     vec3 primary_specular = vec3(0.0);
+     vec3 indirect_specular_fraction = vec3(1.0);
+-    if (wave_surface_response.custom_scattering > 0.5) {
++    if (wave_surface_response.custom_scattering > 0.5 && int(floor(material.ior_distance.z)) != 2) {
+         int wave_event = int(wave_surface_response.event + 0.5);
+         if (wave_event == 0) {
+             path.metadata.w &= ~PATH_ACTIVE_BIT;

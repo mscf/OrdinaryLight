@@ -237,3 +237,17 @@ def test_camera_pose_argument_accepts_inline_json_and_file(tmp_path):
 
     assert inline_id == file_id == "optical-screen-rough-reflection"
     assert inline_camera == file_camera
+
+
+def test_planar_mirror_guides_are_opt_in_and_limited_to_static_showcase():
+    showcase = SimpleNamespace(renderer={}, id="planar-mirror-guides")
+    assert not viewer._gi_config(showcase).denoiser_planar_mirror_guides
+    assert viewer._gi_config(showcase, denoiser_planar_mirror_guides=True).denoiser_planar_mirror_guides
+    other = SimpleNamespace(renderer={}, id="glossy-glass")
+    assert not viewer._gi_config(other, denoiser_planar_mirror_guides=True).denoiser_planar_mirror_guides
+
+
+def test_gi_viewer_honors_showcase_restir_override():
+    assert viewer._gi_config(SimpleNamespace(renderer={})).wavefront_restir_di
+    settings = SimpleNamespace(renderer={"wavefront_restir_di": False})
+    assert not viewer._gi_config(settings).wavefront_restir_di

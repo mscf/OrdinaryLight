@@ -2316,7 +2316,8 @@ class VulkanWavefrontExecutor:
         constants = bytearray(struct.pack(
             "8I", image_width, image_height, path_count, 0,
             sample_index, sample_count,
-            int(self.core.config.denoiser_sampled_indirect), 0,
+            int(self.core.config.denoiser_sampled_indirect),
+            int(self.core.config.denoiser_planar_mirror_guides),
         ))
         vk.vkCmdPushConstants(
             command, self.relax_prepare_pipeline_layout,
@@ -5546,6 +5547,10 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         return True
 
     def _destroy_swapchain_resources(self):
+        # Recorded commands reference the images and buffers destroyed below.
+        # A replacement swapchain can have the same extent and render key.
+        for frame in self.window_frames:
+            frame["wavefront_command_key"] = None
         if self.device is None:
             return
         for frame in self.window_frames:

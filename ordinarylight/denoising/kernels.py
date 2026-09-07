@@ -199,6 +199,30 @@ def prepare_relax_signals(
         + previous_vertices[primitive * osh.u32(3) + osh.u32(1)].xyz * weights.y
         + previous_vertices[primitive * osh.u32(3) + osh.u32(2)].xyz * weights.z
     )
+    # Explicit static z=0 planar-mirror experiment. The first secondary hit
+    # is reflected into virtual world space; no moving-object transform is
+    # available for that hit yet. Preserve primary identity/material.
+    if (
+        constants.samples.w != osh.u32(0)
+        and osh.absolute(world_position.z) < 0.0001
+        and osh.absolute(normal.z) > 0.9999
+        and roughness <= 0.0011
+    ):
+        if secondary.position_valid.w > 0.5:
+            reflected = secondary.position_valid.xyz
+            world_position = osh.vec3(reflected.x, reflected.y, -reflected.z)
+            reflected_normal = secondary.normal_pdf.xyz
+            normal = osh.vec3(
+                reflected_normal.x, reflected_normal.y, -reflected_normal.z,
+            )
+            previous_world_position = world_position
+            view_z = osh.dot(
+                world_position - current_camera.origin.xyz,
+                current_camera.forward.xyz,
+            )
+        else:
+            # No finite secondary hit: do not reuse a prior reflected surface.
+            view_z = 0.0
     old = prepare_previous_pixel(previous_world_position, extent)
     motion = old.xy - osh.vec2(pixel)
     previous_view_z = old.z

@@ -1,0 +1,25 @@
+diff --git a/ordinarylight/shaders/wavefront_restir.glsl b/ordinarylight/shaders/wavefront_restir.glsl
+index 6385eab1..af3753a9 100644
+--- a/ordinarylight/shaders/wavefront_restir.glsl
++++ b/ordinarylight/shaders/wavefront_restir.glsl
+@@ -39,6 +39,11 @@ DirectLightReservoir unpackStoredDirectLightReservoir(
+ 
+ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ {
++    if (reservoir_index >= uint(previous_reservoir_words.length()) / 3u) {
++        DirectLightReservoir empty_reservoir;
++        empty_reservoir.data = uvec4(0xffffffffu, 0u, 0u, 0u);
++        return empty_reservoir;
++    }
+     uint word = reservoir_index * 3u;
+     return unpackStoredDirectLightReservoir(
+         previous_reservoir_words[word],
+@@ -49,6 +54,8 @@ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ void storeCurrentDirectLightReservoir(
+     uint reservoir_index, DirectLightReservoir reservoir)
+ {
++    if (reservoir_index >= uint(current_reservoir_words.length()) / 3u)
++        return;
+     vec2 target_count = unpackHalf2x16(reservoir.data.w);
+     uint light_index = reservoir.data.x == 0xffffffffu
+         ? DIRECT_LIGHT_STORAGE_INDEX_MASK

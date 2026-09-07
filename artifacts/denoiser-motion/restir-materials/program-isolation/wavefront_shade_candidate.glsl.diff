@@ -1,0 +1,33 @@
+--- original/wavefront_shade_candidate.glsl
++++ extra-program/wavefront_shade_candidate.glsl
+@@ -676,11 +676,30 @@
+     result.pdf = 1.0;
+     return result;
+ }
++MaterialEvaluation evaluateMaterial_2(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)
++{
++    MaterialEvaluation result;
++    result.base_color = material.base_roughness.rgb;
++    result.emission = material.emission_metallic.rgb;
++    result.metallic = material.emission_metallic.a;
++    result.roughness = material.base_roughness.a;
++    result.transmission = material.attenuation_transmission.a;
++    result.ior = material.ior_distance.x;
++    result.attenuation_color = material.attenuation_transmission.rgb;
++    result.attenuation_distance = material.ior_distance.y;
++    result.custom_scattering = 0.0;
++    result.weight = vec3(0.0);
++    result.next_direction = direction;
++    result.event = 0.0;
++    result.pdf = 1.0;
++    return result;
++}
+ MaterialEvaluation evaluateMaterial(inout MaterialData material, inout vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)
+ {
+     int program_id = int(floor(material.ior_distance.z));
+     MaterialEvaluation evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
+     if (program_id == 1) evaluated = evaluateMaterial_1(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
++    if (program_id == 2) evaluated = evaluateMaterial_2(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
+     SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, material.advanced0.x, material.advanced0.y, material.sheen_color.rgb, material.advanced0.z, material.advanced0.w, material.advanced1.z, material.advanced1.x, material.subsurface_color.rgb, material.advanced1.y);
+     surface = ordinarylight_material_modifier(surface, SurfaceContext(uv, normal, -direction, float(program_id)));
+     normal = normalize(surface.normal);

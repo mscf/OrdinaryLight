@@ -83,6 +83,8 @@ class RendererConfig:
     denoiser_motion_history_floor: int = 1
     # Experimental: classify indirect light per sample before averaging.
     denoiser_sampled_indirect: bool = False
+    # Experimental static z=0 mirror and static reflected geometry only.
+    denoiser_planar_mirror_guides: bool = False
     denoiser_color_weight: float = 4.0
     denoiser_motion_normal_threshold: float = 0.95
     denoiser_motion_depth_threshold: float = 0.005

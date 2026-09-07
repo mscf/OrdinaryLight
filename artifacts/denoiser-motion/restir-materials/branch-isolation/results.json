@@ -1,0 +1,122 @@
+[
+  {
+    "run": "primary-scatter",
+    "result": {
+      "frames": 121,
+      "failed": false,
+      "status": "45.9 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+      "extent": [
+        1280,
+        720
+      ],
+      "animated": true,
+      "slow": false
+    },
+    "binaries": {
+      "wavefront_shade_candidate.glsl.spv": {
+        "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+        "validation_exit": 0
+      },
+      "wavefront_primary.comp.spv": {
+        "sha256": "6c1b79c3424d159b28dd32178c1aa789c39476ce3f262e5312db09c68ce8494e",
+        "validation_exit": 0
+      }
+    }
+  },
+  {
+    "run": "primary-resample",
+    "result": {
+      "frames": 4,
+      "failed": true,
+      "status": "Presentation failed (VkErrorDeviceLost): VkErrorDeviceLost()",
+      "extent": [
+        1280,
+        720
+      ],
+      "animated": true,
+      "slow": false
+    },
+    "binaries": {
+      "wavefront_shade_candidate.glsl.spv": {
+        "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+        "validation_exit": 0
+      },
+      "wavefront_primary.comp.spv": {
+        "sha256": "c8c2503346edbb8cf632a1c32d66232c0ed28a049b0d926fd42d203b7cf0455e",
+        "validation_exit": 0
+      }
+    }
+  },
+  {
+    "run": "loop-scatter",
+    "result": {
+      "frames": 124,
+      "failed": false,
+      "status": "44.5 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+      "extent": [
+        1280,
+        720
+      ],
+      "animated": true,
+      "slow": false
+    },
+    "binaries": {
+      "wavefront_shade_candidate.glsl.spv": {
+        "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+        "validation_exit": 0
+      },
+      "wavefront_primary.comp.spv": {
+        "sha256": "2387d2ffe2ecbf450b4d445bf22a14c7d91062c8671122e224175df68c948e35",
+        "validation_exit": 0
+      }
+    }
+  },
+  {
+    "run": "loop-resample",
+    "result": {
+      "frames": 125,
+      "failed": false,
+      "status": "44.6 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+      "extent": [
+        1280,
+        720
+      ],
+      "animated": true,
+      "slow": false
+    },
+    "binaries": {
+      "wavefront_shade_candidate.glsl.spv": {
+        "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+        "validation_exit": 0
+      },
+      "wavefront_primary.comp.spv": {
+        "sha256": "2387d2ffe2ecbf450b4d445bf22a14c7d91062c8671122e224175df68c948e35",
+        "validation_exit": 0
+      }
+    }
+  },
+  {
+    "run": "control-repeat",
+    "result": {
+      "frames": 4,
+      "failed": true,
+      "status": "Presentation failed (VkErrorDeviceLost): VkErrorDeviceLost()",
+      "extent": [
+        1280,
+        720
+      ],
+      "animated": true,
+      "slow": false
+    },
+    "binaries": {
+      "wavefront_shade_candidate.glsl.spv": {
+        "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+        "validation_exit": 0
+      },
+      "wavefront_primary.comp.spv": {
+        "sha256": "2387d2ffe2ecbf450b4d445bf22a14c7d91062c8671122e224175df68c948e35",
+        "validation_exit": 0
+      }
+    }
+  }
+]

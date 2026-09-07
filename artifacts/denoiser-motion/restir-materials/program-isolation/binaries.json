@@ -1,0 +1,66 @@
+[
+  {
+    "run": "original-program",
+    "shader": "wavefront_primary.comp.spv",
+    "bytes": 293416,
+    "sha256": "2387d2ffe2ecbf450b4d445bf22a14c7d91062c8671122e224175df68c948e35",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "original-program",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "bytes": 257368,
+    "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-program",
+    "shader": "wavefront_primary.comp.spv",
+    "bytes": 295540,
+    "sha256": "c614846cd3d0aff45120e3c0bf61a878e98605c5483b9e9bd8757ce0b005846b",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-program",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "bytes": 259492,
+    "sha256": "5a12586c6c89cdbb3939ac18752b72e8cb1d5eb02769ecce6d4696e03294c763",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-primary",
+    "shader": "wavefront_primary.comp.spv",
+    "bytes": 295540,
+    "sha256": "c614846cd3d0aff45120e3c0bf61a878e98605c5483b9e9bd8757ce0b005846b",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-primary",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "bytes": 257368,
+    "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-secondary",
+    "shader": "wavefront_primary.comp.spv",
+    "bytes": 293416,
+    "sha256": "2387d2ffe2ecbf450b4d445bf22a14c7d91062c8671122e224175df68c948e35",
+    "validation_exit": 0,
+    "validation_output": ""
+  },
+  {
+    "run": "extra-secondary",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "bytes": 259492,
+    "sha256": "5a12586c6c89cdbb3939ac18752b72e8cb1d5eb02769ecce6d4696e03294c763",
+    "validation_exit": 0,
+    "validation_output": ""
+  }
+]

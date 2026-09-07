@@ -1,0 +1,95 @@
+{
+  "showcase": "planar-mirror-guides",
+  "target": "wavefront-gi",
+  "extent": [
+    1280,
+    720
+  ],
+  "warmup_frames": 8,
+  "frame_metadata": [
+    {
+      "wavefront_frame_slot": 0,
+      "wavefront_history_source_slot": 1,
+      "wavefront_history_dependency_waited": true,
+      "wavefront_history_chain_enabled": true
+    },
+    {
+      "wavefront_frame_slot": 1,
+      "wavefront_history_source_slot": 0,
+      "wavefront_history_dependency_waited": true,
+      "wavefront_history_chain_enabled": true
+    },
+    {
+      "wavefront_frame_slot": 0,
+      "wavefront_history_source_slot": 1,
+      "wavefront_history_dependency_waited": true,
+      "wavefront_history_chain_enabled": true
+    },
+    {
+      "wavefront_frame_slot": 1,
+      "wavefront_history_source_slot": 0,
+      "wavefront_history_dependency_waited": true,
+      "wavefront_history_chain_enabled": true
+    }
+  ],
+  "summary": {
+    "frame_count": 4,
+    "shape": [
+      720,
+      1280,
+      3
+    ],
+    "frame_hashes": [
+      "18ac6e56badb7ca6",
+      "8e663f4a4c4c3f0a",
+      "57ca3f070351e082",
+      "07e625de0eb483ae"
+    ],
+    "adjacent": [
+      {
+        "frame": 1,
+        "previous_frame": 0,
+        "rmse": 0.09777057138002393,
+        "mean_absolute_error": 0.055440163993173176,
+        "maximum_absolute_error": 3.222259521484375
+      },
+      {
+        "frame": 2,
+        "previous_frame": 1,
+        "rmse": 0.09730118892726836,
+        "mean_absolute_error": 0.05523907335130153,
+        "maximum_absolute_error": 3.222259521484375
+      },
+      {
+        "frame": 3,
+        "previous_frame": 2,
+        "rmse": 0.09761561763202116,
+        "mean_absolute_error": 0.055394050205057416,
+        "maximum_absolute_error": 3.286712646484375
+      }
+    ],
+    "lag_two": [
+      {
+        "frame": 2,
+        "previous_frame": 0,
+        "rmse": 0.05819742898338871,
+        "mean_absolute_error": 0.010014962874076985,
+        "maximum_absolute_error": 2.81982421875
+      },
+      {
+        "frame": 3,
+        "previous_frame": 1,
+        "rmse": 0.05473513646943156,
+        "mean_absolute_error": 0.008516738601718787,
+        "maximum_absolute_error": 3.146484375
+      }
+    ],
+    "mean_adjacent_rmse": 0.09756245931310448,
+    "mean_lag_two_rmse": 0.05646628272641013,
+    "lag_two_to_adjacent_rmse_ratio": 0.5787705960260233,
+    "even_odd_mean_rmse": 0.08927092042384874,
+    "mean_luminance": 0.0653409281608616,
+    "nonzero_luminance_fraction": 0.9733333333333334,
+    "alternating_history_signature": false
+  }
+}

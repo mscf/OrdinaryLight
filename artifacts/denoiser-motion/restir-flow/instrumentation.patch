@@ -1,0 +1,69 @@
+diff --git a/ordinarylight/shaders/wavefront_primary_impl.glsl b/ordinarylight/shaders/wavefront_primary_impl.glsl
+index 7ff1b15a..023bf4ab 100644
+--- a/ordinarylight/shaders/wavefront_primary_impl.glsl
++++ b/ordinarylight/shaders/wavefront_primary_impl.glsl
+@@ -1043,6 +1043,8 @@ void processPrimaryPixel(uvec2 local_pixel)
+     // ReSTIR quality uses independent reservoir streams. tile_frame.z used
+     // to carry the frame index; live frame sequencing now comes from the
+     // camera buffer, leaving this ABI slot available for the stream count.
++    atomicOr(guard_counters[0], 1u);
++    if (push.restir_history_valid != 0u) atomicOr(guard_counters[0], 128u);
+     uint restir_reservoir_count = max(push.tile_frame.z, 1u);
+     uint restir_stream = min(
+         push.tile_frame.w, restir_reservoir_count - 1u);
+@@ -1449,6 +1451,7 @@ void processPrimaryPixel(uvec2 local_pixel)
+         primary_specular += transportPointSpecular;
+         uint light_samples = clamp(push.area_light_samples, 1u, 16u);
+         if (push.restir_di != 0u && push.area_light_count > 0u) {
++            atomicOr(guard_counters[0], 2u);
+             uint candidate_count = clamp(
+                 push.restir_candidate_count, 1u, 4u);
+             DirectLightReservoir reservoir = emptyDirectLightReservoir();
+@@ -1468,8 +1471,10 @@ void processPrimaryPixel(uvec2 local_pixel)
+                     candidate.target, 1.0, randomFloat(rng));
+             }
+             if (push.restir_history_valid != 0u) {
++                atomicOr(guard_counters[0], 4u);
+                 ivec2 previous_pixel;
+                 if (reprojectRestir(position, previous_pixel)) {
++                    atomicOr(guard_counters[0], 8u);
+                     uint spatial_count = push.restir_spatial_reuse != 0u
+                         ? clamp(push.restir_spatial_neighbors, 1u, 8u) : 0u;
+                     uint spatial_rotation = hashValue(
+diff --git a/ordinarylight/shaders/wavefront_restir.glsl b/ordinarylight/shaders/wavefront_restir.glsl
+index 6385eab1..a4203b29 100644
+--- a/ordinarylight/shaders/wavefront_restir.glsl
++++ b/ordinarylight/shaders/wavefront_restir.glsl
+@@ -17,6 +17,7 @@ layout(set = 0, binding = 17, std430) readonly buffer PreviousReservoirBuffer {
+     uint previous_reservoir_words[];
+ };
+ 
++layout(set = 0, binding = 15, std430) buffer GuardCounters { uint guard_counters[]; };
+ const uint DIRECT_LIGHT_STORAGE_INDEX_BITS = 25u;
+ const uint DIRECT_LIGHT_STORAGE_INDEX_MASK = 0x01ffffffu;
+ const uint DIRECT_LIGHT_STORAGE_COUNT_SHIFT = 25u;
+@@ -39,6 +40,13 @@ DirectLightReservoir unpackStoredDirectLightReservoir(
+ 
+ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ {
++    atomicOr(guard_counters[0], 16u);
++    if (reservoir_index >= uint(previous_reservoir_words.length()) / 3u) {
++        atomicOr(guard_counters[0], 32u);
++        DirectLightReservoir empty_reservoir;
++        empty_reservoir.data = uvec4(0xffffffffu, 0u, 0u, 0u);
++        return empty_reservoir;
++    }
+     uint word = reservoir_index * 3u;
+     return unpackStoredDirectLightReservoir(
+         previous_reservoir_words[word],
+@@ -49,6 +57,10 @@ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ void storeCurrentDirectLightReservoir(
+     uint reservoir_index, DirectLightReservoir reservoir)
+ {
++    if (reservoir_index >= uint(current_reservoir_words.length()) / 3u) {
++        atomicOr(guard_counters[0], 64u);
++        return;
++    }
+     vec2 target_count = unpackHalf2x16(reservoir.data.w);
+     uint light_index = reservoir.data.x == 0xffffffffu
+         ? DIRECT_LIGHT_STORAGE_INDEX_MASK

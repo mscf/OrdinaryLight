@@ -1,0 +1,36 @@
+{"submit_index": 0, "position": [3.041077998411421, 2.0, -6.30490639165864], "target": [0.0, 1.8, 0.0]}
+{"shader": "wavefront_primary.comp", "scene_program_count": 2, "compiled_program_count": 2}
+{"shader": "wavefront_shade_candidate.glsl", "scene_program_count": 2, "compiled_program_count": 2}
+BOUND custom_primary_pipeline
+BOUND indirect_pipeline
+BOUND custom_shade_pipeline
+BOUND wavefront_image_pipeline
+BOUND relax_prepare_pipeline
+BOUND relax_temporal_pipeline
+BOUND relax_atrous_pipeline
+BOUND relax_compose_pipeline
+BOUND reconstruct_bgra_pipeline
+{"completed_submit": 0, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": null, "wavefront_history_dependency_waited": false, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": false, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 0.0}}
+{"submit_index": 1, "position": [2.128871927250031, 2.0, -6.668425925011594], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 1, "state": {"wavefront_frame_slot": 1, "wavefront_history_source_slot": 0, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": false, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 128.65371998626517}}
+{"submit_index": 2, "position": [2.0689422564959243, 2.0, -6.6872623650702945], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 2, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": 1, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 8.223716329694367}}
+{"submit_index": 3, "position": [2.0094896208183184, 2.0, -6.705367362331719], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 3, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": null, "wavefront_history_dependency_waited": false, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": false, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 0.0}}
+{"submit_index": 4, "position": [1.6834529311996551, 2.0, -6.79455563141809], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 4, "state": {"wavefront_frame_slot": 1, "wavefront_history_source_slot": 0, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 44.253350092763206}}
+{"submit_index": 5, "position": [1.6249664446917857, 2.0, -6.808779924011771], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 5, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": 1, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 7.879576285499078}}
+{"submit_index": 6, "position": [1.5665048493661817, 2.0, -6.822467483023443], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 6, "state": {"wavefront_frame_slot": 1, "wavefront_history_source_slot": 0, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 7.860095418683671}}
+{"submit_index": 7, "position": [1.5056732731156968, 2.0, -6.83615008572991], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 7, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": 1, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 8.162343585440967}}
+{"submit_index": 8, "position": [1.4445694465071022, 2.0, -6.849322529580436], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 8, "state": {"wavefront_frame_slot": 1, "wavefront_history_source_slot": 0, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 8.182785023503607}}
+{"submit_index": 9, "position": [1.3835169690012263, 2.0, -6.861915242589758], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 9, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": 1, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": true, "wavefront_temporal_motion_pixels": 8.160545276996412}}
+{"submit_index": 10, "position": [1.379358023654816, 2.0, -6.862752468403554], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 10, "state": {"wavefront_frame_slot": 1, "wavefront_history_source_slot": 0, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": false, "wavefront_temporal_motion_pixels": 0.5553627942364726}}
+{"submit_index": 11, "position": [1.2996300139462766, 2.0, -6.878296433481911], "target": [0.0, 1.8, 0.0]}
+{"completed_submit": 11, "state": {"wavefront_frame_slot": 0, "wavefront_history_source_slot": 1, "wavefront_history_dependency_waited": true, "wavefront_history_chain_enabled": true, "wavefront_restir_history_valid": true, "wavefront_command_cache_hit": true, "wavefront_temporal_motion_pixels": 10.63363091074741}}
+{"frames": 122, "failed": false, "status": "50.5 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)", "extent": [1280, 720], "animated": true, "slow": false}

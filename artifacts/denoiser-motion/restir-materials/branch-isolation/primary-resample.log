@@ -1,0 +1,39 @@
+{"shader": "wavefront_primary.comp", "scene_program_count": 2, "compiled_program_count": 2}
+{"shader": "wavefront_shade_candidate.glsl", "scene_program_count": 2, "compiled_program_count": 2}
+BOUND custom_primary_pipeline
+BOUND indirect_pipeline
+BOUND custom_shade_pipeline
+BOUND wavefront_image_pipeline
+BOUND relax_prepare_pipeline
+BOUND relax_temporal_pipeline
+BOUND relax_atrous_pipeline
+BOUND relax_compose_pipeline
+BOUND reconstruct_bgra_pipeline
+Traceback (most recent call last):
+  File "/home/mscf/projects/personal/wave-render/ordinarylight/integrations/raster_workbench.py", line 1110, in tick
+    result = self.future.result()
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/usr/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/api.py", line 1820, in present_wavefront
+    return self._core.present_wavefront_window(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        scene, camera, width, height, render_extent=render_extent,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py", line 6902, in present_wavefront_window
+    vk.vkWaitForFences(
+    ~~~~~~~~~~~~~~~~~~^
+        self.device, 1, [frame["fence"]], vk.VK_TRUE, (1 << 64) - 1
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py", line 11670, in vkWaitForFences
+    raise exception_codes[result]
+vulkan._vulkan.VkErrorDeviceLost
+{"frames": 4, "failed": true, "status": "Presentation failed (VkErrorDeviceLost): VkErrorDeviceLost()", "extent": [1280, 720], "animated": true, "slow": false}

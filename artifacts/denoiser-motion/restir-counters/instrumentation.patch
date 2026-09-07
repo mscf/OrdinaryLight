@@ -1,0 +1,40 @@
+diff --git a/ordinarylight/shaders/wavefront_restir.glsl b/ordinarylight/shaders/wavefront_restir.glsl
+index 6385eab1..febf7ec4 100644
+--- a/ordinarylight/shaders/wavefront_restir.glsl
++++ b/ordinarylight/shaders/wavefront_restir.glsl
+@@ -17,6 +17,9 @@ layout(set = 0, binding = 17, std430) readonly buffer PreviousReservoirBuffer {
+     uint previous_reservoir_words[];
+ };
+ 
++layout(set = 0, binding = 15, std430) buffer GuardCounters {
++    uint guard_counters[];
++};
+ const uint DIRECT_LIGHT_STORAGE_INDEX_BITS = 25u;
+ const uint DIRECT_LIGHT_STORAGE_INDEX_MASK = 0x01ffffffu;
+ const uint DIRECT_LIGHT_STORAGE_COUNT_SHIFT = 25u;
+@@ -39,6 +42,13 @@ DirectLightReservoir unpackStoredDirectLightReservoir(
+ 
+ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ {
++    if ((reservoir_index % 4093u) == 0u) atomicAdd(guard_counters[0], 1u);
++    if (reservoir_index >= uint(previous_reservoir_words.length()) / 3u) {
++        atomicAdd(guard_counters[1], 1u);
++        DirectLightReservoir empty_reservoir;
++        empty_reservoir.data = uvec4(0xffffffffu, 0u, 0u, 0u);
++        return empty_reservoir;
++    }
+     uint word = reservoir_index * 3u;
+     return unpackStoredDirectLightReservoir(
+         previous_reservoir_words[word],
+@@ -49,6 +59,11 @@ DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index)
+ void storeCurrentDirectLightReservoir(
+     uint reservoir_index, DirectLightReservoir reservoir)
+ {
++    if ((reservoir_index % 4093u) == 0u) atomicAdd(guard_counters[2], 1u);
++    if (reservoir_index >= uint(current_reservoir_words.length()) / 3u) {
++        atomicAdd(guard_counters[3], 1u);
++        return;
++    }
+     vec2 target_count = unpackHalf2x16(reservoir.data.w);
+     uint light_index = reservoir.data.x == 0xffffffffu
+         ? DIRECT_LIGHT_STORAGE_INDEX_MASK

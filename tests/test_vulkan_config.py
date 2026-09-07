@@ -21,6 +21,33 @@ from ordinarylight.targets.vulkan.core import (
 
 
 class RendererConfigTests(unittest.TestCase):
+    def test_swapchain_teardown_invalidates_commands_before_destroying_resources(self):
+        core = object.__new__(VulkanRayQueryCore)
+        core.device = object()
+        resource = type("Buffer", (), {"buffer": object()})()
+        core.window_frames = [
+            {"wavefront_command_key": (1280, 720), "nv12_buffer": resource},
+            {"wavefront_command_key": (1280, 720)},
+        ]
+
+        class ReachedResourceDestruction(Exception):
+            pass
+
+        def destroy(*_args):
+            # Both slots must be invalid even if the replacement has the
+            # same dimensions and would otherwise match their cached keys.
+            self.assertTrue(all(
+                frame["wavefront_command_key"] is None
+                for frame in core.window_frames
+            ))
+            raise ReachedResourceDestruction
+
+        with patch(
+            "ordinarylight.targets.vulkan.core.vk.vkDestroyBuffer",
+            side_effect=destroy,
+        ), self.assertRaises(ReachedResourceDestruction):
+            core._destroy_swapchain_resources()
+
     def test_wavefront_history_semaphore_plan_forms_one_ping_pong_chain(self):
         self.assertEqual(
             _wavefront_history_semaphore_plan(

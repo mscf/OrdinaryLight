@@ -143,15 +143,27 @@ fn main(
         textureStore(motion_output, pixel, vec4<f32>(0.0));
         return;
     }
-    let world_position: vec3<f32> = secondary.primary_position.xyz;
-    let normal: vec3<f32> = prepare_unpack_normal(textureLoad(packed_normal, pixel).x);
+    var world_position: vec3<f32> = secondary.primary_position.xyz;
+    var normal: vec3<f32> = prepare_unpack_normal(textureLoad(packed_normal, pixel).x);
     let roughness: f32 = clamp((secondary.primary_position.w - 1.0), 0.0, 1.0);
-    let view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
+    var view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
     let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
     let instance_key: u32 = bitcast<u32>(secondary.primary_geometry.w);
     let barycentrics: vec2<f32> = secondary.primary_geometry.yz;
     let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
-    let previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
+    var previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
+    if (((((constants.samples.w != u32(0)) && (abs(world_position.z) < 0.0001)) && (abs(normal.z) > 0.9999)) && (roughness <= 0.0011))) {
+        if ((secondary.position_valid.w > 0.5)) {
+            let reflected: vec3<f32> = secondary.position_valid.xyz;
+            world_position = vec3<f32>(reflected.x, reflected.y, (-reflected.z));
+            let reflected_normal: vec3<f32> = secondary.normal_pdf.xyz;
+            normal = vec3<f32>(reflected_normal.x, reflected_normal.y, (-reflected_normal.z));
+            previous_world_position = world_position;
+            view_z = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
+        } else {
+            view_z = 0.0;
+        }
+    }
     let old: vec3<f32> = prepare_previous_pixel(previous_world_position, extent);
     var motion: vec2<f32> = (old.xy - vec2<f32>(pixel));
     var previous_view_z: f32 = old.z;

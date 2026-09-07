@@ -1,0 +1,30 @@
+[
+  {
+    "run": "runtime-flag",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+    "bytes": 257368,
+    "validation_exit": 0
+  },
+  {
+    "run": "runtime-flag",
+    "shader": "wavefront_primary.comp.spv",
+    "sha256": "66f5130fda913d8987dbfa1be20f7b98ab558bbff9ea54bc6f1b645695609f1f",
+    "bytes": 293536,
+    "validation_exit": 0
+  },
+  {
+    "run": "duplicate-custom",
+    "shader": "wavefront_shade_candidate.glsl.spv",
+    "sha256": "5301493060c50059dde49d1c9b429c285ddfe86271176d8213cac72ed9526c0d",
+    "bytes": 257368,
+    "validation_exit": 0
+  },
+  {
+    "run": "duplicate-custom",
+    "shader": "wavefront_primary.comp.spv",
+    "sha256": "eb40b2735cfd46d0a06d5a3ccddb78597fd3269aa9f752380ca6c6fd22dbec9e",
+    "bytes": 294172,
+    "validation_exit": 0
+  }
+]

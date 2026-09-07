@@ -1,0 +1,46 @@
+{
+  "fresh": {
+    "frames": 123,
+    "failed": false,
+    "status": "49.1 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+    "extent": [
+      1280,
+      720
+    ],
+    "animated": true,
+    "slow": false
+  },
+  "generic": {
+    "frames": 120,
+    "failed": false,
+    "status": "46.6 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+    "extent": [
+      1280,
+      720
+    ],
+    "animated": true,
+    "slow": false
+  },
+  "no_untextured": {
+    "frames": 4,
+    "failed": true,
+    "status": "Presentation failed (VkErrorDeviceLost): VkErrorDeviceLost()",
+    "extent": [
+      1280,
+      720
+    ],
+    "animated": true,
+    "slow": false
+  },
+  "one_stream": {
+    "frames": 131,
+    "failed": false,
+    "status": "138.5 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)",
+    "extent": [
+      1280,
+      720
+    ],
+    "animated": true,
+    "slow": false
+  }
+}

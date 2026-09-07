@@ -1,0 +1,10 @@
+--- original
++++ duplicate-custom
+@@ -214,6 +214,7 @@
+     int program_id = int(floor(material.ior_distance.z));
+     MaterialEvaluation evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
+     if (program_id == 1) evaluated = evaluateMaterial_1(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
++    if (program_id == 2) evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);
+     SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, material.advanced0.x, material.advanced0.y, material.sheen_color.rgb, material.advanced0.z, material.advanced0.w, material.advanced1.z, material.advanced1.x, material.subsurface_color.rgb, material.advanced1.y);
+     surface = ordinarylight_material_modifier(surface, SurfaceContext(uv, normal, -direction, float(program_id)));
+     normal = normalize(surface.normal);

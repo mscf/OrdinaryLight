@@ -1,0 +1,10 @@
+BOUND custom_primary_pipeline
+BOUND indirect_pipeline
+BOUND custom_shade_pipeline
+BOUND wavefront_image_pipeline
+BOUND relax_prepare_pipeline
+BOUND relax_temporal_pipeline
+BOUND relax_atrous_pipeline
+BOUND relax_compose_pipeline
+BOUND reconstruct_bgra_pipeline
+{"frames": 125, "failed": false, "status": "51.0 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)", "extent": [1280, 720], "animated": true, "slow": false}

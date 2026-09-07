@@ -1,0 +1,11 @@
+--- original
++++ loop-scatter
+@@ -5442,7 +5442,7 @@
+ #else
+         float transmission = material.attenuation_transmission.a;
+ #endif
+-        if (wave_surface_response.custom_scattering > 0.5) {
++        if (wave_surface_response.custom_scattering > 0.5 && int(floor(material.ior_distance.z)) != 2) {
+             int wave_event = int(wave_surface_response.event + 0.5);
+             if (wave_event == 0) {
+                 path.metadata.w &= ~PATH_ACTIVE_BIT;

@@ -262,3 +262,23 @@ SCENES = {
 
 def get_restir_scene(name):
     return SCENES[name]
+
+
+def build_planar_mirror_guides():
+    """Static z=0 mirror fixture for experimental native reflected guides."""
+    scene = ol.Scene()
+    for corners, material in (
+        (((-5, 0, -8), (5, 0, -8), (5, 0, 0), (-5, 0, 0)),
+         ol.Material(base_color=(0.55, 0.6, 0.65), program=diffuse)),
+        (((-2, 5, -3), (2, 5, -3), (2, 5, -1), (-2, 5, -1)),
+         ol.Material(emission=(12, 10, 8), emission_two_sided=True, program=diffuse)),
+        (((-2.5, 0, 0), (2.5, 0, 0), (2.5, 4, 0), (-2.5, 4, 0)),
+         ol.Material(base_color=(1, 1, 1), metallic=1, roughness=0, program=mirror)),
+    ):
+        vertices, indices = quad(*corners)
+        scene.add_mesh(vertices, indices, material)
+    for center, color in (((-1, 1, -3), (0.9, 0.1, 0.05)),
+                          ((1.4, 0.9, -1.8), (0.08, 0.35, 0.9))):
+        vertices, indices = sphere(center, 0.7)
+        scene.add_mesh(vertices, indices, ol.Material(base_color=color, program=diffuse))
+    return scene

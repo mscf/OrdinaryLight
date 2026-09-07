@@ -1,0 +1,11 @@
+--- original
++++ primary-resample
+@@ -5995,7 +5995,7 @@
+     + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
+     + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;
+     MaterialEvaluation wave_surface_response = ordinarylight_apply_material_program(material, normal, wave_material_uv, incoming, entering, primitive, weights, 0.0);
+-    if (wave_surface_response.custom_scattering > 0.5) {
++    if (wave_surface_response.custom_scattering > 0.5 && int(floor(material.ior_distance.z)) != 2) {
+         float wave_random_u = randomFloat(rng);
+         float wave_random_v = randomFloat(rng);
+         wave_surface_response = evaluateMaterial(

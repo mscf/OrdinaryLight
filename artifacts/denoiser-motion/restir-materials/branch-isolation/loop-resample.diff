@@ -1,0 +1,11 @@
+--- original
++++ loop-resample
+@@ -5333,7 +5333,7 @@
+             + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
+             + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;
+         MaterialEvaluation wave_surface_response = ordinarylight_apply_material_program(material, normal, wave_material_uv, direction, entering, primitive, weights, float(bounce));
+-        if (wave_surface_response.custom_scattering > 0.5) {
++        if (wave_surface_response.custom_scattering > 0.5 && int(floor(material.ior_distance.z)) != 2) {
+             float wave_current_ior = stacks[path_index].ior[medium_depth - 1u];
+             float wave_exterior_ior = entering
+                 ? max(material.ior_distance.x, 1.0001)

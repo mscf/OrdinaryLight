@@ -8,6 +8,7 @@ from ordinarylight.showcases.rooms import (
     build_dense_geometry,
     build_diffuse_room,
     build_glossy_glass,
+    build_planar_mirror_guides,
     build_nested_glass,
     build_occlusion_room,
     build_object_motion_room,
@@ -21,6 +22,11 @@ ROOM_CAMERA = OrbitCamera(
 )
 
 SHOWCASES = (
+    Showcase("planar-mirror-guides", "Planar mirror guides", build_planar_mirror_guides,
+             camera=OrbitCamera(target=(0, 1.8, 0), radius=-7, height=2, arc_radians=0.3),
+             renderer={"denoiser_enabled": True},
+             tags=("raster-feature", "denoising", "mirror")),
+
     Showcase("area-lights", "Area lights", build_area_light_showcase,
              camera=ROOM_CAMERA, tags=("lighting", "baseline")),
     Showcase("diffuse-room", "Diffuse room", build_diffuse_room,

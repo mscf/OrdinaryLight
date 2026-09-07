@@ -1,0 +1,1 @@
+{"frames": 131, "failed": false, "status": "137.4 FPS | frame 0.00 ms | pack 0.00 ms | prepare 0.00 ms | submit 0.00 ms | 1280 \u00d7 720 | Wavefront GI \u00b7 IMMEDIATE \u00b7 direct swapchain \u00b7 warming\nGI denoiser: Ordinary Shade ReLAX \u00b7 3 A-trous iteration(s)", "extent": [1280, 720], "animated": true, "slow": false}
