@@ -1,0 +1,23 @@
+{
+  "camera": {
+    "baseline": {
+      "moving_rmse": 0.047202039530917755,
+      "settled_rmse": 0.013564831253598562,
+      "stopped_std": 0.001159139354845711
+    }
+  },
+  "glass": {
+    "baseline": {
+      "moving_rmse": 0.13130483934041445,
+      "settled_rmse": 0.030669122256293035,
+      "stopped_std": 0.00434508247423487
+    }
+  },
+  "target": {
+    "baseline": {
+      "moving_rmse": 0.15678792993797833,
+      "settled_rmse": 0.017811527085849786,
+      "stopped_std": 0.004788741583294105
+    }
+  }
+}

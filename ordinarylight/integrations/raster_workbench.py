@@ -501,7 +501,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.transmission_motion_cap = QtWidgets.QCheckBox()
             self.transmission_motion_cap.setToolTip(
                 "Limit moving glass history to four frames. Experimental; "
-                "applies to custom-material primary transmission guides. Apply and restart."
+                "applies to marked primary transmission guides. Apply and restart."
             )
             self.planar_mirror_guides = QtWidgets.QCheckBox()
             self.planar_mirror_guides.setToolTip(

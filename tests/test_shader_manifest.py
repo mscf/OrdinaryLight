@@ -4,6 +4,17 @@ from scripts.compile_shaders import build_plan, load_manifest, validate_plan
 
 
 class ShaderManifestTests(unittest.TestCase):
+    def test_standard_primary_has_packaged_denoiser_variants(self):
+        builds = {build.name: build for build in build_plan()}
+        for suffix in ("", "_native", "_profile", "_native_profile"):
+            ordinary = builds[f"wavefront_primary{suffix}.comp.spv"]
+            denoiser = builds[f"wavefront_primary{suffix}_denoiser.comp.spv"]
+            self.assertEqual(ordinary.source, denoiser.source)
+            self.assertEqual(
+                set(denoiser.definitions),
+                set(ordinary.definitions) | {"WAVE_DENOISER_SIGNAL_CAPTURE=1"},
+            )
+
     def test_manifest_expands_to_unique_existing_inventory(self):
         manifest = load_manifest()
         plan = build_plan(manifest)

@@ -51,9 +51,10 @@ exceeds one pixel. History grows normally after motion stops. Both denoiser
 lobes use the same cap. Compare identical movement/hold phases with it off/on.
 
 The low-level option is `RendererConfig.denoiser_transmission_motion_cap`.
-The marker currently comes from dynamically compiled custom-material primary
-pipelines; stock primary variants do not emit it. The glass showcase uses the
-supported custom Fresnel material. Opaque surfaces and unmarked samples retain
+The marker is supported by the standard wavefront primary pipeline (including
+native-texture and profiling variants) and dynamically compiled custom-material
+primary pipelines. Hybrid, megakernel, and SER variants are not extended by this
+change. The glass showcase uses the custom Fresnel material. Opaque surfaces and unmarked samples retain
 the existing temporal policy. This is not a refracted-background motion model:
 a stationary glass surface cannot detect a moving target through this marker.
 

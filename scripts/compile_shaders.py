@@ -146,6 +146,17 @@ def build_plan(manifest=None):
                             suffix, definitions
                         ))
 
+    for stem in families.get("denoiser_primary", ()):
+        for native in (False, True):
+            for profile in (False, True):
+                suffix = ("_native" if native else "") + ("_profile" if profile else "") + "_denoiser"
+                definitions = ["WAVE_DENOISER_SIGNAL_CAPTURE=1"]
+                if native:
+                    definitions.append("WAVE_NATIVE_TEXTURES=1")
+                if profile:
+                    definitions.append("WAVE_WORK_COUNTERS=1")
+                plan.append(_compute_variant(stem, suffix, definitions))
+
     for stem in families["native"]:
         plan.append(_compute_variant(
             stem, "_native", ("WAVE_NATIVE_TEXTURES=1",)

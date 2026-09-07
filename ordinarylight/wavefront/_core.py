@@ -79,7 +79,7 @@ The final four vectors are dormant unless denoiser-signal capture is enabled.
 Their RGB lanes accumulate demodulated diffuse/specular radiance and their W
 lanes retain the corresponding first-event hit distance. ``primary_geometry``
 stores the packed primitive identity and barycentrics needed for rigid-object
-motion reprojection. During custom-material denoiser capture, the sign bit of
+motion reprojection. During standard wavefront or custom-material denoiser capture, the sign bit of
 its nonnegative barycentric u (Y lane) marks a transmissive primary material.
 Consumers recover u with absolute value, including signed zero. The instance
 identity and primitive index are unchanged. Keeping these signals here preserves the 48-byte hot path

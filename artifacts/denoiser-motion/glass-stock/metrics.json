@@ -1,0 +1,14 @@
+{
+  "off": {
+    "marked_pixels": 0,
+    "marked_ids": [],
+    "patch_zero_depth_fraction": 0.0
+  },
+  "on": {
+    "marked_pixels": 10976,
+    "marked_ids": [
+      0
+    ],
+    "patch_zero_depth_fraction": 0.0
+  }
+}

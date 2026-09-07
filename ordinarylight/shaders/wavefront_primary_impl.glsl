@@ -1884,7 +1884,9 @@ void processPrimaryPixel(uvec2 local_pixel)
     }
 #endif
     setPathRng(path, rng);
-#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
+#if WAVE_DENOISER_SIGNAL_CAPTURE
+    if ((path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u) {
+#elif WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
     if (ordinarylight_primary_capture_secondary(
             path.metadata.w, transmission)) {
 #else
@@ -1907,6 +1909,14 @@ void processPrimaryPixel(uvec2 local_pixel)
         secondary_paths[path_index].primary_geometry = vec4(
             uintBitsToFloat(primitive), barycentrics,
             uintBitsToFloat(instance_key));
+#endif
+#if WAVE_DENOISER_SIGNAL_CAPTURE
+        // Reserve nonnegative barycentric u's sign bit for material transmission.
+        if (material.attenuation_transmission.a > 0.001) {
+            secondary_paths[path_index].primary_geometry.y = uintBitsToFloat(
+                floatBitsToUint(secondary_paths[path_index].primary_geometry.y)
+                | 0x80000000u);
+        }
 #endif
         // Scratch contract: negative alpha marks evaluated primary specular
         // radiance, before path-to-HDR resolves the denoiser channels.

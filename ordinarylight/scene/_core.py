@@ -2692,6 +2692,9 @@ class Scene:
     @property
     def emissive_light_weight(self):
         """Total area-luminance weight used by emissive-light sampling."""
+        cached = getattr(self, "_emissive_weight_cache", None)
+        if cached is not None and cached[0] == self.revision:
+            return cached[1]
         total = 0.0
         for mesh in self.visible_meshes:
             emission = np.asarray(mesh.material.emission, dtype=np.float64)
@@ -2704,10 +2707,14 @@ class Scene:
                          triangles[:, 2] - triangles[:, 0]), axis=1,
             )
             total += float(areas[areas > 1e-12].sum()) * luminance
+        self._emissive_weight_cache = (self.revision, total)
         return total
 
     @property
     def emissive_triangle_count(self):
+        cached = getattr(self, "_emissive_count_cache", None)
+        if cached is not None and cached[0] == self.revision:
+            return cached[1]
         count = 0
         for mesh in self.visible_meshes:
             if not any(component > 0.0 for component in mesh.material.emission):
@@ -2719,6 +2726,7 @@ class Scene:
                              triangles[:, 2] - triangles[:, 0]), axis=1,
                 ) > 2e-12
             ))
+        self._emissive_count_cache = (self.revision, count)
         return count
 
     def triangles(self):

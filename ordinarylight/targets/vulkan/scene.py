@@ -149,22 +149,25 @@ class VulkanSceneResources:
         self.primitive_ids = np.array(scene.triangle_instance_ids(), copy=True)
         self.primitive_ids.flags.writeable = False
 
-    def _update_content_signatures(self):
+    def _update_content_signatures(self, *, material_signature=None, area_light_data=None):
         # Scene's shading revision groups materials and lights. Separate content
         # signatures let application history invalidate either domain precisely.
-        programs, default = self._core._ensure_scene_pipeline(self.scene)
-        material = hashlib.sha256(self.scene.triangle_material_data(programs, default).tobytes())
-        material.update(self.scene.texture_binding_data().tobytes())
+        if material_signature is None:
+            programs, default = self._core._ensure_scene_pipeline(self.scene)
+            material = hashlib.sha256(self.scene.triangle_material_data(programs, default).tobytes())
+            material.update(self.scene.texture_binding_data().tobytes())
+            for texture in self.scene.textures:
+                material.update(texture.pixels.tobytes())
+            material_signature = material.hexdigest()
         lighting = hashlib.sha256(self.scene.analytic_light_data().tobytes())
-        lighting.update(self.scene.emissive_triangle_data().tobytes())
+        if area_light_data is None:
+            area_light_data = self.scene.emissive_triangle_data()
+        lighting.update(area_light_data.tobytes())
         for texture in self.scene.textures:
-            pixels = texture.pixels.tobytes()
-            material.update(pixels)
-            # Includes environment maps; conservatively invalidate lighting for
-            # texture changes without guessing which shader samples the atlas.
-            lighting.update(pixels)
+            # Environment maps can affect lighting independently of geometry.
+            lighting.update(texture.pixels.tobytes())
         self.content_signatures = MappingProxyType({
-            "materials": material.hexdigest(), "lighting": lighting.hexdigest(),
+            "materials": material_signature, "lighting": lighting.hexdigest(),
         })
 
     @property

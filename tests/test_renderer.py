@@ -122,6 +122,30 @@ class SceneTests(unittest.TestCase):
         np.testing.assert_allclose(data[0, 3], (4, 3, 2, 2))
         np.testing.assert_allclose(data[0, 4, :2], (1, 1))
 
+    def test_emissive_statistics_follow_scene_edits(self):
+        from unittest.mock import patch
+
+        scene = ol.Scene()
+        mesh = scene.add_mesh(
+            ((0, 0, 0), (2, 0, 0), (0, 2, 0)), ((0, 1, 2),),
+            ol.Material(emission=(1, 1, 1)),
+        )
+        self.assertEqual(scene.emissive_triangle_count, 1)
+        self.assertAlmostEqual(scene.emissive_light_weight, 2)
+        with patch("numpy.cross", side_effect=AssertionError("recomputed")):
+            self.assertEqual(scene.emissive_triangle_count, 1)
+            self.assertAlmostEqual(scene.emissive_light_weight, 2)
+        scene.update_instance(mesh, transform=np.diag([2., 2., 2., 1.]))
+        self.assertAlmostEqual(scene.emissive_light_weight, 8)
+        scene.update_instance(mesh, material=ol.Material())
+        self.assertEqual(scene.emissive_triangle_count, 0)
+        self.assertEqual(scene.emissive_light_weight, 0)
+        scene.update_instance(mesh, material=ol.Material(emission=(2, 2, 2)))
+        self.assertAlmostEqual(scene.emissive_light_weight, 16)
+        scene.update_instance(mesh, visible=False)
+        self.assertEqual(scene.emissive_triangle_count, 0)
+        self.assertEqual(scene.emissive_light_weight, 0)
+
     def test_packs_two_sided_emission_flag(self):
         scene = ol.Scene()
         scene.add_mesh(

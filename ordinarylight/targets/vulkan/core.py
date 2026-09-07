@@ -1231,7 +1231,8 @@ class VulkanWavefrontExecutor:
         self.production_restir = production_restir
         production_suffix = "_production" if production_restir else ""
         self.primary_module, self.primary_pipeline = self._pipeline(
-            f"wavefront_primary{native_suffix}{profile_suffix}.comp",
+            f"wavefront_primary{native_suffix}{profile_suffix}"
+            f"{'_denoiser' if self._denoiser_signals_active() else ''}.comp",
             self.primary_pipeline_layout,
         )
         strategy = self.strategy
@@ -5305,6 +5306,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
 
     def _try_update_window_scene(self, scene):
         """Update compatible resident buffers and acceleration structures."""
+        preparation_start = time.perf_counter()
         resources = self.scene_resources
         if resources is None or resources.scene is not scene:
             return False
@@ -5363,14 +5365,20 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         )
         if custom_attribute_layout != resources.custom_attribute_layout:
             return False
+        # Transforms change world-space attributes and area lights, but not
+        # material records, texture bindings, or analytic lights.
+        area_light_data = scene.emissive_triangle_data()
         updates = [
-            (resources.material_buffer,
-             scene.triangle_material_data(programs, default_program)),
-            (resources.light_buffer, scene.analytic_light_data()),
-            (resources.area_light_buffer, scene.emissive_triangle_data()),
+            (resources.area_light_buffer, area_light_data),
             (resources.attribute_buffer, scene.triangle_attribute_data()),
-            (resources.texture_binding_buffer, scene.texture_binding_data()),
         ]
+        if geometry_changed or shading_changed:
+            updates.extend([
+                (resources.material_buffer,
+                 scene.triangle_material_data(programs, default_program)),
+                (resources.light_buffer, scene.analytic_light_data()),
+                (resources.texture_binding_buffer, scene.texture_binding_data()),
+            ])
         if resources.custom_attribute_buffer is not None:
             custom_attribute_data = custom_attribute_layout.pack(scene)
             if custom_attribute_data.nbytes == 0:
@@ -5401,8 +5409,16 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                for buffer, data in updates):
             return False
         start = time.perf_counter()
+        self.last_timings["scene_partial_prepare_ms"] = (
+            start - preparation_start
+        ) * 1000.0
         vk.vkDeviceWaitIdle(self.device)
+        waited = time.perf_counter()
+        self.last_timings["scene_partial_wait_ms"] = (waited - start) * 1000.0
         self._update_device_buffers(updates)
+        self.last_timings["scene_partial_buffers_ms"] = (
+            time.perf_counter() - waited
+        ) * 1000.0
         if changed_blases:
             self._refit_scene_blases(changed_blases)
         if transform_changed:
@@ -5434,7 +5450,12 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             )
         resources.shading_revision = scene.shading_revision
         resources.scene_revision = scene.revision
-        resources._update_content_signatures()
+        resources._update_content_signatures(
+            material_signature=(resources.content_signatures["materials"]
+                                if not geometry_changed and not shading_changed
+                                else None),
+            area_light_data=area_light_data,
+        )
         self.last_timings["blas_count"] = len(resources.blases)
         self.last_timings["instance_count"] = len(resources.instances)
         self.last_timings["shared_blas_savings"] = max(

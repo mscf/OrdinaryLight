@@ -65,6 +65,9 @@
     ],
     "bgra": [
       "wavefront_reconstruct"
+    ],
+    "denoiser_primary": [
+      "wavefront_primary"
     ]
   }
 }

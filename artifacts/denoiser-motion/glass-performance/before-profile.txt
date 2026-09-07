@@ -1,0 +1,53 @@
+         4343903 function calls (4337957 primitive calls) in 2.402 seconds
+
+   Ordered by: cumulative time
+   List reduced from 334 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       32    0.000    0.000    2.394    0.075 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/api.py:1818(present_wavefront)
+       32    0.004    0.000    2.394    0.075 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:6860(present_wavefront_window)
+      124    0.001    0.000    1.189    0.010 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:5014(trace_wavefront_tile)
+      124    0.001    0.000    1.176    0.009 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:3000(dispatch)
+      124    0.015    0.000    1.170    0.009 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:3036(record)
+       32    0.000    0.000    1.119    0.035 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:4981(prepare_window_scene)
+       32    0.000    0.000    1.119    0.035 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:5185(upload_window_scene)
+       31    0.003    0.000    1.119    0.036 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:5307(_try_update_window_scene)
+    32863    0.231    0.000    0.816    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1563(cross)
+      248    0.001    0.000    0.605    0.002 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:3392(make_shade_constants)
+    98589    0.142    0.000    0.526    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1489(moveaxis)
+    18871    0.419    0.000    0.494    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11022(_callApi)
+      372    0.090    0.000    0.469    0.001 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2692(emissive_light_weight)
+      372    0.071    0.000    0.450    0.001 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2709(emissive_triangle_count)
+   197178    0.205    0.000    0.326    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1427(normalize_axis_tuple)
+       31    0.001    0.000    0.316    0.010 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/scene.py:403(_update_device_buffers)
+       62    0.040    0.001    0.293    0.005 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2637(emissive_triangle_data)
+       31    0.001    0.000    0.275    0.009 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/scene.py:152(_update_content_signatures)
+       62    0.010    0.000    0.245    0.004 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2808(triangle_material_data)
+    33728    0.226    0.000    0.226    0.000 {built-in method numpy.ascontiguousarray}
+      248    0.005    0.000    0.171    0.001 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/scene.py:292(_create_buffer)
+    15867    0.118    0.000    0.162    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:6257(_new)
+      248    0.000    0.000    0.152    0.001 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11424(vkAllocateMemory)
+       31    0.032    0.001    0.133    0.004 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2042(triangle_attribute_data)
+     6727    0.002    0.000    0.131    0.000 {method 'extend' of 'list' objects}
+     5952    0.010    0.000    0.115    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:2676(<genexpr>)
+    36220    0.067    0.000    0.115    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:2598(norm)
+      248    0.000    0.000    0.113    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11447(vkFreeMemory)
+     7440    0.003    0.000    0.098    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/core.py:2931(_buffer_barrier)
+     7440    0.005    0.000    0.095    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:6477(VkBufferMemoryBarrier)
+    29822    0.070    0.000    0.075    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:684(world_vertices)
+   111408    0.017    0.000    0.073    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11013(_auto_handle)
+57211/54349    0.017    0.000    0.070    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:90(_cast_ptr3)
+   394356    0.043    0.000    0.062    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1476(<genexpr>)
+     2858    0.002    0.000    0.059    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/scene.py:1329(_image_barrier)
+       62    0.000    0.000    0.052    0.001 /home/mscf/projects/personal/wave-render/ordinarylight/targets/vulkan/scene.py:879(_single_use)
+       31    0.000    0.000    0.052    0.002 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11416(vkDeviceWaitIdle)
+57211/54349    0.030    0.000    0.048    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:69(_cast_ptr2)
+     1023    0.008    0.000    0.043    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:701(world_tangents)
+   664209    0.042    0.000    0.042    0.000 {built-in method builtins.len}
+       62    0.000    0.000    0.041    0.001 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:11408(vkQueueWaitIdle)
+     2858    0.002    0.000    0.040    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:6481(VkImageMemoryBarrier)
+   353017    0.034    0.000    0.037    0.000 {built-in method builtins.isinstance}
+     2046    0.008    0.000    0.035    0.000 /home/mscf/projects/personal/wave-render/ordinarylight/scene/_core.py:693(world_normals)
+     4158    0.002    0.000    0.035    0.000 /home/mscf/projects/personal/wave-render/.venv/lib/python3.13/site-packages/vulkan/_vulkan.py:13004(vkCmdPipelineBarrier)
+
+

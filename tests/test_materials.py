@@ -24,13 +24,10 @@ class MaterialProgramTests(unittest.TestCase):
             "wavefront_primary.comp", (fresnel_glass,),
             denoiser_signal_capture=True, **options,
         )
-        self.assertIn("path.metadata.w, transmission))", ordinary)
-        self.assertIn("path.metadata.w, 0.0))", capture)
+        self.assertIn("#define WAVE_DENOISER_SIGNAL_CAPTURE 1", capture)
+        self.assertNotIn("#define WAVE_DENOISER_SIGNAL_CAPTURE 1", ordinary)
+        self.assertIn("#if WAVE_DENOISER_SIGNAL_CAPTURE", capture)
         self.assertIn("| 0x80000000u", capture)
-        self.assertNotIn("| 0x80000000u", ordinary)
-        fallback = "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u\n            && transmission <= 0.001"
-        self.assertIn(fallback, ordinary)
-        self.assertNotIn(fallback, capture)
         if find_glsl_compiler() is not None:
             binary = compile_wavefront_material_shader(
                 "wavefront_primary.comp", (fresnel_glass,),
