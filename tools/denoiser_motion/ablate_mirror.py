@@ -29,6 +29,7 @@ def analyze(capture, output):
         "broader_normals": ("reflected", 3, 2.5, 8, 4),
         "broader_color": ("reflected", 3, 2.5, 32, 2),
         "wider_depth": ("reflected", 3, 2.5, 32, 4),
+        "depth_footprint": ("reflected", 3, 2.5, 32, 4),
     }
     arrays = {"reference": reference}
     report = {
@@ -36,7 +37,7 @@ def analyze(capture, output):
         "mirror_pixels": int(mask.sum()), "variants": {},
     }
     for name, (guide, iterations, reactive, normal_power, color_weight) in cases.items():
-        replay = ShaderReplay(width, height)
+        replay = ShaderReplay(width, height, depth_footprint=name == "depth_footprint")
         policy = dict(source_report["policy"], reactive_sigma=reactive)
         if name == "wider_depth":
             policy["depth_threshold"] = 0.02

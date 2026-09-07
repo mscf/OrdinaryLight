@@ -27,7 +27,7 @@ def instrument_acceptance(source):
 
 
 class ShaderReplay:
-    def __init__(self, width, height):
+    def __init__(self, width, height, *, depth_footprint=False):
         self.width, self.height = width, height
         adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
         self.adapter_info = dict(adapter.info)
@@ -41,6 +41,9 @@ class ShaderReplay:
             source = (root / f"denoiser_relax_{name}.comp.wgsl").read_text()
             if name == "temporal":
                 source = instrument_acceptance(source)
+                if depth_footprint:
+                    from tools.denoiser_motion.footprint import instrument_depth_footprint
+                    source = instrument_depth_footprint(source)
             module = self.device.create_shader_module(code=source)
             self.pipelines[name] = self.device.create_compute_pipeline(
                 layout="auto",

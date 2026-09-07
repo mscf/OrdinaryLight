@@ -171,3 +171,7 @@ reactive, spatial and depth-tolerance variants on finite reflected hits.
 The [corrected diagnosis](../../artifacts/denoiser-motion/mirror-ablation/README.md)
 supersedes the initial object-motion result and identifies depth rejection
 as a major bottleneck; native defaults remain unchanged.
+
+The optional replay-only depth-footprint shader experiment is recorded in
+[adaptive mirror depth validation](../../artifacts/denoiser-motion/mirror-footprint/README.md).
+It adds a ninth mirror ablation variant without changing production shaders.
