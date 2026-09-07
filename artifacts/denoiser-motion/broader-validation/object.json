@@ -1,0 +1,118 @@
+{
+  "kind": "object",
+  "reference_split_log_luma_rmse": 0.003373177256435156,
+  "disoccluded_pixel_count": 2476,
+  "detail_pixel_count": 231,
+  "metrics": {
+    "default": {
+      "whole_sequence": {
+        "log_luminance_rmse": 0.12871263921260834,
+        "motion_region_rmse": 0.33243125677108765,
+        "stationary_residual_rmse": 0.2393600195646286,
+        "edge_correlation": 0.17646874191195178
+      },
+      "moving": {
+        "log_luminance_rmse": 0.10656263679265976,
+        "motion_region_rmse": 0.33265817165374756,
+        "stationary_residual_rmse": 0.07266110181808472,
+        "edge_correlation": 0.3968446357451909
+      },
+      "stopped": {
+        "log_luminance_rmse": 0.06979616731405258,
+        "motion_region_rmse": 0.06979616731405258,
+        "stationary_residual_rmse": 0.05509045347571373,
+        "edge_correlation": 0.5809435521499922
+      },
+      "per_frame_log_luma_rmse": [
+        0.015276243910193443,
+        0.008067040704190731,
+        0.009087533690035343,
+        0.0064958916045725346,
+        0.0053887018002569675,
+        0.0049074310809373856,
+        0.0046578263863921165,
+        0.004463250283151865,
+        0.003947503864765167,
+        0.0036640558391809464,
+        0.0034702387638390064,
+        0.0033207156229764223,
+        0.0032416845206171274,
+        0.0031578978523612022,
+        0.003103019669651985
+      ],
+      "disocclusion_log_luma_rmse": 0.02109774388372898,
+      "stopped_revealed_log_luma_rmse": 0.006446440704166889,
+      "stopped_revealed_per_frame_rmse": [
+        0.00906651746481657,
+        0.006980923004448414,
+        0.006466865073889494,
+        0.00562066538259387,
+        0.005823282990604639,
+        0.005303552374243736,
+        0.004950820934027433
+      ],
+      "floor_detail_gradient_rmse": 0.01649155281484127,
+      "floor_detail_signed_gradient_gain": 0.5410969853401184,
+      "floor_detail_signed_gain_by_phase": {
+        "moving": 0.39117035269737244,
+        "stopped": 0.5671527981758118
+      },
+      "floor_detail_gradient_ratio": 1.1651309728622437
+    },
+    "broader": {
+      "whole_sequence": {
+        "log_luminance_rmse": 0.10662104189395905,
+        "motion_region_rmse": 0.2686711251735687,
+        "stationary_residual_rmse": 0.18460828065872192,
+        "edge_correlation": 0.2806695208240667
+      },
+      "moving": {
+        "log_luminance_rmse": 0.09165356308221817,
+        "motion_region_rmse": 0.2688545286655426,
+        "stationary_residual_rmse": 0.06185811012983322,
+        "edge_correlation": 0.4776510202167962
+      },
+      "stopped": {
+        "log_luminance_rmse": 0.06477365642786026,
+        "motion_region_rmse": 0.06477365642786026,
+        "stationary_residual_rmse": 0.04870643839240074,
+        "edge_correlation": 0.6176181828783308
+      },
+      "per_frame_log_luma_rmse": [
+        0.012051491998136044,
+        0.006509380880743265,
+        0.007219424471259117,
+        0.005380026996135712,
+        0.00460602855309844,
+        0.0043031927198171616,
+        0.004109344910830259,
+        0.003966497723013163,
+        0.0036029936745762825,
+        0.0033906425815075636,
+        0.003218048019334674,
+        0.003099530702456832,
+        0.003026373451575637,
+        0.0029662679880857468,
+        0.0028958539478480816
+      ],
+      "disocclusion_log_luma_rmse": 0.016848240047693253,
+      "stopped_revealed_log_luma_rmse": 0.005651290528476238,
+      "stopped_revealed_per_frame_rmse": [
+        0.007698087487369776,
+        0.00620063254609704,
+        0.005673256237059832,
+        0.005013854708522558,
+        0.005058035720139742,
+        0.00482439249753952,
+        0.004434875678271055
+      ],
+      "floor_detail_gradient_rmse": 0.014255426824092865,
+      "floor_detail_signed_gradient_gain": 0.5176953077316284,
+      "floor_detail_signed_gain_by_phase": {
+        "moving": 0.3659670948982239,
+        "stopped": 0.5708909034729004
+      },
+      "floor_detail_gradient_ratio": 1.0883898735046387
+    }
+  }
+}

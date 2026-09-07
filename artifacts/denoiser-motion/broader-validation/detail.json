@@ -1,0 +1,102 @@
+{
+  "kind": "detail",
+  "reference_split_log_luma_rmse": 0.003877840470522642,
+  "disoccluded_pixel_count": 0,
+  "detail_pixel_count": 98173,
+  "metrics": {
+    "default": {
+      "whole_sequence": {
+        "log_luminance_rmse": 0.2359294295310974,
+        "motion_region_rmse": 0.4182951748371124,
+        "stationary_residual_rmse": 0.3357006907463074,
+        "edge_correlation": 0.3672057884075554
+      },
+      "moving": {
+        "log_luminance_rmse": 0.2596501410007477,
+        "motion_region_rmse": 0.41832202672958374,
+        "stationary_residual_rmse": 0.23129618167877197,
+        "edge_correlation": 0.37299081685318186
+      },
+      "stopped": {
+        "log_luminance_rmse": 0.14912453293800354,
+        "motion_region_rmse": 0.14912453293800354,
+        "stationary_residual_rmse": 0.12346575409173965,
+        "edge_correlation": 0.6231025636335922
+      },
+      "per_frame_log_luma_rmse": [
+        0.02102351002395153,
+        0.01274905912578106,
+        0.01409158855676651,
+        0.012895043939352036,
+        0.012544898316264153,
+        0.01239200308918953,
+        0.012465188279747963,
+        0.012566572986543179,
+        0.009418715722858906,
+        0.008068785071372986,
+        0.007397709414362907,
+        0.006798972375690937,
+        0.006302244495600462,
+        0.005984832998365164,
+        0.005861859302967787
+      ],
+      "disocclusion_log_luma_rmse": null,
+      "stopped_revealed_log_luma_rmse": null,
+      "stopped_revealed_per_frame_rmse": null,
+      "floor_detail_gradient_rmse": 0.025839708745479584,
+      "floor_detail_signed_gradient_gain": 0.8016130328178406,
+      "floor_detail_signed_gain_by_phase": {
+        "moving": 0.7529445886611938,
+        "stopped": 0.8191994428634644
+      },
+      "floor_detail_gradient_ratio": 0.9591183066368103
+    },
+    "broader": {
+      "whole_sequence": {
+        "log_luminance_rmse": 0.20880819857120514,
+        "motion_region_rmse": 0.37960848212242126,
+        "stationary_residual_rmse": 0.2554545998573303,
+        "edge_correlation": 0.4090165061381257
+      },
+      "moving": {
+        "log_luminance_rmse": 0.2340397983789444,
+        "motion_region_rmse": 0.379632830619812,
+        "stationary_residual_rmse": 0.1852533221244812,
+        "edge_correlation": 0.42012184518666684
+      },
+      "stopped": {
+        "log_luminance_rmse": 0.14637599885463715,
+        "motion_region_rmse": 0.14637599885463715,
+        "stationary_residual_rmse": 0.10338558256626129,
+        "edge_correlation": 0.6563780726036895
+      },
+      "per_frame_log_luma_rmse": [
+        0.016895681619644165,
+        0.01081362646073103,
+        0.011744013987481594,
+        0.011576931923627853,
+        0.011287543922662735,
+        0.01119786687195301,
+        0.011292941868305206,
+        0.011309638619422913,
+        0.008754204958677292,
+        0.007724665571004152,
+        0.0072074392810463905,
+        0.006745339371263981,
+        0.006431891117244959,
+        0.0062243640422821045,
+        0.006122395861893892
+      ],
+      "disocclusion_log_luma_rmse": null,
+      "stopped_revealed_log_luma_rmse": null,
+      "stopped_revealed_per_frame_rmse": null,
+      "floor_detail_gradient_rmse": 0.022615602239966393,
+      "floor_detail_signed_gradient_gain": 0.7192043662071228,
+      "floor_detail_signed_gain_by_phase": {
+        "moving": 0.6706141233444214,
+        "stopped": 0.7456296682357788
+      },
+      "floor_detail_gradient_ratio": 0.8364428281784058
+    }
+  }
+}

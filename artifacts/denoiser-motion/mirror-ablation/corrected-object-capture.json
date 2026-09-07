@@ -1,0 +1,36 @@
+{
+  "scope": "offline static z=0 planar mirror, reflected camera, identical radiance",
+  "motion": "object",
+  "phases": [
+    0,
+    0,
+    0.25,
+    0.5,
+    0.75,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "policy": {
+    "history_limit": 8,
+    "normal_threshold": 0.95,
+    "depth_threshold": 0.005,
+    "clamp_sigma": 1.0,
+    "reactive_sigma": 2.5
+  },
+  "reference_samples": 128,
+  "mirror_pixels": 65352,
+  "reference_split_error": 0.004970894660800695,
+  "revealed_pixels": 227,
+  "revealed_error": {
+    "primary_guides": 0.017129823565483093,
+    "reflected_guides": 0.024330632761120796
+  },
+  "error": {
+    "primary_guides": 0.014859718270599842,
+    "reflected_guides": 0.024177132174372673,
+    "raw": 0.029024727642536163
+  }
+}

@@ -112,7 +112,10 @@ class ShaderReplay:
         self.device.queue.submit([encoder.finish()])
         buffer.destroy()
 
-    def denoise(self, signal, previous_depth, policy, iterations=3):
+    def denoise(
+        self, signal, previous_depth, policy, iterations=3, *,
+        spatial_normal_power=32, color_weight=4,
+    ):
         zeros = np.zeros((self.height, self.width), np.float32)
         rgba = np.zeros((*zeros.shape, 4), np.float32)
         motion = rgba.copy()
@@ -190,9 +193,9 @@ class ShaderReplay:
                         self.height,
                         1 << iteration,
                         0,
-                        32,
+                        spatial_normal_power,
                         0.02,
-                        4,
+                        color_weight,
                         float(lobe == 1 and iteration == 0),
                     ],
                     5,
@@ -201,7 +204,8 @@ class ShaderReplay:
                     source.destroy()
                 source = target
             outputs.append(self.read(source)[..., :3])
-            source.destroy()
+            if source is not temporal:
+                source.destroy()
             current.destroy()
             empty_length.destroy()
             temporals.append(temporal)

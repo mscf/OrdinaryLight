@@ -151,3 +151,23 @@ Use `compare_lobes BASELINE CANDIDATE --output NEW_DIRECTORY` to validate
 matching references and generate metrics and a comparison image.
 The [recorded study](../../artifacts/denoiser-motion/lobe-quality/README.md)
 found mixed results; evaluated lobes remain experimental.
+
+Broader-filter motion/stop/detail validation is available through
+`validate_broader --kind object|camera|detail --output NEW_DIRECTORY`.
+The [recorded results](../../artifacts/denoiser-motion/broader-validation/README.md)
+support keeping the broader setting optional: recovery error improves, while
+checker-texture contrast decreases.
+
+A bounded static planar-mirror guide experiment is available via
+`planar_mirror --motion camera|object --output NEW_DIRECTORY`. It compares
+primary and reflected guides on identical reflected-camera radiance. The
+[initial results](../../artifacts/denoiser-motion/planar-mirror/README.md)
+preserve more contrast but increase noise, so this is not integrated into
+native presentation.
+
+Mirror captures now save per-frame signals and expected previous depth.
+`ablate_mirror CAPTURE --output NEW_DIRECTORY` measures temporal-only,
+reactive, spatial and depth-tolerance variants on finite reflected hits.
+The [corrected diagnosis](../../artifacts/denoiser-motion/mirror-ablation/README.md)
+supersedes the initial object-motion result and identifies depth rejection
+as a major bottleneck; native defaults remain unchanged.

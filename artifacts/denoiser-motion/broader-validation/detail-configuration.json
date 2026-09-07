@@ -1,0 +1,31 @@
+{
+  "kind": "detail",
+  "width": 320,
+  "height": 180,
+  "phases": [
+    0.0,
+    0.0,
+    0.0,
+    0.2,
+    0.4,
+    0.6,
+    0.8,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "history_floor": 3,
+  "evaluated_lobes": false,
+  "color_weights": [
+    4,
+    2
+  ],
+  "reference_samples": 512,
+  "reference_seed_offset": 1000,
+  "reference_reused_for_identical_pose": true
+}
