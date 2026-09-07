@@ -1,0 +1,281 @@
+{
+  "moving": {
+    "median_ms": 32.06873400267796,
+    "timings": [
+      18.438669001625385,
+      41.13718000007793,
+      33.56638699915493,
+      24.508547998266295,
+      32.596757999272086,
+      32.98261799500324,
+      29.198670003097504,
+      29.67392199934693,
+      25.084023000090383,
+      33.02101600274909,
+      31.574132000969257,
+      22.07547600119142,
+      31.8580640014261,
+      32.857452002645005,
+      33.118440995167475,
+      29.256588000862394,
+      38.011848999303766,
+      29.91336799459532,
+      32.27940400392981,
+      21.466161000716966,
+      35.21645900036674,
+      30.95586899871705,
+      33.016011999279726,
+      24.813913005345967,
+      35.74611999647459,
+      27.182713005458936,
+      29.181833000620827,
+      33.889450001879595,
+      33.74238700052956,
+      36.356716002046596,
+      30.009823996806517,
+      33.25835400028154
+    ],
+    "stages": [
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": false
+      },
+      {
+        "wavefront_command_cache_hit": false
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      }
+    ],
+    "cost_ms": {
+      "_update_device_buffers": 7.301995656234794,
+      "_rebuild_scene_tlas": 0.8138921884892625,
+      "trace_wavefront_tile": 0.2997555004640162
+    }
+  },
+  "stationary": {
+    "median_ms": 18.233427999803098,
+    "timings": [
+      8.35146100143902,
+      6.346784000925254,
+      8.895984996343032,
+      18.40592599910451,
+      18.619305999891367,
+      17.99594800104387,
+      22.56798400048865,
+      14.837438997346908,
+      18.140351996407844,
+      19.037589998333715,
+      21.769275997939985,
+      14.79416499932995,
+      18.09389599657152,
+      18.845797996618785,
+      21.45228900189977,
+      14.518000003590714,
+      18.165383000450674,
+      14.659993998066057,
+      22.423031005018856,
+      18.799871002556756,
+      18.955448002088815,
+      14.108713003224693,
+      21.615966004901566,
+      18.260618002386764,
+      18.07044599991059,
+      15.074399001605343,
+      18.10826400469523,
+      18.285614001797512,
+      22.706824995111674,
+      18.324759999813978,
+      14.34587300173007,
+      18.206237997219432
+    ],
+    "stages": [
+      {
+        "wavefront_command_cache_hit": false
+      },
+      {
+        "wavefront_command_cache_hit": false
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      },
+      {
+        "wavefront_command_cache_hit": true
+      }
+    ],
+    "cost_ms": {
+      "_update_device_buffers": 0.05518400007531454,
+      "trace_wavefront_tile": 0.29692146881643566
+    }
+  }
+}

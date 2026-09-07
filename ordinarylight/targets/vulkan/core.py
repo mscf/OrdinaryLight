@@ -5469,7 +5469,11 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 frame["wavefront_relax_history_valid"] = False
             frame["wavefront_reservoir_valid"] = False
             frame["wavefront_indirect_reservoir_valid"] = False
-            frame["wavefront_command_key"] = None
+            # Equal-sized transform updates preserve buffers, descriptors and
+            # pipelines. The render key still checks history and light push
+            # constants; resource replacement invalidates commands separately.
+            if not motion_only:
+                frame["wavefront_command_key"] = None
         self.last_timings["scene_partial_upload_ms"] = (
             time.perf_counter() - start
         ) * 1000.0
@@ -7250,7 +7254,13 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             restir_history_limit,
             self.object_effect_bindings,
             projected_effect_camera,
+            # Effect rectangles are baked from world-space scene bounds.
+            scene.revision if self.object_effect_bindings else None,
+            scene.analytic_light_count,
+            scene.emissive_triangle_count,
+            scene.emissive_light_weight,
         )
+        record_start = time.perf_counter()
         secondary = frame["wavefront_command"]
         command_cache_hit = frame["wavefront_command_key"] == render_key
         if not command_cache_hit:
@@ -7365,6 +7375,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         else:
             query_labels = list(frame["wavefront_cached_labels"])
         tile_count = frame["wavefront_tile_count"]
+        command_record_ms = (time.perf_counter() - record_start) * 1000.0
 
         command = frame["command"]
         vk.vkResetCommandBuffer(command, 0)
@@ -7882,6 +7893,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             ),
             "wavefront_restir_effective_history_limit": restir_history_limit,
             "wavefront_command_cache_hit": command_cache_hit,
+            "wavefront_command_record_ms": command_record_ms,
             "wavefront_stage_ms": stage_timings,
             "wavefront_work_counters": work_counters,
             "wavefront_indirect_reuse_counters": indirect_reuse_counters,

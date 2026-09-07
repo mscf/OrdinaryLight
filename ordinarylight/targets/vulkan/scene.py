@@ -404,32 +404,45 @@ class VulkanSceneUploader:
         return destination
 
     def _update_device_buffers(self, updates):
-        """Replace equal-sized device-local buffer contents in one submission."""
+        """Replace equal-sized buffers using one reusable synchronous staging slab."""
         prepared = []
+        total = 0
         for destination, data in updates:
             payload = np.ascontiguousarray(data)
             if payload.nbytes != destination.size:
                 raise ValueError("updated buffer data must retain its byte size")
-            staging = self._create_buffer(
-                payload.nbytes, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            prepared.append((destination, payload, total))
+            total += (payload.nbytes + 3) & ~3
+        if not prepared:
+            return
+        staging = getattr(self, "_scene_update_staging", None)
+        if staging is None or staging.size < total:
+            replacement = self._create_buffer(
+                total, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
                 | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                data=payload,
             )
-            prepared.append((staging, destination, payload.nbytes))
-        try:
-            self._single_use(lambda command: [
-                vk.vkCmdCopyBuffer(
-                    command, staging.buffer, destination.buffer, 1,
-                    [vk.VkBufferCopy(srcOffset=0, dstOffset=0, size=size)],
-                )
-                for staging, destination, size in prepared
-            ])
-        finally:
-            for staging, _destination, _size in prepared:
+            if staging is not None:
                 vk.vkDestroyBuffer(self.device, staging.buffer, None)
                 vk.vkFreeMemory(self.device, staging.memory, None)
                 self._buffers.remove(staging)
+            self._scene_update_staging = staging = replacement
+        # _single_use waits for completion before returning, so this slab has
+        # no outstanding GPU readers on the next call. It is owned by the
+        # uploader's normal _buffers list and released with that uploader.
+        mapped = vk.vkMapMemory(self.device, staging.memory, 0, total, 0)
+        try:
+            for _destination, payload, offset in prepared:
+                mapped[offset:offset + payload.nbytes] = payload.tobytes()
+        finally:
+            vk.vkUnmapMemory(self.device, staging.memory)
+        self._single_use(lambda command: [
+            vk.vkCmdCopyBuffer(
+                command, staging.buffer, destination.buffer, 1,
+                [vk.VkBufferCopy(srcOffset=offset, dstOffset=0, size=payload.nbytes)],
+            )
+            for destination, payload, offset in prepared
+        ])
 
     def _update_device_buffer_regions(self, destination, regions):
         """Replace byte ranges of one device-local buffer in one submission."""
