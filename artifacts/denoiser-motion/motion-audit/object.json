@@ -1,0 +1,207 @@
+{
+  "capture": "/tmp/mirror-fixed-object",
+  "finite_reflected_pixels": 9457,
+  "mirror_pixels": 65352,
+  "variants": {
+    "primary": {
+      "all_mirror_error": 0.014859648421406746,
+      "finite_surface_error": 0.037948109209537506,
+      "revealed_error": 0.017129823565483093,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 3.377185583114624,
+          "finite_acceptance_fraction": 0.8491733074188232,
+          "finite_error": 0.03262064605951309
+        },
+        "moving": {
+          "finite_history_mean": 2.3734138011932373,
+          "finite_acceptance_fraction": 0.6560913920402527,
+          "finite_error": 0.04180234670639038
+        },
+        "stopped": {
+          "finite_history_mean": 4.486691951751709,
+          "finite_acceptance_fraction": 0.9712452292442322,
+          "finite_error": 0.020890170708298683
+        }
+      },
+      "original_replay_max_difference": 0.0
+    },
+    "reflected": {
+      "all_mirror_error": 0.024080242961645126,
+      "finite_surface_error": 0.06168748065829277,
+      "revealed_error": 0.024330632761120796,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 1.5303913354873657,
+          "finite_acceptance_fraction": 0.33031997084617615,
+          "finite_error": 0.059982649981975555
+        },
+        "moving": {
+          "finite_history_mean": 1.5831217765808105,
+          "finite_acceptance_fraction": 0.30837562680244446,
+          "finite_error": 0.060056980699300766
+        },
+        "stopped": {
+          "finite_history_mean": 1.5080798864364624,
+          "finite_acceptance_fraction": 0.3141635060310364,
+          "finite_error": 0.0588044710457325
+        }
+      },
+      "original_replay_max_difference": 0.0
+    },
+    "primary_temporal": {
+      "all_mirror_error": 0.019311055541038513,
+      "finite_surface_error": 0.04996129870414734,
+      "revealed_error": 0.02012394182384014,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 3.377185583114624,
+          "finite_acceptance_fraction": 0.8491733074188232,
+          "finite_error": 0.04483819752931595
+        },
+        "moving": {
+          "finite_history_mean": 2.3734138011932373,
+          "finite_acceptance_fraction": 0.6560913920402527,
+          "finite_error": 0.05362854525446892
+        },
+        "stopped": {
+          "finite_history_mean": 4.486691951751709,
+          "finite_acceptance_fraction": 0.9712452292442322,
+          "finite_error": 0.03410335257649422
+        }
+      }
+    },
+    "reflected_temporal": {
+      "all_mirror_error": 0.02638217620551586,
+      "finite_surface_error": 0.06788754463195801,
+      "revealed_error": 0.02509162761271,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 1.5303913354873657,
+          "finite_acceptance_fraction": 0.33031997084617615,
+          "finite_error": 0.06623371690511703
+        },
+        "moving": {
+          "finite_history_mean": 1.5831217765808105,
+          "finite_acceptance_fraction": 0.30837562680244446,
+          "finite_error": 0.06628993898630142
+        },
+        "stopped": {
+          "finite_history_mean": 1.5080798864364624,
+          "finite_acceptance_fraction": 0.3141635060310364,
+          "finite_error": 0.0651518702507019
+        }
+      }
+    },
+    "no_reactive": {
+      "all_mirror_error": 0.02396477572619915,
+      "finite_surface_error": 0.06137596070766449,
+      "revealed_error": 0.024331331253051758,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 1.559533715248108,
+          "finite_acceptance_fraction": 0.3445937931537628,
+          "finite_error": 0.05962209030985832
+        },
+        "moving": {
+          "finite_history_mean": 1.623731017112732,
+          "finite_acceptance_fraction": 0.32296955585479736,
+          "finite_error": 0.059494614601135254
+        },
+        "stopped": {
+          "finite_history_mean": 1.5285171270370483,
+          "finite_acceptance_fraction": 0.32438212633132935,
+          "finite_error": 0.058691803365945816
+        }
+      }
+    },
+    "broader_normals": {
+      "all_mirror_error": 0.023860512301325798,
+      "finite_surface_error": 0.06109460070729256,
+      "revealed_error": 0.024330632761120796,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 1.5303913354873657,
+          "finite_acceptance_fraction": 0.33031997084617615,
+          "finite_error": 0.05948629975318909
+        },
+        "moving": {
+          "finite_history_mean": 1.5831217765808105,
+          "finite_acceptance_fraction": 0.30837562680244446,
+          "finite_error": 0.059333428740501404
+        },
+        "stopped": {
+          "finite_history_mean": 1.5080798864364624,
+          "finite_acceptance_fraction": 0.3141635060310364,
+          "finite_error": 0.05864960700273514
+        }
+      }
+    },
+    "broader_color": {
+      "all_mirror_error": 0.022106805816292763,
+      "finite_surface_error": 0.05635137856006622,
+      "revealed_error": 0.023870276287198067,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 1.5303913354873657,
+          "finite_acceptance_fraction": 0.33031997084617615,
+          "finite_error": 0.05477708950638771
+        },
+        "moving": {
+          "finite_history_mean": 1.5831217765808105,
+          "finite_acceptance_fraction": 0.30837562680244446,
+          "finite_error": 0.05492652580142021
+        },
+        "stopped": {
+          "finite_history_mean": 1.5080798864364624,
+          "finite_acceptance_fraction": 0.3141635060310364,
+          "finite_error": 0.0534670352935791
+        }
+      }
+    },
+    "wider_depth": {
+      "all_mirror_error": 0.019437728449702263,
+      "finite_surface_error": 0.049083709716796875,
+      "revealed_error": 0.024221327155828476,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 2.6820507049560547,
+          "finite_acceptance_fraction": 0.7145236134529114,
+          "finite_error": 0.04502679035067558
+        },
+        "moving": {
+          "finite_history_mean": 2.109454393386841,
+          "finite_acceptance_fraction": 0.5615482330322266,
+          "finite_error": 0.05073179304599762
+        },
+        "stopped": {
+          "finite_history_mean": 3.3241446018218994,
+          "finite_acceptance_fraction": 0.8015684485435486,
+          "finite_error": 0.038404591381549835
+        }
+      }
+    },
+    "depth_footprint": {
+      "all_mirror_error": 0.019583923742175102,
+      "finite_surface_error": 0.049483660608530045,
+      "revealed_error": 0.024221327155828476,
+      "phases": {
+        "after_initial": {
+          "finite_history_mean": 2.639348268508911,
+          "finite_acceptance_fraction": 0.7054834961891174,
+          "finite_error": 0.045516565442085266
+        },
+        "moving": {
+          "finite_history_mean": 2.088197946548462,
+          "finite_acceptance_fraction": 0.5552030205726624,
+          "finite_error": 0.05114302784204483
+        },
+        "stopped": {
+          "finite_history_mean": 3.2568917274475098,
+          "finite_acceptance_fraction": 0.7903992533683777,
+          "finite_error": 0.03902101516723633
+        }
+      }
+    }
+  }
+}

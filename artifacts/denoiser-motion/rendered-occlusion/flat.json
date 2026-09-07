@@ -1,0 +1,101 @@
+[
+  {
+    "width": 64,
+    "slope": 0,
+    "mode": "original",
+    "invalid_pixels": 1,
+    "valid_pixels": 1405,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 64,
+    "slope": 0,
+    "mode": "blanket",
+    "invalid_pixels": 1,
+    "valid_pixels": 1405,
+    "false_acceptance": 1.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 64,
+    "slope": 0,
+    "mode": "adaptive",
+    "invalid_pixels": 1,
+    "valid_pixels": 1405,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "mode": "original",
+    "invalid_pixels": 4,
+    "valid_pixels": 8746,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "mode": "blanket",
+    "invalid_pixels": 4,
+    "valid_pixels": 8746,
+    "false_acceptance": 1.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "mode": "adaptive",
+    "invalid_pixels": 4,
+    "valid_pixels": 8746,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 1.0,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 1.0
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "mode": "original",
+    "invalid_pixels": 18,
+    "valid_pixels": 35065,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 0.9999429630685869,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.9999429630685869
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "mode": "blanket",
+    "invalid_pixels": 18,
+    "valid_pixels": 35065,
+    "false_acceptance": 1.0,
+    "valid_acceptance": 0.9999714815342935,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.9999714815342935
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "mode": "adaptive",
+    "invalid_pixels": 18,
+    "valid_pixels": 35065,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 0.9999429630685869,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.9999429630685869
+  }
+]

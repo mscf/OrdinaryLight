@@ -1,3 +1,7 @@
+> Superseded motion inputs: these historical replay results predate the
+> canonical capture motion correction. See the
+> [motion audit](../motion-audit/README.md) before interpreting them.
+
 # Adaptive depth-footprint experiment
 
 This is an offline shader experiment; native renderer shaders and defaults are
@@ -56,3 +60,22 @@ ablation, then:
 
 Full arrays remain temporary; JSON measurements and representative images are
 retained here.
+
+## Motion comparisons and follow-up
+
+[Object motion animation](object-motion.apng) and
+[camera motion animation](camera-motion.apng) show all ten captured frames,
+synchronized across columns. Playback is deliberately slowed to 300 ms per
+frame, with a longer final hold; the loop reset is a discontinuity. Images use
+the same tone mapping as the still comparisons and nearest-neighbor enlargement.
+These short sequences are useful for comparison, not representative real-time
+playback or a long convergence test.
+
+**Follow-up found false history acceptance:** see the
+[synthetic occlusion stress results](../footprint-stress/README.md).
+The adaptive policy is not ready for native integration.
+
+Rebuild an animation with:
+```bash
+.venv/bin/python -m tools.denoiser_motion.animate_mirror /tmp/mirror-object-footprint/arrays.npz --output /tmp/object-motion.apng
+```

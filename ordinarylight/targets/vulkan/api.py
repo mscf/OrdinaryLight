@@ -1550,6 +1550,19 @@ class _VulkanGlobalIlluminationEngine:
             scene, camera, width, height, primitive,
             raw["primary_position"], raw["primary_barycentric"],
         )
+        # General output motion is current-minus-previous between projected
+        # sample positions. Canonical denoising needs previous-minus-current
+        # from the integer pixel center, including the current ray jitter.
+        if compatible_history:
+            projected, valid_projection = self._project_positions(
+                raw["primary_position"].reshape(-1, 3), camera, width, height,
+            )
+            yy, xx = np.indices((height, width))
+            centers = np.stack((xx, yy), axis=-1) + 0.5
+            motion = (
+                projected.reshape(height, width, 2) - centers - motion
+            ).astype(np.float32)
+            motion[~(foreground & valid_projection.reshape(height, width))] = 0
         current_matrix = camera_matrix(camera, width, height)
         previous_matrix = (
             camera_matrix(previous["camera"], width, height)

@@ -146,3 +146,16 @@ found an optics improvement but a motion-room regression. At history floor
 three, overall error changes by -13.6% and +13.9%, respectively. The experiment
 therefore remains disabled by default. Signal correctness and recomposition
 checks do not imply a general denoising-quality improvement.
+
+## Canonical capture motion correction
+
+Canonical capture previously reused general output motion (current-minus-previous).
+The documented DenoiserSignals contract and both portable/native temporal filters
+expect previous-minus-current. Capture now converts the displacement and adds the
+current ray sample's offset from its integer pixel center. Reset/background motion
+remains zero. General output motion and native GPU preparation are unchanged.
+
+CPU tests cover static samples, camera translation and object translation. A
+rendered sloped fixture compares captured motion against independent previous
+camera-matrix projection. Historical offline motion quality studies need rerunning;
+see the [motion audit](../artifacts/denoiser-motion/motion-audit/README.md).

@@ -175,3 +175,8 @@ as a major bottleneck; native defaults remain unchanged.
 The optional replay-only depth-footprint shader experiment is recorded in
 [adaptive mirror depth validation](../../artifacts/denoiser-motion/mirror-footprint/README.md).
 It adds a ninth mirror ablation variant without changing production shaders.
+
+[Rendered occlusion checks](../../artifacts/denoiser-motion/rendered-occlusion/README.md)
+test known parallel patches in a single mesh. They expose adaptive depth
+false acceptance and a capture/replay motion convention discrepancy requiring
+audit before end-to-end conclusions.

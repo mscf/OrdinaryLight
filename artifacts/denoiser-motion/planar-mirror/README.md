@@ -1,3 +1,7 @@
+> Superseded motion inputs: these historical replay results predate the
+> canonical capture motion correction. See the
+> [motion audit](../motion-audit/README.md) before interpreting them.
+
 # Static planar-mirror guide prototype, 2026-09-07
 
 **Follow-up:** The object-motion results below are superseded by the

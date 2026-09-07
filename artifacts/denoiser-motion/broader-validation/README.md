@@ -1,3 +1,8 @@
+> Motion audit clarification: this study uses live native preparation and
+> denoising via `present_wavefront`. It does not consume canonical captured
+> motion and is unaffected by that capture fix. Its noise/detail tradeoff
+> conclusions remain applicable.
+
 # Broader-filter validation, 2026-09-07
 
 **Retain the default color weight of 4.0.** Weight 2.0 reduces noise and

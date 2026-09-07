@@ -1,3 +1,7 @@
+> Superseded motion inputs: these historical replay results predate the
+> canonical capture motion correction. See the
+> [motion audit](../motion-audit/README.md) before interpreting them.
+
 # Reflected-guide rejection diagnosis, 2026-09-07
 
 **Depth validation is a major bottleneck in this low-resolution prototype.**

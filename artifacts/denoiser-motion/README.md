@@ -1,3 +1,10 @@
+> Motion audit update: canonical Vulkan signal capture previously exported
+> forward motion instead of its documented backward displacement and omitted
+> the sampled-pixel offset. Historical offline replay motion comparisons in
+> this directory require rerunning; native denoiser preparation already used
+> backward motion. See [corrected mirror results](motion-audit/README.md).
+> This does not automatically invalidate studies using the live native path.
+
 # Moving optics investigation — 2026-09-06
 
 Measured on NVIDIA GeForce RTX 4070 Laptop GPU, driver 580.95.05,
