@@ -1,0 +1,13 @@
+{
+  "baseline": {
+    "all_log_rgb_rmse": 0.020663265138864517,
+    "moving_log_rgb_rmse": 0.017978781834244728,
+    "settling_log_rgb_rmse": 0.013244104571640491
+  },
+  "geometric": {
+    "all_log_rgb_rmse": 0.020766962319612503,
+    "moving_log_rgb_rmse": 0.01826366037130356,
+    "settling_log_rgb_rmse": 0.013256657868623734
+  },
+  "gate_baseline_max_rgb_difference": 0.38711535930633545
+}

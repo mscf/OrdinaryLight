@@ -1,0 +1,425 @@
+[
+  {
+    "width": 64,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "original",
+    "motion_max_error": 2.996463443594166e-06,
+    "invalid_pixels": 0,
+    "valid_pixels": 665,
+    "false_acceptance": null,
+    "valid_acceptance": 0.4120300751879699,
+    "with_plane_false_acceptance": null,
+    "with_plane_valid_acceptance": 0.4120300751879699,
+    "valid_plane_distance_percentiles": [
+      0.00012269942089915276,
+      0.0012044224888086315,
+      0.002205772399902345,
+      0.010869435966014862
+    ],
+    "geometric_extra_valid_rejections": 7,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 274,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 2,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  },
+  {
+    "width": 64,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "blanket",
+    "motion_max_error": 2.996463443594166e-06,
+    "invalid_pixels": 0,
+    "valid_pixels": 665,
+    "false_acceptance": null,
+    "valid_acceptance": 0.8300751879699249,
+    "with_plane_false_acceptance": null,
+    "with_plane_valid_acceptance": 0.8300751879699249,
+    "valid_plane_distance_percentiles": [
+      0.00012269942089915276,
+      0.0012044224888086315,
+      0.002205772399902345,
+      0.010869435966014862
+    ],
+    "geometric_extra_valid_rejections": 54,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 552,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 13,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  },
+  {
+    "width": 64,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "adaptive",
+    "motion_max_error": 2.996463443594166e-06,
+    "invalid_pixels": 0,
+    "valid_pixels": 665,
+    "false_acceptance": null,
+    "valid_acceptance": 0.8210526315789474,
+    "with_plane_false_acceptance": null,
+    "with_plane_valid_acceptance": 0.8210526315789474,
+    "valid_plane_distance_percentiles": [
+      0.00012269942089915276,
+      0.0012044224888086315,
+      0.002205772399902345,
+      0.010869435966014862
+    ],
+    "geometric_extra_valid_rejections": 53,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 546,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 13,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "original",
+    "motion_max_error": 9.723235486092108e-06,
+    "invalid_pixels": 7,
+    "valid_pixels": 4207,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 0.6781554551937248,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.6781554551937248,
+    "valid_plane_distance_percentiles": [
+      4.807952791452408e-08,
+      0.0002888851158786564,
+      0.0004879357758909456,
+      0.0015298537909984589
+    ],
+    "geometric_extra_valid_rejections": 90,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 2853,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "blanket",
+    "motion_max_error": 9.723235486092108e-06,
+    "invalid_pixels": 7,
+    "valid_pixels": 4207,
+    "false_acceptance": 1.0,
+    "valid_acceptance": 0.9743285001188495,
+    "with_plane_false_acceptance": 1.0,
+    "with_plane_valid_acceptance": 0.9743285001188495,
+    "valid_plane_distance_percentiles": [
+      4.807952791452408e-08,
+      0.0002888851158786564,
+      0.0004879357758909456,
+      0.0015298537909984589
+    ],
+    "geometric_extra_valid_rejections": 261,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 4099,
+    "accepted_invalid_pixels": 7,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 7
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 7
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 7
+      }
+    }
+  },
+  {
+    "width": 160,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "adaptive",
+    "motion_max_error": 9.723235486092108e-06,
+    "invalid_pixels": 7,
+    "valid_pixels": 4207,
+    "false_acceptance": 0.2857142857142857,
+    "valid_acceptance": 0.9612550511053007,
+    "with_plane_false_acceptance": 0.2857142857142857,
+    "with_plane_valid_acceptance": 0.9612550511053007,
+    "valid_plane_distance_percentiles": [
+      4.807952791452408e-08,
+      0.0002888851158786564,
+      0.0004879357758909456,
+      0.0015298537909984589
+    ],
+    "geometric_extra_valid_rejections": 255,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 4044,
+    "accepted_invalid_pixels": 2,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 2
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 2
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 2
+      }
+    }
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "original",
+    "motion_max_error": 1.8307460180722046e-05,
+    "invalid_pixels": 9,
+    "valid_pixels": 16943,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 0.8726317653308151,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.8726317653308151,
+    "valid_plane_distance_percentiles": [
+      3.585591912269592e-08,
+      9.960848692571737e-05,
+      0.00021159976255148518,
+      0.0008024834096431732
+    ],
+    "geometric_extra_valid_rejections": 362,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 14785,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "blanket",
+    "motion_max_error": 1.8307460180722046e-05,
+    "invalid_pixels": 9,
+    "valid_pixels": 16943,
+    "false_acceptance": 1.0,
+    "valid_acceptance": 0.9972850144602491,
+    "with_plane_false_acceptance": 1.0,
+    "with_plane_valid_acceptance": 0.9972850144602491,
+    "valid_plane_distance_percentiles": [
+      3.585591912269592e-08,
+      9.960848692571737e-05,
+      0.00021159976255148518,
+      0.0008024834096431732
+    ],
+    "geometric_extra_valid_rejections": 529,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 16897,
+    "accepted_invalid_pixels": 9,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 9
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 9
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 9
+      }
+    }
+  },
+  {
+    "width": 320,
+    "slope": 0,
+    "curved": false,
+    "close": true,
+    "scale": 0.1,
+    "mode": "adaptive",
+    "motion_max_error": 1.8307460180722046e-05,
+    "invalid_pixels": 9,
+    "valid_pixels": 16943,
+    "false_acceptance": 0.0,
+    "valid_acceptance": 0.9912648291329753,
+    "with_plane_false_acceptance": 0.0,
+    "with_plane_valid_acceptance": 0.9912648291329753,
+    "valid_plane_distance_percentiles": [
+      3.585591912269592e-08,
+      9.960848692571737e-05,
+      0.00021159976255148518,
+      0.0008024834096431732
+    ],
+    "geometric_extra_valid_rejections": 519,
+    "geometric_remaining_false_accepts": 0,
+    "accepted_valid_pixels": 16795,
+    "accepted_invalid_pixels": 0,
+    "plane_threshold_sweep": {
+      "0.001": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.005": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.01": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.02": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      },
+      "0.05": {
+        "extra_valid_rejections": 0,
+        "remaining_false_accepts": 0
+      }
+    }
+  }
+]

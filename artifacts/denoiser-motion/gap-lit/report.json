@@ -1,0 +1,19 @@
+{
+  "contrast": true,
+  "reference_samples": 256,
+  "revealed_pixels": 442,
+  "reference_split_log_rgb_rmse": 0.008564171381294727,
+  "baseline": {
+    "all_log_rgb_rmse": 0.02027764543890953,
+    "moving_log_rgb_rmse": 0.018371328711509705,
+    "settling_log_rgb_rmse": 0.013414628803730011,
+    "revealed_log_rgb_rmse": 0.06604746729135513
+  },
+  "geometric": {
+    "all_log_rgb_rmse": 0.02031765691936016,
+    "moving_log_rgb_rmse": 0.018464647233486176,
+    "settling_log_rgb_rmse": 0.013433204963803291,
+    "revealed_log_rgb_rmse": 0.06867214292287827
+  },
+  "gate_baseline_max_rgb_difference": 0.24131011962890625
+}

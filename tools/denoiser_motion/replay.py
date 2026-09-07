@@ -27,13 +27,14 @@ def instrument_acceptance(source):
 
 
 class ShaderReplay:
-    def __init__(self, width, height, *, depth_footprint=False):
+    def __init__(self, width, height, *, depth_footprint=False, plane_gate=False):
         self.width, self.height = width, height
+        self.plane_gate = plane_gate
         adapter = wgpu.gpu.request_adapter_sync(power_preference="high-performance")
         self.adapter_info = dict(adapter.info)
         self.device = adapter.request_device_sync(
             required_features=["texture-adapter-specific-format-features"],
-            required_limits={"max-storage-textures-per-shader-stage": 15},
+            required_limits={"max-storage-textures-per-shader-stage": 17 if plane_gate else 15},
         )
         root = Path(__file__).resolve().parents[2] / "ordinarylight/shaders"
         self.pipelines = {}
@@ -44,6 +45,9 @@ class ShaderReplay:
                 if depth_footprint:
                     from tools.denoiser_motion.footprint import instrument_depth_footprint
                     source = instrument_depth_footprint(source)
+                if plane_gate:
+                    from tools.denoiser_motion.footprint import instrument_plane_gate
+                    source = instrument_plane_gate(source)
             module = self.device.create_shader_module(code=source)
             self.pipelines[name] = self.device.create_compute_pipeline(
                 layout="auto",
@@ -117,7 +121,7 @@ class ShaderReplay:
 
     def denoise(
         self, signal, previous_depth, policy, iterations=3, *,
-        spatial_normal_power=32, color_weight=4,
+        spatial_normal_power=32, color_weight=4, positions=None,
     ):
         zeros = np.zeros((self.height, self.width), np.float32)
         rgba = np.zeros((*zeros.shape, 4), np.float32)
@@ -129,6 +133,13 @@ class ShaderReplay:
             self.texture(signal.view_z, "r32float"),
             self.texture(signal.material_id, "r32uint"),
         ]
+        position_textures = []
+        if self.plane_gate:
+            if positions is None:
+                raise ValueError("plane gate requires world positions")
+            packed = rgba.copy()
+            packed[..., :3] = positions
+            position_textures = [self.texture(packed, "rgba32float")]
         motion_tex = self.texture(motion, "rgba16float")
         valid = self.previous is not None and not signal.frame.camera_cut
         old = self.previous if valid else (guides, [None, None], [None, None])
@@ -164,6 +175,9 @@ class ShaderReplay:
             }
             debug = self.texture(zeros, "r32float")
             bindings[15] = debug
+            if self.plane_gate:
+                bindings[16] = position_textures[0]
+                bindings[17] = old[3][0] if valid else position_textures[0]
             # An output texture cannot alias a read binding, even on reset.
             empty_length = self.texture(zeros, "r32float")
             if not valid:
@@ -218,7 +232,7 @@ class ShaderReplay:
             for group in self.previous:
                 for tex in group:
                     tex.destroy()
-        self.previous = (guides, temporals, lengths)
+        self.previous = (guides, temporals, lengths, position_textures)
         motion_tex.destroy()
         self.last_acceptance = acceptance
         return outputs, history

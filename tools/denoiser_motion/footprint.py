@@ -32,3 +32,26 @@ def instrument_depth_footprint(source):
             min(base_tolerance + footprint, abs(expected_old_depth) * 0.02));
 """
     return source.replace(marker, replacement)
+
+
+def instrument_plane_gate(source):
+    """Experimental static-geometry gate; diagnostic camera FOV is 45 degrees."""
+    marker = "\n        if (accepted) {\n            history = textureLoad(previous_radiance, previous_pixel);"
+    if source.count(marker) != 1:
+        raise ValueError("temporal shader plane hook changed")
+    declarations = """
+@group(0) @binding(16) var current_position: texture_storage_2d<rgba32float, read>;
+@group(0) @binding(17) var previous_position: texture_storage_2d<rgba32float, read>;
+"""
+    gate = """
+        let delta = textureLoad(current_position, pixel).xyz -
+                    textureLoad(previous_position, previous_pixel).xyz;
+        let plane_distance = abs(dot(delta, old_normal));
+        let normal_change = length(current_normal - old_normal);
+        let tangent = sqrt(max(dot(delta, delta) - plane_distance * plane_distance, 0.0));
+        let plane_footprint = 2.0 * old_depth * 0.41421356237 / f32(extent.y);
+        let plane_tolerance = old_depth * 0.00001 +
+                              normal_change * max(plane_footprint, tangent);
+        accepted = accepted && plane_distance <= plane_tolerance;
+"""
+    return declarations + source.replace(marker, gate + marker)

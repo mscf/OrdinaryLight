@@ -180,3 +180,27 @@ It adds a ninth mirror ablation variant without changing production shaders.
 test known parallel patches in a single mesh. They expose adaptive depth
 false acceptance and a capture/replay motion convention discrepancy requiring
 audit before end-to-end conclusions.
+
+[Curved-surface validation](../../artifacts/denoiser-motion/curved-occlusion/README.md)
+extends the rendered fixture with a sphere and a point-to-plane threshold sweep.
+The fixed geometric tolerance loses valid curved-surface history, particularly
+at coarse resolution; it remains an offline diagnostic.
+
+[Close curved surfaces at multiple scales](../../artifacts/denoiser-motion/close-curved/README.md)
+test a footprint/normal-variation geometric tolerance. It rejects the tested
+false matches consistently across scales, but loses substantial valid history.
+
+[Curvature allowance audit](../../artifacts/denoiser-motion/curvature-audit/README.md)
+finds that removing the smooth-surface half factor retains valid matches in
+the close-curved fixture while still rejecting its observed wrong matches.
+This remains a CPU geometric diagnostic over GPU temporal acceptance.
+
+[Folded-surface motion sequences](../../artifacts/denoiser-motion/folded-sequence/README.md)
+validate the factor-1 allowance across mesh resolutions and camera reversal.
+The CPU geometric gate rejects observed cross-patch false accepts without
+additional valid-history rejection; shader feedback validation remains next.
+
+[GPU geometric gate](../../artifacts/denoiser-motion/gpu-plane/README.md)
+implements the candidate in optional shader replay with history feedback.
+It nearly matches the CPU result; precision/pixel-selection discrepancies
+remain to be resolved before native integration.
