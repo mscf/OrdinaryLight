@@ -281,4 +281,9 @@ def build_planar_mirror_guides():
                           ((1.4, 0.9, -1.8), (0.08, 0.35, 0.9))):
         vertices, indices = sphere(center, 0.7)
         scene.add_mesh(vertices, indices, ol.Material(base_color=color, program=diffuse))
+    vertices, indices = sphere((0.5, 0.75, -4.3), 0.75)
+    scene.add_mesh(vertices, indices, ol.Material(
+        base_color=(0.97, 0.99, 1.0), transmission=1.0, roughness=0.0,
+        ior=1.52, program=fresnel_glass,
+    ), name="glass-sphere")
     return scene

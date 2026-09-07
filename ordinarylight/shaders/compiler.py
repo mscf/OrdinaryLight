@@ -156,6 +156,15 @@ def wavefront_material_shader_source(
         for name, _components in program.required_attributes
     }
     source = _expanded_shader_source(shader_name)
+    if denoiser_signal_capture and shader_name == "wavefront_primary.comp":
+        # Denoising needs stable primary geometry for transmitted samples too.
+        # Keep the non-denoising secondary-reuse eligibility unchanged.
+        capture = "ordinarylight_primary_capture_secondary(\n            path.metadata.w, transmission)"
+        fallback = "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u\n            && transmission <= 0.001"
+        if source.count(capture) != 1 or source.count(fallback) != 1:
+            raise RuntimeError("primary denoiser capture anchors changed")
+        source = source.replace(capture, capture.replace("transmission", "0.0"))
+        source = source.replace(fallback, "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u")
     if shader_name == "wavefront_primary.comp":
         source = source.replace(
             "#version 460\n",

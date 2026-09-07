@@ -1,0 +1,30 @@
+{
+  "direct": {
+    "reference_split_rmse": 0.030629991567808067,
+    "False": {
+      "moving_endpoint_rmse": 0.04473206190394092,
+      "settled_rmse": 0.021996842319836764,
+      "stationary_temporal_std": 0.002260029744370322
+    },
+    "True": {
+      "moving_endpoint_rmse": 0.04473206190394092,
+      "settled_rmse": 0.021996842319836764,
+      "stationary_temporal_std": 0.002260029744370322
+    },
+    "settled_toggle_rmse": 0.0
+  },
+  "reflection": {
+    "reference_split_rmse": 0.010834076331162248,
+    "False": {
+      "moving_endpoint_rmse": 0.017728325654145685,
+      "settled_rmse": 0.01413473063027531,
+      "stationary_temporal_std": 0.0006087326681910735
+    },
+    "True": {
+      "moving_endpoint_rmse": 0.017430925826808635,
+      "settled_rmse": 0.013635717199310966,
+      "stationary_temporal_std": 0.0014044464337981588
+    },
+    "settled_toggle_rmse": 0.00493434528473164
+  }
+}

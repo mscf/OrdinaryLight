@@ -62,3 +62,11 @@ With ReSTIR enabled, three forced recreations completed 607 frames with guides
 off and 604 with guides on. The actual internal extent in those runs was
 838x720; the viewer status showed the requested 1280x720 extent. See
 [the fix and evidence](../artifacts/denoiser-motion/restir-materials/swapchain-cache-fix/README.md).
+
+## Glass sphere
+
+The foreground sphere uses Fresnel glass. Custom-material primary transmission
+now supplies front-surface denoising guides when signal capture is active,
+avoiding the previous raw-output bypass for most transmitted samples. This is
+not refraction-aware background reprojection; fine moving detail through glass
+still needs separate validation. See the [glass comparison](../artifacts/denoiser-motion/glass-transmission/README.md).

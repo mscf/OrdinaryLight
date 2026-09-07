@@ -11,6 +11,31 @@ from ordinarylight.shaders.compiler import (
 
 
 class MaterialProgramTests(unittest.TestCase):
+    def test_primary_transmission_capture_is_limited_to_denoising(self):
+        from ordinarylight.showcases.materials import fresnel_glass
+
+        options = dict(
+            attribute_layout=ol.VertexAttributeLayout(()), attribute_binding=24,
+        )
+        ordinary = wavefront_material_shader_source(
+            "wavefront_primary.comp", (fresnel_glass,), **options,
+        )
+        capture = wavefront_material_shader_source(
+            "wavefront_primary.comp", (fresnel_glass,),
+            denoiser_signal_capture=True, **options,
+        )
+        self.assertIn("path.metadata.w, transmission))", ordinary)
+        self.assertIn("path.metadata.w, 0.0))", capture)
+        fallback = "(path.metadata.w & PATH_INDIRECT_CAPTURE_BIT) != 0u\n            && transmission <= 0.001"
+        self.assertIn(fallback, ordinary)
+        self.assertNotIn(fallback, capture)
+        if find_glsl_compiler() is not None:
+            binary = compile_wavefront_material_shader(
+                "wavefront_primary.comp", (fresnel_glass,),
+                denoiser_signal_capture=True, **options,
+            )
+            self.assertEqual(binary[:4], b"\x03\x02#\x07")
+
     def test_layered_material_evaluation_compiles_for_gi(self):
         @ol.material
         def coated(ctx):

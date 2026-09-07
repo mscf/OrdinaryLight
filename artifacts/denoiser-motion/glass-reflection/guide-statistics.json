@@ -1,0 +1,26 @@
+{
+  "False": {
+    "direct": {
+      "diffuse_history": 1.0022221803665161,
+      "specular_history": 1.0022221803665161,
+      "zero_depth_fraction": 0.9577777777777777
+    },
+    "reflection": {
+      "diffuse_history": 32.0,
+      "specular_history": 32.0,
+      "zero_depth_fraction": 0.0
+    }
+  },
+  "True": {
+    "direct": {
+      "diffuse_history": 1.0022221803665161,
+      "specular_history": 1.0022221803665161,
+      "zero_depth_fraction": 0.9577777777777777
+    },
+    "reflection": {
+      "diffuse_history": 31.0887451171875,
+      "specular_history": 31.0887451171875,
+      "zero_depth_fraction": 0.0
+    }
+  }
+}
