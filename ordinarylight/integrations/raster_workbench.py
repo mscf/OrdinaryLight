@@ -414,6 +414,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.viewport_stack.addWidget(self.container)
             self.viewport_stack.addWidget(self.readback_image)
             layout.addWidget(self.viewport_stack, 1)
+            # A native Vulkan child covers ordinary sibling widgets. Use an
+            # owned, non-activating overlay window above the render surface.
+            self.fps_overlay = QtWidgets.QLabel("— FPS", self,
+                QtCore.Qt.WindowType.Tool
+                | QtCore.Qt.WindowType.FramelessWindowHint
+                | QtCore.Qt.WindowType.WindowTransparentForInput
+                | QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
+            self.fps_overlay.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
+            self.fps_overlay.setStyleSheet(
+                "background: #202020; color: white; padding: 6px 10px; "
+                "font: bold 14px monospace; border-radius: 4px;"
+            )
+            self.fps_overlay.adjustSize()
+
             panel = QtWidgets.QWidget()
             form = QtWidgets.QFormLayout(panel)
             panel_scroll = QtWidgets.QScrollArea()
@@ -442,20 +456,6 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.target.addItem(title, key)
             selected_target = self.target.findData(args.target)
             self.target.setCurrentIndex(max(selected_target, 0))
-            self.resolution = QtWidgets.QComboBox()
-            custom = (max(1, args.width), max(1, args.height))
-            self.resolution.addItem(
-                f"Custom — {custom[0]} × {custom[1]}", custom,
-            )
-            for title, extent in RESOLUTIONS:
-                if extent != custom:
-                    self.resolution.addItem(
-                        f"{title} ({extent[0]} × {extent[1]})", extent,
-                    )
-            self._selected_extent = custom
-            self.resolution.currentIndexChanged.connect(
-                self._resolution_changed,
-            )
             self.shadows = QtWidgets.QCheckBox(); self.shadows.setChecked(True)
             self.scene_lights = QtWidgets.QCheckBox()
             self.scene_lights.setChecked(True)
@@ -532,7 +532,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.help = QtWidgets.QLabel(
                 "Vulkan targets use the direct swapchain; WebGPU currently "
                 "uses offscreen QImage readback.\n"
-                "Left drag: orbit · Right/middle drag: pan · Wheel: dolly",
+                "Left drag: orbit · Right/middle drag: pan · Wheel: dolly\n"
+                "F11: fullscreen · Escape: leave fullscreen",
                 wordWrap=True,
             )
             button = QtWidgets.QPushButton("Apply and restart renderer")
@@ -548,7 +549,6 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.target.currentIndexChanged.connect(self._target_changed)
             form.addRow("Feature", self.feature)
             form.addRow("Rendering target", self.target)
-            form.addRow("Render resolution", self.resolution)
             form.addRow("Enable shadows", self.shadows)
             form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
@@ -620,17 +620,43 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.timer.setInterval(1)
             self.timer.timeout.connect(self.tick)
             self.timer.start()
+            QtWidgets.QApplication.instance().installEventFilter(self)
             self._selection_changed()
             QtCore.QTimer.singleShot(0, self.restart)
 
         @property
         def extent(self):
-            return self._selected_extent
+            ratio = float(self.native_window.devicePixelRatio())
+            return (
+                max(1, round(self.viewport_stack.width() * ratio)),
+                max(1, round(self.viewport_stack.height() * ratio)),
+            )
 
-        def _resolution_changed(self, _index=None):
-            value = self.resolution.currentData()
-            if value is not None:
-                self._selected_extent = tuple(int(item) for item in value)
+        def eventFilter(self, watched, event):
+            if event.type() == QtCore.QEvent.Type.KeyPress:
+                key = event.key()
+                if key == QtCore.Qt.Key.Key_F11 or (
+                    key == QtCore.Qt.Key.Key_Escape and self.isFullScreen()
+                ):
+                    if not event.isAutoRepeat():
+                        self._toggle_fullscreen()
+                    return True
+            return super().eventFilter(watched, event)
+
+        def _toggle_fullscreen(self):
+            layout = self.centralWidget().layout()
+            if self.isFullScreen():
+                self.showNormal()
+                self.restoreGeometry(self._windowed_geometry)
+                self.panel_scroll.setVisible(self._panel_was_visible)
+                layout.setContentsMargins(self._windowed_margins)
+            else:
+                self._windowed_geometry = self.saveGeometry()
+                self._windowed_margins = layout.contentsMargins()
+                self._panel_was_visible = self.panel_scroll.isVisible()
+                self.panel_scroll.hide()
+                layout.setContentsMargins(0, 0, 0, 0)
+                self.showFullScreen()
 
         def _copy_camera_pose(self):
             if self.controller is None:
@@ -1015,6 +1041,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.status.setText(f"Renderer start failed: {error}")
 
         def tick(self):
+            self.fps_overlay.setVisible(self.isVisible() and not self.isMinimized())
+            self.fps_overlay.move(
+                self.viewport_stack.mapToGlobal(QtCore.QPoint(12, 12))
+            )
             now = time.perf_counter()
             elapsed = min(now - self.last_tick, 0.1)
             self.last_tick = now
@@ -1148,6 +1178,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     fps = (len(self.completed) - 1) / (
                         self.completed[-1] - self.completed[0]
                     )
+                self.fps_overlay.setText(f"{fps:.1f} FPS")
+                self.fps_overlay.adjustSize()
                 width, height = self.extent
                 timings = self.renderer.last_timings
                 if (
@@ -1423,7 +1455,6 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.future = self.executor.submit(
                     self.renderer.present_wavefront,
                     self.scene_value, camera, gi_width, gi_height,
-                    render_extent=(render_width, render_height),
                 )
             else:
                 self.future = self.executor.submit(

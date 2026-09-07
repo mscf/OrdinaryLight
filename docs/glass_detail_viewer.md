@@ -60,3 +60,17 @@ a stationary glass surface cannot detect a moving target through this marker.
 
 See the [integration validation](../artifacts/denoiser-motion/glass-cap-native/README.md)
 and [eight-case diagnostic sweep](../artifacts/denoiser-motion/glass-cap-sweep/README.md).
+
+## Viewport size and fullscreen
+
+The direct viewer renders to the viewport size in physical pixels; its former
+resolution selector has been removed. Press **F11** to enter an undecorated
+fullscreen view with controls hidden. Press **F11** again or **Escape** to
+restore the window and controls. Render scaling configured by a renderer can
+still reduce its internal resolution. The separate offscreen comparison mode
+retains its output-resolution selector.
+
+A mouse-transparent FPS overlay stays at the top-left of the render surface
+in windowed, maximized and fullscreen views. It reports the rolling completed-
+frame rate used by the status panel, including presentation and scene-update
+costs, rather than an isolated GPU timing.
