@@ -125,3 +125,29 @@ The [live edge audit](../../artifacts/denoiser-motion/edge-audit/README.md) uses
 actual Vulkan denoiser guides and independent high-sample references from the
 same live rendering path. It revises the earlier interpretation of the
 16-spp edge-correlation failure and documents the surface-local clamp fix.
+
+## Signal audit correction (2026-09-06)
+
+New captures now use the live renderer's probability partition of total
+radiance, replacing the former sampled-indirect-lobe reconstruction. Existing
+saved captures are unchanged. Neither partition is a physical lobe
+decomposition; see [the signal audit](../../docs/denoiser_signal_audit.md)
+for hit-distance, modulation, motion, and multisample limitations.
+
+For the evaluated-lobe experiment, run:
+
+```bash
+python -m tools.denoiser_motion.check_sampled_indirect
+python -m tools.denoiser_motion.check_lobe_capture
+```
+
+The first checks GPU preparation with controlled samples; the second checks
+native optics capture, pure-metal attribution, and unchanged raw output when
+toggling `denoiser_sampled_indirect`.
+
+Live quality can be compared with `live_edges --scene optics` (or
+`--scene object-motion`) and a matching run with `--evaluated-lobes`.
+Use `compare_lobes BASELINE CANDIDATE --output NEW_DIRECTORY` to validate
+matching references and generate metrics and a comparison image.
+The [recorded study](../../artifacts/denoiser-motion/lobe-quality/README.md)
+found mixed results; evaluated lobes remain experimental.

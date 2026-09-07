@@ -972,3 +972,13 @@ class RendererConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DenoiserColorWeightTests(unittest.TestCase):
+    def test_positive_color_weights_and_invalid_values(self):
+        self.assertEqual(RendererConfig().denoiser_color_weight, 4.0)
+        self.assertEqual(RendererConfig(denoiser_color_weight=2).denoiser_color_weight, 2)
+        for value in (True, "2", 0, -1, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "finite positive"):
+                    RendererConfig(denoiser_color_weight=value)

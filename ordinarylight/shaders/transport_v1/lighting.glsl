@@ -30,11 +30,17 @@ float pbrSpecularProbability(MaterialData material)
     return clamp(max(f0.r, max(f0.g, f0.b)), 0.1, 0.9);
 }
 
+// Per-invocation scratch for the most recent BSDF evaluation. Callers
+// consume it only for accepted contributions, never candidate target sums.
+vec3 transportLastSpecularFraction = vec3(0.0);
+vec3 transportPointSpecular = vec3(0.0);
+
 vec3 evaluatePbr(
     MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
 {
     float n_dot_v = max(dot(normal, view), 0.0);
     float n_dot_l = max(dot(normal, outgoing), 0.0);
+    transportLastSpecularFraction = vec3(0.0);
     if (n_dot_v <= 0.0 || n_dot_l <= 0.0)
         return vec3(0.0);
     vec3 half_vector = normalize(view + outgoing);
@@ -78,7 +84,11 @@ vec3 evaluatePbr(
     vec3 coat = vec3(clearcoat * coat_distribution * coat_geometry
         * coat_fresnel / max(4.0 * n_dot_v * n_dot_l, 0.000001));
     float base_energy = 1.0 - clearcoat * coat_fresnel;
-    return (diffuse + specular + sheen) * base_energy + coat;
+    vec3 combined = (diffuse + specular + sheen) * base_energy + coat;
+    vec3 reflected = (specular + sheen) * base_energy + coat;
+    transportLastSpecularFraction = clamp(
+        reflected / max(combined, vec3(1.0e-30)), vec3(0.0), vec3(1.0));
+    return combined;
 }
 
 float pbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
@@ -146,6 +156,20 @@ void samplePbr(
     vec3 evaluated = ordinarylight_pbr_evaluate(
         material.base_roughness.rgb, material.base_roughness.a,
         material.emission_metallic.a, normal, view, outgoing);
+    // Match the diffuse term in ordinarylight_pbr_evaluate, whose GGX
+    // model differs from the layered direct-light evaluator above.
+    vec3 half_vector = normalize(view + outgoing);
+    float view_half = max(dot(view, half_vector), 0.0);
+    vec3 f0 = mix(vec3(0.04), material.base_roughness.rgb,
+        material.emission_metallic.a);
+    vec3 fresnel = f0 + (vec3(1.0) - f0)
+        * pow(1.0 - clamp(view_half, 0.0, 1.0), 5.0);
+    vec3 diffuse = (vec3(1.0) - fresnel)
+        * (1.0 - material.emission_metallic.a)
+        * material.base_roughness.rgb / 3.14159265359;
+    transportLastSpecularFraction = clamp(
+        (evaluated - diffuse) / max(evaluated, vec3(1.0e-30)),
+        vec3(0.0), vec3(1.0));
     weight = ordinarylight_pbr_weight(
         evaluated, material.emission_metallic.a,
         material.texture_parameters.w, normal, view, outgoing, pdf);
@@ -181,6 +205,7 @@ vec3 samplePointLights(
     vec3 hit, vec3 normal, vec3 incoming, MaterialData material)
 {
     vec3 direct = vec3(0.0);
+    transportPointSpecular = vec3(0.0);
     for (uint index = 0u; index < min(OL_TRANSPORT_POINT_LIGHT_COUNT, 64u); ++index) {
         PointLightData light = point_lights[index];
         int light_type = int(light.position_type.w + 0.5);
@@ -255,7 +280,7 @@ vec3 samplePointLights(
             light.color_intensity.rgb, light.color_intensity.a, attenuation,
             volumeShadowTransmittance(
                 shadow_origin, direction, shadow_distance));
-        direct += ordinarylight_analytic_light_contribution(
+        vec3 contribution = ordinarylight_analytic_light_contribution(
             evaluatePbr(material, normal, -incoming, direction),
             incident, cosine);
 #else
@@ -263,9 +288,11 @@ vec3 samplePointLights(
             * attenuation;
         incident *= volumeShadowTransmittance(
             shadow_origin, direction, shadow_distance);
-        direct += evaluatePbr(material, normal, -incoming, direction)
+        vec3 contribution = evaluatePbr(material, normal, -incoming, direction)
             * incident * cosine;
 #endif
+        direct += contribution;
+        transportPointSpecular += contribution * transportLastSpecularFraction;
     }
     return direct;
 }

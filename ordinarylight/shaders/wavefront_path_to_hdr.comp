@@ -195,8 +195,11 @@ void main()
     {
         hit_distance = length((secondary.position_valid.xyz - secondary.primary_position.xyz));
     }
-    secondary.diffuse_radiance_hit_distance = vec4(diffuse_radiance, hit_distance);
-    secondary.specular_radiance_hit_distance = vec4(specular_radiance, hit_distance);
+    if (((push.indirect_secondary_capture & uint(2)) == uint(0)))
+    {
+        secondary.diffuse_radiance_hit_distance = vec4(diffuse_radiance, hit_distance);
+        secondary.specular_radiance_hit_distance = vec4(specular_radiance, hit_distance);
+    }
     secondary_paths[path_index] = secondary;
     uvec2 reservoir_pixel = min(uvec2((((vec2(pixel) + 0.5) * vec2(push.reservoir_width, push.reservoir_height)) / vec2(push.image_width, push.image_height))), uvec2((push.reservoir_width - uint(1)), (push.reservoir_height - uint(1))));
     ivec2 representative = ivec2((((vec2(reservoir_pixel) + 0.5) * vec2(push.image_width, push.image_height)) / vec2(push.reservoir_width, push.reservoir_height)));

@@ -1748,12 +1748,15 @@ def wavefront_path_to_hdr(
         hit_distance = osh.length(
             secondary.position_valid.xyz - secondary.primary_position.xyz
         )
-    secondary.diffuse_radiance_hit_distance = osh.vec4(
-        diffuse_radiance, hit_distance
-    )
-    secondary.specular_radiance_hit_distance = osh.vec4(
-        specular_radiance, hit_distance
-    )
+    # Bit 1 preserves per-sample primary-specular scratch for experimental
+    # signal preparation. Bit 0 retains the existing capture/reuse behavior.
+    if (push.indirect_secondary_capture & osh.u32(2)) == osh.u32(0):
+        secondary.diffuse_radiance_hit_distance = osh.vec4(
+            diffuse_radiance, hit_distance
+        )
+        secondary.specular_radiance_hit_distance = osh.vec4(
+            specular_radiance, hit_distance
+        )
     secondary_paths[path_index] = secondary
     reservoir_pixel = osh.minimum(
         osh.uvec2(
@@ -2715,6 +2718,18 @@ def shadeEvaluatePbrLobes(
     return PbrLobeResult(
         diffuse * layer_scale,
         (specular + sheen) * layer_scale + coat,
+    )
+
+
+@osh.function
+def shadeSpecularFraction(
+    material: MaterialData, normal: osh.vec3, view: osh.vec3,
+    outgoing: osh.vec3,
+) -> osh.vec3:
+    lobes = shadeEvaluatePbrLobes(material, normal, view, outgoing)
+    return osh.clamp(
+        lobes.specular / osh.maximum(lobes.diffuse + lobes.specular, osh.vec3(1.0e-30)),
+        osh.vec3(0.0), osh.vec3(1.0),
     )
 
 
@@ -5636,6 +5651,8 @@ def wavefront_shade_candidate(
     bsdf_pdf = 0.0
     cone_spread = cone.y
     sampled_specular = False
+    primary_specular = osh.vec3(0.0)
+    primary_weight = path.throughput.rgb
     if evaluated.custom_scattering > 0.5:
         event = osh.i32(evaluated.event + 0.5)
         if event == 0:
@@ -5690,10 +5707,14 @@ def wavefront_shade_candidate(
                         point_sample.shadow_origin, point_sample.direction,
                         point_sample.shadow_distance, shadePathBounce(path),
                     )
-                    direct = direct + shadePointLightContribution(
+                    lobe_contribution = shadePointLightContribution(
                         point_sample, surface.material, surface.normal,
                         incoming, osh.vec3(volume_transmittance),
                     )
+                    direct = direct + lobe_contribution
+                    primary_specular = primary_specular + lobe_contribution * shadeSpecularFraction(
+                        surface.material, surface.normal, -incoming, point_sample.direction,
+                    ) / 1.0
             if push.unified_secondary_nee != osh.u32(0):
                 domain = shadeSelectUnifiedSecondaryDomain(
                     push.area_light_count > osh.u32(0),
@@ -5714,10 +5735,14 @@ def wavefront_shade_candidate(
                             area_sample.shadow_origin, area_sample.direction,
                             area_sample.shadow_distance, shadePathBounce(path),
                         )
-                        direct = direct + shadeAreaLightContribution(
+                        lobe_contribution = shadeAreaLightContribution(
                             area_sample, surface.material, surface.normal,
                             incoming, osh.vec3(volume_transmittance),
                         )
+                        direct = direct + lobe_contribution
+                        primary_specular = primary_specular + lobe_contribution * shadeSpecularFraction(
+                            surface.material, surface.normal, -incoming, area_sample.direction,
+                        ) / 1.0
                 if domain.valid and not domain.area_selected:
                     environment_sample = shadePrepareEnvironmentLight(
                         loaded.hit.position_t.xyz, surface.normal,
@@ -5735,11 +5760,15 @@ def wavefront_shade_candidate(
                             environment_sample.direction, 1.0e30,
                             shadePathBounce(path),
                         )
-                        direct = direct + shadeEnvironmentContribution(
+                        lobe_contribution = shadeEnvironmentContribution(
                             environment_sample, environment_radiance,
                             surface.material, surface.normal, incoming,
                             osh.vec3(volume_transmittance),
                         )
+                        direct = direct + lobe_contribution
+                        primary_specular = primary_specular + lobe_contribution * shadeSpecularFraction(
+                            surface.material, surface.normal, -incoming, environment_sample.direction,
+                        ) / 1.0
             else:
                 area_sample_count = osh.clamp(
                     push.secondary_area_light_samples, osh.u32(1), osh.u32(16)
@@ -5759,10 +5788,14 @@ def wavefront_shade_candidate(
                             area_sample.shadow_origin, area_sample.direction,
                             area_sample.shadow_distance, shadePathBounce(path),
                         )
-                        area_direct = area_direct + shadeAreaLightContribution(
+                        lobe_contribution = shadeAreaLightContribution(
                             area_sample, surface.material, surface.normal,
                             incoming, osh.vec3(volume_transmittance),
                         )
+                        area_direct = area_direct + lobe_contribution
+                        primary_specular = primary_specular + lobe_contribution * shadeSpecularFraction(
+                            surface.material, surface.normal, -incoming, area_sample.direction,
+                        ) / osh.f32(area_sample_count)
                 direct = direct + area_direct / osh.f32(area_sample_count)
                 environment_count = osh.minimum(
                     push.environment_samples, osh.u32(4)
@@ -5786,13 +5819,15 @@ def wavefront_shade_candidate(
                             environment_sample.direction, 1.0e30,
                             shadePathBounce(path),
                         )
-                        environment_direct = (
-                            environment_direct + shadeEnvironmentContribution(
-                                environment_sample, environment_radiance,
-                                surface.material, surface.normal, incoming,
-                                osh.vec3(volume_transmittance),
-                            )
+                        lobe_contribution = shadeEnvironmentContribution(
+                            environment_sample, environment_radiance,
+                            surface.material, surface.normal, incoming,
+                            osh.vec3(volume_transmittance),
                         )
+                        environment_direct = environment_direct + lobe_contribution
+                        primary_specular = primary_specular + lobe_contribution * shadeSpecularFraction(
+                            surface.material, surface.normal, -incoming, environment_sample.direction,
+                        ) / osh.f32(environment_count)
                 if environment_count > osh.u32(0):
                     direct = direct + environment_direct / osh.f32(
                         environment_count
@@ -5827,6 +5862,17 @@ def wavefront_shade_candidate(
             loaded.hit.position_t.xyz,
             1.0 + osh.clamp(surface.material.base_roughness.a, 0.0, 1.0),
         )
+        secondary.specular_radiance_hit_distance = osh.vec4(
+            primary_specular * primary_weight / osh.maximum(
+                push.secondary_nee_probability, 0.000001,
+            ), -1.0,
+        )
+        fraction = osh.vec3(1.0)
+        if transmission <= 0.001:
+            fraction = shadeSpecularFraction(
+                surface.material, surface.normal, -incoming, next_direction,
+            )
+        secondary.diffuse_radiance_hit_distance = osh.vec4(fraction, -1.0)
         secondary_paths[path_index] = secondary
     roulette = shadeApplyRussianRoulette(
         path, random_state, next_bounce, transmission,
@@ -5867,7 +5913,7 @@ WAVEFRONT_SHADE_CANDIDATE_HELPERS = (
     shadeApplyRussianRoulette, shadeBuildContinuation,
     shadeReserveOutputIndex, shadeEnqueueContinuation, shadeSmoothstep,
     shadePbrFresnel, shadeGgxDistribution, shadeGgxSmithComponent,
-    shadePbrSpecularProbability, shadeEvaluatePbrLobes, shadeEvaluatePbr,
+    shadePbrSpecularProbability, shadeEvaluatePbrLobes, shadeSpecularFraction, shadeEvaluatePbr,
     shadePbrPdf,
     shadeSampleGgxHalfVector, shadeSamplePbr, shadeScatterOpaquePath,
     shadePreparePointLight, shadePointLightVisible,

@@ -133,6 +133,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reference-batches", type=int, default=8)
+    parser.add_argument("--evaluated-lobes", action="store_true")
+    parser.add_argument("--scene", choices=("object-motion", "optics"), default="object-motion")
     args = parser.parse_args()
     if args.reference_batches < 2 or args.reference_batches % 2:
         parser.error("reference batches must be positive, even and at least two")
@@ -148,6 +150,12 @@ def main():
         history_floor=3,
     )
     trajectory = _trajectory(settings, "camera")
+    scene_factory = build_object_motion_room
+    if args.scene == "optics":
+        from tools.denoiser_motion.run import fixture, camera as optics_camera
+        def scene_factory():
+            return fixture()[0]
+        trajectory = [(0.0, optics_camera(x)) for x in np.linspace(-0.4, 0.4, 7)]
     glfw = load_glfw()
     if not glfw.init():
         raise RuntimeError("GLFW initialization failed")
@@ -162,8 +170,11 @@ def main():
             config = _config(settings, reference=False)
             from dataclasses import replace
 
-            config = replace(config, denoiser_signal_capture=True)
-            scene = build_object_motion_room()
+            config = replace(
+                config, denoiser_signal_capture=True,
+                denoiser_sampled_indirect=args.evaluated_lobes,
+            )
+            scene = scene_factory()
             frames = []
             with ol.VulkanGlfwPresenter(window, config=config) as presenter:
                 for index, (_, camera) in enumerate(trajectory):
@@ -177,7 +188,7 @@ def main():
                     )
             np.save(args.output / f"floor{floor}.npy", frames)
             print(f"Captured live floor {floor}", flush=True)
-        scene = build_object_motion_room()
+        scene = scene_factory()
         refs, split = [], []
         settings.reference_samples = 64
         with ol.VulkanGlfwPresenter(
@@ -212,6 +223,8 @@ def main():
                 "frames": 7,
                 "reference_samples": 64 * args.reference_batches,
                 "seed_offset": 1000,
+                "scene": args.scene,
+                "evaluated_lobes": args.evaluated_lobes,
             },
             indent=2,
         )

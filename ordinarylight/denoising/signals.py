@@ -71,7 +71,11 @@ class DenoiserSignals:
     """Canonical per-frame inputs for diffuse/specular denoising.
 
     Radiance is linear scene-referred RGB. The fourth component stores the
-    in-lobe hit distance for the corresponding diffuse or specular sample.
+    producer-supplied hit distance (zero denotes no recorded hit). Native
+    Vulkan capture currently uses a probability partition of combined,
+    material-modulated radiance and shares the first secondary-segment
+    distance between channels; these are not independent physical lobes.
+    See docs/denoiser_signal_audit.md before interpreting backend comparisons.
     ``normal_roughness`` stores a world-space unit normal and perceptual
     roughness. ``view_z`` is linear view-space depth. Motion is measured in
     output pixels from the current pixel to its previous-frame location, with

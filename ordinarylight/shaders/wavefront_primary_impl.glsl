@@ -1410,6 +1410,8 @@ void processPrimaryPixel(uvec2 local_pixel)
 #endif
     uint medium_depth = 1u;
     float sampled_specular = 0.0;
+    vec3 primary_specular = vec3(0.0);
+    vec3 indirect_specular_fraction = vec3(1.0);
     if (transmission > 0.001) {
 #if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION
         float target_ior = ordinarylight_primary_target_ior(
@@ -1444,6 +1446,7 @@ void processPrimaryPixel(uvec2 local_pixel)
     } else {
         path.radiance.rgb += samplePointLights(
             position, normal, incoming, material);
+        primary_specular += transportPointSpecular;
         uint light_samples = clamp(push.area_light_samples, 1u, 16u);
         if (push.restir_di != 0u && push.area_light_count > 0u) {
             uint candidate_count = clamp(
@@ -1707,19 +1710,27 @@ void processPrimaryPixel(uvec2 local_pixel)
                         selected, position, normal, incoming, material,
                         candidate_count, selected_direction,
                         selected_distance);
+                vec3 selected_specular = selected_contribution
+                    * transportLastSpecularFraction;
                 float visibility = areaLightCandidateVisibility(
                     position, normal, selected_direction,
                     selected_distance);
                 path.radiance.rgb += selected_contribution * visibility
                     * directLightReservoirNormalization(reservoir);
+                primary_specular += selected_specular * visibility
+                    * directLightReservoirNormalization(reservoir);
             }
         } else {
             vec3 area_direct = vec3(0.0);
             for (uint sample_index = 0u; sample_index < light_samples;
-                    ++sample_index)
-                area_direct += sampleAreaLight(
+                    ++sample_index) {
+                vec3 contribution = sampleAreaLight(
                     position, normal, incoming, material, rng,
                     sample_index, light_samples);
+                area_direct += contribution;
+                primary_specular += contribution * transportLastSpecularFraction
+                    / float(light_samples);
+            }
             path.radiance.rgb += area_direct / float(light_samples);
         }
         if (push.restir_di != 0u
@@ -1805,12 +1816,16 @@ void processPrimaryPixel(uvec2 local_pixel)
                     position, normal, incoming, material,
                     environment_candidates, 1.0,
                     selected_direction, selected_distance);
+                vec3 selected_specular = selected_contribution
+                    * transportLastSpecularFraction;
                 float visibility = areaLightCandidateVisibility(
                     position, normal, selected_direction,
                     selected_distance);
                 path.radiance.rgb += selected_contribution * visibility
                     * directLightReservoirNormalization(
                         environment_reservoir);
+                primary_specular += selected_specular * visibility
+                    * directLightReservoirNormalization(environment_reservoir);
             }
         }
         uint environment_samples = push.restir_di != 0u
@@ -1820,16 +1835,21 @@ void processPrimaryPixel(uvec2 local_pixel)
         if (environment_samples > 0u) {
             vec3 environment_direct = vec3(0.0);
             for (uint sample_index = 0u;
-                    sample_index < environment_samples; ++sample_index)
-                environment_direct += sampleEnvironment(
+                    sample_index < environment_samples; ++sample_index) {
+                vec3 contribution = sampleEnvironment(
                     position, normal, incoming, material, rng,
                     environment_samples);
+                environment_direct += contribution;
+                primary_specular += contribution * transportLastSpecularFraction
+                    / float(environment_samples);
+            }
             path.radiance.rgb += environment_direct /
                 float(environment_samples);
         }
         vec3 bsdf_weight;
         samplePbr(material, normal, incoming, rng,
             next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
+        indirect_specular_fraction = transportLastSpecularFraction;
 #if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION
         path.throughput.rgb = ordinarylight_primary_apply_bsdf_weight(
             path.throughput.rgb, bsdf_weight);
@@ -1888,6 +1908,12 @@ void processPrimaryPixel(uvec2 local_pixel)
             uintBitsToFloat(primitive), barycentrics,
             uintBitsToFloat(instance_key));
 #endif
+        // Scratch contract: negative alpha marks evaluated primary specular
+        // radiance, before path-to-HDR resolves the denoiser channels.
+        secondary_paths[path_index].specular_radiance_hit_distance =
+            vec4(primary_specular, -1.0);
+        secondary_paths[path_index].diffuse_radiance_hit_distance =
+            vec4(indirect_specular_fraction, -1.0);
     }
     WAVE_STORE_PATH(path_index, path);
 

@@ -1,0 +1,42 @@
+{
+  "capture": "/tmp/lobe-room-evaluated",
+  "production_replay_max_difference": 0.0,
+  "production_replay_rmse": 0.0,
+  "metrics": {
+    "temporal_only": {
+      "log_luminance_rmse": 0.37784624099731445,
+      "motion_region_rmse": 0.4241955280303955,
+      "stationary_residual_rmse": 0.6497889757156372,
+      "edge_correlation": 0.020211524688943192,
+      "geometry_band_log_luma_rmse": 0.023120995610952377
+    },
+    "production": {
+      "log_luminance_rmse": 0.20877301692962646,
+      "motion_region_rmse": 0.19709302484989166,
+      "stationary_residual_rmse": 0.38628682494163513,
+      "edge_correlation": 0.17639840247709232,
+      "geometry_band_log_luma_rmse": 0.015634378418326378
+    },
+    "no_firefly": {
+      "log_luminance_rmse": 0.209393709897995,
+      "motion_region_rmse": 0.19709302484989166,
+      "stationary_residual_rmse": 0.38702210783958435,
+      "edge_correlation": 0.1814680413640777,
+      "geometry_band_log_luma_rmse": 0.01573040522634983
+    },
+    "combined": {
+      "log_luminance_rmse": 0.209393709897995,
+      "motion_region_rmse": 0.19709302484989166,
+      "stationary_residual_rmse": 0.38702210783958435,
+      "edge_correlation": 0.1814680413640777,
+      "geometry_band_log_luma_rmse": 0.01573040522634983
+    },
+    "broader_color": {
+      "log_luminance_rmse": 0.17102180421352386,
+      "motion_region_rmse": 0.19877316057682037,
+      "stationary_residual_rmse": 0.295162171125412,
+      "edge_correlation": 0.24390902797367064,
+      "geometry_band_log_luma_rmse": 0.012925297021865845
+    }
+  }
+}

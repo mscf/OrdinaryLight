@@ -168,7 +168,8 @@ def _camera_pose_argument(value):
 
 def _gi_config(
     showcase, *, present=False, capture=False, restir_reservoirs=4,
-    denoiser_enabled=True, denoiser_iterations=3,
+    denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
+    denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
@@ -180,7 +181,9 @@ def _gi_config(
         wavefront_restir_candidates=4,
         wavefront_restir_history_limit=4,
         wavefront_restir_spatial_reuse=False,
-        denoiser_motion_history_floor=3,
+        denoiser_motion_history_floor=denoiser_motion_history_floor,
+        denoiser_sampled_indirect=denoiser_sampled_indirect,
+        denoiser_color_weight=denoiser_color_weight,
         # # Temporal reuse
         # wavefront_restir_history_limit=4,
         # wavefront_restir_history_motion_pixels=16.0,
@@ -474,10 +477,33 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.denoiser_iterations.setCurrentIndex(
                 self.denoiser_iterations.findData(3)
             )
+            self.denoiser_history_floor = QtWidgets.QComboBox()
+            self.denoiser_history_floor.addItem("1 frame (renderer default)", 1)
+            self.denoiser_history_floor.addItem("3 frames (experimental)", 3)
+            self.denoiser_history_floor.setCurrentIndex(1)
+            self.denoiser_history_floor.setToolTip(
+                "Minimum history budget during motion for validated pixels. "
+                "Three frames can reduce noise but may retain trails. "
+                "Applies to Ordinary Shade ReLAX. Click Restart to apply."
+            )
+            self.evaluated_lobes = QtWidgets.QCheckBox()
+            self.evaluated_lobes.setChecked(True)
+            self.evaluated_lobes.setToolTip(
+                "Experimental BSDF-based channels. Improves the optics fixture "
+                "but regresses the motion room. Apply and restart to compare."
+            )
+            self.broader_filter = QtWidgets.QCheckBox()
+            self.broader_filter.setToolTip(
+                "Accept a wider luminance range when filtering neighbors. "
+                "Reduces noise but may soften detail. Apply and restart to compare."
+            )
             gi_selected = self.target.currentData() == "wavefront-gi"
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
+            self.denoiser_history_floor.setEnabled(gi_selected)
+            self.evaluated_lobes.setEnabled(gi_selected)
+            self.broader_filter.setEnabled(gi_selected)
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.slow_diagnostic = QtWidgets.QCheckBox()
@@ -512,6 +538,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Enable GI denoising", self.denoiser)
             form.addRow("GI denoiser implementation", self.denoiser_backend)
             form.addRow("ReLAX A-trous iterations", self.denoiser_iterations)
+            form.addRow("ReLAX motion history", self.denoiser_history_floor)
+            form.addRow("Evaluated lobes (experimental)", self.evaluated_lobes)
+            form.addRow("Broader spatial filter (experimental)", self.broader_filter)
             form.addRow("Animate scene / camera", self.animate)
             form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
@@ -684,6 +713,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
+            self.denoiser_history_floor.setEnabled(gi_selected)
+            self.evaluated_lobes.setEnabled(gi_selected)
+            self.broader_filter.setEnabled(gi_selected)
             if self.scene_value is not None:
                 self._extension_call("cancel_pending_updates")
                 self.restart_pending = True
@@ -830,6 +862,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 restir_reservoirs = int(self.restir_reservoirs.currentData())
                 denoiser_enabled = self.denoiser.isChecked()
                 denoiser_iterations = int(self.denoiser_iterations.currentData())
+                denoiser_history_floor = self.denoiser_history_floor.currentData()
+                evaluated_lobes = self.evaluated_lobes.isChecked()
+                color_weight = 2.0 if self.broader_filter.isChecked() else 4.0
                 surface_instance = self.surface.instance
                 surface_handle = self.surface.surface
 
@@ -855,6 +890,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                                 denoiser_enabled and not nrd_reference
                             ),
                             denoiser_iterations=denoiser_iterations,
+                            denoiser_motion_history_floor=denoiser_history_floor,
+                            denoiser_sampled_indirect=evaluated_lobes,
+                            denoiser_color_weight=color_weight,
                         )
                         if nrd_reference:
                             gi_config = replace(

@@ -38,6 +38,7 @@ class PrepareCamera:
 @osh.structure
 class PrepareConstants:
     extent_paths: osh.uvec4
+    samples: osh.uvec4
 
 
 @osh.function
@@ -89,8 +90,8 @@ def prepare_relax_signals(
     ),
     packed_normal: osh.storage_image("r32ui", access="read", binding=2),
     packed_material: osh.storage_image("r32ui", access="read", binding=3),
-    diffuse_output: osh.storage_image("rgba16f", access="write", binding=4),
-    specular_output: osh.storage_image("rgba16f", access="write", binding=5),
+    diffuse_output: osh.storage_image("rgba16f", binding=4),
+    specular_output: osh.storage_image("rgba16f", binding=5),
     normal_roughness_output: osh.storage_image(
         "rgba16f", access="write", binding=6,
     ),
@@ -123,10 +124,58 @@ def prepare_relax_signals(
         osh.i32(pixel_index / osh.u32(extent.x)),
     )
     secondary = secondary_paths[path_index]
+    if constants.samples.z != osh.u32(0):
+        # Classify this sample before averaging; secondary records are reset
+        # by primary generation and cannot represent the whole sample batch.
+        resolved = osh.maximum(paths[path_index].radiance.rgb, osh.vec3(0.0))
+        primary = osh.minimum(
+            osh.maximum(secondary.primary_radiance.rgb, osh.vec3(0.0)), resolved,
+        )
+        indirect = resolved - primary
+        probability = osh.clamp(secondary.primary_radiance.w, 0.0, 1.0)
+        diffuse = primary * (1.0 - probability)
+        specular = primary * probability
+        if secondary.specular_radiance_hit_distance.w < 0.0:
+            specular = osh.minimum(
+                osh.maximum(secondary.specular_radiance_hit_distance.rgb, osh.vec3(0.0)),
+                primary,
+            )
+            diffuse = primary - specular
+        indirect_fraction = osh.vec3(0.0)
+        if secondary.primary_throughput.w >= 1.5:
+            indirect_fraction = osh.vec3(1.0)
+        if secondary.diffuse_radiance_hit_distance.w < 0.0:
+            indirect_fraction = osh.clamp(
+                secondary.diffuse_radiance_hit_distance.rgb,
+                osh.vec3(0.0), osh.vec3(1.0),
+            )
+        specular = specular + indirect * indirect_fraction
+        diffuse = diffuse + indirect * (osh.vec3(1.0) - indirect_fraction)
+        distance = 0.0
+        if secondary.primary_position.w > 0.5 and secondary.position_valid.w > 0.5:
+            distance = osh.length(
+                secondary.position_valid.xyz - secondary.primary_position.xyz
+            )
+        # Distance is still a last-sample guide, not an averaged path length.
+        diffuse_distance = 0.0
+        specular_distance = 0.0
+        if osh.any_value(indirect_fraction > osh.vec3(0.0)):
+            specular_distance = distance
+        if osh.any_value(indirect_fraction < osh.vec3(1.0)):
+            diffuse_distance = distance
+        scale = 1.0 / osh.f32(osh.maximum(constants.samples.y, osh.u32(1)))
+        diffuse = diffuse * scale
+        specular = specular * scale
+        if constants.samples.x != osh.u32(0):
+            diffuse = diffuse + diffuse_output.load(pixel).rgb
+            specular = specular + specular_output.load(pixel).rgb
+        diffuse_output.store(pixel, osh.vec4(diffuse, diffuse_distance))
+        specular_output.store(pixel, osh.vec4(specular, specular_distance))
     valid = secondary.primary_position.w > 0.5
     if not valid:
-        diffuse_output.store(pixel, osh.vec4(0.0))
-        specular_output.store(pixel, osh.vec4(0.0))
+        if constants.samples.z == osh.u32(0):
+            diffuse_output.store(pixel, osh.vec4(0.0))
+            specular_output.store(pixel, osh.vec4(0.0))
         normal_roughness_output.store(pixel, osh.vec4(0.0))
         view_z_output.store(pixel, osh.vec4(0.0))
         motion_output.store(pixel, osh.vec4(0.0))
@@ -159,12 +208,13 @@ def prepare_relax_signals(
     ):
         motion = osh.vec2(0.0)
         previous_view_z = 0.0
-    diffuse_output.store(
-        pixel, secondary.diffuse_radiance_hit_distance,
-    )
-    specular_output.store(
-        pixel, secondary.specular_radiance_hit_distance,
-    )
+    if constants.samples.z == osh.u32(0):
+        diffuse_output.store(
+            pixel, secondary.diffuse_radiance_hit_distance,
+        )
+        specular_output.store(
+            pixel, secondary.specular_radiance_hit_distance,
+        )
     normal_roughness_output.store(pixel, osh.vec4(normal, roughness))
     view_z_output.store(pixel, osh.vec4(view_z))
     # Carry the expected previous-camera depth alongside the screen-space

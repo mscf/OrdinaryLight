@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source": "ordinarylight/denoising/kernels.py",
-  "source_sha256": "066bf204201a49b96946470d2defdbed800418ad22ac385b7f6f33367dcab456",
+  "source_sha256": "c257ced0d916f3f5f4fc0b9e2b18f19874a73c8317d11d3b6d2041946545bb4e",
   "targets": {
     "spirv": {
       "atrous": {
@@ -129,7 +129,7 @@
         "sha256": "a5f73c231602a541a6bdd7fbce82ffc2260c188415d0916f5c198cec323e1847"
       },
       "prepare": {
-        "cache_key": "11b729331e23007d876802df41398623b5a12962411693a9b4a28d672f23db80",
+        "cache_key": "23b7223ccae04464b3539a48b944ca90c420affc8a565a450d21518dcce94ebf",
         "file": "denoiser_relax_prepare.comp.spv",
         "reflection": {
           "entry_point": "main",
@@ -169,7 +169,7 @@
               "set": 0
             },
             {
-              "access": "write",
+              "access": "read_write",
               "binding": 4,
               "format": "rgba16f",
               "kind": "storage_image",
@@ -177,7 +177,7 @@
               "set": 0
             },
             {
-              "access": "write",
+              "access": "read_write",
               "binding": 5,
               "format": "rgba16f",
               "kind": "storage_image",
@@ -256,7 +256,7 @@
             1
           ]
         },
-        "sha256": "17456f1d4104a91817ba6b0c558fd0692669198f3f7ac0a7c80f81e698e5a337"
+        "sha256": "0e5df2eaf48ebb5300a800b44a6d21f356aab088382a7d00a51f3ac842a2184c"
       },
       "temporal": {
         "cache_key": "b96f4603293a70da4c9529d913796d461153966babe9a429781ca67cb9309ba0",
@@ -523,7 +523,7 @@
         "sha256": "af46e18f29772d05fa9fa41a865aa97c2b479d10e196c4a0d458b6c4a55f2e9f"
       },
       "prepare": {
-        "cache_key": "87e3ca9e0656da04682f8f300e65b5fec81d4bc60f0ab47b68f457a914f7d241",
+        "cache_key": "eb641391449b6179e4b4a18929fa05a72e8f8a5703676ac231b228b2c2fed649",
         "file": "denoiser_relax_prepare.comp.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -563,7 +563,7 @@
               "set": 0
             },
             {
-              "access": "write",
+              "access": "read_write",
               "binding": 4,
               "format": "rgba16f",
               "kind": "storage_image",
@@ -571,7 +571,7 @@
               "set": 0
             },
             {
-              "access": "write",
+              "access": "read_write",
               "binding": 5,
               "format": "rgba16f",
               "kind": "storage_image",
@@ -650,7 +650,7 @@
             1
           ]
         },
-        "sha256": "70d818752d49fd646c9da35994fc751ead49deb82fd30c068e58c23ded380893"
+        "sha256": "27b00a74a7b455f4cfe45cd525ff6e45b147533a041fc4ab1aff5f1bdcbb4fb5"
       },
       "temporal": {
         "cache_key": "711a29ec59b541ab8ffc63a79117414d631f7149e0c6faa13b09d4735dfa1f51",

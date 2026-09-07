@@ -503,6 +503,7 @@ float shadeGgxDistribution(float normal_half, float roughness);
 float shadeGgxSmithComponent(float normal_direction, float roughness);
 float shadePbrSpecularProbability(MaterialData material);
 PbrLobeResult shadeEvaluatePbrLobes(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
+vec3 shadeSpecularFraction(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 float shadePbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
 vec3 shadeSampleGgxHalfVector(vec3 normal, float roughness, float random_u, float random_v);
@@ -1399,6 +1400,12 @@ PbrLobeResult shadeEvaluatePbrLobes(MaterialData material, vec3 normal, vec3 vie
     vec3 coat = vec3(((((clearcoat * coat_distribution) * coat_geometry) * coat_fresnel) / max(((4.0 * normal_view) * normal_light), 1e-06)));
     float layer_scale = (1.0 - (clearcoat * coat_fresnel));
     return PbrLobeResult((diffuse * layer_scale), (((specular + sheen) * layer_scale) + coat));
+}
+
+vec3 shadeSpecularFraction(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
+{
+    PbrLobeResult lobes = shadeEvaluatePbrLobes(material, normal, view, outgoing);
+    return clamp((lobes.specular / max((lobes.diffuse + lobes.specular), vec3(1e-30))), vec3(0.0), vec3(1.0));
 }
 
 vec3 shadeEvaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
@@ -2763,6 +2770,8 @@ void main()
     float bsdf_pdf = 0.0;
     float cone_spread = cone.y;
     bool sampled_specular = false;
+    vec3 primary_specular = vec3(0.0);
+    vec3 primary_weight = path.throughput.rgb;
     if ((evaluated.custom_scattering > 0.5))
     {
         int event = int((evaluated.event + 0.5));
@@ -2814,7 +2823,9 @@ void main()
                     if (shadePointLightVisible(point_sample))
                     {
                         float volume_transmittance = shadeCandidateVolumeShadowTransmittance(point_sample.shadow_origin, point_sample.direction, point_sample.shadow_distance, shadePathBounce(path));
-                        direct = (direct + shadePointLightContribution(point_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance)));
+                        vec3 lobe_contribution = shadePointLightContribution(point_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                        direct = (direct + lobe_contribution);
+                        primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), point_sample.direction)) / 1.0));
                     }
                 }
                 if ((push.unified_secondary_nee != uint(0)))
@@ -2828,7 +2839,9 @@ void main()
                         if (shadeAreaLightVisible(area_sample))
                         {
                             float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
-                            direct = (direct + shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance)));
+                            vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                            direct = (direct + lobe_contribution);
+                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / 1.0));
                         }
                     }
                     if ((domain.valid && (!domain.area_selected)))
@@ -2839,7 +2852,9 @@ void main()
                         {
                             vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
                             float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
-                            direct = (direct + shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance)));
+                            vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                            direct = (direct + lobe_contribution);
+                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / 1.0));
                         }
                     }
                 }
@@ -2858,7 +2873,9 @@ void main()
                         if (shadeAreaLightVisible(area_sample))
                         {
                             float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
-                            area_direct = (area_direct + shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance)));
+                            vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                            area_direct = (area_direct + lobe_contribution);
+                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / float(area_sample_count)));
                         }
                     }
                     direct = (direct + (area_direct / float(area_sample_count)));
@@ -2876,7 +2893,9 @@ void main()
                         {
                             vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
                             float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
-                            environment_direct = (environment_direct + shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance)));
+                            vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                            environment_direct = (environment_direct + lobe_contribution);
+                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / float(environment_count)));
                         }
                     }
                     if ((environment_count > uint(0)))
@@ -2902,6 +2921,13 @@ void main()
         secondary.primary_radiance = vec4(path.radiance.rgb, shadePbrSpecularProbability(surface.material));
         secondary.normal_pdf.w = bsdf_pdf;
         secondary.primary_position = vec4(loaded.hit.position_t.xyz, (1.0 + clamp(surface.material.base_roughness.a, 0.0, 1.0)));
+        secondary.specular_radiance_hit_distance = vec4(((primary_specular * primary_weight) / max(push.secondary_nee_probability, 1e-06)), (-1.0));
+        vec3 fraction = vec3(1.0);
+        if ((transmission <= 0.001))
+        {
+            fraction = shadeSpecularFraction(surface.material, surface.normal, (-incoming), next_direction);
+        }
+        secondary.diffuse_radiance_hit_distance = vec4(fraction, (-1.0));
         secondary_paths[path_index] = secondary;
     }
     ShadeRouletteResult roulette = shadeApplyRussianRoulette(path, random_state, next_bounce, transmission, push.russian_roulette_start, push.russian_roulette_min_survival);

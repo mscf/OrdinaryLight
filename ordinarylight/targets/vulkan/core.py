@@ -1186,7 +1186,7 @@ class VulkanWavefrontExecutor:
         )
         if self.relax_prepare_layout:
             self.relax_prepare_pipeline_layout = self._pipeline_layout(
-                self.relax_prepare_layout, 16
+                self.relax_prepare_layout, 32
             )
         if self.relax_temporal_layout:
             self.relax_temporal_pipeline_layout = self._pipeline_layout(
@@ -2262,7 +2262,7 @@ class VulkanWavefrontExecutor:
             int(
                 self.core.config.wavefront_indirect_reuse_candidates
                 or self._denoiser_signals_active()
-            ),
+            ) | (2 if self.core.config.denoiser_sampled_indirect else 0),
             reservoir_extent[0], reservoir_extent[1],
         ))
         vk.vkCmdPushConstants(
@@ -2274,6 +2274,7 @@ class VulkanWavefrontExecutor:
 
     def record_relax_prepare(
         self, command, slot, path_count, image_width, image_height,
+        sample_index=0, sample_count=1,
     ):
         """Scatter a completed path tile into full-frame ReLAX signal images."""
         if not self.relax_prepare_pipeline:
@@ -2313,7 +2314,9 @@ class VulkanWavefrontExecutor:
             [self.relax_prepare_sets[slot]], 0, None,
         )
         constants = bytearray(struct.pack(
-            "4I", image_width, image_height, path_count, 0
+            "8I", image_width, image_height, path_count, 0,
+            sample_index, sample_count,
+            int(self.core.config.denoiser_sampled_indirect), 0,
         ))
         vk.vkCmdPushConstants(
             command, self.relax_prepare_pipeline_layout,
@@ -2425,7 +2428,8 @@ class VulkanWavefrontExecutor:
             for lobe in range(2):
                 constants = bytearray(struct.pack(
                     "8f", float(width), float(height),
-                    float(1 << iteration), 0.0, 32.0, 0.02, 4.0,
+                    float(1 << iteration), 0.0, 32.0, 0.02,
+                    float(self.core.config.denoiser_color_weight),
                     float(lobe == 1 and iteration == 0),
                 ))
                 vk.vkCmdPushConstants(
@@ -3789,7 +3793,7 @@ class VulkanWavefrontExecutor:
                 )
                 self.record_relax_prepare(
                     command, output_image_slot, tile_width * tile_height,
-                    image_width, image_height,
+                    image_width, image_height, sample_index, sample_count,
                 )
                 if timestamp:
                     timestamp(command, "resolve_hdr")

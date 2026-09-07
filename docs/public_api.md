@@ -478,3 +478,19 @@ in applications that have disabled it.
 Increasing the floor reduces noise in the tested optics sequence, but can lose
 edge detail in other moving scenes. It remains experimental. See the
 [diagnostic and A/B results](../artifacts/denoiser-motion/history-policy.md).
+
+Experimental indirect-channel preparation can be enabled with
+`RendererConfig(denoiser_sampled_indirect=True)`. This separates evaluated primary direct and indirect
+BSDF contributions before multisample averaging when the primary producer
+supplies lobe metadata. Producers without that metadata retain the
+probability/branch fallback. Transmission is grouped with specular events,
+and primary emission remains in the diffuse output. The default is `False`; see
+[the signal audit](denoiser_signal_audit.md) for the remaining limitations.
+
+`RendererConfig(denoiser_color_weight=2.0)` broadens the spatial filter's
+luminance tolerance; the default remains `4.0`. Smaller positive values
+permit more smoothing across radiance differences. This reduced aggregate
+error in two captured camera-motion fixtures, with a small motion-region
+tradeoff in the room. It is independent of evaluated-lobe preparation.
+The direct Vulkan feature viewer exposes both experiments as checkboxes;
+click **Apply and restart renderer** after changing them.

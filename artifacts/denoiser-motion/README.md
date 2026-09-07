@@ -83,3 +83,10 @@ attribution, material demodulation, hit distances and optical motion. The
 current canonical capture is not enough to rank production specular backends.
 NRD is a useful quality reference, but adopting it would require a resident
 runtime integration and a distinct strategy for transmission.
+
+## Subsequent signal audit
+
+The [signal audit](../../docs/denoiser_signal_audit.md) found and corrected a
+live/offline radiance-partition discrepancy. Historical offscreen captures in
+this directory predate that correction and retain their original inputs.
+The independent live edge audit is unaffected.

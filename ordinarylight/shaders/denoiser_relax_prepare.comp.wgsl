@@ -24,14 +24,15 @@ struct PrepareCamera {
 
 struct PrepareConstants {
     extent_paths: vec4<u32>,
+    samples: vec4<u32>,
 }
 
 @group(0) @binding(0) var<storage, read> paths: array<WavePathState>;
 @group(0) @binding(1) var<storage, read> secondary_paths: array<SecondaryPathState>;
 @group(0) @binding(2) var packed_normal: texture_storage_2d<r32uint, read>;
 @group(0) @binding(3) var packed_material: texture_storage_2d<r32uint, read>;
-@group(0) @binding(4) var diffuse_output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(5) var specular_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var diffuse_output: texture_storage_2d<rgba16float, read_write>;
+@group(0) @binding(5) var specular_output: texture_storage_2d<rgba16float, read_write>;
 @group(0) @binding(6) var normal_roughness_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(7) var view_z_output: texture_storage_2d<r32float, write>;
 @group(0) @binding(8) var motion_output: texture_storage_2d<rgba16float, write>;
@@ -89,10 +90,54 @@ fn main(
     }
     let pixel: vec2<i32> = vec2<i32>(i32((pixel_index % u32(extent.x))), i32((pixel_index / u32(extent.x))));
     let secondary: SecondaryPathState = secondary_paths[path_index];
+    if ((constants.samples.z != u32(0))) {
+        let resolved: vec3<f32> = max(paths[path_index].radiance.rgb, vec3<f32>(0.0));
+        let primary: vec3<f32> = min(max(secondary.primary_radiance.rgb, vec3<f32>(0.0)), resolved);
+        let indirect: vec3<f32> = (resolved - primary);
+        let probability: f32 = clamp(secondary.primary_radiance.w, 0.0, 1.0);
+        var diffuse: vec3<f32> = (primary * (1.0 - probability));
+        var specular: vec3<f32> = (primary * probability);
+        if ((secondary.specular_radiance_hit_distance.w < 0.0)) {
+            specular = min(max(secondary.specular_radiance_hit_distance.rgb, vec3<f32>(0.0)), primary);
+            diffuse = (primary - specular);
+        }
+        var indirect_fraction: vec3<f32> = vec3<f32>(0.0);
+        if ((secondary.primary_throughput.w >= 1.5)) {
+            indirect_fraction = vec3<f32>(1.0);
+        }
+        if ((secondary.diffuse_radiance_hit_distance.w < 0.0)) {
+            indirect_fraction = clamp(secondary.diffuse_radiance_hit_distance.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        specular = (specular + (indirect * indirect_fraction));
+        diffuse = (diffuse + (indirect * (vec3<f32>(1.0) - indirect_fraction)));
+        var distance: f32 = 0.0;
+        if (((secondary.primary_position.w > 0.5) && (secondary.position_valid.w > 0.5))) {
+            distance = length((secondary.position_valid.xyz - secondary.primary_position.xyz));
+        }
+        var diffuse_distance: f32 = 0.0;
+        var specular_distance: f32 = 0.0;
+        if (any((indirect_fraction > vec3<f32>(0.0)))) {
+            specular_distance = distance;
+        }
+        if (any((indirect_fraction < vec3<f32>(1.0)))) {
+            diffuse_distance = distance;
+        }
+        let scale: f32 = (1.0 / f32(max(constants.samples.y, u32(1))));
+        diffuse = (diffuse * scale);
+        specular = (specular * scale);
+        if ((constants.samples.x != u32(0))) {
+            diffuse = (diffuse + textureLoad(diffuse_output, pixel).rgb);
+            specular = (specular + textureLoad(specular_output, pixel).rgb);
+        }
+        textureStore(diffuse_output, pixel, vec4<f32>(diffuse, diffuse_distance));
+        textureStore(specular_output, pixel, vec4<f32>(specular, specular_distance));
+    }
     let valid: bool = (secondary.primary_position.w > 0.5);
     if ((!valid)) {
-        textureStore(diffuse_output, pixel, vec4<f32>(0.0));
-        textureStore(specular_output, pixel, vec4<f32>(0.0));
+        if ((constants.samples.z == u32(0))) {
+            textureStore(diffuse_output, pixel, vec4<f32>(0.0));
+            textureStore(specular_output, pixel, vec4<f32>(0.0));
+        }
         textureStore(normal_roughness_output, pixel, vec4<f32>(0.0));
         textureStore(view_z_output, pixel, vec4<f32>(0.0));
         textureStore(motion_output, pixel, vec4<f32>(0.0));
@@ -114,8 +159,10 @@ fn main(
         motion = vec2<f32>(0.0);
         previous_view_z = 0.0;
     }
-    textureStore(diffuse_output, pixel, secondary.diffuse_radiance_hit_distance);
-    textureStore(specular_output, pixel, secondary.specular_radiance_hit_distance);
+    if ((constants.samples.z == u32(0))) {
+        textureStore(diffuse_output, pixel, secondary.diffuse_radiance_hit_distance);
+        textureStore(specular_output, pixel, secondary.specular_radiance_hit_distance);
+    }
     textureStore(normal_roughness_output, pixel, vec4<f32>(normal, roughness));
     textureStore(view_z_output, pixel, vec4<f32>(view_z));
     textureStore(motion_output, pixel, vec4<f32>(motion, previous_view_z, 0.0));

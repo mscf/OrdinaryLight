@@ -1,0 +1,149 @@
+{
+  "configuration": [
+    {
+      "width": 320,
+      "height": 180,
+      "frames": 7,
+      "reference_samples": 512,
+      "seed_offset": 1000,
+      "scene": "optics",
+      "evaluated_lobes": false
+    },
+    {
+      "width": 320,
+      "height": 180,
+      "frames": 7,
+      "reference_samples": 512,
+      "seed_offset": 1000,
+      "scene": "optics",
+      "evaluated_lobes": true
+    }
+  ],
+  "reference_image_exact": true,
+  "baseline": {
+    "reference_samples": 512,
+    "reference_split_log_luma_rmse": 0.014688869938254356,
+    "selected_edge_fraction_on_geometry": 0.29110449735449734,
+    "metrics": {
+      "floor1": {
+        "log_luminance_rmse": 0.49353107810020447,
+        "motion_region_rmse": 2.004894495010376,
+        "stationary_residual_rmse": 0.48447999358177185,
+        "edge_correlation": 0.5773046388799136,
+        "geometry_band_log_luma_rmse": 0.09334965795278549,
+        "per_frame_geometry_band_rmse": [
+          0.10524407029151917,
+          0.0899236649274826,
+          0.0908840000629425,
+          0.08418048918247223,
+          0.09463294595479965,
+          0.09634840488433838,
+          0.09145894646644592
+        ],
+        "interior_log_luma_rmse": 0.042238399386405945,
+        "geometry_gradient_rmse": 0.15981291234493256
+      },
+      "floor3": {
+        "log_luminance_rmse": 0.47731032967567444,
+        "motion_region_rmse": 1.9873510599136353,
+        "stationary_residual_rmse": 0.48447999358177185,
+        "edge_correlation": 0.5773046388799136,
+        "geometry_band_log_luma_rmse": 0.09222559630870819,
+        "per_frame_geometry_band_rmse": [
+          0.10524407029151917,
+          0.0899236649274826,
+          0.08992382138967514,
+          0.08279002457857132,
+          0.09333193302154541,
+          0.09445770829916,
+          0.08905181288719177
+        ],
+        "interior_log_luma_rmse": 0.04009013995528221,
+        "geometry_gradient_rmse": 0.15771809220314026
+      }
+    },
+    "history_over_one": {
+      "geometry": 0.4631911108127161,
+      "interior": 0.7297117181088522
+    }
+  },
+  "evaluated": {
+    "reference_samples": 512,
+    "reference_split_log_luma_rmse": 0.014688869938254356,
+    "selected_edge_fraction_on_geometry": 0.29110449735449734,
+    "metrics": {
+      "floor1": {
+        "log_luminance_rmse": 0.4179980456829071,
+        "motion_region_rmse": 1.962660312652588,
+        "stationary_residual_rmse": 0.29300153255462646,
+        "edge_correlation": 0.6116763464867382,
+        "geometry_band_log_luma_rmse": 0.0878581628203392,
+        "per_frame_geometry_band_rmse": [
+          0.09872449934482574,
+          0.08502867817878723,
+          0.08228598535060883,
+          0.08031392842531204,
+          0.09026080369949341,
+          0.09195872396230698,
+          0.0856541097164154
+        ],
+        "interior_log_luma_rmse": 0.03201922029256821,
+        "geometry_gradient_rmse": 0.1422652006149292
+      },
+      "floor3": {
+        "log_luminance_rmse": 0.4121878147125244,
+        "motion_region_rmse": 1.947243571281433,
+        "stationary_residual_rmse": 0.29300153255462646,
+        "edge_correlation": 0.6096973054321833,
+        "geometry_band_log_luma_rmse": 0.08717891573905945,
+        "per_frame_geometry_band_rmse": [
+          0.09872449934482574,
+          0.08502867817878723,
+          0.0815354585647583,
+          0.07903952151536942,
+          0.0895206555724144,
+          0.09177063405513763,
+          0.08373615890741348
+        ],
+        "interior_log_luma_rmse": 0.0313144214451313,
+        "geometry_gradient_rmse": 0.14094795286655426
+      }
+    },
+    "history_over_one": {
+      "geometry": 0.47059317197623285,
+      "interior": 0.7370977411225125
+    }
+  },
+  "regions": {
+    "glossy": {
+      "floor1": {
+        "baseline": 0.09298808872699738,
+        "evaluated": 0.09214745461940765
+      },
+      "floor3": {
+        "baseline": 0.09063123911619186,
+        "evaluated": 0.09001939743757248
+      }
+    },
+    "glass": {
+      "floor1": {
+        "baseline": 0.11428555101156235,
+        "evaluated": 0.10961666703224182
+      },
+      "floor3": {
+        "baseline": 0.11428521573543549,
+        "evaluated": 0.10961665213108063
+      }
+    },
+    "mirror": {
+      "floor1": {
+        "baseline": 0.023199427872896194,
+        "evaluated": 0.02420986443758011
+      },
+      "floor3": {
+        "baseline": 0.02173382230103016,
+        "evaluated": 0.022622335702180862
+      }
+    }
+  }
+}

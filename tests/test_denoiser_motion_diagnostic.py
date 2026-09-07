@@ -114,3 +114,67 @@ def test_geometry_edge_mask_uses_guides_without_wrapping_or_noise():
     guide["normal_roughness"][:] = 0
     guide["identity"][:] = 0
     assert not geometry_edges(guide).any()
+
+
+def test_capture_uses_live_probability_partition_instead_of_sampled_lobe():
+    from ordinarylight.targets.vulkan.api import _VulkanGlobalIlluminationEngine
+    from ordinarylight.wavefront import SECONDARY_PATH_STATE_DTYPE
+
+    state = np.zeros((1, 4), dtype=SECONDARY_PATH_STATE_DTYPE)
+    state["primary_radiance"][..., :3] = 1.0
+    state["primary_radiance"][..., 3] = (0.25, 0.25, 0.0, 1.0)
+    # Identical radiance must have identical live partitions regardless of
+    # which BSDF branch was sampled (the previous capture code did not).
+    state["primary_throughput"][..., 3] = (1.0, 2.0, 1.0, 2.0)
+    state["primary_position"][..., 3] = 1.0
+    state["position_valid"][..., 0] = 3.0
+    state["position_valid"][..., 1] = 4.0
+    state["position_valid"][..., 3] = (1.0, 0.0, 1.0, 1.0)
+    radiance = np.full((1, 4, 4), 8.0, np.float32)
+    result = {
+        "radiance": radiance,
+        "denoiser_path_signals": state,
+        "depth": np.ones((1, 4), np.float32),
+        "normal": np.zeros((1, 4, 3), np.float32),
+        "primitive_id": np.zeros((1, 4), np.uint32),
+        "primary_position": np.zeros((1, 4, 3), np.float32),
+        "primary_barycentric": np.zeros((1, 4, 2), np.float32),
+    }
+    engine = SimpleNamespace(
+        config=SimpleNamespace(denoiser_signal_capture=True, wavefront_tile_capacity=4, denoiser_sampled_indirect=False),
+        _core=SimpleNamespace(
+            upload_window_scene=Mock(), trace_wavefront_tile=Mock(return_value=result),
+        ),
+    )
+    capture = _VulkanGlobalIlluminationEngine.capture_denoiser_raw(
+        engine, object(), object(), 4, 1, frame_index=9,
+    )
+    diffuse = capture["path_state"]["diffuse_radiance_hit_distance"]
+    specular = capture["path_state"]["specular_radiance_hit_distance"]
+    np.testing.assert_array_equal(diffuse[0, :, 0], [6, 6, 8, 0])
+    np.testing.assert_array_equal(specular[0, :, 0], [2, 2, 0, 8])
+    np.testing.assert_array_equal(diffuse[..., :3] + specular[..., :3], radiance[..., :3])
+    np.testing.assert_array_equal(diffuse[0, :, 3], [5, 0, 5, 5])
+    np.testing.assert_array_equal(specular[..., 3], diffuse[..., 3])
+    # The raw executor records remain available unchanged to their owner.
+    np.testing.assert_array_equal(state["diffuse_radiance_hit_distance"], 0)
+    engine.config.denoiser_sampled_indirect = True
+    capture = _VulkanGlobalIlluminationEngine.capture_denoiser_raw(
+        engine, object(), object(), 4, 1,
+    )
+    diffuse = capture["path_state"]["diffuse_radiance_hit_distance"]
+    specular = capture["path_state"]["specular_radiance_hit_distance"]
+    np.testing.assert_array_equal(diffuse[0, :, 0], [7.75, 0.75, 8, 0])
+    np.testing.assert_array_equal(specular[0, :, 0], [0.25, 7.25, 0, 8])
+    np.testing.assert_array_equal(diffuse[..., :3] + specular[..., :3], radiance[..., :3])
+    np.testing.assert_array_equal(diffuse[0, :, 3], [5, 0, 5, 0])
+    np.testing.assert_array_equal(specular[0, :, 3], [0, 0, 0, 5])
+    state["specular_radiance_hit_distance"][..., :3] = 1
+    state["specular_radiance_hit_distance"][..., 3] = -1
+    capture = _VulkanGlobalIlluminationEngine.capture_denoiser_raw(
+        engine, object(), object(), 4, 1,
+    )
+    diffuse = capture["path_state"]["diffuse_radiance_hit_distance"]
+    specular = capture["path_state"]["specular_radiance_hit_distance"]
+    np.testing.assert_array_equal(diffuse[0, :, 0], [7, 0, 7, 0])
+    np.testing.assert_array_equal(specular[0, :, 0], [1, 8, 1, 8])

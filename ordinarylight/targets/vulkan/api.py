@@ -81,6 +81,9 @@ class RendererConfig:
     # Experimental: allow validated fast-motion history to exceed the footprint
     # cap. Values above one trade lower noise against possible lost edge detail.
     denoiser_motion_history_floor: int = 1
+    # Experimental: classify indirect light per sample before averaging.
+    denoiser_sampled_indirect: bool = False
+    denoiser_color_weight: float = 4.0
     denoiser_motion_normal_threshold: float = 0.95
     denoiser_motion_depth_threshold: float = 0.005
     denoiser_motion_clamp_sigma: float = 1.0
@@ -298,6 +301,13 @@ class RendererConfig:
             raise ValueError("denoiser_enabled requires temporal_history=True")
         if self.denoiser_variance_threshold <= 0.0:
             raise ValueError("denoiser_variance_threshold must be positive")
+        if (
+            isinstance(self.denoiser_color_weight, bool)
+            or not isinstance(self.denoiser_color_weight, (int, float))
+            or not math.isfinite(self.denoiser_color_weight)
+            or self.denoiser_color_weight <= 0
+        ):
+            raise ValueError("denoiser_color_weight must be a finite positive number")
         if (isinstance(self.denoiser_motion_history_floor, bool)
                 or not isinstance(self.denoiser_motion_history_floor, int)
                 or not 1 <= self.denoiser_motion_history_floor <= 32):
@@ -1366,11 +1376,10 @@ class _VulkanGlobalIlluminationEngine:
     ):
         """Capture the native wavefront state used to build denoiser inputs.
 
-        This deliberately returns the cold path records and geometric guides
-        without labelling them as :class:`DenoiserSignals`.  The renderer only
-        promotes a capture to that semantic contract after diffuse/specular
-        lobe attribution has completed; doing so earlier would make an NRD
-        comparison look valid while feeding it combined radiance.
+        Radiance channels reproduce the live path-to-HDR probability
+        partition. They are not physically separated or demodulated lobes;
+        the shared distance is the first sampled secondary segment, with zero
+        for a missing hit. See docs/denoiser_signal_audit.md for limitations.
 
         Signal capture is an offline/reference facility and therefore requires
         ``RendererConfig(denoiser_signal_capture=True)``.
@@ -1421,18 +1430,43 @@ class _VulkanGlobalIlluminationEngine:
                 tile_state = result["denoiser_path_signals"].reshape(
                     current_height, current_width,
                 ).copy()
-                primary = np.maximum(tile_state["primary_radiance"][..., :3], 0.0)
-                indirect = np.maximum(result["radiance"][..., :3] - primary, 0.0)
+                # Match wavefront_path_to_hdr: the production renderer
+                # partitions total radiance by material probability, including
+                # indirect light. Do not substitute sampled-lobe attribution
+                # here: that would benchmark different inputs from live GI.
+                resolved = np.maximum(result["radiance"][..., :3], 0.0)
                 probability = np.clip(
                     tile_state["primary_radiance"][..., 3:4], 0.0, 1.0
                 )
-                diffuse = primary * (1.0 - probability)
-                specular = primary * probability
-                sampled_specular = (
-                    tile_state["primary_throughput"][..., 3:4] >= 1.5
-                )
-                diffuse += indirect * (~sampled_specular)
-                specular += indirect * sampled_specular
+                diffuse = resolved * (1.0 - probability)
+                specular = resolved * probability
+                if self.config.denoiser_sampled_indirect:
+                    primary = np.minimum(
+                        np.maximum(tile_state["primary_radiance"][..., :3], 0.0),
+                        resolved,
+                    )
+                    indirect = resolved - primary
+                    sampled_specular = (
+                        tile_state["primary_throughput"][..., 3:4] >= 1.5
+                    )
+                    primary_specular = primary * probability
+                    recorded = tile_state["specular_radiance_hit_distance"]
+                    primary_specular = np.where(
+                        recorded[..., 3:4] < 0.0,
+                        np.minimum(np.maximum(recorded[..., :3], 0.0), primary),
+                        primary_specular,
+                    )
+                    indirect_fraction = np.broadcast_to(
+                        sampled_specular.astype(np.float32), indirect.shape,
+                    )
+                    recorded_fraction = tile_state["diffuse_radiance_hit_distance"]
+                    indirect_fraction = np.where(
+                        recorded_fraction[..., 3:4] < 0.0,
+                        np.clip(recorded_fraction[..., :3], 0.0, 1.0),
+                        indirect_fraction,
+                    )
+                    diffuse = primary - primary_specular + indirect * (1.0 - indirect_fraction)
+                    specular = primary_specular + indirect * indirect_fraction
                 hit_distance = np.zeros(
                     (current_height, current_width), np.float32
                 )
@@ -1448,6 +1482,13 @@ class _VulkanGlobalIlluminationEngine:
                 tile_state["diffuse_radiance_hit_distance"][..., 3] = hit_distance
                 tile_state["specular_radiance_hit_distance"][..., :3] = specular
                 tile_state["specular_radiance_hit_distance"][..., 3] = hit_distance
+                if self.config.denoiser_sampled_indirect:
+                    tile_state["diffuse_radiance_hit_distance"][..., 3] *= np.any(
+                        indirect_fraction < 1.0, axis=-1,
+                    )
+                    tile_state["specular_radiance_hit_distance"][..., 3] *= np.any(
+                        indirect_fraction > 0.0, axis=-1,
+                    )
                 path_state[region] = tile_state
                 x += current_width
             y += tile_height
