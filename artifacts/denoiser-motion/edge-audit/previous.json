@@ -1,0 +1,47 @@
+{
+  "reference_samples": 512,
+  "reference_split_log_luma_rmse": 0.0033770117443054914,
+  "selected_edge_fraction_on_geometry": 0.2320436507936508,
+  "metrics": {
+    "floor1": {
+      "log_luminance_rmse": 0.31018874049186707,
+      "motion_region_rmse": 0.3644028306007385,
+      "stationary_residual_rmse": 0.41936734318733215,
+      "edge_correlation": 0.008012603683929817,
+      "geometry_band_log_luma_rmse": 0.018809905275702477,
+      "per_frame_geometry_band_rmse": [
+        0.018833497539162636,
+        0.018952444195747375,
+        0.019074292853474617,
+        0.019049441441893578,
+        0.01886170729994774,
+        0.018424993380904198,
+        0.01847766898572445
+      ],
+      "interior_log_luma_rmse": 0.014722918160259724,
+      "geometry_gradient_rmse": 0.034019384533166885
+    },
+    "floor3": {
+      "log_luminance_rmse": 0.18312376737594604,
+      "motion_region_rmse": 0.18049420416355133,
+      "stationary_residual_rmse": 0.335314005613327,
+      "edge_correlation": 0.20925311881323497,
+      "geometry_band_log_luma_rmse": 0.013978412374854088,
+      "per_frame_geometry_band_rmse": [
+        0.018833497539162636,
+        0.013684927485883236,
+        0.013467428274452686,
+        0.01303123775869608,
+        0.012629985809326172,
+        0.012416204437613487,
+        0.012590214610099792
+      ],
+      "interior_log_luma_rmse": 0.008069400675594807,
+      "geometry_gradient_rmse": 0.02517252415418625
+    }
+  },
+  "history_over_one": {
+    "geometry": 0.5173205178501373,
+    "interior": 0.7450400317983079
+  }
+}

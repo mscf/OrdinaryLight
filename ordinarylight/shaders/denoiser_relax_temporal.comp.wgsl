@@ -66,6 +66,18 @@ fn main(
                     if (((neighbor_pixel.x >= extent.x) || (neighbor_pixel.y >= extent.y))) {
                         continue;
                     }
+                    if ((constants.rejection.w > 0.0)) {
+                        if ((textureLoad(material_id, neighbor_pixel).r != current_material)) {
+                            continue;
+                        }
+                        if ((textureLoad(identity, neighbor_pixel).r != current_primitive)) {
+                            continue;
+                        }
+                        let neighbor_normal: vec3<f32> = textureLoad(normal_roughness, neighbor_pixel).xyz;
+                        if ((dot(current_normal, neighbor_normal) < constants.rejection.x)) {
+                            continue;
+                        }
+                    }
                     let neighbor: vec3<f32> = textureLoad(current_radiance_hit_distance, neighbor_pixel).rgb;
                     neighborhood_sum = (neighborhood_sum + neighbor);
                     neighborhood_square_sum = (neighborhood_square_sum + (neighbor * neighbor));

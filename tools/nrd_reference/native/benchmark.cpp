@@ -77,6 +77,9 @@ struct CaptureFrame {
     float jitter[4] = {};
     float worldToClip[16] = {};
     float worldToClipPrev[16] = {};
+    float worldToView[16] = {};
+    float worldToViewPrev[16] = {};
+    bool splitCamera = false;
     std::vector<uint16_t> motion;
     std::vector<uint16_t> normalRoughness;
     std::vector<float> viewZ;
@@ -94,7 +97,7 @@ std::vector<CaptureFrame> readCapture(Options& options) {
         throw std::runtime_error("invalid NRD capture magic");
     uint32_t metadata[4];
     readExact(stream, metadata, 4);
-    if (metadata[0] != 1 || !metadata[1] || !metadata[2] || !metadata[3] ||
+    if ((metadata[0] != 1 && metadata[0] != 2) || !metadata[1] || !metadata[2] || !metadata[3] ||
         metadata[1] > UINT16_MAX || metadata[2] > UINT16_MAX)
         throw std::runtime_error("unsupported NRD capture metadata");
     options.width = static_cast<uint16_t>(metadata[1]);
@@ -108,6 +111,11 @@ std::vector<CaptureFrame> readCapture(Options& options) {
         readExact(stream, frame.jitter, 4);
         readExact(stream, frame.worldToClip, 16);
         readExact(stream, frame.worldToClipPrev, 16);
+        frame.splitCamera = metadata[0] == 2;
+        if (frame.splitCamera) {
+            readExact(stream, frame.worldToView, 16);
+            readExact(stream, frame.worldToViewPrev, 16);
+        }
         frame.motion.resize(pixels * 2); readExact(stream, frame.motion.data(), frame.motion.size());
         frame.normalRoughness.resize(pixels * 4); readExact(stream, frame.normalRoughness.data(), frame.normalRoughness.size());
         frame.viewZ.resize(pixels); readExact(stream, frame.viewZ.data(), frame.viewZ.size());
@@ -348,13 +356,19 @@ int main(int argc, char** argv) try {
 
             integration.NewFrame();
             nrd::CommonSettings common = {};
-            // The canonical contract currently supplies world->clip. Treating
-            // world as view space preserves the exact combined transform; a
-            // future contract revision will carry the split view transform.
+            // Offline replay must not derive temporal weights from upload/CPU time.
+            common.timeDeltaBetweenFrames = 1000.0f / 60.0f;
+            // Version 2 carries separate column-major projection/view matrices.
+            // Version 1 is retained only for legacy captures; it is not a
+            // valid perspective-motion reference.
             std::memcpy(common.viewToClipMatrix, frame.worldToClip, sizeof(frame.worldToClip));
             std::memcpy(common.viewToClipMatrixPrev, frame.worldToClipPrev, sizeof(frame.worldToClipPrev));
             identity(common.worldToViewMatrix);
             identity(common.worldToViewMatrixPrev);
+            if (frame.splitCamera) {
+                std::memcpy(common.worldToViewMatrix, frame.worldToView, sizeof(frame.worldToView));
+                std::memcpy(common.worldToViewMatrixPrev, frame.worldToViewPrev, sizeof(frame.worldToViewPrev));
+            }
             common.motionVectorScale[0] = 1.0f / options.width;
             common.motionVectorScale[1] = 1.0f / options.height;
             common.motionVectorScale[2] = 0.0f;

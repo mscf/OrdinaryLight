@@ -260,12 +260,21 @@ def _motion_adaptive_history_limit(configured_limit, motion_pixels,
 def _relax_temporal_policy(config, motion_pixels):
     """Resolve stationary or motion-safe ReLAX temporal constants."""
     moving = not math.isfinite(motion_pixels) or motion_pixels > 0.25
-    return {
-        "history_limit": _motion_adaptive_history_limit(
+    history_limit = _motion_adaptive_history_limit(
+        config.denoiser_history_limit, motion_pixels,
+        config.denoiser_history_motion_pixels,
+    )
+    if math.isfinite(motion_pixels) and motion_pixels >= 0.0:
+        # Reprojection already follows surface motion. Keep a short history
+        # for pixels that pass geometry and reactive validation instead of
+        # discarding all temporal filtering at high camera speed. Rejected
+        # pixels and camera cuts still start with one sample in the shader.
+        history_limit = min(
             config.denoiser_history_limit,
-            motion_pixels,
-            config.denoiser_history_motion_pixels,
-        ),
+            max(config.denoiser_motion_history_floor, history_limit),
+        )
+    return {
+        "history_limit": history_limit,
         "normal_threshold": (
             config.denoiser_motion_normal_threshold if moving else 0.8
         ),
@@ -5049,7 +5058,8 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         position, forward, right, up = camera_vectors
         if upload_camera:
             self.wavefront_executor.update_camera(
-                camera_slot, camera_vectors, projection=_camera_projection(camera)
+                camera_slot, camera_vectors, frame_sequence=int(frame_index),
+                projection=_camera_projection(camera)
             )
         constants = bytearray(struct.pack(
             "8I",
@@ -5966,7 +5976,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             mipLevels=1, arrayLayers=1,
             samples=vk.VK_SAMPLE_COUNT_1_BIT,
             tiling=vk.VK_IMAGE_TILING_OPTIMAL,
-            usage=vk.VK_IMAGE_USAGE_STORAGE_BIT,
+            usage=(vk.VK_IMAGE_USAGE_STORAGE_BIT |
+                   (vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                    if self.config.denoiser_signal_capture else 0)),
             sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
             initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
         )
@@ -6004,7 +6016,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 mipLevels=1, arrayLayers=1,
                 samples=vk.VK_SAMPLE_COUNT_1_BIT,
                 tiling=vk.VK_IMAGE_TILING_OPTIMAL,
-                usage=vk.VK_IMAGE_USAGE_STORAGE_BIT,
+                usage=(vk.VK_IMAGE_USAGE_STORAGE_BIT |
+                       (vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                        if self.config.denoiser_signal_capture else 0)),
                 sharingMode=vk.VK_SHARING_MODE_EXCLUSIVE,
                 initialLayout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
             )

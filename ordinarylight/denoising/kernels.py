@@ -275,6 +275,17 @@ def relax_temporal(
                         continue
                     if neighbor_pixel.x >= extent.x or neighbor_pixel.y >= extent.y:
                         continue
+                    if constants.rejection.w > 0.0:
+                        # During motion, a foreground/background mixture can
+                        # make the clamp accept radiance from the wrong surface.
+                        # Derive its statistics only from compatible geometry.
+                        if material_id.load(neighbor_pixel).r != current_material:
+                            continue
+                        if identity.load(neighbor_pixel).r != current_primitive:
+                            continue
+                        neighbor_normal = normal_roughness.load(neighbor_pixel).xyz
+                        if osh.dot(current_normal, neighbor_normal) < constants.rejection.x:
+                            continue
                     neighbor = current_radiance_hit_distance.load(
                         neighbor_pixel
                     ).rgb

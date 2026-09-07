@@ -57,6 +57,7 @@ def _config(args, *, reference):
         temporal_history_limit=32,
         denoiser_enabled=denoise,
         denoiser_iterations=args.atrous_iterations,
+        denoiser_motion_history_floor=args.history_floor,
         wavefront_hdr_capture=True,
         wavefront_tile_capacity=args.width * args.height,
         direct_swapchain_storage=False,
@@ -194,6 +195,7 @@ def main(argv=None):
     parser.add_argument("--reference-samples", type=int, default=16)
     parser.add_argument("--bounces", type=int, default=8)
     parser.add_argument("--atrous-iterations", type=int, default=3)
+    parser.add_argument("--history-floor", type=int, default=1, choices=range(1, 33))
     parser.add_argument("--camera-arc", type=float, default=0.20)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--output", type=Path, default=Path("/tmp/ordinarylight_relax_motion"))
@@ -214,6 +216,8 @@ def main(argv=None):
         "atrous_iterations": args.atrous_iterations,
         "camera_arc": args.camera_arc,
     }
+    if args.history_floor != 1:
+        configuration["history_floor"] = args.history_floor
     glfw = load_glfw()
     if not glfw.init():
         raise RuntimeError("GLFW initialization failed")

@@ -78,6 +78,9 @@ class RendererConfig:
     # deliberately favor disocclusion correctness over temporal stability.
     denoiser_history_limit: int = 32
     denoiser_history_motion_pixels: float = 8.0
+    # Experimental: allow validated fast-motion history to exceed the footprint
+    # cap. Values above one trade lower noise against possible lost edge detail.
+    denoiser_motion_history_floor: int = 1
     denoiser_motion_normal_threshold: float = 0.95
     denoiser_motion_depth_threshold: float = 0.005
     denoiser_motion_clamp_sigma: float = 1.0
@@ -295,6 +298,10 @@ class RendererConfig:
             raise ValueError("denoiser_enabled requires temporal_history=True")
         if self.denoiser_variance_threshold <= 0.0:
             raise ValueError("denoiser_variance_threshold must be positive")
+        if (isinstance(self.denoiser_motion_history_floor, bool)
+                or not isinstance(self.denoiser_motion_history_floor, int)
+                or not 1 <= self.denoiser_motion_history_floor <= 32):
+            raise ValueError("denoiser_motion_history_floor must be an integer in [1, 32]")
         if not 1 <= self.denoiser_history_limit <= 4096:
             raise ValueError("denoiser_history_limit must be between 1 and 4096")
         if (not math.isfinite(self.denoiser_history_motion_pixels)

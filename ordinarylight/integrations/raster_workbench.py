@@ -180,6 +180,7 @@ def _gi_config(
         wavefront_restir_candidates=4,
         wavefront_restir_history_limit=4,
         wavefront_restir_spatial_reuse=False,
+        denoiser_motion_history_floor=3,
         # # Temporal reuse
         # wavefront_restir_history_limit=4,
         # wavefront_restir_history_motion_pixels=16.0,

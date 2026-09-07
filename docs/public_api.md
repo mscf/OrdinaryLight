@@ -464,3 +464,17 @@ lifetime of its compute sequence.
 
 The API depends only on Ordinary Shade reflection. Domain compilers such as
 OrdinaryLattice remain downstream producers of programs and resource plans.
+
+### Experimental denoiser history during motion
+
+`RendererConfig(denoiser_motion_history_floor=3)` retains a short temporal
+history for pixels passing the ReLAX-inspired denoiser's geometry and reactive
+checks during fast camera motion. Values are integers from 1 to 32; the default
+is 1. `denoiser_history_limit` remains the upper bound, including when it is
+smaller than the floor. Rejected history and camera cuts still reset to one.
+This setting requires the denoiser to be enabled; it does not enable denoising
+in applications that have disabled it.
+
+Increasing the floor reduces noise in the tested optics sequence, but can lose
+edge detail in other moving scenes. It remains experimental. See the
+[diagnostic and A/B results](../artifacts/denoiser-motion/history-policy.md).

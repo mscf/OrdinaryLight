@@ -526,6 +526,18 @@ class RendererConfigTests(unittest.TestCase):
         )
         self.assertGreater(slow["reactive_sigma"], 0.0)
 
+    def test_relax_short_history_respects_explicit_limit_and_invalid_motion(self):
+        for limit in (1, 2, 3, 32):
+            config = RendererConfig(denoiser_history_limit=limit, denoiser_motion_history_floor=3)
+            self.assertEqual(_relax_temporal_policy(config, 100.0)["history_limit"], min(limit, 3))
+            for motion in (float("inf"), float("nan"), -1.0):
+                self.assertEqual(_relax_temporal_policy(config, motion)["history_limit"], 1)
+
+    def test_relax_motion_history_floor_rejects_invalid_values(self):
+        for value in (0, 33, True, 1.5, "3"):
+            with self.assertRaises(ValueError):
+                RendererConfig(denoiser_motion_history_floor=value)
+
     def test_external_surface_requires_instance_and_surface_pair(self):
         with self.assertRaisesRegex(ValueError, "must be supplied together"):
             VulkanRayQueryCore(external_instance=1)

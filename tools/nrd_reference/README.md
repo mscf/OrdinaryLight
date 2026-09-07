@@ -111,3 +111,17 @@ python -m tests.gates.denoiser_reference_quality captures/glossy-motion \
   --baseline tests/gates/baselines/glossy-motion-denoiser.json \
   --accept-baseline
 ```
+
+## Motion diagnostics and camera transforms
+
+For perspective-motion comparisons use the version-2 input path demonstrated
+by [the moving optics diagnostic](../denoiser_motion/README.md). Pass
+`camera_matrices` in the reference settings: one dictionary per frame containing
+row-major NumPy `view_to_clip`, `previous_view_to_clip`, `world_to_view` and
+`previous_world_to_view` 4x4 matrices. The Python bridge serializes them in NRD's
+column-major layout. Rebuild the native bridge after this update.
+
+The older canonical signal contract supplies only combined world-to-clip
+matrices. Its legacy bridge path is preserved for compatibility, but is not a
+valid perspective-motion reference. Existing reference-capture comparisons
+without split camera matrices must not be used to judge temporal quality.

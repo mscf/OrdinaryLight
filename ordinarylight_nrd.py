@@ -24,7 +24,7 @@ _DEFAULT_EXECUTABLE = (
 
 
 def version() -> str:
-    return "NRD 4.18.0 bridge-1"
+    return "NRD 4.18.0 bridge-2"
 
 
 def _executable() -> Path:
@@ -82,19 +82,30 @@ def _packed_normal_roughness(signal):
     return np.ascontiguousarray(packed, dtype=np.float16)
 
 
-def _write_sequence(path, signals):
+def _write_sequence(path, signals, camera_matrices=None):
     width, height = signals[0].extent
+    if camera_matrices is not None and len(camera_matrices) != len(signals):
+        raise ValueError("camera_matrices must match the signal sequence")
     with Path(path).open("wb") as stream:
         stream.write(_CAPTURE_MAGIC)
-        stream.write(struct.pack("<IIII", 1, width, height, len(signals)))
-        for signal in signals:
+        stream.write(struct.pack("<IIII", 2 if camera_matrices is not None else 1, width, height, len(signals)))
+        for index, signal in enumerate(signals):
             frame = signal.frame
             stream.write(struct.pack(
                 "<Q?3x4f", frame.frame_index, frame.camera_cut,
                 *frame.jitter, *frame.previous_jitter,
             ))
-            stream.write(np.asarray(frame.world_to_clip, dtype="<f4").tobytes())
-            stream.write(np.asarray(frame.previous_world_to_clip, dtype="<f4").tobytes())
+            if camera_matrices is None:
+                stream.write(np.asarray(frame.world_to_clip, dtype="<f4").tobytes())
+                stream.write(np.asarray(frame.previous_world_to_clip, dtype="<f4").tobytes())
+            else:
+                for name in ("view_to_clip", "previous_view_to_clip",
+                             "world_to_view", "previous_world_to_view"):
+                    matrix = np.asarray(camera_matrices[index][name], dtype="<f4")
+                    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
+                        raise ValueError(f"invalid camera matrix: {name}")
+                    # NRD expects column-major matrices.
+                    stream.write(matrix.T.copy().tobytes())
             stream.write(np.asarray(signal.motion, dtype="<f2").tobytes())
             stream.write(_packed_normal_roughness(signal).astype("<f2", copy=False).tobytes())
             stream.write(np.asarray(signal.view_z, dtype="<f4").tobytes())
@@ -128,7 +139,7 @@ def _read_results(path, expected_frames, width, height):
 
 
 def denoise_relax_sequence(signals, settings):
-    del settings  # Settings remain pinned until convention parity is gated.
+    camera_matrices = settings.get("camera_matrices")
     sequence = tuple(signals)
     if not sequence:
         raise ValueError("signals must not be empty")
@@ -138,7 +149,7 @@ def denoise_relax_sequence(signals, settings):
     with tempfile.TemporaryDirectory(prefix="ordinarylight-nrd-") as directory:
         capture = Path(directory) / "signals.bin"
         result = Path(directory) / "result.bin"
-        _write_sequence(capture, sequence)
+        _write_sequence(capture, sequence, camera_matrices)
         subprocess.run(
             (str(_executable()), "--input", str(capture), "--output", str(result)),
             check=True,

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "configuration": {
+    "width": 320,
+    "height": 180,
+    "frames": 7,
+    "reference_samples": 16,
+    "bounces": 8,
+    "atrous_iterations": 3,
+    "camera_arc": 0.2
+  },
+  "results": {
+    "object": {
+      "log_luminance_rmse": 0.22108572721481323,
+      "motion_region_rmse": 0.36787453293800354,
+      "stationary_residual_rmse": 0.19771113991737366,
+      "edge_correlation": 0.030837779201607362,
+      "median_gpu_ms": 0.673216
+    },
+    "camera": {
+      "log_luminance_rmse": 0.22630102932453156,
+      "motion_region_rmse": 0.3687624931335449,
+      "stationary_residual_rmse": 0.290795236825943,
+      "edge_correlation": -0.013339254931186359,
+      "median_gpu_ms": 0.65056
+    }
+  }
+}

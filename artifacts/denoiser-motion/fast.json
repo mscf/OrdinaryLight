@@ -1,0 +1,604 @@
+{
+  "schema": 1,
+  "configuration": {
+    "output": "/tmp/optics-motion-fast-reviewed",
+    "width": 256,
+    "height": 160,
+    "frames": 16,
+    "reference_samples": 128,
+    "replay": "/tmp/optics-motion-fast",
+    "travel": 3.0
+  },
+  "capture_adapter": "NVIDIA GeForce RTX 4070 Laptop GPU",
+  "replay_adapter": {
+    "vendor": "NVIDIA",
+    "architecture": "",
+    "device": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "description": "580.95.05",
+    "stackgroup_min_size": 4,
+    "stackgroup_max_size": 128,
+    "vendor_id": 4318,
+    "device_id": 10336,
+    "adapter_type": "DiscreteGPU",
+    "backend_type": "Vulkan"
+  },
+  "nrd_version": "NRD 4.18.0 bridge-2",
+  "nrd_frame_interval_ms": 16.666666666666668,
+  "scope": "Camera-only motion; production WGSL filter replay of canonical captures, not live Vulkan preparation parity. NRD glass inputs are outside its opaque-surface contract.",
+  "policies": [
+    {
+      "motion_pixels": 4.293042736802607e-06,
+      "history_limit": 32,
+      "normal_threshold": 0.8,
+      "depth_threshold": 0.02,
+      "clamp_sigma": 2.5,
+      "reactive_sigma": 0.0
+    },
+    {
+      "motion_pixels": 4.293042736802607e-06,
+      "history_limit": 32,
+      "normal_threshold": 0.8,
+      "depth_threshold": 0.02,
+      "clamp_sigma": 2.5,
+      "reactive_sigma": 0.0
+    },
+    {
+      "motion_pixels": 4.293042736802607e-06,
+      "history_limit": 32,
+      "normal_threshold": 0.8,
+      "depth_threshold": 0.02,
+      "clamp_sigma": 2.5,
+      "reactive_sigma": 0.0
+    },
+    {
+      "motion_pixels": 5.643900303572812,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.68393990714525,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.715476662020502,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.738217970435704,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.751949806190292,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.756541697412814,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.751949806190292,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.738217970435704,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.715476662020502,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.68393990714525,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 5.643900303572812,
+      "history_limit": 1,
+      "normal_threshold": 0.95,
+      "depth_threshold": 0.005,
+      "clamp_sigma": 1.0,
+      "reactive_sigma": 3.0
+    },
+    {
+      "motion_pixels": 4.293042736802607e-06,
+      "history_limit": 32,
+      "normal_threshold": 0.8,
+      "depth_threshold": 0.02,
+      "clamp_sigma": 2.5,
+      "reactive_sigma": 0.0
+    },
+    {
+      "motion_pixels": 4.293042736802607e-06,
+      "history_limit": 32,
+      "normal_threshold": 0.8,
+      "depth_threshold": 0.02,
+      "clamp_sigma": 2.5,
+      "reactive_sigma": 0.0
+    }
+  ],
+  "reference_split_log_rmse": 0.029728829860687256,
+  "metrics": {
+    "raw": {
+      "log_luminance_rmse": 0.8193588852882385,
+      "motion_region_rmse": 1.4666475057601929,
+      "stationary_residual_rmse": 0.8432997465133667,
+      "edge_correlation": 0.4227388754155498
+    },
+    "ordinaryshade": {
+      "log_luminance_rmse": 0.6994361877441406,
+      "motion_region_rmse": 1.413527250289917,
+      "stationary_residual_rmse": 0.7525481581687927,
+      "edge_correlation": 0.42165663357003036
+    },
+    "uncapped": {
+      "log_luminance_rmse": 0.6037370562553406,
+      "motion_region_rmse": 1.2705042362213135,
+      "stationary_residual_rmse": 0.6016790270805359,
+      "edge_correlation": 0.4071730718401979
+    },
+    "nrd": {
+      "log_luminance_rmse": 0.4052697718143463,
+      "motion_region_rmse": 1.0097060203552246,
+      "stationary_residual_rmse": 0.16834689676761627,
+      "edge_correlation": 0.48187078116050086
+    }
+  },
+  "regions": {
+    "glossy": {
+      "pixels": 29660,
+      "raw": 0.16690415143966675,
+      "ordinaryshade": 0.14630542695522308,
+      "uncapped": 0.11179151386022568,
+      "nrd": 0.10344000160694122,
+      "reference_split_log_rmse": 0.03307867422699928
+    },
+    "mirror": {
+      "pixels": 36643,
+      "raw": 0.07649844139814377,
+      "ordinaryshade": 0.05439915880560875,
+      "uncapped": 0.02869327925145626,
+      "nrd": 0.03547364100813866,
+      "reference_split_log_rmse": 0.022522911429405212
+    },
+    "glass": {
+      "pixels": 33038,
+      "raw": 0.1210557073354721,
+      "ordinaryshade": 0.09239131957292557,
+      "uncapped": 0.07674530148506165,
+      "nrd": 0.07716602832078934,
+      "reference_split_log_rmse": 0.033040594309568405
+    }
+  },
+  "signal_sum_max_error": 1.9073486328125e-06,
+  "accepted_fraction": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.992871105670929,
+      0.992871105670929
+    ],
+    [
+      0.992919921875,
+      0.992919921875
+    ],
+    [
+      0.40644532442092896,
+      0.40961915254592896
+    ],
+    [
+      0.40703123807907104,
+      0.4163818359375
+    ],
+    [
+      0.407958984375,
+      0.4169677793979645
+    ],
+    [
+      0.4123779237270355,
+      0.4210205078125
+    ],
+    [
+      0.4112548828125,
+      0.42041015625
+    ],
+    [
+      0.41313475370407104,
+      0.4211669862270355
+    ],
+    [
+      0.4158691465854645,
+      0.425537109375
+    ],
+    [
+      0.42097169160842896,
+      0.42973631620407104
+    ],
+    [
+      0.42097169160842896,
+      0.4303222596645355
+    ],
+    [
+      0.4229736328125,
+      0.4306396543979645
+    ],
+    [
+      0.4193115234375,
+      0.4278564453125
+    ],
+    [
+      0.993334949016571,
+      0.993334949016571
+    ],
+    [
+      0.9924072027206421,
+      0.9924072027206421
+    ]
+  ],
+  "history_summary": [
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.9928710460662842,
+      "specular_mean": 1.9928710460662842,
+      "diffuse_over_one_fraction": 0.99287109375,
+      "specular_over_one_fraction": 0.99287109375
+    },
+    {
+      "diffuse_mean": 2.982226610183716,
+      "specular_mean": 2.982226610183716,
+      "diffuse_over_one_fraction": 0.992919921875,
+      "specular_over_one_fraction": 0.992919921875
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.0,
+      "specular_mean": 1.0,
+      "diffuse_over_one_fraction": 0.0,
+      "specular_over_one_fraction": 0.0
+    },
+    {
+      "diffuse_mean": 1.9933350086212158,
+      "specular_mean": 1.9933350086212158,
+      "diffuse_over_one_fraction": 0.9933349609375,
+      "specular_over_one_fraction": 0.9933349609375
+    },
+    {
+      "diffuse_mean": 2.9816651344299316,
+      "specular_mean": 2.9816651344299316,
+      "diffuse_over_one_fraction": 0.9924072265625,
+      "specular_over_one_fraction": 0.9924072265625
+    }
+  ],
+  "per_frame_regions": {
+    "glossy": {
+      "raw": [
+        0.16888119280338287,
+        0.15722130239009857,
+        0.1528426855802536,
+        0.16643598675727844,
+        0.1520402878522873,
+        0.1506931185722351,
+        0.15964174270629883,
+        0.1640559732913971,
+        0.15988107025623322,
+        0.16958187520503998,
+        0.18511858582496643,
+        0.19257041811943054,
+        0.16887043416500092,
+        0.17129643261432648,
+        0.18778394162654877,
+        0.17725595831871033
+      ],
+      "ordinaryshade": [
+        0.15224353969097137,
+        0.10795073211193085,
+        0.08282244205474854,
+        0.16055019199848175,
+        0.14354579150676727,
+        0.1478182077407837,
+        0.15219515562057495,
+        0.15906858444213867,
+        0.15015393495559692,
+        0.15618781745433807,
+        0.17751158773899078,
+        0.1834440380334854,
+        0.15926772356033325,
+        0.1625426560640335,
+        0.12328866869211197,
+        0.09519655257463455
+      ],
+      "uncapped": [
+        0.15224353969097137,
+        0.10795073211193085,
+        0.08282244205474854,
+        0.13284873962402344,
+        0.13074731826782227,
+        0.12943872809410095,
+        0.12750883400440216,
+        0.1313372105360031,
+        0.11781225353479385,
+        0.10415447503328323,
+        0.09383988380432129,
+        0.0900411531329155,
+        0.07722368836402893,
+        0.08067581057548523,
+        0.07232517004013062,
+        0.06806765496730804
+      ],
+      "nrd": [
+        0.11756552010774612,
+        0.09060725569725037,
+        0.07676471769809723,
+        0.09176743030548096,
+        0.11063895374536514,
+        0.10511711239814758,
+        0.10684764385223389,
+        0.11201809346675873,
+        0.10508361458778381,
+        0.10157476365566254,
+        0.08937851339578629,
+        0.10121965408325195,
+        0.10548477619886398,
+        0.11976195126771927,
+        0.1141929104924202,
+        0.1066407561302185
+      ]
+    },
+    "mirror": {
+      "raw": [
+        0.0691089928150177,
+        0.06130877509713173,
+        0.07047028839588165,
+        0.06262975186109543,
+        0.06493689864873886,
+        0.06601909548044205,
+        0.07685603201389313,
+        0.08521983027458191,
+        0.07549431920051575,
+        0.07634314149618149,
+        0.07769952714443207,
+        0.07259028404951096,
+        0.09201449900865555,
+        0.07040058821439743,
+        0.0918082594871521,
+        0.09565510600805283
+      ],
+      "ordinaryshade": [
+        0.05292774364352226,
+        0.035708315670490265,
+        0.02893928624689579,
+        0.05447041615843773,
+        0.05631997436285019,
+        0.055255815386772156,
+        0.060163307934999466,
+        0.05866680666804314,
+        0.06014807149767876,
+        0.06188855692744255,
+        0.06162409484386444,
+        0.06081748008728027,
+        0.061243049800395966,
+        0.05955277383327484,
+        0.04252833127975464,
+        0.0408853143453598
+      ],
+      "uncapped": [
+        0.05292774364352226,
+        0.035708315670490265,
+        0.02893928624689579,
+        0.026127779856324196,
+        0.02528955414891243,
+        0.02577054500579834,
+        0.026034247130155563,
+        0.025499403476715088,
+        0.026607535779476166,
+        0.027052389457821846,
+        0.025663932785391808,
+        0.025197288021445274,
+        0.024560322985053062,
+        0.025027867406606674,
+        0.02478725090622902,
+        0.02425391413271427
+      ],
+      "nrd": [
+        0.02365877293050289,
+        0.0215877927839756,
+        0.04286826029419899,
+        0.037187498062849045,
+        0.03312959894537926,
+        0.03233693912625313,
+        0.033711887896060944,
+        0.04180174693465233,
+        0.03914685547351837,
+        0.0366019532084465,
+        0.03641864284873009,
+        0.03623468056321144,
+        0.03575049713253975,
+        0.03467379882931709,
+        0.03760866820812225,
+        0.036722876131534576
+      ]
+    },
+    "glass": {
+      "raw": [
+        0.1297234743833542,
+        0.11684343218803406,
+        0.11906445771455765,
+        0.1045406386256218,
+        0.12613093852996826,
+        0.11299950629472733,
+        0.10885299742221832,
+        0.13511624932289124,
+        0.11695948243141174,
+        0.11693454533815384,
+        0.1226319968700409,
+        0.1348988562822342,
+        0.12745165824890137,
+        0.12520122528076172,
+        0.11269940435886383,
+        0.12013259530067444
+      ],
+      "ordinaryshade": [
+        0.1010320708155632,
+        0.07386310398578644,
+        0.0718296617269516,
+        0.09468778967857361,
+        0.09867239743471146,
+        0.09550540149211884,
+        0.09653734415769577,
+        0.09740150719881058,
+        0.09598365426063538,
+        0.10007510334253311,
+        0.09730921685695648,
+        0.09616845101118088,
+        0.10156213492155075,
+        0.09907850623130798,
+        0.0777113139629364,
+        0.06913279742002487
+      ],
+      "uncapped": [
+        0.1010320708155632,
+        0.07386310398578644,
+        0.0718296617269516,
+        0.0680675134062767,
+        0.07046278566122055,
+        0.06399181485176086,
+        0.06940991431474686,
+        0.0709613785147667,
+        0.07230658084154129,
+        0.0811069905757904,
+        0.08044081181287766,
+        0.08186087757349014,
+        0.08388933539390564,
+        0.08945382386445999,
+        0.07329852133989334,
+        0.0663050189614296
+      ],
+      "nrd": [
+        0.05641720071434975,
+        0.04769965633749962,
+        0.081722691655159,
+        0.07047976553440094,
+        0.08105987310409546,
+        0.06741552799940109,
+        0.06550329178571701,
+        0.08023986965417862,
+        0.07740563899278641,
+        0.08080781251192093,
+        0.08524823188781738,
+        0.08682005107402802,
+        0.08470260351896286,
+        0.08571698516607285,
+        0.08459030091762543,
+        0.07870575040578842
+      ]
+    }
+  },
+  "shader_hashes": {
+    "temporal": "b507ac34544af0f1631576508d706b82439fdb2fb936151ed219a2e67f00f809",
+    "atrous": "58b0e9faa4e723859a389d64da8505799c61344ef824a17a9bef1e8a4ff1de91"
+  }
+}
