@@ -224,6 +224,34 @@ class RendererConfigTests(unittest.TestCase):
 
         self.assertEqual(refreshed, [(scene, resources)])
 
+    def test_presentation_converges_previous_geometry_when_motion_stops(self):
+        from types import SimpleNamespace
+
+        core = object.__new__(VulkanRayQueryCore)
+        core.surface = object()
+        core.device = object()
+        scene = SimpleNamespace(revision=7, transform_revision=3)
+        vertices = np.ones((3, 4), dtype=np.float32)
+        previous_buffer = object()
+        resources = SimpleNamespace(
+            scene=scene, scene_revision=7, previous_transform_revision=2,
+            previous_vertex_buffer=previous_buffer, vertex_data=vertices,
+        )
+        core.scene_resources = resources
+        core._refresh_gpu_volume_sources = lambda *_args: None
+        uploads = []
+        core._update_device_buffers = uploads.append
+        with patch(
+            "ordinarylight.targets.vulkan.core.vk.vkDeviceWaitIdle"
+        ) as wait:
+            core.prepare_window_scene(scene)
+            core.prepare_window_scene(scene)
+        self.assertEqual(resources.previous_transform_revision, 3)
+        self.assertEqual(len(uploads), 1)
+        self.assertIs(uploads[0][0][0], previous_buffer)
+        np.testing.assert_array_equal(uploads[0][0][1], vertices)
+        wait.assert_called_once_with(core.device)
+
     def test_gi_renderer_exposes_same_device_compute_context(self):
         backend = object.__new__(VulkanGlobalIlluminationRenderer)
         from types import SimpleNamespace

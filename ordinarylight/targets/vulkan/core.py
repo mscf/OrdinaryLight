@@ -4980,14 +4980,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         """Build persistent acceleration structures for direct presentation."""
         if self.surface is None and not self._headless_surface:
             raise RuntimeError("This Vulkan core was not created with a GLFW window")
-        if (
-            self.scene_resources is None
-            or self.scene_resources.scene is not scene
-            or self.scene_resources.scene_revision != scene.revision
-        ):
-            self.upload_window_scene(scene)
-        else:
-            self._refresh_gpu_volume_sources(scene, self.scene_resources)
+        # The resident fast path also converges previous-frame geometry after
+        # motion stops. Skipping it leaves stale motion guides indefinitely.
+        self.upload_window_scene(scene)
 
     def _refresh_gpu_volume_sources(self, scene, resources):
         """Copy newly dispatched resident fields into persistent 3-D images."""

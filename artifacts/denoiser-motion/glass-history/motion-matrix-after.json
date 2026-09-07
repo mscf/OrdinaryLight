@@ -1,0 +1,59 @@
+{
+  "camera": {
+    "moving-middle": {
+      "rmse": 0.030483752749575453,
+      "horizontal_detail_ratio": 0.9928797767481085
+    },
+    "moving-end": {
+      "rmse": 0.06062718577193391,
+      "horizontal_detail_ratio": 0.9136523495883179
+    },
+    "stopped-1": {
+      "rmse": 0.04762640567950076,
+      "horizontal_detail_ratio": 0.9079016097837854
+    },
+    "stopped-32": {
+      "rmse": 0.016896209671654876,
+      "horizontal_detail_ratio": 0.8564313944585974
+    },
+    "reference_split_rmse": 0.012491318961150836
+  },
+  "glass": {
+    "moving-middle": {
+      "rmse": 0.0932587097090071,
+      "horizontal_detail_ratio": 0.7250821008739787
+    },
+    "moving-end": {
+      "rmse": 0.15288230404325526,
+      "horizontal_detail_ratio": 0.5692086029482673
+    },
+    "stopped-1": {
+      "rmse": 0.13574941423471926,
+      "horizontal_detail_ratio": 0.582503670067177
+    },
+    "stopped-32": {
+      "rmse": 0.037610221678355565,
+      "horizontal_detail_ratio": 0.7645652654700188
+    },
+    "reference_split_rmse": 0.01289440326238022
+  },
+  "target": {
+    "moving-middle": {
+      "rmse": 0.0750799629459655,
+      "horizontal_detail_ratio": 0.6501777631620442
+    },
+    "moving-end": {
+      "rmse": 0.1750578734562091,
+      "horizontal_detail_ratio": 0.8835134337169525
+    },
+    "stopped-1": {
+      "rmse": 0.14361475649019687,
+      "horizontal_detail_ratio": 0.7946693765372022
+    },
+    "stopped-32": {
+      "rmse": 0.023258300313175103,
+      "horizontal_detail_ratio": 0.6737473678245288
+    },
+    "reference_split_rmse": 0.01479695553686398
+  }
+}

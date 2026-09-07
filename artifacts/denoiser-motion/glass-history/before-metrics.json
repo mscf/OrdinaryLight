@@ -1,0 +1,20 @@
+{
+  "moved": {
+    "rmse": 0.130531309915486,
+    "motion_abs_mean": 1.5048828125,
+    "history_mean": 13.026734352111816,
+    "zero_depth": 0.0
+  },
+  "reset": {
+    "rmse": 0.13053148574219808,
+    "motion_abs_mean": 1.5048828125,
+    "history_mean": 13.026734352111816,
+    "zero_depth": 0.0
+  },
+  "fresh": {
+    "rmse": 0.017047785759716393,
+    "motion_abs_mean": 0.251220703125,
+    "history_mean": 31.81816291809082,
+    "zero_depth": 0.0
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "fresh_stationary_denoised_rmse": 0.017047785759716393,
+  "moved_undenoised_rmse": 0.0,
+  "moved_denoised_after_32_stopped_rmse": 0.130531309915486
+}
