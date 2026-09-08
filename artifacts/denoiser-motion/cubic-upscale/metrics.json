@@ -1,0 +1,20 @@
+{
+  "glass": {
+    "mean_absolute_display_difference": 1.1027303059895834,
+    "internal_hdr_identical": true,
+    "bilinear_settled_display_std": 0.0059515378762652945,
+    "clamped-cubic_settled_display_std": 0.0073856029644170495
+  },
+  "target": {
+    "mean_absolute_display_difference": 1.232279018825955,
+    "internal_hdr_identical": true,
+    "bilinear_settled_display_std": 0.0059229813646134635,
+    "clamped-cubic_settled_display_std": 0.007222680905990256
+  },
+  "camera": {
+    "mean_absolute_display_difference": 1.2032740275065104,
+    "internal_hdr_identical": true,
+    "bilinear_settled_display_std": 0.005596949524141974,
+    "clamped-cubic_settled_display_std": 0.00706908644504385
+  }
+}

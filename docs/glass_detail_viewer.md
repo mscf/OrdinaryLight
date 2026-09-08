@@ -116,3 +116,27 @@ reservoir count. Reduced resolution can soften glass, reflected detail and
 thin edges. The earlier ~29 ms moving / ~22 ms stationary measurements used
 both 50% scale and **one** reservoir, under uncontrolled GPU load; they are
 not a performance promise for the default four-reservoir configuration.
+
+For a sharper spatial upscale, select **GI upscale filter → Clamped cubic
+(experimental)** and click **Apply and restart renderer**. It only changes
+reduced-resolution output; 100% bypasses cubic. Bilinear remains the default.
+Cubic uses 16 HDR image reads instead of four in the existing reconstruction
+pass, with no additional image allocations or temporal history. Each result
+is clamped to the central 2×2 color range to limit overshoot. It can emphasize
+jagged edges and residual noise as well as detail.
+
+See the [GPU output comparison and provisional timings](../artifacts/denoiser-motion/cubic-upscale/README.md).
+
+**FSR 1 EASU (experimental)** is also available in **GI upscale filter**.
+Select it at a reduced render scale and apply/restart. RCAS sharpening is
+not enabled. The prototype uses AMD's pinned FP32 EASU code, with tone-mapped,
+sRGB-encoded input samples fetched from denoised HDR. It adds no temporal
+history or new images. No additional anti-aliasing stage is introduced, so
+input aliasing and residual noise can still affect its quality.
+
+FSR 1 bypasses scaling at 100%. It currently rejects the separate temporal
+reconstruction, stationary accumulation, and diffuse reconstruction filter
+options, since its input bypasses those operations. Ordinary Shade ReLAX
+and the viewer's existing temporal denoising remain supported.
+
+See the [three-filter comparison and timing results](../artifacts/denoiser-motion/fsr1-upscale/README.md).

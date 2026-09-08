@@ -164,7 +164,7 @@ class ReconstructConstants:
     reprojection_search_enabled: osh.u32
     outlier_confidence_enabled: osh.u32
     outlier_confidence_strength: osh.f32
-    effect_padding: osh.u32
+    upscale_filter: osh.u32
     kind0: osh.u32
     radius0: osh.u32
     strength0: osh.f32
@@ -1152,6 +1152,43 @@ def reconstructBilinearHdr(source: osh.vec2) -> osh.vec3:
 
 
 @osh.function
+def reconstructFsr1(pixel: osh.ivec2, size: osh.ivec2) -> osh.vec3:
+    # Replaced with the upstream EASU adapter by generated_source.
+    return osh.vec3(0.0)
+
+
+@osh.function
+def reconstructCubicWeights(t: osh.f32) -> osh.vec4:
+    t2 = t * t
+    t3 = t2 * t
+    return osh.vec4(
+        -0.5 * t + t2 - 0.5 * t3,
+        1.0 - 2.5 * t2 + 1.5 * t3,
+        0.5 * t + 2.0 * t2 - 1.5 * t3,
+        -0.5 * t2 + 0.5 * t3,
+    )
+
+
+@osh.function
+def reconstructCubicHdr(source: osh.vec2) -> osh.vec3:
+    base = osh.ivec2(osh.floor(source))
+    fraction = source - osh.floor(source)
+    wx = reconstructCubicWeights(fraction.x)
+    wy = reconstructCubicWeights(fraction.y)
+    result = osh.vec3(0.0)
+    low = osh.vec3(1.0e30)
+    high = osh.vec3(-1.0e30)
+    for y in range(4):
+        for x in range(4):
+            value = reconstructLoadHdr(base + osh.ivec2(x - 1, y - 1))
+            result = result + value * wx[x] * wy[y]
+            if x >= 1 and x <= 2 and y >= 1 and y <= 2:
+                low = osh.minimum(low, value)
+                high = osh.maximum(high, value)
+    return osh.clamp(result, low, high)
+
+
+@osh.function
 def reconstructLuminance(color: osh.vec3) -> osh.f32:
     return osh.dot(color, osh.vec3(0.2126, 0.7152, 0.0722))
 
@@ -1283,7 +1320,14 @@ def reconstructMain() -> osh.void:
         / osh.vec2(output_size) - 0.5
     )
     source_pixel = reconstructClampSource(osh.ivec2(osh.round(source)))
-    hdr = reconstructBilinearHdr(source)
+    hdr = osh.vec3(0.0)
+    if push.upscale_filter == osh.u32(1) and (
+        push.source_width < osh.u32(output_size.x)
+        or push.source_height < osh.u32(output_size.y)
+    ):
+        hdr = reconstructCubicHdr(source)
+    else:
+        hdr = reconstructBilinearHdr(source)
     position_data = osh.vec4(0.0, 0.0, 0.0, -1.0)
     normal_data = osh.vec4(0.0)
     needs_gbuffer = (
@@ -1521,6 +1565,11 @@ def reconstructMain() -> osh.void:
         osh.maximum(hdr, osh.vec3(0.0)) * push.exposure
     )
     encoded = osh.vec4(linearToSrgb(mapped), 1.0)
+    if push.upscale_filter == osh.u32(2) and (
+        push.source_width < osh.u32(output_size.x)
+        or push.source_height < osh.u32(output_size.y)
+    ):
+        encoded.rgb = reconstructFsr1(output_pixel, output_size)
     effect_slot = reconstructEffectSlot(source_pixel)
     output_uv = (osh.vec2(output_pixel) + 0.5) / osh.vec2(output_size)
     if push.kind0 != osh.u32(0):
@@ -7131,6 +7180,7 @@ HELPERS = {
         reconstructLoadHdr, reconstructEffectSlot,
         reconstructWorldPosition, reconstructCurrentPosition,
         reconstructPreviousPosition, reconstructBilinearHdr,
+        reconstructCubicWeights, reconstructCubicHdr, reconstructFsr1,
         reconstructLuminance, reconstructReproject,
         reconstructCurrentNormal, reconstructPreviousNormal,
         reconstructFilterDiffuse, reconstructEffect, reconstructMain,
@@ -7279,6 +7329,11 @@ def generated_source(shader, helpers=()):
             + source[end:]
         )
     if shader is wavefront_reconstruct:
+        signature = "vec3 reconstructFsr1("
+        start = source.rindex(signature)
+        end = source.index("\n}\n", start) + 2
+        source = source[:start] + '#include "fsr1_easu.glsl"' + source[end:]
+        source = source.replace("#version 460\n", "#version 460\n#extension GL_GOOGLE_include_directive : require\n", 1)
         bgra = osh.compile(
             wavefront_reconstruct_bgra, helpers=helpers
         ).source

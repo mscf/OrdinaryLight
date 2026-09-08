@@ -175,7 +175,7 @@ def _gi_config(
     denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
     denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
     denoiser_planar_mirror_guides=False, denoiser_transmission_motion_cap=False,
-    custom_inline=False, render_scale=1.0,
+    custom_inline=False, render_scale=1.0, upscale_filter="bilinear",
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
@@ -184,6 +184,7 @@ def _gi_config(
         samples_per_pixel=1,
         wavefront_timestamps=True,
         wavefront_render_scale=float(render_scale),
+        wavefront_upscale_filter=upscale_filter,
         wavefront_custom_inline=custom_inline,
         wavefront_execution_strategy="hybrid" if custom_inline else "wavefront",
 
@@ -513,6 +514,14 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 "50% traces one quarter as many pixels. Apply and restart. "
                 "Available with Ordinary Shade ReLAX. Lower scales may soften detail."
             )
+            self.upscale_filter = QtWidgets.QComboBox()
+            self.upscale_filter.addItem("Bilinear", "bilinear")
+            self.upscale_filter.addItem("Clamped cubic (experimental)", "clamped-cubic")
+            self.upscale_filter.addItem("FSR 1 EASU (experimental)", "fsr1")
+            self.upscale_filter.setToolTip(
+                "Spatial upscaling: cubic or edge-adaptive FSR 1 without sharpening. "
+                "Only affects reduced render scales. Apply and restart."
+            )
             self.denoiser = QtWidgets.QCheckBox()
             self.denoiser.setChecked(True)
             self.denoiser_backend = QtWidgets.QComboBox()
@@ -563,6 +572,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.render_scale.setEnabled(
                 gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
             )
+            self.upscale_filter.setEnabled(self.render_scale.isEnabled())
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
@@ -606,6 +616,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
             form.addRow("GI render scale", self.render_scale)
+            form.addRow("GI upscale filter", self.upscale_filter)
             form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
             form.addRow("Enable GI denoising", self.denoiser)
             form.addRow("GI denoiser implementation", self.denoiser_backend)
@@ -818,6 +829,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.render_scale.setEnabled(
                 gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
             )
+            self.upscale_filter.setEnabled(self.render_scale.isEnabled())
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
@@ -981,6 +993,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 transmission_cap = self.transmission_motion_cap.isChecked()
                 custom_inline = self.custom_inline.isChecked()
                 render_scale = float(self.render_scale.currentData())
+                upscale_filter = self.upscale_filter.currentData()
                 color_weight = 2.0 if self.broader_filter.isChecked() else 4.0
                 surface_instance = self.surface.instance
                 surface_handle = self.surface.surface
@@ -1014,6 +1027,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                             denoiser_transmission_motion_cap=transmission_cap,
                             custom_inline=custom_inline,
                             render_scale=1.0 if nrd_reference else render_scale,
+                            upscale_filter=upscale_filter,
                         )
                         if nrd_reference:
                             gi_config = replace(

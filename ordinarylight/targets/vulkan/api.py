@@ -103,6 +103,7 @@ class RendererConfig:
     vulkan_pipeline_cache: bool = True
     vulkan_pipeline_cache_path: str | None = None
     wavefront_hdr_capture: bool = False
+    wavefront_upscale_filter: str = "bilinear"
     wavefront_render_scale: float = 1.0
     wavefront_interactive_render_scale: float | None = None
     wavefront_interactive_target_fps: float | None = None
@@ -340,6 +341,13 @@ class RendererConfig:
             raise ValueError("wavefront_tile_capacity must be between 1 and 4194304")
         if self.wavefront_exposure <= 0.0:
             raise ValueError("wavefront_exposure must be positive")
+        if self.wavefront_upscale_filter not in {"bilinear", "clamped-cubic", "fsr1"}:
+            raise ValueError("wavefront_upscale_filter must be bilinear, clamped-cubic, or fsr1")
+        if self.wavefront_upscale_filter == "fsr1" and (
+            self.wavefront_temporal_reconstruction or self.stationary_accumulation
+            or self.wavefront_diffuse_filter
+        ):
+            raise ValueError("fsr1 currently requires temporal reconstruction, stationary accumulation and diffuse filtering disabled")
         if not 0.25 <= self.wavefront_render_scale <= 1.0:
             raise ValueError("wavefront_render_scale must be between 0.25 and 1.0")
         if (

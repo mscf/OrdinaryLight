@@ -282,3 +282,26 @@ def test_gi_render_scale_preserves_native_default_and_sample_budget():
     assert native.wavefront_render_scale == 1.0
     assert scaled.wavefront_render_scale == .5
     assert scaled.wavefront_restir_reservoirs == native.wavefront_restir_reservoirs
+
+
+def test_cubic_upscale_is_opt_in_and_rejects_unknown_filters():
+    showcase = SimpleNamespace(id="glass-detail-camera", renderer={})
+    assert viewer._gi_config(showcase).wavefront_upscale_filter == "bilinear"
+    assert viewer._gi_config(
+        showcase, render_scale=.5, upscale_filter="clamped-cubic",
+    ).wavefront_upscale_filter == "clamped-cubic"
+    with pytest.raises(ValueError, match="wavefront_upscale_filter"):
+        viewer._gi_config(showcase, upscale_filter="unknown")
+
+
+def test_fsr1_is_opt_in_and_rejects_bypassed_reconstruction_features():
+    showcase = SimpleNamespace(id="glass-detail-camera", renderer={})
+    config = viewer._gi_config(showcase, render_scale=.5, upscale_filter="fsr1")
+    assert config.wavefront_upscale_filter == "fsr1"
+    for option in ("wavefront_temporal_reconstruction", "stationary_accumulation",
+                   "wavefront_diffuse_filter"):
+        with pytest.raises(ValueError, match="fsr1 currently requires"):
+            ol.RendererConfig(
+                wavefront_upscale_filter="fsr1", progressive_accumulation=True,
+                **{option: True},
+            )

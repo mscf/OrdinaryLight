@@ -53,6 +53,7 @@ include = ["ordinarylight*"]
 ordinarylight = [
     "shaders/*.spv", "shaders/*.comp", "shaders/*.glsl",
     "shaders/transport_v1/*.glsl",
+    "shaders/third_party/fsr1/*.h", "shaders/third_party/fsr1/*.md",
     "shaders/*.json", "shaders/*.wgsl", "shaders/*.rgen", "shaders/*.rmiss",
     "showcases/catalog/*.py", "showcases/catalog/*.md",
     "portable/*.wgsl", "portable/web/*.js", "portable/web/*.html",

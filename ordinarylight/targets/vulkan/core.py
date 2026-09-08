@@ -2603,7 +2603,9 @@ class VulkanWavefrontExecutor:
             int(self.core.config.wavefront_temporal_outlier_confidence),
             self.core.config.wavefront_temporal_outlier_strength,
         ))
-        constants.extend(struct.pack("I", 0))
+        constants.extend(struct.pack(
+            "I", {"bilinear": 0, "clamped-cubic": 1, "fsr1": 2}[self.core.config.wavefront_upscale_filter]
+        ))
         for header in effect_headers:
             constants.extend(struct.pack("IIfI", *header))
         constants.extend(struct.pack("16f", *effect_colors))
@@ -7747,6 +7749,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 len(self.scene_resources.instances)
                 - len(self.scene_resources.blases),
             ),
+            "wavefront_upscale_filter": self.config.wavefront_upscale_filter,
             "wavefront_output_extent": (width, height),
             "wavefront_render_extent": (render_width, render_height),
             "wavefront_render_scale": render_scale,
