@@ -7747,6 +7747,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 len(self.scene_resources.instances)
                 - len(self.scene_resources.blases),
             ),
+            "wavefront_output_extent": (width, height),
             "wavefront_render_extent": (render_width, render_height),
             "wavefront_render_scale": render_scale,
             "wavefront_interactive_resolution": bool(

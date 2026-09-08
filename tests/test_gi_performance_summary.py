@@ -15,3 +15,11 @@ def test_gpu_stages_group_bounces_without_adding_host_waits():
 
 def test_missing_gpu_samples_are_safe_during_startup():
     assert 'GPU 0.0 ms' in _gi_performance_text({})
+
+
+def test_scaled_output_dimensions_are_explicit():
+    text = _gi_performance_text({
+        'wavefront_render_extent': (1920, 1080),
+        'wavefront_output_extent': (3840, 2160),
+    })
+    assert '1920 × 1080 → 3840 × 2160' in text

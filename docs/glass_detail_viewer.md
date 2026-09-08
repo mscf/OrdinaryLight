@@ -100,3 +100,19 @@ outliers; this is experimental rather than bit-identical execution. See the
 Copied diagnostics distinguish requested, resolved and actually dispatched
 execution modes; enabled inline execution should report `hybrid` as the
 actual `wavefront_execution_strategy`.
+
+## GI render scale
+
+Choose **GI render scale** and click **Apply and restart renderer**. Native
+100% remains the default; 75%, two-thirds, and 50% reduce both internal
+width and height while presentation follows the viewport, including F11
+fullscreen. At 4K output, 50% renders GI at 1920 × 1080. The overlay shows
+`internal → output` dimensions when they differ, and copied diagnostics
+include both extents. The control is disabled for the NRD reference preview
+and other rendering targets.
+
+This uses the existing reconstruction path and does not change the ReSTIR
+reservoir count. Reduced resolution can soften glass, reflected detail and
+thin edges. The earlier ~29 ms moving / ~22 ms stationary measurements used
+both 50% scale and **one** reservoir, under uncontrolled GPU load; they are
+not a performance promise for the default four-reservoir configuration.

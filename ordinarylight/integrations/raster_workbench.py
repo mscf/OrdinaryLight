@@ -175,7 +175,7 @@ def _gi_config(
     denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
     denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
     denoiser_planar_mirror_guides=False, denoiser_transmission_motion_cap=False,
-    custom_inline=False,
+    custom_inline=False, render_scale=1.0,
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
@@ -183,6 +183,7 @@ def _gi_config(
     return ol.RendererConfig(
         samples_per_pixel=1,
         wavefront_timestamps=True,
+        wavefront_render_scale=float(render_scale),
         wavefront_custom_inline=custom_inline,
         wavefront_execution_strategy="hybrid" if custom_inline else "wavefront",
 
@@ -346,8 +347,12 @@ def _gi_performance_text(timings):
         groups[group] = groups.get(group, 0.0) + milliseconds
     largest = sorted(groups.items(), key=lambda item: item[1], reverse=True)[:4]
     extent = timings.get("wavefront_render_extent", (0, 0))
+    output = timings.get("wavefront_output_extent", extent)
+    dimensions = f"{extent[0]} × {extent[1]}"
+    if tuple(output) != tuple(extent):
+        dimensions += f" → {output[0]} × {output[1]}"
     return (
-        f"{extent[0]} × {extent[1]} · GPU {timings.get('gpu_frame_ms', 0):.1f} ms\n"
+        f"{dimensions} · GPU {timings.get('gpu_frame_ms', 0):.1f} ms\n"
         + " · ".join(f"{name} {value:.1f} ms" for name, value in largest)
         + f"\nHost: scene {timings.get('wavefront_scene_ms', 0):.1f} · "
         f"record {timings.get('wavefront_record_ms', 0):.1f} · "
@@ -499,6 +504,15 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.restir_reservoirs.setEnabled(
                 self.target.currentData() == "wavefront-gi"
             )
+            self.render_scale = QtWidgets.QComboBox()
+            for title, scale in (("100% (native)", 1.0), ("75%", .75),
+                                 ("67% (two-thirds)", 2 / 3), ("50%", .5)):
+                self.render_scale.addItem(title, scale)
+            self.render_scale.setToolTip(
+                "Scale GI width and height; output stays at the viewport size. "
+                "50% traces one quarter as many pixels. Apply and restart. "
+                "Available with Ordinary Shade ReLAX. Lower scales may soften detail."
+            )
             self.denoiser = QtWidgets.QCheckBox()
             self.denoiser.setChecked(True)
             self.denoiser_backend = QtWidgets.QComboBox()
@@ -546,6 +560,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 "Reduces noise but may soften detail. Apply and restart to compare."
             )
             gi_selected = self.target.currentData() == "wavefront-gi"
+            self.render_scale.setEnabled(
+                gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
+            )
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
@@ -582,11 +599,13 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             copy_diagnostics.clicked.connect(self._copy_live_diagnostics)
             self.feature.currentIndexChanged.connect(self._selection_changed)
             self.target.currentIndexChanged.connect(self._target_changed)
+            self.denoiser_backend.currentIndexChanged.connect(self._target_changed)
             form.addRow("Feature", self.feature)
             form.addRow("Rendering target", self.target)
             form.addRow("Enable shadows", self.shadows)
             form.addRow("Enable optional scene light", self.scene_lights)
             form.addRow("Shadow map size", self.map_size)
+            form.addRow("GI render scale", self.render_scale)
             form.addRow("ReSTIR reservoirs", self.restir_reservoirs)
             form.addRow("Enable GI denoising", self.denoiser)
             form.addRow("GI denoiser implementation", self.denoiser_backend)
@@ -796,6 +815,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
         def _target_changed(self, _index=None):
             gi_selected = self.target.currentData() == "wavefront-gi"
             self.restir_reservoirs.setEnabled(gi_selected)
+            self.render_scale.setEnabled(
+                gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
+            )
             self.denoiser.setEnabled(gi_selected)
             self.denoiser_backend.setEnabled(gi_selected)
             self.denoiser_iterations.setEnabled(gi_selected)
@@ -958,6 +980,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 planar_guides = self.planar_mirror_guides.isChecked()
                 transmission_cap = self.transmission_motion_cap.isChecked()
                 custom_inline = self.custom_inline.isChecked()
+                render_scale = float(self.render_scale.currentData())
                 color_weight = 2.0 if self.broader_filter.isChecked() else 4.0
                 surface_instance = self.surface.instance
                 surface_handle = self.surface.surface
@@ -990,6 +1013,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                             denoiser_planar_mirror_guides=planar_guides,
                             denoiser_transmission_motion_cap=transmission_cap,
                             custom_inline=custom_inline,
+                            render_scale=1.0 if nrd_reference else render_scale,
                         )
                         if nrd_reference:
                             gi_config = replace(

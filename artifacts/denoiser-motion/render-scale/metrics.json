@@ -1,0 +1,62 @@
+{
+  "glass-1.0": {
+    "shape": [
+      24,
+      480,
+      640,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.6013733148574829
+  },
+  "glass-0.5": {
+    "shape": [
+      24,
+      240,
+      320,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.5979994535446167
+  },
+  "target-1.0": {
+    "shape": [
+      24,
+      480,
+      640,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.6385407447814941
+  },
+  "target-0.5": {
+    "shape": [
+      24,
+      240,
+      320,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.6352781653404236
+  },
+  "camera-1.0": {
+    "shape": [
+      24,
+      480,
+      640,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.5881991386413574
+  },
+  "camera-0.5": {
+    "shape": [
+      24,
+      240,
+      320,
+      3
+    ],
+    "finite": true,
+    "mean_final_hdr": 0.5844951272010803
+  }
+}

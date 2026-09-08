@@ -273,3 +273,12 @@ def test_custom_inline_is_opt_in_and_limited_to_validated_showcases():
         assert enabled.wavefront_hybrid_inline_bounces == 3
     unsupported = viewer._gi_config(SimpleNamespace(id="volume", renderer={}), custom_inline=True)
     assert not unsupported.wavefront_custom_inline
+
+
+def test_gi_render_scale_preserves_native_default_and_sample_budget():
+    showcase = SimpleNamespace(id="glass-detail-camera", renderer={})
+    native = viewer._gi_config(showcase)
+    scaled = viewer._gi_config(showcase, render_scale=.5)
+    assert native.wavefront_render_scale == 1.0
+    assert scaled.wavefront_render_scale == .5
+    assert scaled.wavefront_restir_reservoirs == native.wavefront_restir_reservoirs
