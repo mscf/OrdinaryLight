@@ -132,6 +132,9 @@ fn main(
         textureStore(diffuse_output, pixel, vec4<f32>(diffuse, diffuse_distance));
         textureStore(specular_output, pixel, vec4<f32>(specular, specular_distance));
     }
+    if (((constants.samples.x + u32(1)) < max(constants.samples.y, u32(1)))) {
+        return;
+    }
     let valid: bool = (secondary.primary_position.w > 0.5);
     if ((!valid)) {
         if ((constants.samples.z == u32(0))) {

@@ -171,6 +171,11 @@ def prepare_relax_signals(
             specular = specular + specular_output.load(pixel).rgb
         diffuse_output.store(pixel, osh.vec4(diffuse, diffuse_distance))
         specular_output.store(pixel, osh.vec4(specular, specular_distance))
+    # Radiance accumulates across samples above, but geometry guides are
+    # consumed only after the sample batch and represent its last sample.
+    # Avoid reprojecting and overwriting those images for earlier samples.
+    if constants.samples.x + osh.u32(1) < osh.maximum(constants.samples.y, osh.u32(1)):
+        return
     valid = secondary.primary_position.w > 0.5
     if not valid:
         if constants.samples.z == osh.u32(0):

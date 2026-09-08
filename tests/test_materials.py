@@ -35,6 +35,20 @@ class MaterialProgramTests(unittest.TestCase):
             )
             self.assertEqual(binary[:4], b"\x03\x02#\x07")
 
+    def test_custom_inline_continuation_termination_compiles(self):
+        from ordinarylight.showcases.materials import fresnel_glass
+        from ordinarylight.shaders.compiler import _compile_source
+
+        compiler = find_glsl_compiler()
+        if compiler is None:
+            self.skipTest("GLSL compiler unavailable")
+        source = wavefront_material_shader_source(
+            "wavefront_primary.comp", (fresnel_glass,),
+            attribute_layout=ol.VertexAttributeLayout(()), attribute_binding=24,
+            denoiser_signal_capture=True, inline_continuation=True,
+        )
+        self.assertEqual(_compile_source(source, compiler)[:4], b"\x03\x02#\x07")
+
     def test_layered_material_evaluation_compiles_for_gi(self):
         @ol.material
         def coated(ctx):

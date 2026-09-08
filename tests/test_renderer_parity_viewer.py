@@ -259,3 +259,17 @@ def test_transmission_motion_cap_is_opt_in():
     assert viewer._gi_config(
         showcase, denoiser_transmission_motion_cap=True,
     ).denoiser_transmission_motion_cap
+
+
+def test_custom_inline_is_opt_in_and_limited_to_validated_showcases():
+    for name in viewer.CUSTOM_INLINE_SHOWCASES:
+        showcase = SimpleNamespace(id=name, renderer={})
+        default = viewer._gi_config(showcase)
+        enabled = viewer._gi_config(showcase, custom_inline=True)
+        assert not default.wavefront_custom_inline
+        assert default.wavefront_execution_strategy == "wavefront"
+        assert enabled.wavefront_custom_inline
+        assert enabled.wavefront_execution_strategy == "hybrid"
+        assert enabled.wavefront_hybrid_inline_bounces == 3
+    unsupported = viewer._gi_config(SimpleNamespace(id="volume", renderer={}), custom_inline=True)
+    assert not unsupported.wavefront_custom_inline

@@ -123,6 +123,7 @@ def wavefront_material_shader_source(
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
     native_textures=False, profiling=False, denoiser_signal_capture=False,
+    inline_continuation=False,
     material_modifier=None, material_resources=None,
 ):
     """Generate a wavefront specialization for material or surface programs."""
@@ -156,6 +157,10 @@ def wavefront_material_shader_source(
         for name, _components in program.required_attributes
     }
     source = _expanded_shader_source(shader_name)
+    if inline_continuation:
+        if shader_name != "wavefront_primary.comp":
+            raise ValueError("inline continuation requires the primary material shader")
+        source = source.replace("#define WAVE_HYBRID 0", "#define WAVE_HYBRID 1", 1)
     if denoiser_signal_capture and shader_name == "wavefront_primary.comp":
         source = source.replace(
             "#version 460\n", "#version 460\n#define WAVE_DENOISER_SIGNAL_CAPTURE 1\n", 1,
@@ -389,7 +394,7 @@ MaterialEvaluation waveApplyMaterialProgram(
             int wave_event = int(wave_surface_response.event + 0.5);
             if (wave_event == 0) {
                 path.metadata.w &= ~PATH_ACTIVE_BIT;
-                break;
+                return false;
             }
             next_direction = normalize(wave_surface_response.next_direction);
             bsdf_pdf = max(wave_surface_response.pdf, 0.000001);
@@ -507,6 +512,7 @@ def compile_wavefront_material_shader(
     overlapping_volumes=False, scattering_volumes=False,
     multiple_scattering_volumes=False, volume_empty_space_skipping=False,
     native_textures=False, profiling=False, denoiser_signal_capture=False,
+    inline_continuation=False,
     material_modifier=None, material_resources=None,
     compiler=None,
 ):
@@ -524,6 +530,7 @@ def compile_wavefront_material_shader(
             native_textures=native_textures,
             profiling=profiling,
             denoiser_signal_capture=denoiser_signal_capture,
+            inline_continuation=inline_continuation,
             material_modifier=material_modifier, material_resources=material_resources,
         ),
         compiler,

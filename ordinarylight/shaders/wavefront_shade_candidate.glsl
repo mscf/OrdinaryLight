@@ -2756,7 +2756,7 @@ void main()
         secondary.normal_pdf = vec4(surface.normal, secondary.normal_pdf.w);
         secondary_paths[path_index] = secondary;
     }
-    ShadeEmissionResult emission = shadeEmissionContribution(path, surface.material, surface.vertex_a, surface.vertex_b, surface.vertex_c, surface.geometric_normal, incoming, loaded.hit.position_t.w, surface.entering, push.area_light_weight, push.secondary_area_light_samples, (push.unified_secondary_nee != uint(0)), shadeUnifiedAreaDomainProbability(push.area_light_count, push.environment_samples, push.area_light_weight));
+    ShadeEmissionResult emission = shadeEmissionContribution(path, surface.material, surface.vertex_a, surface.vertex_b, surface.vertex_c, surface.geometric_normal, incoming, loaded.hit.position_t.w, surface.entering, push.area_light_weight, push.secondary_area_light_samples, ((path.metadata.w & uint(4)) != uint(0)), shadeUnifiedAreaDomainProbability(push.area_light_count, push.environment_samples, push.area_light_weight));
     path.radiance = vec4((path.radiance.rgb + emission.contribution), path.radiance.w);
     uint next_bounce = (shadePathBounce(path) + uint(1));
     if ((next_bounce >= push.max_bounces))

@@ -97,6 +97,7 @@ class RendererConfig:
     denoiser_signal_capture: bool = False
     wavefront_tile_capacity: int = 131072
     wavefront_exposure: float = 1.0
+    wavefront_timestamps: bool = False
     wavefront_profiling: bool = False
     wavefront_pipeline_statistics: bool = False
     vulkan_pipeline_cache: bool = True
@@ -145,6 +146,7 @@ class RendererConfig:
     wavefront_execution_strategy: str = "wavefront"
     wavefront_auto_megakernel_transmission_fraction: float = 0.25
     wavefront_auto_megakernel_triangle_threshold: int = 16384
+    wavefront_custom_inline: bool = False
     wavefront_hybrid_inline_bounces: int = 3
     wavefront_device_local_textures: bool = True
     wavefront_native_textures: bool = False
@@ -563,6 +565,11 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_auto_megakernel_triangle_threshold must be positive"
             )
+        if self.wavefront_custom_inline and (
+            self.wavefront_execution_strategy != "hybrid"
+            or self.wavefront_hybrid_inline_bounces != 3
+        ):
+            raise ValueError("experimental custom inline execution requires hybrid with three inline bounces")
         if not 3 <= self.wavefront_hybrid_inline_bounces <= 15 \
                 or self.wavefront_hybrid_inline_bounces % 2 == 0:
             raise ValueError(

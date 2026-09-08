@@ -1,0 +1,20 @@
+{
+  "glass": {
+    "max_abs": 0.013671875,
+    "rmse": 1.7914735508384183e-05,
+    "pixel_frames_above_0_01": 11,
+    "last_max_abs": 0.011474609375
+  },
+  "target": {
+    "max_abs": 0.5126953125,
+    "rmse": 0.0002047238522209227,
+    "pixel_frames_above_0_01": 9,
+    "last_max_abs": 0.0009765625
+  },
+  "camera": {
+    "max_abs": 0.0009765625,
+    "rmse": 1.0615801784297219e-06,
+    "pixel_frames_above_0_01": 0,
+    "last_max_abs": 0.0001220703125
+  }
+}

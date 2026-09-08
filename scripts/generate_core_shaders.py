@@ -5632,7 +5632,9 @@ def wavefront_shade_candidate(
         surface.vertex_c, surface.geometric_normal, incoming,
         loaded.hit.position_t.w, surface.entering,
         push.area_light_weight, push.secondary_area_light_samples,
-        push.unified_secondary_nee != osh.u32(0),
+        # MIS describes how the incoming path was sampled. The primary
+        # lighting mode may differ from the mode used by this next bounce.
+        (path.metadata.w & osh.u32(4)) != osh.u32(0),
         shadeUnifiedAreaDomainProbability(
             push.area_light_count, push.environment_samples,
             push.area_light_weight,

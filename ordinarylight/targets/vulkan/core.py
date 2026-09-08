@@ -51,6 +51,7 @@ MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT = 0x00000002
 # 1000165000.
 PIPELINE_BIND_POINT_RAY_TRACING_KHR = 1000165000
 WINDOW_FRAMES_IN_FLIGHT = 2
+WAVEFRONT_TIMESTAMP_CAPACITY = 32768
 MAX_NATIVE_TEXTURES = 64
 MAX_NATIVE_VOLUMES = 16
 RECONSTRUCT_BASE_FORMAT = "f3If2IfIfIfIIf"
@@ -703,6 +704,7 @@ class VulkanWavefrontExecutor:
             self.core.native_textures_enabled,
             self.core.config.wavefront_profiling,
             self._denoiser_signals_active(),
+            self.core.config.wavefront_custom_inline,
             self.core.config.material_modifier,
         )
         if signature == self.custom_material_signature:
@@ -730,6 +732,7 @@ class VulkanWavefrontExecutor:
                 native_textures=self.core.native_textures_enabled,
                 profiling=self.core.config.wavefront_profiling,
                 denoiser_signal_capture=self._denoiser_signals_active(),
+                inline_continuation=self.core.config.wavefront_custom_inline,
                 material_modifier=self.core.config.material_modifier,
                 material_resources=self.core.material_resources,
             )
@@ -3132,8 +3135,10 @@ class VulkanWavefrontExecutor:
             persistent = False
             if fused_primary:
                 strategy = self.core.resolved_execution_strategy
-                if self.custom_primary_pipeline is not None:
+                if (self.custom_primary_pipeline is not None
+                        and not self.core.config.wavefront_custom_inline):
                     strategy = "wavefront"
+                self.last_dispatch_strategy = strategy
                 persistent = strategy == "persistent"
                 ser = strategy == "ser"
                 megakernel = strategy == "megakernel" or persistent or ser
@@ -3152,12 +3157,12 @@ class VulkanWavefrontExecutor:
                     "wavefront": (
                         self.custom_primary_pipeline or self.primary_pipeline
                     ),
-                    "hybrid": self.hybrid_pipeline,
+                    "hybrid": self.custom_primary_pipeline or self.hybrid_pipeline,
                     "megakernel": self.megakernel_pipeline,
                     "persistent": self.persistent_pipeline,
                     "ser": self.ser_megakernel_pipeline,
                 }[strategy]
-                if hybrid and opaque_specialization:
+                if hybrid and opaque_specialization and self.custom_primary_pipeline is None:
                     primary_pipeline = self.hybrid_opaque_pipeline
                     if (
                         self.core.config.wavefront_untextured_specialization
@@ -3794,12 +3799,14 @@ class VulkanWavefrontExecutor:
                     command, output_image_slot, tile_width * tile_height,
                     image_width, image_height, sample_index, sample_count,
                 )
+                if timestamp:
+                    timestamp(command, "resolve_hdr")
                 self.record_relax_prepare(
                     command, output_image_slot, tile_width * tile_height,
                     image_width, image_height, sample_index, sample_count,
                 )
                 if timestamp:
-                    timestamp(command, "resolve_hdr")
+                    timestamp(command, "relax_prepare")
             if readback:
                 copies = [
                     (self.ray_buffer, self.ray_readback, 16),
@@ -6913,14 +6920,14 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         width, height = self.swapchain_extent
         frame_slot = self.window_frame_index
         frame = self.window_frames[frame_slot]
-        profiling = self.config.wavefront_profiling
+        profiling = self.config.wavefront_profiling or self.config.wavefront_timestamps
         if profiling and self.wavefront_timestamp_query_pool is None:
             self.wavefront_timestamp_query_pool = vk.vkCreateQueryPool(
                 self.device,
                 vk.VkQueryPoolCreateInfo(
                     sType=vk.VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
                     queryType=vk.VK_QUERY_TYPE_TIMESTAMP,
-                    queryCount=WINDOW_FRAMES_IN_FLIGHT * 1024,
+                    queryCount=WINDOW_FRAMES_IN_FLIGHT * WAVEFRONT_TIMESTAMP_CAPACITY,
                 ), None,
             )
         wait_start = time.perf_counter()
@@ -6932,7 +6939,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         stage_timings = {}
         work_counters = (
             self.wavefront_executor.read_work_counters(frame_slot)
-            if profiling and self.wavefront_executor is not None
+            if self.config.wavefront_profiling and self.wavefront_executor is not None
             else {}
         )
         indirect_reuse_counters = (
@@ -6973,7 +6980,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             timestamps = vk.ffi.new("uint64_t[]", previous_query_count)
             vk.vkGetQueryPoolResults(
                 self.device, self.wavefront_timestamp_query_pool,
-                frame_slot * 1024, previous_query_count,
+                frame_slot * WAVEFRONT_TIMESTAMP_CAPACITY, previous_query_count,
                 vk.ffi.sizeof(timestamps), timestamps,
                 vk.ffi.sizeof("uint64_t"),
                 vk.VK_QUERY_RESULT_64_BIT | vk.VK_QUERY_RESULT_WAIT_BIT,
@@ -7096,13 +7103,13 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         vk.vkResetFences(self.device, 1, [frame["fence"]])
 
         record_start = time.perf_counter()
-        query_base = frame_slot * 1024
+        query_base = frame_slot * WAVEFRONT_TIMESTAMP_CAPACITY
         query_labels = []
 
         def timestamp_stage(command_buffer, label):
             if not profiling:
                 return
-            if len(query_labels) >= 1023:
+            if len(query_labels) >= WAVEFRONT_TIMESTAMP_CAPACITY - 2:
                 return
             query_labels.append(label)
             vk.vkCmdWriteTimestamp(
@@ -7278,15 +7285,16 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             if profiling:
                 vk.vkCmdResetQueryPool(
                     secondary, self.wavefront_timestamp_query_pool,
-                    query_base, 1024,
+                    query_base, WAVEFRONT_TIMESTAMP_CAPACITY,
                 )
                 vk.vkCmdWriteTimestamp(
                     secondary, vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                     self.wavefront_timestamp_query_pool, query_base,
                 )
-                self.wavefront_executor.record_work_counter_reset(
-                    secondary, frame_slot
-                )
+                if self.config.wavefront_profiling:
+                    self.wavefront_executor.record_work_counter_reset(
+                        secondary, frame_slot
+                    )
             if indirect_needs_clear:
                 indirect_extent = frame["wavefront_indirect_reservoir_extent"]
                 self.wavefront_executor.record_indirect_reuse_clear(
@@ -7705,6 +7713,10 @@ class VulkanRayQueryCore(VulkanSceneUploader):
         if scene_ms > 5.0 or swapchain_ms > 5.0:
             self.wavefront_cadence_ms = 0.0
             self.wavefront_last_frame_start = None
+        effective_strategy = getattr(
+            self.wavefront_executor, "last_dispatch_strategy",
+            self.resolved_execution_strategy,
+        )
         self.last_timings = {
             "wavefront_frame_slot": frame_slot,
             "wavefront_history_source_slot": (
@@ -7770,9 +7782,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             "accumulated_frames": self.accumulation_frame,
             "present_mode": self.present_mode_name,
             "direct_swapchain_storage": self.swapchain_direct_storage,
-            "wavefront_execution_strategy": (
-                self.resolved_execution_strategy
-            ),
+            "wavefront_requested_execution_strategy": self.config.wavefront_execution_strategy,
+            "wavefront_resolved_execution_strategy": self.resolved_execution_strategy,
+            "wavefront_execution_strategy": effective_strategy,
             "wavefront_megakernel_group_swizzle": (
                 self.config.wavefront_megakernel_group_swizzle
             ),
@@ -7904,7 +7916,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 "ser": "full_path",
                 "hybrid": "inline_prefix",
                 "wavefront": "full_path",
-            }[self.resolved_execution_strategy],
+            }[effective_strategy],
         }
         return (width, height)
 

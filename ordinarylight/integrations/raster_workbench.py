@@ -23,6 +23,10 @@ from ordinarylight.outputs import to_sdr
 from ordinarylight.renderers.raster._diagnostics import frame_difference
 
 
+CUSTOM_INLINE_SHOWCASES = frozenset((
+    "glass-detail-camera", "glass-detail-motion", "glass-detail-target",
+))
+
 RESOLUTIONS = (
     ("Preview — 720p", (1280, 720)),
     ("Full HD — 1080p", (1920, 1080)),
@@ -171,11 +175,16 @@ def _gi_config(
     denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
     denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
     denoiser_planar_mirror_guides=False, denoiser_transmission_motion_cap=False,
+    custom_inline=False,
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
+    custom_inline = bool(custom_inline and getattr(showcase, "id", None) in CUSTOM_INLINE_SHOWCASES)
     return ol.RendererConfig(
         samples_per_pixel=1,
+        wavefront_timestamps=True,
+        wavefront_custom_inline=custom_inline,
+        wavefront_execution_strategy="hybrid" if custom_inline else "wavefront",
 
         wavefront_restir_di=bool(settings.get("wavefront_restir_di", True)),
         wavefront_restir_reservoirs=int(restir_reservoirs),
@@ -327,6 +336,24 @@ def _set_optional_scene_lights(scene, enabled):
             scene.update_directional_light(light, intensity=intensity)
         elif isinstance(light, ol.SpotLight):
             scene.update_spot_light(light, intensity=intensity)
+
+
+def _gi_performance_text(timings):
+    """Summarize host wall times separately from delayed GPU timestamps."""
+    groups = {}
+    for label, milliseconds in timings.get("wavefront_stage_ms", {}).items():
+        group = label.split(".")[0]
+        groups[group] = groups.get(group, 0.0) + milliseconds
+    largest = sorted(groups.items(), key=lambda item: item[1], reverse=True)[:4]
+    extent = timings.get("wavefront_render_extent", (0, 0))
+    return (
+        f"{extent[0]} × {extent[1]} · GPU {timings.get('gpu_frame_ms', 0):.1f} ms\n"
+        + " · ".join(f"{name} {value:.1f} ms" for name, value in largest)
+        + f"\nHost: scene {timings.get('wavefront_scene_ms', 0):.1f} · "
+        f"record {timings.get('wavefront_record_ms', 0):.1f} · "
+        f"wait {timings.get('fence_wait_ms', 0):.1f} · "
+        f"present {timings.get('wavefront_present_ms', 0):.1f} ms"
+    )
 
 
 def _direct_render_extent(target, selected_extent, surface_extent):
@@ -498,6 +525,11 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 "Experimental BSDF-based channels. Improves the optics fixture "
                 "but regresses the motion room. Apply and restart to compare."
             )
+            self.custom_inline = QtWidgets.QCheckBox()
+            self.custom_inline.setToolTip(
+                "Experimental three-bounce inline execution for the glass-detail "
+                "showcases. Apply and restart renderer."
+            )
             self.transmission_motion_cap = QtWidgets.QCheckBox()
             self.transmission_motion_cap.setToolTip(
                 "Limit moving glass history to four frames. Experimental; "
@@ -522,6 +554,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.broader_filter.setEnabled(gi_selected)
             self.planar_mirror_guides.setEnabled(gi_selected)
             self.transmission_motion_cap.setEnabled(gi_selected)
+            self.custom_inline.setEnabled(
+                gi_selected and self.feature.currentData().id in CUSTOM_INLINE_SHOWCASES
+            )
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
             self.slow_diagnostic = QtWidgets.QCheckBox()
@@ -561,6 +596,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             form.addRow("Broader spatial filter (experimental)", self.broader_filter)
             form.addRow("Planar mirror guides (experimental)", self.planar_mirror_guides)
             form.addRow("Glass motion history cap (experimental)", self.transmission_motion_cap)
+            form.addRow("Inline continuations (experimental)", self.custom_inline)
             form.addRow("Animate scene / camera", self.animate)
             form.addRow("Slow swapchain diagnostic (2 FPS)", self.slow_diagnostic)
             form.addRow(self.description); form.addRow(self.help)
@@ -737,6 +773,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
 
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
+            self.custom_inline.setEnabled(
+                self.target.currentData() == "wavefront-gi"
+                and item.id in CUSTOM_INLINE_SHOWCASES
+            )
             required_target = item.renderer.get("required_target")
             if required_target is not None:
                 required_index = self.target.findData(required_target)
@@ -764,6 +804,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.broader_filter.setEnabled(gi_selected)
             self.planar_mirror_guides.setEnabled(gi_selected)
             self.transmission_motion_cap.setEnabled(gi_selected)
+            self.custom_inline.setEnabled(
+                gi_selected and self.feature.currentData().id in CUSTOM_INLINE_SHOWCASES
+            )
             if self.scene_value is not None:
                 self._extension_call("cancel_pending_updates")
                 self.restart_pending = True
@@ -914,6 +957,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 evaluated_lobes = self.evaluated_lobes.isChecked()
                 planar_guides = self.planar_mirror_guides.isChecked()
                 transmission_cap = self.transmission_motion_cap.isChecked()
+                custom_inline = self.custom_inline.isChecked()
                 color_weight = 2.0 if self.broader_filter.isChecked() else 4.0
                 surface_instance = self.surface.instance
                 surface_handle = self.surface.surface
@@ -945,6 +989,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                             denoiser_color_weight=color_weight,
                             denoiser_planar_mirror_guides=planar_guides,
                             denoiser_transmission_motion_cap=transmission_cap,
+                            custom_inline=custom_inline,
                         )
                         if nrd_reference:
                             gi_config = replace(
@@ -1182,6 +1227,17 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.fps_overlay.adjustSize()
                 width, height = self.extent
                 timings = self.renderer.last_timings
+                if self.renderer_target == "wavefront-gi":
+                    performance = _gi_performance_text(timings)
+                    self.fps_overlay.setText(f"{fps:.1f} FPS\n{performance}")
+                    self.fps_overlay.adjustSize()
+                    self.diagnostic_frames.append({
+                        "completed_frame": self.completed_frame_count,
+                        "fps": fps,
+                        **{key: value for key, value in timings.items()
+                           if key.startswith("wavefront_")
+                           or key in ("gpu_frame_ms", "fence_wait_ms")},
+                    })
                 if (
                     self.renderer_target == "wavefront-gi"
                     and not nrd_reference

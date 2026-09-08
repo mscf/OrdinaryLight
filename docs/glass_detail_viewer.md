@@ -74,3 +74,29 @@ A mouse-transparent FPS overlay stays at the top-left of the render surface
 in windowed, maximized and fullscreen views. It reports the rolling completed-
 frame rate used by the status panel, including presentation and scene-update
 costs, rather than an isolated GPU timing.
+
+The GI overlay also reports actual internal dimensions, GPU frame time, the
+four largest GPU stage groups, and host scene/record/wait/present times.
+GPU timings come from an earlier completed frame; host and GPU times overlap
+and should not be summed. **Copy live diagnostics** exports the recent timing
+samples for comparison. Timestamp collection uses the production shaders;
+it does not enable the heavier work-counter profiling variants.
+
+See the [4K performance investigation](../artifacts/denoiser-motion/4k-performance/README.md)
+for measured costs and the distinction between native 4K and upscaled output.
+
+## Experimental inline continuations
+
+For `glass-detail-camera`, `glass-detail-motion`, or `glass-detail-target`,
+enable **Inline continuations (experimental)** and click **Apply and restart
+renderer**. This keeps the first three bounces in the custom primary shader
+before continuing through the staged queues. It is off by default and the
+control is disabled for other showcases.
+
+The tested sequences had essentially unchanged reference error, bias and
+settled noise. Tiny ray differences can still produce isolated pixel
+outliers; this is experimental rather than bit-identical execution. See the
+[quality gate](../artifacts/denoiser-motion/inline-quality/README.md).
+Copied diagnostics distinguish requested, resolved and actually dispatched
+execution modes; enabled inline execution should report `hybrid` as the
+actual `wavefront_execution_strategy`.
