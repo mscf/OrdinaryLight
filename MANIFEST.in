@@ -1,0 +1,3 @@
+recursive-include native/fsr2 *.h *.cpp *.glsl *.md *.txt
+include scripts/build_fsr2.py
+include scripts/compile_shaders.py

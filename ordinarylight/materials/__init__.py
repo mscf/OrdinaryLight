@@ -8,3 +8,5 @@ from .gpu import (
 from .graph import MaterialGraph as MaterialGraph, MaterialNode as MaterialNode, MaterialResource as MaterialResource
 
 from .resources import VulkanMaterialResources as VulkanMaterialResources
+
+from .layout import MaterialResourceLayout as MaterialResourceLayout

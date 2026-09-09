@@ -1,0 +1,12 @@
+{
+  "shade-glsl": {
+    "max_abs": 0.0,
+    "rmse": 0.0,
+    "cases": 4096
+  },
+  "shade-wgsl": {
+    "max_abs": 0.0,
+    "rmse": 0.0,
+    "cases": 4096
+  }
+}

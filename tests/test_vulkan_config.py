@@ -24,6 +24,7 @@ class RendererConfigTests(unittest.TestCase):
     def test_swapchain_teardown_invalidates_commands_before_destroying_resources(self):
         core = object.__new__(VulkanRayQueryCore)
         core.device = object()
+        core.wavefront_executor = None
         resource = type("Buffer", (), {"buffer": object()})()
         core.window_frames = [
             {"wavefront_command_key": (1280, 720), "nv12_buffer": resource},

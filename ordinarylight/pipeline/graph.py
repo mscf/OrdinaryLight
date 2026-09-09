@@ -285,33 +285,84 @@ class CompiledVulkanGraph:
         }
         self.order = tuple(n.name for n in nodes)
 
+    def prepare_recording(self, runtime, *, after=()):
+        """Prepare for an externally owned command buffer and queue submission.
+
+        Caller serializes recording/submission on runtime.lock, honors dependencies
+        and semaphore requirements, and retains resources through GPU completion.
+        Call submitted only after queue submission succeeds. Replaying cached
+        commands is allowed only with unchanged bindings and compatible layouts.
+        """
+        runtime.require_open()
+        for owner, revision in self._generations.items():
+            if owner.binding_revision != revision:
+                raise ValueError("Resource bindings changed; recompile the graph")
+        dependencies = list(after)
+        passes, waits, signals = [], [], []
+        context = {}
+        for node in self.nodes:
+            node.operation.validate()
+            node.operation.prepare(context)
+            dependencies.extend(node.operation.dependencies())
+            waits.extend(node.operation.wait_semaphores)
+            signals.extend(node.operation.signal_semaphores)
+            passes.extend(
+                replace(p, name=f"{node.name}/{i}/{p.name}")
+                for i, p in enumerate(node.operation.passes)
+            )
+        record, owners, commit = VulkanPassPipeline(passes)._prepare_recording(runtime)
+        return VulkanGraphRecording(
+            record,
+            owners,
+            commit,
+            self.nodes,
+            tuple(dict.fromkeys(dependencies)),
+            waits,
+            signals,
+        )
+
     def execute(self, runtime, *, after=()):
         with runtime.lock:
-            for owner, revision in self._generations.items():
-                if owner.binding_revision != revision:
-                    raise ValueError("Resource bindings changed; recompile the graph")
-            dependencies = list(after)
-            passes, waits, signals = [], [], []
-            context = {}
-            for node in self.nodes:
-                node.operation.validate()
-                node.operation.prepare(context)
-                dependencies.extend(node.operation.dependencies())
-                waits.extend(node.operation.wait_semaphores)
-                signals.extend(node.operation.signal_semaphores)
-                passes.extend(
-                    replace(p, name=f"{node.name}/{i}/{p.name}")
-                    for i, p in enumerate(node.operation.passes)
-                )
-            completion = VulkanPassPipeline(passes).execute(
-                runtime,
-                after=tuple(dict.fromkeys(dependencies)),
-                wait_semaphores=waits,
-                signal_semaphores=signals,
+            recording = self.prepare_recording(runtime, after=after)
+            completion = runtime.submit(
+                recording.record,
+                resources=recording.resources,
+                after=recording.dependencies,
+                wait_semaphores=recording.wait_semaphores,
+                signal_semaphores=recording.signal_semaphores,
             )
-            for node in self.nodes:
-                node.operation.submitted(completion)
+            recording.submitted(completion)
             return completion
+
+
+class VulkanGraphRecording:
+    """Prepared recording with explicit publication after external submission.
+
+    A cached command may be submitted again, publishing each completion. Its owner
+    must preserve all borrowed bindings and command-embedded policy between uses.
+    """
+
+    def __init__(self, record, resources, commit, nodes, dependencies, waits, signals):
+        self._record, self._commit, self._nodes = record, commit, nodes
+        self.resources = resources
+        self.dependencies = dependencies
+        self.wait_semaphores, self.signal_semaphores = tuple(waits), tuple(signals)
+        self._recorded = False
+        self._attempted = False
+
+    def record(self, command):
+        if self._attempted:
+            raise RuntimeError("Prepare a new recording to record commands again")
+        self._attempted = True
+        self._record(command)
+        self._recorded = True
+
+    def submitted(self, completion):
+        if not self._recorded:
+            raise RuntimeError("Record commands before publishing submission")
+        self._commit()
+        for node in self._nodes:
+            node.operation.submitted(completion)
 
 
 def reflected_operation(kernel, reflection, *, workgroups, push_constants=b""):

@@ -104,9 +104,10 @@ actual `wavefront_execution_strategy`.
 ## GI render scale
 
 Choose **GI render scale** and click **Apply and restart renderer**. Native
-100% remains the default; 75%, two-thirds, and 50% reduce both internal
+100% remains the default; 75%, two-thirds, 50%, and 25% reduce both internal
 width and height while presentation follows the viewport, including F11
-fullscreen. At 4K output, 50% renders GI at 1920 × 1080. The overlay shows
+fullscreen. At 4K output, 50% renders GI at 1920 × 1080 and 25% at
+960 × 540 (one sixteenth as many pixels as native). The overlay shows
 `internal → output` dimensions when they differ, and copied diagnostics
 include both extents. The control is disabled for the NRD reference preview
 and other rendering targets.
@@ -140,3 +141,55 @@ options, since its input bypasses those operations. Ordinary Shade ReLAX
 and the viewer's existing temporal denoising remain supported.
 
 See the [three-filter comparison and timing results](../artifacts/denoiser-motion/fsr1-upscale/README.md).
+
+## Experimental FSR 2 temporal upscaling
+
+The Linux Vulkan viewer also supports **FSR 2 (experimental, native bridge)**.
+Build the optional bridge once from the checkout:
+
+```sh
+.venv/bin/python scripts/build_fsr2.py
+```
+
+This requires g++, Vulkan development headers/libraries, and glslangValidator
+(the existing `.tools/glslang` extraction is supported). Then select FSR 2
+in **GI upscale filter** and **Apply and restart renderer**. Start at 50% scale.
+For an installed wheel, set `ORDINARYLIGHT_FSR2_LIBRARY` to the built `.so`'s
+absolute path. Bilinear, cubic, and FSR 1 do not need the bridge.
+
+FSR 2 uses AMD's temporal upscaler on the presenter's existing GPU device,
+with coherent frame jitter, HDR color, reversed finite depth, pixel motion
+vectors, and a conservative reactive mask for glossy or invalid surfaces.
+RCAS sharpening is disabled. At 100% it still runs temporal reconstruction;
+it is not a spatial-filter bypass like FSR 1 or cubic.
+
+This initial mode requires a perspective camera and Ordinary Shade ReLAX.
+Disable **Planar mirror guides** and any separate temporal reconstruction,
+stationary accumulation, diffuse reconstruction filtering, or object effects.
+The ordinary ReLAX histories remain active. FSR history is recreated on extent
+changes and reset when the denoiser history is invalid. FSR dispatch commands
+are recorded each frame rather than reused from the command cache.
+
+The reactive mask reduces reliance on history for shiny surfaces; it does not
+provide motion through refraction or reflected-object motion. Glass/mirror
+quality during arbitrary motion remains experimental. The GPU overlay and
+copied diagnostics include a separate `fsr2` stage.
+
+See the [FSR 2 comparisons and provisional timings](../artifacts/denoiser-motion/fsr2-upscale/README.md)
+and [native build details](../native/fsr2/README.md).
+
+## OrdinaryShade EASU comparison
+
+**EASU OrdinaryShade (experimental)** is a typed FP32 port of AMD's EASU
+algorithm. Select it in **GI upscale filter**, then apply/restart. The original
+**FSR 1 EASU** option remains the reference implementation. Both have sharpening
+disabled and bypass spatial scaling at 100%. No native library is needed for
+either option.
+
+The port lives in `ordinarylight/shaders/easu.py`, with AMD's copyright/MIT
+notice and pinned source attribution. Its pure filter helpers generate both
+GLSL and WGSL without the AMD headers. The current combined Vulkan shader
+still includes AMD's implementation so both paths can be compared in one
+viewer; the new path executes the OrdinaryShade helpers.
+
+See the [numerical, rendered-output and timing comparisons](../artifacts/denoiser-motion/easu-shade/README.md).

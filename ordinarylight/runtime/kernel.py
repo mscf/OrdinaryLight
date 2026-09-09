@@ -23,22 +23,117 @@ class VulkanKernel:
     """Immutable set-0 buffer/image/sampler/AS descriptors and compute pipeline.
 
     Bindings borrow resources; those must remain open until kernel close.
+    Optional image_arrays maps additional bindings to nonempty tuples of storage
+    image resources. sampled_image_arrays maps bindings to nonempty tuples of
+    (sampled-image resource, sampler resource) pairs for combined samplers.
+    The shader sampler dimension must match the supplied image view. Both images
+    and samplers are validated and retained like scalar resources; descriptors
+    use GENERAL layout by default; sampled_image_layouts can select read-only
+    layout per combined-array binding. Graph image uses must match.
     Pipeline execution is recorded through VulkanPass, including non-image
-    workgroup sizes. Push constants are explicitly supplied bytes.
+    workgroup sizes. Push constants are explicitly supplied bytes. An optional
+    material_resources bundle supplies and retains descriptor set 1; graph passes
+    must include its uses (shade_operation does this automatically).
     """
 
-    def __init__(self, runtime, spirv, bindings, *, push_constant_size=0):
+    def __init__(
+        self,
+        runtime,
+        spirv,
+        bindings,
+        *,
+        push_constant_size=0,
+        image_arrays=None,
+        sampled_image_arrays=None,
+        sampled_image_layouts=None,
+        material_resources=None,
+    ):
         if spirv is None:
             raise TypeError("VulkanKernel requires SPIR-V")
         with runtime.lock:
             self._initialize(
-                runtime, spirv, bindings, push_constant_size=push_constant_size
+                runtime,
+                spirv,
+                bindings,
+                push_constant_size=push_constant_size,
+                image_arrays=image_arrays,
+                sampled_image_arrays=sampled_image_arrays,
+                sampled_image_layouts=sampled_image_layouts,
+                material_resources=material_resources,
             )
 
-    def _initialize(self, runtime, spirv, bindings, *, push_constant_size=0):
+    def _initialize(
+        self,
+        runtime,
+        spirv,
+        bindings,
+        *,
+        push_constant_size=0,
+        image_arrays=None,
+        sampled_image_arrays=None,
+        sampled_image_layouts=None,
+        material_resources=None,
+    ):
         runtime.require_open()
         self.runtime = runtime
+        self.material_resources = material_resources
+        if material_resources is not None:
+            material_resources.require_open()
+            if material_resources.runtime is not runtime:
+                raise ValueError("Material resources must belong to kernel runtime")
         self.bindings = dict(bindings)
+        self.image_arrays = {
+            key: tuple(values) for key, values in (image_arrays or {}).items()
+        }
+        self.sampled_image_arrays = {
+            key: tuple(tuple(pair) for pair in values)
+            for key, values in (sampled_image_arrays or {}).items()
+        }
+        if self.sampled_image_arrays.keys() & (
+            self.bindings.keys() | self.image_arrays.keys()
+        ):
+            raise ValueError("Scalar and array bindings must not overlap")
+        self.sampled_image_layouts = dict(sampled_image_layouts or {})
+        if self.sampled_image_layouts.keys() - self.sampled_image_arrays.keys():
+            raise ValueError("Sampled layouts require matching array bindings")
+        if any(
+            layout
+            not in (
+                vk.VK_IMAGE_LAYOUT_GENERAL,
+                vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            )
+            for layout in self.sampled_image_layouts.values()
+        ):
+            raise ValueError("Invalid sampled array layout")
+        sampled_bindings = []
+        for binding, values in self.sampled_image_arrays.items():
+            if not values:
+                raise ValueError("Sampled arrays must not be empty")
+            for pair in values:
+                if (
+                    len(pair) != 2
+                    or pair[0].kind != "image"
+                    or pair[0].descriptor != "sampled_texture_2d"
+                    or pair[1].kind != "sampler"
+                ):
+                    raise ValueError(
+                        "Sampled arrays require (sampled image, sampler) resource pairs"
+                    )
+                sampled_bindings.extend((binding, resource) for resource in pair)
+        if self.bindings.keys() & self.image_arrays.keys():
+            raise ValueError("Scalar and array bindings must not overlap")
+        for values in self.image_arrays.values():
+            if not values or any(
+                r.kind != "image" or r.descriptor not in (None, "image") for r in values
+            ):
+                raise ValueError(
+                    "Image arrays require nonempty storage image resources"
+                )
+        all_bindings = list(self.bindings.items()) + [
+            (binding, resource)
+            for binding, values in self.image_arrays.items()
+            for resource in values
+        ]
         self.push_constant_size = int(push_constant_size)
         if self.push_constant_size < 0 or self.push_constant_size % 4:
             raise ValueError(
@@ -47,7 +142,7 @@ class VulkanKernel:
         limits = vk.vkGetPhysicalDeviceProperties(runtime.physical_device).limits
         if self.push_constant_size > limits.maxPushConstantsSize:
             raise ValueError("push constants exceed runtime device limit")
-        for binding, resource in self.bindings.items():
+        for binding, resource in all_bindings + sampled_bindings:
             if not isinstance(binding, int) or binding < 0:
                 raise ValueError("binding indices must be nonnegative integers")
             if resource.owner.runtime is not runtime:
@@ -89,6 +184,21 @@ class VulkanKernel:
                 and resource.size > limits.maxUniformBufferRange
             ):
                 raise ValueError("Uniform buffer exceeds device descriptor range")
+        sampler_count = len(sampled_bindings) // 2 + sum(
+            resource.kind == "sampler" for _, resource in all_bindings
+        )
+        sampled_count = len(sampled_bindings) // 2 + sum(
+            resource.descriptor == "sampled_texture_2d" for _, resource in all_bindings
+        )
+        if sampler_count > min(
+            limits.maxPerStageDescriptorSamplers, limits.maxDescriptorSetSamplers
+        ):
+            raise ValueError("Kernel exceeds device sampler descriptor limits")
+        if sampled_count > min(
+            limits.maxPerStageDescriptorSampledImages,
+            limits.maxDescriptorSetSampledImages,
+        ):
+            raise ValueError("Kernel exceeds device sampled-image descriptor limits")
         self.closed = False
         self.module = self.layout = self.pipeline_layout = self.pipeline = self.pool = (
             None
@@ -104,12 +214,17 @@ class VulkanKernel:
             acceleration_structure=vk.VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
         )
         try:
-            from .resources import VulkanBuffer, VulkanImage, VulkanSampler
-
-            for owner in dict.fromkeys(r.owner for r in self.bindings.values()):
-                if isinstance(owner, (VulkanBuffer, VulkanImage, VulkanSampler)):
+            for owner in dict.fromkeys(
+                r.owner for _, r in all_bindings + sampled_bindings
+            ):
+                if callable(getattr(owner, "retain", None)) and callable(
+                    getattr(owner, "release", None)
+                ):
                     owner.retain(self)
                     self._retained_allocations.append(owner)
+            if material_resources is not None:
+                material_resources.retain(self)
+                self._retained_allocations.append(material_resources)
             if spirv is not None:
                 self.module = vk.vkCreateShaderModule(
                     runtime.device,
@@ -124,6 +239,23 @@ class VulkanKernel:
                     stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
                 )
                 for binding, resource in self.bindings.items()
+            ] + [
+                vk.VkDescriptorSetLayoutBinding(
+                    binding=binding,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    descriptorCount=len(values),
+                    stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+                )
+                for binding, values in self.image_arrays.items()
+            ]
+            descriptors += [
+                vk.VkDescriptorSetLayoutBinding(
+                    binding=binding,
+                    descriptorType=vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    descriptorCount=len(values),
+                    stageFlags=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+                )
+                for binding, values in self.sampled_image_arrays.items()
             ]
             self.layout = vk.vkCreateDescriptorSetLayout(
                 runtime.device,
@@ -146,8 +278,13 @@ class VulkanKernel:
             self.pipeline_layout = vk.vkCreatePipelineLayout(
                 runtime.device,
                 vk.VkPipelineLayoutCreateInfo(
-                    setLayoutCount=1,
-                    pSetLayouts=[self.layout],
+                    setLayoutCount=1 + int(material_resources is not None),
+                    pSetLayouts=[self.layout]
+                    + (
+                        [material_resources.layout]
+                        if material_resources is not None
+                        else []
+                    ),
                     pushConstantRangeCount=len(ranges),
                     pPushConstantRanges=ranges or None,
                 ),
@@ -156,7 +293,9 @@ class VulkanKernel:
             if spirv is not None:
                 # Keep the CFFI entry-point storage alive through pipeline creation.
                 stage = vk.VkPipelineShaderStageCreateInfo(
-                    stage=vk.VK_SHADER_STAGE_COMPUTE_BIT, module=self.module, pName="main"
+                    stage=vk.VK_SHADER_STAGE_COMPUTE_BIT,
+                    module=self.module,
+                    pName="main",
                 )
                 info = vk.VkComputePipelineCreateInfo(
                     stage=stage, layout=self.pipeline_layout
@@ -170,8 +309,12 @@ class VulkanKernel:
                 )[0]
             counts = Counter(
                 kinds[resource.descriptor or resource.kind]
-                for resource in self.bindings.values()
+                for _, resource in all_bindings
             )
+            if self.sampled_image_arrays:
+                counts[vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER] += sum(
+                    len(values) for values in self.sampled_image_arrays.values()
+                )
             sizes = [
                 vk.VkDescriptorPoolSize(type=kind, descriptorCount=count)
                 for kind, count in counts.items()
@@ -227,6 +370,41 @@ class VulkanKernel:
                         **options,
                     )
                 )
+            for binding, values in self.image_arrays.items():
+                writes.append(
+                    vk.VkWriteDescriptorSet(
+                        dstSet=self.descriptor,
+                        dstBinding=binding,
+                        descriptorCount=len(values),
+                        descriptorType=vk.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                        pImageInfo=[
+                            vk.VkDescriptorImageInfo(
+                                imageView=r.owner.view,
+                                imageLayout=vk.VK_IMAGE_LAYOUT_GENERAL,
+                            )
+                            for r in values
+                        ],
+                    )
+                )
+            for binding, values in self.sampled_image_arrays.items():
+                writes.append(
+                    vk.VkWriteDescriptorSet(
+                        dstSet=self.descriptor,
+                        dstBinding=binding,
+                        descriptorCount=len(values),
+                        descriptorType=vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        pImageInfo=[
+                            vk.VkDescriptorImageInfo(
+                                imageView=image.owner.view,
+                                sampler=sampler.handle,
+                                imageLayout=self.sampled_image_layouts.get(
+                                    binding, vk.VK_IMAGE_LAYOUT_GENERAL
+                                ),
+                            )
+                            for image, sampler in values
+                        ],
+                    )
+                )
             vk.vkUpdateDescriptorSets(
                 runtime.device, len(writes), writes or None, 0, None
             )
@@ -238,7 +416,18 @@ class VulkanKernel:
         self.runtime.require_open()
         if self.closed:
             raise RuntimeError("Vulkan kernel is closed")
-        for resource in self.bindings.values():
+        if self.material_resources is not None:
+            self.material_resources.require_open()
+        for resource in (
+            *self.bindings.values(),
+            *(r for values in self.image_arrays.values() for r in values),
+            *(
+                r
+                for values in self.sampled_image_arrays.values()
+                for pair in values
+                for r in pair
+            ),
+        ):
             resource.owner.require_open()
 
     def bind(self, command, push_constants=b""):
@@ -266,6 +455,9 @@ class VulkanKernel:
                 len(push_constants),
                 raw,
             )
+
+        if self.material_resources is not None:
+            self.material_resources.bind_graph(command, self.pipeline_layout)
 
     def close(self):
         with self.runtime.lock:
@@ -298,13 +490,34 @@ class VulkanKernel:
 class VulkanDescriptorSet(VulkanKernel):
     """Internal immutable descriptors using the kernel's resource validation."""
 
-    def __init__(self, runtime, bindings):
+    def __init__(
+        self,
+        runtime,
+        bindings,
+        *,
+        image_arrays=None,
+        sampled_image_arrays=None,
+        sampled_image_layouts=None,
+    ):
         with runtime.lock:
-            self._initialize(runtime, None, bindings)
+            self._initialize(
+                runtime,
+                None,
+                bindings,
+                image_arrays=image_arrays,
+                sampled_image_arrays=sampled_image_arrays,
+                sampled_image_layouts=sampled_image_layouts,
+            )
 
     def bind(self, command, pipeline_layout, *, set_index=0):
         self.require_open()
         vk.vkCmdBindDescriptorSets(
-            command, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
-            pipeline_layout, set_index, 1, [self.descriptor], 0, None,
+            command,
+            vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline_layout,
+            set_index,
+            1,
+            [self.descriptor],
+            0,
+            None,
         )

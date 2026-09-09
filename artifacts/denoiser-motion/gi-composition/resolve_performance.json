@@ -1,0 +1,3441 @@
+{
+  "cached": {
+    "width": 1280,
+    "height": 720,
+    "render_scale": 0.5,
+    "warmup": 12,
+    "samples": 30,
+    "results": [
+      {
+        "path": "legacy",
+        "motion": false,
+        "summary": {
+          "gpu_frame_ms": 10.171344,
+          "wavefront_record_ms": 0.15079600052558817,
+          "wavefront_command_record_ms": 0.005896999937249348,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 11.720927501301048,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 10.311776,
+            "wavefront_record_ms": 0.1028260012390092,
+            "wavefront_command_record_ms": 0.004662000719690695,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.783601999719394,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.541216,
+            "wavefront_record_ms": 0.15673199959564954,
+            "wavefront_command_record_ms": 0.0059869998949579895,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.085145998455118,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.84368,
+            "wavefront_record_ms": 0.1467850015615113,
+            "wavefront_command_record_ms": 0.005896999937249348,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.732249000488082,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.172832,
+            "wavefront_record_ms": 0.15019200145616196,
+            "wavefront_command_record_ms": 0.0062850012909621,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.313424997846596,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.274528,
+            "wavefront_record_ms": 0.1420090011379216,
+            "wavefront_command_record_ms": 0.0052530012908391654,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.561322997906245,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.263072,
+            "wavefront_record_ms": 0.13673599823960103,
+            "wavefront_command_record_ms": 0.006337999366223812,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.862858999549644,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.520256,
+            "wavefront_record_ms": 0.15165199874900281,
+            "wavefront_command_record_ms": 0.007097998604876921,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.720823000970995,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.917408,
+            "wavefront_record_ms": 0.1432370008842554,
+            "wavefront_command_record_ms": 0.005737001629313454,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.062862999096978,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.48144,
+            "wavefront_record_ms": 0.15074100156198256,
+            "wavefront_command_record_ms": 0.005636000423692167,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.869724999793107,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.959776,
+            "wavefront_record_ms": 0.16159100050572306,
+            "wavefront_command_record_ms": 0.005484002031153068,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.900711997237522,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.186592,
+            "wavefront_record_ms": 0.15085099948919378,
+            "wavefront_command_record_ms": 0.005606998456642032,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.80419699792401,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 7.049248,
+            "wavefront_record_ms": 0.14746499800821766,
+            "wavefront_command_record_ms": 0.005179997970117256,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.004436000803253,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.773216,
+            "wavefront_record_ms": 0.14667800132883713,
+            "wavefront_command_record_ms": 0.005437999789137393,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.148869002383435,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.966976,
+            "wavefront_record_ms": 0.15496400010306388,
+            "wavefront_command_record_ms": 0.005896999937249348,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.37326099787606,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.123968,
+            "wavefront_record_ms": 0.09822499850997701,
+            "wavefront_command_record_ms": 0.004797999281436205,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.652731999376556,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 14.183456,
+            "wavefront_record_ms": 0.12448800043785013,
+            "wavefront_command_record_ms": 0.005207999492995441,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.371196000254713,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.776704,
+            "wavefront_record_ms": 0.09934599802363664,
+            "wavefront_command_record_ms": 0.004620000254362822,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.231736999528948,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.284192,
+            "wavefront_record_ms": 0.09454700193600729,
+            "wavefront_command_record_ms": 0.00423700112150982,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.618564000556944,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.511968,
+            "wavefront_record_ms": 0.1541620003990829,
+            "wavefront_command_record_ms": 0.007037000614218414,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.921861001406796,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 14.018848,
+            "wavefront_record_ms": 0.15732000247226097,
+            "wavefront_command_record_ms": 0.007156002538977191,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.687667997350218,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.826112,
+            "wavefront_record_ms": 0.15962500037858263,
+            "wavefront_command_record_ms": 0.006933998520253226,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.955549001664622,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.169856,
+            "wavefront_record_ms": 0.1426250018994324,
+            "wavefront_command_record_ms": 0.005746001988882199,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.090635002707131,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.855584,
+            "wavefront_record_ms": 0.15319999874918722,
+            "wavefront_command_record_ms": 0.005721998604713008,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.709606002114015,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.975424,
+            "wavefront_record_ms": 0.13949600179330446,
+            "wavefront_command_record_ms": 0.006050002411939204,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.571200998034328,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.5656,
+            "wavefront_record_ms": 0.17552800272824243,
+            "wavefront_command_record_ms": 0.00833600279293023,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.034103001904441,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.004832,
+            "wavefront_record_ms": 0.17582099826540798,
+            "wavefront_command_record_ms": 0.008217997674364597,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.021487996913493,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.253344,
+            "wavefront_record_ms": 0.16157199934241362,
+            "wavefront_command_record_ms": 0.006597998435609043,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.951695000490872,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.794432,
+            "wavefront_record_ms": 0.1864849982666783,
+            "wavefront_command_record_ms": 0.008408998837694526,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.266944003087701,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.065728,
+            "wavefront_record_ms": 0.15792699923622422,
+            "wavefront_command_record_ms": 0.006936999852769077,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.335959999996703,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 14.239328,
+            "wavefront_record_ms": 0.15847300164750777,
+            "wavefront_command_record_ms": 0.006623002263950184,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.196356000349624,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": false,
+        "summary": {
+          "gpu_frame_ms": 10.210192,
+          "wavefront_record_ms": 0.1541264973639045,
+          "wavefront_command_record_ms": 0.0059444992075441405,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 12.818953000532929,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 13.972864,
+            "wavefront_record_ms": 0.113207999675069,
+            "wavefront_command_record_ms": 0.005568999768001959,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.528883998020319,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.363136,
+            "wavefront_record_ms": 0.18532499962020665,
+            "wavefront_command_record_ms": 0.0051390015869401395,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.342295999085763,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.452224,
+            "wavefront_record_ms": 0.10663799912435934,
+            "wavefront_command_record_ms": 0.00539699976798147,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.078051997174043,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.194368,
+            "wavefront_record_ms": 0.10314899918739684,
+            "wavefront_command_record_ms": 0.00492799881612882,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.32421099889325,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.331296,
+            "wavefront_record_ms": 0.10437699893373065,
+            "wavefront_command_record_ms": 0.0051249990065116435,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.483082999504404,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.27728,
+            "wavefront_record_ms": 0.16070000128820539,
+            "wavefront_command_record_ms": 0.007995000487426296,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.050445002183551,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.521984,
+            "wavefront_record_ms": 0.16915699961828068,
+            "wavefront_command_record_ms": 0.0074119998316746205,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.420712999097304,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.779936,
+            "wavefront_record_ms": 0.15265600086422637,
+            "wavefront_command_record_ms": 0.006172002031235024,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.688215003028745,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.682336,
+            "wavefront_record_ms": 0.16395399870816618,
+            "wavefront_command_record_ms": 0.006491998647106811,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.386376001610188,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.818272,
+            "wavefront_record_ms": 0.1447689974156674,
+            "wavefront_command_record_ms": 0.005821999366162345,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.260977000958519,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.185856,
+            "wavefront_record_ms": 0.15543199697276577,
+            "wavefront_command_record_ms": 0.00595099845668301,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.191489000339061,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.3608,
+            "wavefront_record_ms": 0.12826899910578504,
+            "wavefront_command_record_ms": 0.005835001502418891,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.740675000211922,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.329152,
+            "wavefront_record_ms": 0.10290999853168614,
+            "wavefront_command_record_ms": 0.004826997610507533,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.66157600225415,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.572672,
+            "wavefront_record_ms": 0.16046299788285978,
+            "wavefront_command_record_ms": 0.006316997314570472,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.55400999696576,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.772384,
+            "wavefront_record_ms": 0.22118199922260828,
+            "wavefront_command_record_ms": 0.006963000487303361,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.323877999529941,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.462752,
+            "wavefront_record_ms": 0.15938899741740897,
+            "wavefront_command_record_ms": 0.00740999894333072,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.881624996633036,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.082752,
+            "wavefront_record_ms": 0.15722100215498358,
+            "wavefront_command_record_ms": 0.006046000635251403,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.736113997059874,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.280384,
+            "wavefront_record_ms": 0.15785199866513722,
+            "wavefront_command_record_ms": 0.006843998562544584,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.568791000172496,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.365888,
+            "wavefront_record_ms": 0.15950200031511486,
+            "wavefront_command_record_ms": 0.0078249977377709,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.004202999989502,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.1176,
+            "wavefront_record_ms": 0.1654659972700756,
+            "wavefront_command_record_ms": 0.00801599890110083,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.315379997540731,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.609088,
+            "wavefront_record_ms": 0.16676299856044352,
+            "wavefront_command_record_ms": 0.00697699942975305,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.494778001273517,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.177568,
+            "wavefront_record_ms": 0.15126600192161277,
+            "wavefront_command_record_ms": 0.005828002031194046,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.152571999147767,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.47456,
+            "wavefront_record_ms": 0.147328002640279,
+            "wavefront_command_record_ms": 0.00525900031789206,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.647321000666125,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.943168,
+            "wavefront_record_ms": 0.1637010027479846,
+            "wavefront_command_record_ms": 0.005937999958405271,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 17.964301001484273,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.728448,
+            "wavefront_record_ms": 0.1595190005900804,
+            "wavefront_command_record_ms": 0.006800000846851617,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.281233000772772,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.734976,
+            "wavefront_record_ms": 0.14585000099032186,
+            "wavefront_command_record_ms": 0.006186000973684713,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.069115000893362,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.226016,
+            "wavefront_record_ms": 0.1461630017729476,
+            "wavefront_command_record_ms": 0.005090001650387421,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.502117998228641,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.180064,
+            "wavefront_record_ms": 0.1528209977550432,
+            "wavefront_command_record_ms": 0.005256999429548159,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.096998998255003,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.452576,
+            "wavefront_record_ms": 0.1433869983884506,
+            "wavefront_command_record_ms": 0.005228001100476831,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.438238998991437,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.043616,
+            "wavefront_record_ms": 0.14334400111692958,
+            "wavefront_command_record_ms": 0.005442001565825194,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.533329002006212,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": false,
+        "summary": {
+          "gpu_frame_ms": 10.078479999999999,
+          "wavefront_record_ms": 0.14959349755372386,
+          "wavefront_command_record_ms": 0.005457997758639976,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 11.303052000585012,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 10.080064,
+            "wavefront_record_ms": 0.1540669982205145,
+            "wavefront_command_record_ms": 0.0061270002333913,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.02567300121882,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.901792,
+            "wavefront_record_ms": 0.15177800014498644,
+            "wavefront_command_record_ms": 0.005412002792581916,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.5096289991925,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.363392,
+            "wavefront_record_ms": 0.15759799862280488,
+            "wavefront_command_record_ms": 0.006301001121755689,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.243879997986369,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.38064,
+            "wavefront_record_ms": 0.14587800251320004,
+            "wavefront_command_record_ms": 0.005453999619930983,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.131593001366127,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.343296,
+            "wavefront_record_ms": 0.1564880003570579,
+            "wavefront_command_record_ms": 0.006738999218214303,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.966020000429126,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.041984,
+            "wavefront_record_ms": 0.15125599747989327,
+            "wavefront_command_record_ms": 0.005943998985458165,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.759360001335153,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.763904,
+            "wavefront_record_ms": 0.15733200052636676,
+            "wavefront_command_record_ms": 0.006376998499035835,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.410203998821089,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.570464,
+            "wavefront_record_ms": 0.153168999531772,
+            "wavefront_command_record_ms": 0.005717000021832064,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.519666997424792,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.426304,
+            "wavefront_record_ms": 0.15049199646455236,
+            "wavefront_command_record_ms": 0.005454996426124126,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.160271998960525,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.564352,
+            "wavefront_record_ms": 0.1442419998056721,
+            "wavefront_command_record_ms": 0.005460999091155827,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.35819800038007,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.852704,
+            "wavefront_record_ms": 0.1473260017519351,
+            "wavefront_command_record_ms": 0.00557600287720561,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.539007998275338,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.428608,
+            "wavefront_record_ms": 0.14480299796559848,
+            "wavefront_command_record_ms": 0.005179001163924113,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.835215002676705,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.662496,
+            "wavefront_record_ms": 0.1496499971835874,
+            "wavefront_command_record_ms": 0.005785997927887365,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.159933001181344,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.872672,
+            "wavefront_record_ms": 0.14128099792287685,
+            "wavefront_command_record_ms": 0.0050390008254908025,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.56306599942036,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.185184,
+            "wavefront_record_ms": 0.15215700113913044,
+            "wavefront_command_record_ms": 0.00569300027564168,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.218105999432737,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.33664,
+            "wavefront_record_ms": 0.15225900278892368,
+            "wavefront_command_record_ms": 0.005666002834914252,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.61735400010366,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.947488,
+            "wavefront_record_ms": 0.14937699961592443,
+            "wavefront_command_record_ms": 0.005570000212173909,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.240193002478918,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.47744,
+            "wavefront_record_ms": 0.14536299931933172,
+            "wavefront_command_record_ms": 0.005219000740908086,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.818155999004375,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.19872,
+            "wavefront_record_ms": 0.1506709995737765,
+            "wavefront_command_record_ms": 0.006002999725751579,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.284923998668091,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.83136,
+            "wavefront_record_ms": 0.142189997859532,
+            "wavefront_command_record_ms": 0.0052059986046515405,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.536871000018436,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.350784,
+            "wavefront_record_ms": 0.14953699792386033,
+            "wavefront_command_record_ms": 0.005259997124085203,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.590157999307849,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.018176,
+            "wavefront_record_ms": 0.15009900016593747,
+            "wavefront_command_record_ms": 0.005160000000614673,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.401531999581493,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.375456,
+            "wavefront_record_ms": 0.15170300321187824,
+            "wavefront_command_record_ms": 0.005855003109900281,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.840063000912778,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.284448,
+            "wavefront_record_ms": 0.14458500299951993,
+            "wavefront_command_record_ms": 0.0050960006774403155,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 18.49232400127221,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.9152,
+            "wavefront_record_ms": 0.1460249986848794,
+            "wavefront_command_record_ms": 0.0054390002333093435,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.025797000911552,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 14.34288,
+            "wavefront_record_ms": 0.14568700134987012,
+            "wavefront_command_record_ms": 0.005123998562339693,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.212487002107082,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.076896,
+            "wavefront_record_ms": 0.14288600141298957,
+            "wavefront_command_record_ms": 0.005132998921908438,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.856350000627572,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.199456,
+            "wavefront_record_ms": 0.1571180000610184,
+            "wavefront_command_record_ms": 0.0059779995353892446,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.087494997715112,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.25808,
+            "wavefront_record_ms": 0.14946600276743993,
+            "wavefront_command_record_ms": 0.005076002707937732,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.247906000789953,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.822848,
+            "wavefront_record_ms": 0.14301999908639118,
+            "wavefront_command_record_ms": 0.0052770010370295495,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.718861998000648,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "legacy",
+        "motion": false,
+        "summary": {
+          "gpu_frame_ms": 10.219488,
+          "wavefront_record_ms": 0.1539625009172596,
+          "wavefront_command_record_ms": 0.006147498424979858,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 11.682165501042618,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 14.03728,
+            "wavefront_record_ms": 0.16404000052716583,
+            "wavefront_command_record_ms": 0.007228001777548343,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.929922998911934,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.277344,
+            "wavefront_record_ms": 0.18657300097402185,
+            "wavefront_command_record_ms": 0.009520001185592264,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.679471001116326,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.828288,
+            "wavefront_record_ms": 0.1816870026232209,
+            "wavefront_command_record_ms": 0.007749000360490754,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.03128900003503,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.448416,
+            "wavefront_record_ms": 0.16751799921621569,
+            "wavefront_command_record_ms": 0.006761998520232737,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.029825000965502,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.91088,
+            "wavefront_record_ms": 0.15087000065250322,
+            "wavefront_command_record_ms": 0.005939000402577221,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.088201001257403,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 14.039744,
+            "wavefront_record_ms": 0.14375699902302586,
+            "wavefront_command_record_ms": 0.005490001058205962,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.548273000400513,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.123552,
+            "wavefront_record_ms": 0.1513699971837923,
+            "wavefront_command_record_ms": 0.005164998583495617,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.510031999117928,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.604928,
+            "wavefront_record_ms": 0.1490340000600554,
+            "wavefront_command_record_ms": 0.005542999133467674,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.430067999754101,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.378048,
+            "wavefront_record_ms": 0.1533050017314963,
+            "wavefront_command_record_ms": 0.005976999091217294,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.057814998726826,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.146304,
+            "wavefront_record_ms": 0.14363100126502104,
+            "wavefront_command_record_ms": 0.0051579991122707725,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.656792998721357,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.806656,
+            "wavefront_record_ms": 0.10528699931455776,
+            "wavefront_command_record_ms": 0.00454900145996362,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.903990998485824,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.706816,
+            "wavefront_record_ms": 0.15958899894030765,
+            "wavefront_command_record_ms": 0.0066829998104367405,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.333465998788597,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.978336,
+            "wavefront_record_ms": 0.10049699994851835,
+            "wavefront_command_record_ms": 0.004165998689131811,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.68486000096891,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.175296,
+            "wavefront_record_ms": 0.15435900058946572,
+            "wavefront_command_record_ms": 0.006214002496562898,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.466637001925847,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.781696,
+            "wavefront_record_ms": 0.14690399984829128,
+            "wavefront_command_record_ms": 0.00557300154468976,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.251937998778885,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.512448,
+            "wavefront_record_ms": 0.15382700075861067,
+            "wavefront_command_record_ms": 0.00626600012765266,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.483623999083648,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.155648,
+            "wavefront_record_ms": 0.11282599734840915,
+            "wavefront_command_record_ms": 0.005909998435527086,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.518425999995088,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.241088,
+            "wavefront_record_ms": 0.12421200153767131,
+            "wavefront_command_record_ms": 0.005747002433054149,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.614730996981962,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.447872,
+            "wavefront_record_ms": 0.11013699986506253,
+            "wavefront_command_record_ms": 0.005167999916011468,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.098543000116479,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.66944,
+            "wavefront_record_ms": 0.1520750010968186,
+            "wavefront_command_record_ms": 0.006786998710595071,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.926013001153478,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.94336,
+            "wavefront_record_ms": 0.15727299978607334,
+            "wavefront_command_record_ms": 0.006475002010120079,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.367304003215395,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.41952,
+            "wavefront_record_ms": 0.15567000082228333,
+            "wavefront_command_record_ms": 0.006026999471941963,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.293821000435855,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.262368,
+            "wavefront_record_ms": 0.11133900261484087,
+            "wavefront_command_record_ms": 0.004818000888917595,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.081484001711942,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.10944,
+            "wavefront_record_ms": 0.1603050004632678,
+            "wavefront_command_record_ms": 0.0061969985836185515,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 18.94376999916858,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.509536,
+            "wavefront_record_ms": 0.15409800107590854,
+            "wavefront_command_record_ms": 0.006097998266341165,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 13.901690999773564,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.812544,
+            "wavefront_record_ms": 0.1554970003780909,
+            "wavefront_command_record_ms": 0.00687700230628252,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.980934002873255,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.197888,
+            "wavefront_record_ms": 0.1611989973753225,
+            "wavefront_command_record_ms": 0.0068970002757851034,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.843554002349265,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.00368,
+            "wavefront_record_ms": 0.15567099762847647,
+            "wavefront_command_record_ms": 0.006233000021893531,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.098633000074187,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.80768,
+            "wavefront_record_ms": 0.1674349987297319,
+            "wavefront_command_record_ms": 0.007295999239431694,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.277274000254693,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.742848,
+            "wavefront_record_ms": 0.16437699741800316,
+            "wavefront_command_record_ms": 0.007976999768288806,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.2270030012005,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "legacy",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 8.156608,
+          "wavefront_record_ms": 0.11351849934726488,
+          "wavefront_command_record_ms": 0.005131001671543345,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 9.191884999381728,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 10.116096,
+            "wavefront_record_ms": 0.15256199912982993,
+            "wavefront_command_record_ms": 0.007062997610773891,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.658831001725048,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.271936,
+            "wavefront_record_ms": 0.13838700033375062,
+            "wavefront_command_record_ms": 0.007096001354511827,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.697290000185603,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.551904,
+            "wavefront_record_ms": 0.15407600221806206,
+            "wavefront_command_record_ms": 0.007096001354511827,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.96235200020601,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.75312,
+            "wavefront_record_ms": 0.14647600255557336,
+            "wavefront_command_record_ms": 0.006831000064266846,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 13.979639999888605,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.179168,
+            "wavefront_record_ms": 0.10114900214830413,
+            "wavefront_command_record_ms": 0.005490001058205962,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.679537000512937,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.747328,
+            "wavefront_record_ms": 0.09287500142818317,
+            "wavefront_command_record_ms": 0.004617999366018921,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.033404000045266,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.731904,
+            "wavefront_record_ms": 0.09012499867822044,
+            "wavefront_command_record_ms": 0.004244000592734665,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.082081001106417,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.282176,
+            "wavefront_record_ms": 0.14847399870632216,
+            "wavefront_command_record_ms": 0.00672000169288367,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.231554999540094,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.040352,
+            "wavefront_record_ms": 0.12434900054358877,
+            "wavefront_command_record_ms": 0.006598998879780993,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.469239999016281,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.15008,
+            "wavefront_record_ms": 0.12188099935883656,
+            "wavefront_command_record_ms": 0.006669000867987052,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.221395998290973,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.340448,
+            "wavefront_record_ms": 0.11672400069073774,
+            "wavefront_command_record_ms": 0.005926998710492626,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.314515998587012,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.058848,
+            "wavefront_record_ms": 0.12068800060660578,
+            "wavefront_command_record_ms": 0.013024997315369546,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.771408000437077,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.115168,
+            "wavefront_record_ms": 0.17405900143785402,
+            "wavefront_command_record_ms": 0.00876600097399205,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 8.210383999539772,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.847136,
+            "wavefront_record_ms": 0.11031299800379202,
+            "wavefront_command_record_ms": 0.004875997547060251,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.480921001842944,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.562496,
+            "wavefront_record_ms": 0.10924299931502901,
+            "wavefront_command_record_ms": 0.004904999514110386,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.951260998903308,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.364672,
+            "wavefront_record_ms": 0.10524399840505794,
+            "wavefront_command_record_ms": 0.004823999915970489,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.859030997380614,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.240288,
+            "wavefront_record_ms": 0.13194400162319653,
+            "wavefront_command_record_ms": 0.005138001142768189,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.643030003237072,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.909664,
+            "wavefront_record_ms": 0.11941499906242825,
+            "wavefront_command_record_ms": 0.005541998689295724,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.433811999362661,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.460416,
+            "wavefront_record_ms": 0.0946770014706999,
+            "wavefront_command_record_ms": 0.004164001438766718,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.017051997536328,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.343872,
+            "wavefront_record_ms": 0.0947580010688398,
+            "wavefront_command_record_ms": 0.004034998710267246,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.173385999223683,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.191744,
+            "wavefront_record_ms": 0.12444100138964131,
+            "wavefront_command_record_ms": 0.0051240022003185,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.480320997274248,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.581312,
+            "wavefront_record_ms": 0.09617300020181574,
+            "wavefront_command_record_ms": 0.00405799801228568,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.156247000239091,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.37152,
+            "wavefront_record_ms": 0.09836399840423837,
+            "wavefront_command_record_ms": 0.004239998816046864,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.421439998230198,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.325056,
+            "wavefront_record_ms": 0.1014320005197078,
+            "wavefront_command_record_ms": 0.0049640002544038,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 8.118162000755547,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.480384,
+            "wavefront_record_ms": 0.1001009986794088,
+            "wavefront_command_record_ms": 0.004644996806746349,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.11091000266606,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.29712,
+            "wavefront_record_ms": 0.12441299986676313,
+            "wavefront_command_record_ms": 0.005612997483694926,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.147142998292111,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.281024,
+            "wavefront_record_ms": 0.09563300045556389,
+            "wavefront_command_record_ms": 0.004120000085094944,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.486975999810966,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 5.957792,
+            "wavefront_record_ms": 0.10014399958890863,
+            "wavefront_command_record_ms": 0.004434001311892644,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.666985999094322,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.36592,
+            "wavefront_record_ms": 0.11744499715860002,
+            "wavefront_command_record_ms": 0.004972996975993738,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.554400000022724,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.662144,
+            "wavefront_record_ms": 0.10728499910328537,
+            "wavefront_command_record_ms": 0.005455000064102933,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.43628800046281,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 7.193455999999999,
+          "wavefront_record_ms": 0.14749050023965538,
+          "wavefront_command_record_ms": 0.005873500413144939,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 8.139256000504247,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 10.880192,
+            "wavefront_record_ms": 0.17266199938603677,
+            "wavefront_command_record_ms": 0.0069689995143562555,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.635953000222798,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.488032,
+            "wavefront_record_ms": 0.15972299661370926,
+            "wavefront_command_record_ms": 0.0072599978011567146,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.491877998807468,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.261728,
+            "wavefront_record_ms": 0.1479499987908639,
+            "wavefront_command_record_ms": 0.005917001544730738,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.060987999371719,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.536544,
+            "wavefront_record_ms": 0.1021209973259829,
+            "wavefront_command_record_ms": 0.004577999789034948,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.151175000733929,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.024768,
+            "wavefront_record_ms": 0.16084700109786354,
+            "wavefront_command_record_ms": 0.006979000318096951,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 15.010986997367581,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.183456,
+            "wavefront_record_ms": 0.10246400051983073,
+            "wavefront_command_record_ms": 0.004451001586858183,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.367366998456419,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.94512,
+            "wavefront_record_ms": 0.18675100000109524,
+            "wavefront_command_record_ms": 0.008505001460434869,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.933449000120163,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.327744,
+            "wavefront_record_ms": 0.15896700278972276,
+            "wavefront_command_record_ms": 0.007452999852830544,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.569884997792542,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.771392,
+            "wavefront_record_ms": 0.1433020006516017,
+            "wavefront_command_record_ms": 0.005094003427075222,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.760573000879958,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.488576,
+            "wavefront_record_ms": 0.14711000039824285,
+            "wavefront_command_record_ms": 0.005459001840790734,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.524210999690695,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.691808,
+            "wavefront_record_ms": 0.15135300054680556,
+            "wavefront_command_record_ms": 0.005268000677460805,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.162650999816833,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.336512,
+            "wavefront_record_ms": 0.14215099872672,
+            "wavefront_command_record_ms": 0.005297999450704083,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.373053002083907,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.328896,
+            "wavefront_record_ms": 0.13858000238542445,
+            "wavefront_command_record_ms": 0.004893001460004598,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.315219002426602,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.568576,
+            "wavefront_record_ms": 0.16638899978715926,
+            "wavefront_command_record_ms": 0.007351001841016114,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.916436999948928,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.488736,
+            "wavefront_record_ms": 0.14823899982729927,
+            "wavefront_command_record_ms": 0.0058299992815591395,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.616758997755824,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.662528,
+            "wavefront_record_ms": 0.1555400012875907,
+            "wavefront_command_record_ms": 0.006426002073567361,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.144135001813993,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.34048,
+            "wavefront_record_ms": 0.1478710000810679,
+            "wavefront_command_record_ms": 0.0059679987316485494,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.181739001680398,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.820448,
+            "wavefront_record_ms": 0.1385200012009591,
+            "wavefront_command_record_ms": 0.005190002411836758,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.088416002166923,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.295648,
+            "wavefront_record_ms": 0.09829299960983917,
+            "wavefront_command_record_ms": 0.004122997779631987,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.470927001122618,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.9216,
+            "wavefront_record_ms": 0.11985099990852177,
+            "wavefront_command_record_ms": 0.00622799780103378,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.483250999939628,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.4136,
+            "wavefront_record_ms": 0.12449000132619403,
+            "wavefront_command_record_ms": 0.006354999641189352,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.714838997344486,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.329792,
+            "wavefront_record_ms": 0.10234400178887881,
+            "wavefront_command_record_ms": 0.005197001883061603,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 8.34506300088833,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.667904,
+            "wavefront_record_ms": 0.18079299843520857,
+            "wavefront_command_record_ms": 0.008720999176148325,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.484609999664826,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 7.61552,
+            "wavefront_record_ms": 0.12403599976096302,
+            "wavefront_command_record_ms": 0.004974997864337638,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 8.704649997525848,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.275392,
+            "wavefront_record_ms": 0.12612800128408708,
+            "wavefront_command_record_ms": 0.004790003004018217,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.354345999279758,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.632992,
+            "wavefront_record_ms": 0.17471799947088584,
+            "wavefront_command_record_ms": 0.008381997758988291,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.720277000771603,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.381184,
+            "wavefront_record_ms": 0.15917500059003942,
+            "wavefront_command_record_ms": 0.006908001523697749,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.698690999764949,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.471808,
+            "wavefront_record_ms": 0.15804099894012325,
+            "wavefront_command_record_ms": 0.007513001037295908,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.593824997456977,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.494752,
+            "wavefront_record_ms": 0.14178700075717643,
+            "wavefront_command_record_ms": 0.005583002348430455,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.582592999824556,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.51168,
+            "wavefront_record_ms": 0.13968599887448363,
+            "wavefront_command_record_ms": 0.005130001227371395,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.31903399800649,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.545184,
+          "wavefront_record_ms": 0.09811600102693774,
+          "wavefront_command_record_ms": 0.004506002369453199,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 7.669843500480056,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 6.169664,
+            "wavefront_record_ms": 0.09481000233790837,
+            "wavefront_command_record_ms": 0.00421900040237233,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.057105999498162,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.3272,
+            "wavefront_record_ms": 0.09611800123821013,
+            "wavefront_command_record_ms": 0.004329998773755506,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.652313001017319,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.099872,
+            "wavefront_record_ms": 0.11722300041583367,
+            "wavefront_command_record_ms": 0.005339999916031957,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.62464399728924,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.75456,
+            "wavefront_record_ms": 0.0981720004347153,
+            "wavefront_command_record_ms": 0.004459998308448121,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.997084998147329,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.91104,
+            "wavefront_record_ms": 0.0927520013647154,
+            "wavefront_command_record_ms": 0.004301000444684178,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.241288997553056,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.23696,
+            "wavefront_record_ms": 0.09876100011751987,
+            "wavefront_command_record_ms": 0.004675999662140384,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.219210001494503,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.400416,
+            "wavefront_record_ms": 0.09518800288788043,
+            "wavefront_command_record_ms": 0.004435001756064594,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.577796001598472,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.292064,
+            "wavefront_record_ms": 0.09355899965157732,
+            "wavefront_command_record_ms": 0.004048997652716935,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.455176000803476,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.432448,
+            "wavefront_record_ms": 0.09740300083649345,
+            "wavefront_command_record_ms": 0.004392997652757913,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.52628899863339,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.60896,
+            "wavefront_record_ms": 0.09680400034994818,
+            "wavefront_command_record_ms": 0.004479999915929511,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.243525997182587,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.669376,
+            "wavefront_record_ms": 0.09588399916538037,
+            "wavefront_command_record_ms": 0.004326997441239655,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.382410000602249,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.508704,
+            "wavefront_record_ms": 0.11250000170548446,
+            "wavefront_command_record_ms": 0.004403998900670558,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.835028999281349,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.289216,
+            "wavefront_record_ms": 0.09530600073048845,
+            "wavefront_command_record_ms": 0.00453200118499808,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.258181001816411,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.166816,
+            "wavefront_record_ms": 0.09640099960961379,
+            "wavefront_command_record_ms": 0.004485998942982405,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.966553003527224,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.372448,
+            "wavefront_record_ms": 0.09656499969423749,
+            "wavefront_command_record_ms": 0.004502002411754802,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.147909000195796,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.086176,
+            "wavefront_record_ms": 0.09806000161916018,
+            "wavefront_command_record_ms": 0.0045100023271515965,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.825465000380063,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.02752,
+            "wavefront_record_ms": 0.1517689997854177,
+            "wavefront_command_record_ms": 0.0068209992605261505,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.679719998122891,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.1984,
+            "wavefront_record_ms": 0.12133600102970377,
+            "wavefront_command_record_ms": 0.0059680023696273565,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.65996700283722,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.494848,
+            "wavefront_record_ms": 0.0973109999904409,
+            "wavefront_command_record_ms": 0.004636996891349554,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.5175849997322075,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.581664,
+            "wavefront_record_ms": 0.09505200068815611,
+            "wavefront_command_record_ms": 0.004403998900670558,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.928808002063306,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.666624,
+            "wavefront_record_ms": 0.12451899965526536,
+            "wavefront_command_record_ms": 0.0053109979489818215,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.922694999957457,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.139712,
+            "wavefront_record_ms": 0.09402100113220513,
+            "wavefront_command_record_ms": 0.004592999175656587,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.144131000037305,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.255136,
+            "wavefront_record_ms": 0.09850800051935948,
+            "wavefront_command_record_ms": 0.00435499896411784,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.400926999252988,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.165184,
+            "wavefront_record_ms": 0.09904499893309548,
+            "wavefront_command_record_ms": 0.004467998223844916,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.788067000248702,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.418368,
+            "wavefront_record_ms": 0.12081500244676135,
+            "wavefront_command_record_ms": 0.006209000275703147,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.031481000012718,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.419328,
+            "wavefront_record_ms": 0.12824600344174542,
+            "wavefront_command_record_ms": 0.00689500302542001,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.869830999581609,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.055456,
+            "wavefront_record_ms": 0.11325299783493392,
+            "wavefront_command_record_ms": 0.005821999366162345,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.520367002143757,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.148832,
+            "wavefront_record_ms": 0.10768500214908272,
+            "wavefront_command_record_ms": 0.005551999493036419,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.23719300085213,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.330272,
+            "wavefront_record_ms": 0.11629900109255686,
+            "wavefront_command_record_ms": 0.006607999239349738,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.651538999809418,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.263744,
+            "wavefront_record_ms": 0.1031300016620662,
+            "wavefront_command_record_ms": 0.0052819996199104935,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.920283001818461,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      },
+      {
+        "path": "legacy",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.549072,
+          "wavefront_record_ms": 0.10042050053016283,
+          "wavefront_command_record_ms": 0.004416498995851725,
+          "wavefront_command_cache_hit": 1.0,
+          "wall_ms": 10.69596749948687,
+          "resolve_cpu_ms": 0.0,
+          "resolve_calls": 0.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 6.262432,
+            "wavefront_record_ms": 0.09439700079383329,
+            "wavefront_command_record_ms": 0.0039529986679553986,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.019011999451322,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.265504,
+            "wavefront_record_ms": 0.09801300257095136,
+            "wavefront_command_record_ms": 0.004036002792418003,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.358206999924732,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.257664,
+            "wavefront_record_ms": 0.0959879980655387,
+            "wavefront_command_record_ms": 0.004303998139221221,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.103591998107731,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.64208,
+            "wavefront_record_ms": 0.14287100202636793,
+            "wavefront_command_record_ms": 0.007353999535553157,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.99713799986057,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.995328,
+            "wavefront_record_ms": 0.12856499961344525,
+            "wavefront_command_record_ms": 0.006550999387400225,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 6.891685003211023,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 5.989888,
+            "wavefront_record_ms": 0.12759799938066863,
+            "wavefront_command_record_ms": 0.0070829992182552814,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.512437998841051,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 5.96944,
+            "wavefront_record_ms": 0.10594799823593348,
+            "wavefront_command_record_ms": 0.004953999450663105,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.00547899841331,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.515136,
+            "wavefront_record_ms": 0.1219850018969737,
+            "wavefront_command_record_ms": 0.005829002475365996,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.860996997507755,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.051776,
+            "wavefront_record_ms": 0.09101399700739421,
+            "wavefront_command_record_ms": 0.004226996679790318,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.248100999277085,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 9.837568,
+            "wavefront_record_ms": 0.08898300075088628,
+            "wavefront_command_record_ms": 0.003992001438746229,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.116386001958745,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.446368,
+            "wavefront_record_ms": 0.10043599831988104,
+            "wavefront_command_record_ms": 0.004639001417672262,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.881974001677008,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.547584,
+            "wavefront_record_ms": 0.0945350002439227,
+            "wavefront_command_record_ms": 0.004398996679810807,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.135792002372909,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.103008,
+            "wavefront_record_ms": 0.12022900045849383,
+            "wavefront_command_record_ms": 0.004979003279004246,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.255327996972483,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.316832,
+            "wavefront_record_ms": 0.10040500274044462,
+            "wavefront_command_record_ms": 0.004214001819491386,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.159930999478092,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.214112,
+            "wavefront_record_ms": 0.1011180029308889,
+            "wavefront_command_record_ms": 0.004036002792418003,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.229398998693796,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.389024,
+            "wavefront_record_ms": 0.09677100024418905,
+            "wavefront_command_record_ms": 0.004147001163801178,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.416262000333518,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.211552,
+            "wavefront_record_ms": 0.09870999929262325,
+            "wavefront_command_record_ms": 0.004139001248404384,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.6492070002132095,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.281696,
+            "wavefront_record_ms": 0.10001199916587211,
+            "wavefront_command_record_ms": 0.004297002305975184,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.993945001246175,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.393024,
+            "wavefront_record_ms": 0.09963399861590005,
+            "wavefront_command_record_ms": 0.004523997631622478,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.63689199872897,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.116512,
+            "wavefront_record_ms": 0.10457399912411347,
+            "wavefront_command_record_ms": 0.004535999323707074,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.838566999154864,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.27952,
+            "wavefront_record_ms": 0.09967100049834698,
+            "wavefront_command_record_ms": 0.004434001311892644,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.88314799926593,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.019968,
+            "wavefront_record_ms": 0.0984069993137382,
+            "wavefront_command_record_ms": 0.00388399712392129,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.132630002161022,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.0744,
+            "wavefront_record_ms": 0.10188500164076686,
+            "wavefront_command_record_ms": 0.0042430001485627145,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.258552002895158,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.265152,
+            "wavefront_record_ms": 0.11009099762304686,
+            "wavefront_command_record_ms": 0.004607998562278226,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 14.93986599962227,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.264896,
+            "wavefront_record_ms": 0.1281180011574179,
+            "wavefront_command_record_ms": 0.004573998012347147,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.248706999234855,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 13.322176,
+            "wavefront_record_ms": 0.0984719990810845,
+            "wavefront_command_record_ms": 0.004086999979335815,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.064561000239337,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.55056,
+            "wavefront_record_ms": 0.09230299838236533,
+            "wavefront_command_record_ms": 0.0038349971873685718,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.755043000244768,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.066432,
+            "wavefront_record_ms": 0.11954100045841187,
+            "wavefront_command_record_ms": 0.005213001713855192,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 10.87044199812226,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 6.647872,
+            "wavefront_record_ms": 0.10689299961086363,
+            "wavefront_command_record_ms": 0.004904999514110386,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 11.029361001419602,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          },
+          {
+            "gpu_frame_ms": 10.040288,
+            "wavefront_record_ms": 0.32074100090540014,
+            "wavefront_command_record_ms": 0.01591900218045339,
+            "wavefront_command_cache_hit": 1.0,
+            "wall_ms": 7.871952999266796,
+            "resolve_cpu_ms": 0,
+            "resolve_calls": 0
+          }
+        ]
+      }
+    ]
+  },
+  "forced": {
+    "width": 1280,
+    "height": 720,
+    "render_scale": 0.5,
+    "warmup": 12,
+    "samples": 30,
+    "results": [
+      {
+        "path": "legacy",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.511616,
+          "wavefront_record_ms": 32.37627700036683,
+          "wavefront_command_record_ms": 32.293041000230005,
+          "wavefront_command_cache_hit": 0.0,
+          "wall_ms": 42.039318999741226,
+          "resolve_cpu_ms": 0.45335049981076736,
+          "resolve_calls": 8.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 10.211904,
+            "wavefront_record_ms": 31.579383001371752,
+            "wavefront_command_record_ms": 31.49617000235594,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 38.8722730021982,
+            "resolve_cpu_ms": 0.4372340044938028,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.178464,
+            "wavefront_record_ms": 32.90842000205885,
+            "wavefront_command_record_ms": 32.829138999659335,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.98390899950755,
+            "resolve_cpu_ms": 0.46013900646357797,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.325312,
+            "wavefront_record_ms": 33.02697299659485,
+            "wavefront_command_record_ms": 32.94866099895444,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.10118099904503,
+            "resolve_cpu_ms": 0.46925699280109257,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.081728,
+            "wavefront_record_ms": 33.55954700236907,
+            "wavefront_command_record_ms": 33.47608500189381,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.367764003254706,
+            "resolve_cpu_ms": 0.47168999662972055,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.288736,
+            "wavefront_record_ms": 33.17244700156152,
+            "wavefront_command_record_ms": 33.08672899947851,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.259672998217866,
+            "resolve_cpu_ms": 0.4578909974952694,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.983712,
+            "wavefront_record_ms": 33.74085000177729,
+            "wavefront_command_record_ms": 33.65902400037157,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.13193299842533,
+            "resolve_cpu_ms": 0.4630290059139952,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.136224,
+            "wavefront_record_ms": 33.33487100098864,
+            "wavefront_command_record_ms": 33.255040001677116,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.76022200024454,
+            "resolve_cpu_ms": 0.46206300612539053,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.21712,
+            "wavefront_record_ms": 33.55428599752486,
+            "wavefront_command_record_ms": 33.47413899973617,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.80793299767538,
+            "resolve_cpu_ms": 0.47027999244164675,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.6808,
+            "wavefront_record_ms": 39.871772001788486,
+            "wavefront_command_record_ms": 39.79481400165241,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 49.950585002079606,
+            "resolve_cpu_ms": 0.5322189972503111,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.490656,
+            "wavefront_record_ms": 32.11421499872813,
+            "wavefront_command_record_ms": 32.03392299838015,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.53206100050011,
+            "resolve_cpu_ms": 0.42921199565171264,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.441728,
+            "wavefront_record_ms": 31.9656359970395,
+            "wavefront_command_record_ms": 31.885500997304916,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.0219150002813,
+            "resolve_cpu_ms": 0.4393519993755035,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.46576,
+            "wavefront_record_ms": 32.28689900060999,
+            "wavefront_command_record_ms": 32.198355002037715,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.66665599728003,
+            "resolve_cpu_ms": 0.44905800314154476,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.965056,
+            "wavefront_record_ms": 32.09359399988898,
+            "wavefront_command_record_ms": 32.01511400038726,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.94404499887605,
+            "resolve_cpu_ms": 0.4356340032245498,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.497504,
+            "wavefront_record_ms": 31.763231003424153,
+            "wavefront_command_record_ms": 31.676403003075393,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 38.99975799868116,
+            "resolve_cpu_ms": 0.4408530003274791,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.66832,
+            "wavefront_record_ms": 31.030737001856323,
+            "wavefront_command_record_ms": 30.95166100320057,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.34341399933328,
+            "resolve_cpu_ms": 0.43697799628716893,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.473536,
+            "wavefront_record_ms": 34.247014998982195,
+            "wavefront_command_record_ms": 34.17059200000949,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.87204100162489,
+            "resolve_cpu_ms": 0.47473499580519274,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.4432,
+            "wavefront_record_ms": 31.136211000557523,
+            "wavefront_command_record_ms": 31.05410900025163,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.77614099899074,
+            "resolve_cpu_ms": 0.4352959949756041,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.558944,
+            "wavefront_record_ms": 33.34124899993185,
+            "wavefront_command_record_ms": 33.26003799884347,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.70268499708618,
+            "resolve_cpu_ms": 0.46162200305843726,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.960896,
+            "wavefront_record_ms": 31.71716200085939,
+            "wavefront_command_record_ms": 31.640639001125237,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.667612000514055,
+            "resolve_cpu_ms": 0.43939299939665943,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.504,
+            "wavefront_record_ms": 31.541710002784384,
+            "wavefront_command_record_ms": 31.464187002711697,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 38.697183001204394,
+            "resolve_cpu_ms": 0.43634999747155234,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.084512,
+            "wavefront_record_ms": 32.05128499757848,
+            "wavefront_command_record_ms": 31.96693499921821,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.209675000980496,
+            "resolve_cpu_ms": 0.45472900092136115,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.403328,
+            "wavefront_record_ms": 31.582800002070144,
+            "wavefront_command_record_ms": 31.503582998993807,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.07958499985398,
+            "resolve_cpu_ms": 0.45030999899609014,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.205504,
+            "wavefront_record_ms": 31.081568002264248,
+            "wavefront_command_record_ms": 30.997137000667863,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.76512399862986,
+            "resolve_cpu_ms": 0.4246759999659844,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.72848,
+            "wavefront_record_ms": 30.903833998308983,
+            "wavefront_command_record_ms": 30.82167599859531,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.19836700151791,
+            "resolve_cpu_ms": 0.4231269958836492,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.013568,
+            "wavefront_record_ms": 31.333094000729034,
+            "wavefront_command_record_ms": 31.25104500213638,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 38.715768001566175,
+            "resolve_cpu_ms": 0.43673299296642654,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.435616,
+            "wavefront_record_ms": 32.46565500012366,
+            "wavefront_command_record_ms": 32.387726998422295,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.76626699720509,
+            "resolve_cpu_ms": 0.45197199870017357,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.51312,
+            "wavefront_record_ms": 34.21566900215112,
+            "wavefront_command_record_ms": 34.13232399907429,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.78663099871483,
+            "resolve_cpu_ms": 0.4885150083282497,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.510112,
+            "wavefront_record_ms": 34.647889999178005,
+            "wavefront_command_record_ms": 34.54948799844715,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.20659699785756,
+            "resolve_cpu_ms": 0.4554799961624667,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.19632,
+            "wavefront_record_ms": 35.218011998949805,
+            "wavefront_command_record_ms": 35.05113299979712,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 46.089356001175474,
+            "resolve_cpu_ms": 0.5126860014570411,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.508448,
+            "wavefront_record_ms": 34.15922599742771,
+            "wavefront_command_record_ms": 34.07115099980729,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 45.38411300018197,
+            "resolve_cpu_ms": 0.47891900248941965,
+            "resolve_calls": 8
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.521312,
+          "wavefront_record_ms": 32.715613499021856,
+          "wavefront_command_record_ms": 32.63595499993244,
+          "wavefront_command_cache_hit": 0.0,
+          "wall_ms": 42.455073999008164,
+          "resolve_cpu_ms": 1.0417100002086954,
+          "resolve_calls": 8.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 6.34864,
+            "wavefront_record_ms": 32.12866299872985,
+            "wavefront_command_record_ms": 32.05197900024359,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.25247500228579,
+            "resolve_cpu_ms": 1.0272069994243793,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.168928,
+            "wavefront_record_ms": 32.80010899834451,
+            "wavefront_command_record_ms": 32.72512799958349,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.770124997536186,
+            "resolve_cpu_ms": 1.015132998873014,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.336352,
+            "wavefront_record_ms": 32.10626999862143,
+            "wavefront_command_record_ms": 32.027776000177255,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.594057998328935,
+            "resolve_cpu_ms": 1.0169510023843031,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.151712,
+            "wavefront_record_ms": 33.32550000050105,
+            "wavefront_command_record_ms": 33.234991002245806,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.0863799986837,
+            "resolve_cpu_ms": 1.075156997103477,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.525248,
+            "wavefront_record_ms": 32.44084499965538,
+            "wavefront_command_record_ms": 32.36076599932858,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.59614899940789,
+            "resolve_cpu_ms": 1.0189270033151843,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.122304,
+            "wavefront_record_ms": 32.491484002093785,
+            "wavefront_command_record_ms": 32.40841400111094,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.44310599844903,
+            "resolve_cpu_ms": 1.0444590079714544,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.270816,
+            "wavefront_record_ms": 32.47800800090772,
+            "wavefront_command_record_ms": 32.397571001638426,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.61480699945241,
+            "resolve_cpu_ms": 1.0212419983872678,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.14672,
+            "wavefront_record_ms": 32.20655900076963,
+            "wavefront_command_record_ms": 32.1295680005278,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.78855300071882,
+            "resolve_cpu_ms": 1.017674007016467,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.19568,
+            "wavefront_record_ms": 32.35625500019523,
+            "wavefront_command_record_ms": 32.265752997773234,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.395663997216616,
+            "resolve_cpu_ms": 1.0282099974574521,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.675488,
+            "wavefront_record_ms": 32.22083899891004,
+            "wavefront_command_record_ms": 32.1399519998522,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.205294001381844,
+            "resolve_cpu_ms": 1.0260580056637991,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.272352,
+            "wavefront_record_ms": 32.06947400030913,
+            "wavefront_command_record_ms": 31.991791998734698,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.07747799894423,
+            "resolve_cpu_ms": 1.0059150044980925,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.14352,
+            "wavefront_record_ms": 31.94411900039995,
+            "wavefront_command_record_ms": 31.867123001575237,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.713640999863856,
+            "resolve_cpu_ms": 1.0125109947694,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.212032,
+            "wavefront_record_ms": 37.600056999508524,
+            "wavefront_command_record_ms": 37.52651099784998,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 48.6121469984937,
+            "resolve_cpu_ms": 1.13242799488944,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.90384,
+            "wavefront_record_ms": 32.50294100143947,
+            "wavefront_command_record_ms": 32.42503300134558,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.6674770017853,
+            "resolve_cpu_ms": 1.0340640037611593,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.07376,
+            "wavefront_record_ms": 32.35217100154841,
+            "wavefront_command_record_ms": 32.2729330000584,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.355619000067236,
+            "resolve_cpu_ms": 1.0298150045855436,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.414496,
+            "wavefront_record_ms": 32.082474001072114,
+            "wavefront_command_record_ms": 32.00628299964592,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.33482999855187,
+            "resolve_cpu_ms": 1.03671200122335,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.246688,
+            "wavefront_record_ms": 32.37399400313734,
+            "wavefront_command_record_ms": 32.291223000356695,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.2347399982973,
+            "resolve_cpu_ms": 1.0392059994046576,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.32768,
+            "wavefront_record_ms": 34.85298300074646,
+            "wavefront_command_record_ms": 34.7692699979234,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.38616499787895,
+            "resolve_cpu_ms": 1.1027340005966835,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.158368,
+            "wavefront_record_ms": 34.38751000066986,
+            "wavefront_command_record_ms": 34.298460002901265,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.917287999851396,
+            "resolve_cpu_ms": 1.0972660020343028,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.514784,
+            "wavefront_record_ms": 32.90604399808217,
+            "wavefront_command_record_ms": 32.830278996698325,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.76703100124723,
+            "resolve_cpu_ms": 1.0532660016906448,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.642368,
+            "wavefront_record_ms": 32.78192599827889,
+            "wavefront_command_record_ms": 32.70803499981412,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.72202499851119,
+            "resolve_cpu_ms": 1.032751999446191,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.022144,
+            "wavefront_record_ms": 32.69764099968597,
+            "wavefront_command_record_ms": 32.62286300014239,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.5265860024665,
+            "resolve_cpu_ms": 1.051588998961961,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.225248,
+            "wavefront_record_ms": 33.22905099776108,
+            "wavefront_command_record_ms": 33.152002997667296,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.98760300318827,
+            "resolve_cpu_ms": 1.0826730031112675,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.179744,
+            "wavefront_record_ms": 32.967816998279886,
+            "wavefront_command_record_ms": 32.89096400112612,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.98934000285226,
+            "resolve_cpu_ms": 1.066251006704988,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.366112,
+            "wavefront_record_ms": 32.73358599835774,
+            "wavefront_command_record_ms": 32.649046999722486,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.2283250009059,
+            "resolve_cpu_ms": 1.081594000424957,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.218976,
+            "wavefront_record_ms": 36.87034399990807,
+            "wavefront_command_record_ms": 36.78875399782555,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 47.59804100103793,
+            "resolve_cpu_ms": 1.1348010011715814,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.544896,
+            "wavefront_record_ms": 34.38217800066923,
+            "wavefront_command_record_ms": 34.3042599997716,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.81830499874195,
+            "resolve_cpu_ms": 1.143737004895229,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.795584,
+            "wavefront_record_ms": 37.115975999768125,
+            "wavefront_command_record_ms": 37.02423999857274,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.59716000201297,
+            "resolve_cpu_ms": 1.1843369975395035,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.517376,
+            "wavefront_record_ms": 33.15229500003625,
+            "wavefront_command_record_ms": 33.05536800326081,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.56988499723957,
+            "resolve_cpu_ms": 1.0442140010127332,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.606336,
+            "wavefront_record_ms": 34.66614200078766,
+            "wavefront_command_record_ms": 34.57899500062922,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.52398300013738,
+            "resolve_cpu_ms": 1.0902630019700155,
+            "resolve_calls": 8
+          }
+        ]
+      },
+      {
+        "path": "shared",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.32768,
+          "wavefront_record_ms": 33.92231950056157,
+          "wavefront_command_record_ms": 33.84250599992811,
+          "wavefront_command_cache_hit": 0.0,
+          "wall_ms": 41.427800999372266,
+          "resolve_cpu_ms": 1.091731499400339,
+          "resolve_calls": 8.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 6.17312,
+            "wavefront_record_ms": 34.11886599860736,
+            "wavefront_command_record_ms": 34.039000998745905,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.66980000081821,
+            "resolve_cpu_ms": 1.0883920076594222,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.299968,
+            "wavefront_record_ms": 33.82543100087787,
+            "wavefront_command_record_ms": 33.742517000064254,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.40267199909431,
+            "resolve_cpu_ms": 1.1052010013372637,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.584512,
+            "wavefront_record_ms": 33.99261799859232,
+            "wavefront_command_record_ms": 33.91309699873091,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.05962500034366,
+            "resolve_cpu_ms": 1.071132006472908,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.232288,
+            "wavefront_record_ms": 33.40374699837412,
+            "wavefront_command_record_ms": 33.324045998597285,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.74016199976904,
+            "resolve_cpu_ms": 1.0822939948411658,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.307872,
+            "wavefront_record_ms": 33.80843599734362,
+            "wavefront_command_record_ms": 33.724676999554504,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.89437600123347,
+            "resolve_cpu_ms": 1.0831709951162338,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.274944,
+            "wavefront_record_ms": 34.08073200262152,
+            "wavefront_command_record_ms": 33.99123400231474,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.79996100012795,
+            "resolve_cpu_ms": 1.1011220012733247,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.068928,
+            "wavefront_record_ms": 33.85202100253082,
+            "wavefront_command_record_ms": 33.77191500112531,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.82622699934291,
+            "resolve_cpu_ms": 1.0626519979268778,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.326944,
+            "wavefront_record_ms": 35.72115799761377,
+            "wavefront_command_record_ms": 35.63410099741304,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.72618699906161,
+            "resolve_cpu_ms": 1.1712369960150681,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.396512,
+            "wavefront_record_ms": 34.99528199972701,
+            "wavefront_command_record_ms": 34.91477799980203,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.1041490008065,
+            "resolve_cpu_ms": 1.1315450028632767,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.409376,
+            "wavefront_record_ms": 33.82935000263387,
+            "wavefront_command_record_ms": 33.74810900277225,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.347942998982035,
+            "resolve_cpu_ms": 1.0983460088027641,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.127168,
+            "wavefront_record_ms": 34.094008999090875,
+            "wavefront_command_record_ms": 34.0085089992499,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.15497000020696,
+            "resolve_cpu_ms": 1.1029839952243492,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.580544,
+            "wavefront_record_ms": 36.59194599822513,
+            "wavefront_command_record_ms": 36.500330999842845,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.509832001291215,
+            "resolve_cpu_ms": 1.1879989979206584,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.448096,
+            "wavefront_record_ms": 34.96252600234584,
+            "wavefront_command_record_ms": 34.874779001256684,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.30977699990035,
+            "resolve_cpu_ms": 1.1071880035160575,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.277344,
+            "wavefront_record_ms": 34.63451399875339,
+            "wavefront_command_record_ms": 34.54989099918748,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.45292999965022,
+            "resolve_cpu_ms": 1.093491999199614,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.211232,
+            "wavefront_record_ms": 34.94727699944633,
+            "wavefront_command_record_ms": 34.85424699829309,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.566512998746475,
+            "resolve_cpu_ms": 1.1454449995653704,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.128128,
+            "wavefront_record_ms": 35.727718997804914,
+            "wavefront_command_record_ms": 35.633052997582126,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.22871399926953,
+            "resolve_cpu_ms": 1.1494069985928945,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.75104,
+            "wavefront_record_ms": 31.93610699963756,
+            "wavefront_command_record_ms": 31.848311999056023,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 38.856053000927204,
+            "resolve_cpu_ms": 1.022681997710606,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.590432,
+            "wavefront_record_ms": 34.665305000089575,
+            "wavefront_command_record_ms": 34.57288400022662,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.94495800038567,
+            "resolve_cpu_ms": 1.127231000282336,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.094912,
+            "wavefront_record_ms": 34.770889000355965,
+            "wavefront_command_record_ms": 34.68483200049377,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.93841599771986,
+            "resolve_cpu_ms": 1.1338440053805243,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.337376,
+            "wavefront_record_ms": 36.45329400023911,
+            "wavefront_command_record_ms": 36.36753799946746,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.44056400077534,
+            "resolve_cpu_ms": 1.142643995990511,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.391456,
+            "wavefront_record_ms": 33.54806499919505,
+            "wavefront_command_record_ms": 33.46435300045414,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.90779900070629,
+            "resolve_cpu_ms": 1.0899709996010642,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.328416,
+            "wavefront_record_ms": 32.802624999021646,
+            "wavefront_command_record_ms": 32.72364800068317,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.14888199890265,
+            "resolve_cpu_ms": 1.0739549943536986,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.642624,
+            "wavefront_record_ms": 33.05984200051171,
+            "wavefront_command_record_ms": 32.980699001200264,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.15630099820555,
+            "resolve_cpu_ms": 1.0492060027900152,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.387232,
+            "wavefront_record_ms": 32.75234700049623,
+            "wavefront_command_record_ms": 32.672339999407995,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.78494699933799,
+            "resolve_cpu_ms": 1.074626994522987,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.484064,
+            "wavefront_record_ms": 33.44888900028309,
+            "wavefront_command_record_ms": 33.37020699837012,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.40272899874253,
+            "resolve_cpu_ms": 1.086007003323175,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.494016,
+            "wavefront_record_ms": 33.19321999879321,
+            "wavefront_command_record_ms": 33.11612499965122,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.717312000197126,
+            "resolve_cpu_ms": 1.05155899291276,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.081088,
+            "wavefront_record_ms": 32.97377199851326,
+            "wavefront_command_record_ms": 32.88946500106249,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 39.984320999792544,
+            "resolve_cpu_ms": 1.075410000339616,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.324064,
+            "wavefront_record_ms": 32.770336998510174,
+            "wavefront_command_record_ms": 32.682031000149436,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.96694100048626,
+            "resolve_cpu_ms": 1.0469920016475953,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.322432,
+            "wavefront_record_ms": 32.971286000247346,
+            "wavefront_command_record_ms": 32.877690999157494,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.4389520008408,
+            "resolve_cpu_ms": 1.042999003402656,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.553504,
+            "wavefront_record_ms": 35.92843200021889,
+            "wavefront_command_record_ms": 35.83487099967897,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 50.332775001152186,
+            "resolve_cpu_ms": 1.1813030032499228,
+            "resolve_calls": 8
+          }
+        ]
+      },
+      {
+        "path": "legacy",
+        "motion": true,
+        "summary": {
+          "gpu_frame_ms": 6.483632,
+          "wavefront_record_ms": 34.4708590018854,
+          "wavefront_command_record_ms": 34.38144500069029,
+          "wavefront_command_cache_hit": 0.0,
+          "wall_ms": 42.636792501070886,
+          "resolve_cpu_ms": 0.47707500016258564,
+          "resolve_calls": 8.0
+        },
+        "frames": [
+          {
+            "gpu_frame_ms": 9.942752,
+            "wavefront_record_ms": 34.220176999951946,
+            "wavefront_command_record_ms": 34.13668099892675,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.00243600260001,
+            "resolve_cpu_ms": 0.4673039984481875,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.29344,
+            "wavefront_record_ms": 33.896439999807626,
+            "wavefront_command_record_ms": 33.816557999671204,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.165058999467874,
+            "resolve_cpu_ms": 0.4614260033122264,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.000128,
+            "wavefront_record_ms": 34.040932998323115,
+            "wavefront_command_record_ms": 33.955413000512635,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.091228998993756,
+            "resolve_cpu_ms": 0.479513004393084,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.499584,
+            "wavefront_record_ms": 33.64989100009552,
+            "wavefront_command_record_ms": 33.57260800112272,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.906598998844856,
+            "resolve_cpu_ms": 0.4620440013241023,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.418624,
+            "wavefront_record_ms": 33.69300300255418,
+            "wavefront_command_record_ms": 33.61179700004868,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.584652001503855,
+            "resolve_cpu_ms": 0.46730699614272453,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.123936,
+            "wavefront_record_ms": 33.265570000367006,
+            "wavefront_command_record_ms": 33.182759001647355,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.447613999276655,
+            "resolve_cpu_ms": 0.4597099978127517,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.021344,
+            "wavefront_record_ms": 33.86225400026888,
+            "wavefront_command_record_ms": 33.78095199877862,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.64001999804168,
+            "resolve_cpu_ms": 0.46340900371433236,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.412832,
+            "wavefront_record_ms": 33.970963002502685,
+            "wavefront_command_record_ms": 33.89157000128762,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.02244900059304,
+            "resolve_cpu_ms": 0.46302999908220954,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.88544,
+            "wavefront_record_ms": 34.1704109996499,
+            "wavefront_command_record_ms": 34.08262599987211,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 48.56683400066686,
+            "resolve_cpu_ms": 0.48075900485855527,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.244832,
+            "wavefront_record_ms": 34.44194800249534,
+            "wavefront_command_record_ms": 34.35855499992613,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.98601399952895,
+            "resolve_cpu_ms": 0.47680399438831955,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 13.70608,
+            "wavefront_record_ms": 34.02690499933669,
+            "wavefront_command_record_ms": 33.940015997359296,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.62487999990117,
+            "resolve_cpu_ms": 0.47441499555134214,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.349152,
+            "wavefront_record_ms": 34.66705800019554,
+            "wavefront_command_record_ms": 34.5850320009049,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.67790900100954,
+            "resolve_cpu_ms": 0.48348599739256315,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.002112,
+            "wavefront_record_ms": 33.712659002048895,
+            "wavefront_command_record_ms": 33.62748800282134,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.912839001975954,
+            "resolve_cpu_ms": 0.491988001158461,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.3504,
+            "wavefront_record_ms": 36.01423699728912,
+            "wavefront_command_record_ms": 35.93113299939432,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.37355600000592,
+            "resolve_cpu_ms": 0.6218689886736684,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.35664,
+            "wavefront_record_ms": 34.63330699742073,
+            "wavefront_command_record_ms": 34.551986998849316,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 45.703700998274144,
+            "resolve_cpu_ms": 0.4761649979627691,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.174624,
+            "wavefront_record_ms": 33.573271000932436,
+            "wavefront_command_record_ms": 33.480693000456085,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.202901000360725,
+            "resolve_cpu_ms": 0.4615180041582789,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.658528,
+            "wavefront_record_ms": 33.86804000183474,
+            "wavefront_command_record_ms": 33.791242000006605,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.57264999957988,
+            "resolve_cpu_ms": 0.47467000331380405,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.593952,
+            "wavefront_record_ms": 33.18037500139326,
+            "wavefront_command_record_ms": 33.091979999881005,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 40.139322001778055,
+            "resolve_cpu_ms": 0.47698599883005954,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.768544,
+            "wavefront_record_ms": 34.800546996848425,
+            "wavefront_command_record_ms": 34.71702800015919,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.56562899900018,
+            "resolve_cpu_ms": 0.474521002615802,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.215456,
+            "wavefront_record_ms": 34.499770001275465,
+            "wavefront_command_record_ms": 34.404335001454456,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 41.51790999821969,
+            "resolve_cpu_ms": 0.4728800013253931,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.46768,
+            "wavefront_record_ms": 34.7714060008002,
+            "wavefront_command_record_ms": 34.689203999732854,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.2332540001662,
+            "resolve_cpu_ms": 0.47716400149511173,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.16624,
+            "wavefront_record_ms": 35.307974998431746,
+            "wavefront_command_record_ms": 35.20881599979475,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.42298399913125,
+            "resolve_cpu_ms": 0.4898930019407999,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.779936,
+            "wavefront_record_ms": 35.951149999164045,
+            "wavefront_command_record_ms": 35.86204000021098,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.5544009997102,
+            "resolve_cpu_ms": 0.5371569968701806,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.392,
+            "wavefront_record_ms": 36.0863200003223,
+            "wavefront_command_record_ms": 35.99328400014201,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 44.32703200291144,
+            "resolve_cpu_ms": 0.5035489921283443,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.690656,
+            "wavefront_record_ms": 35.42479400130105,
+            "wavefront_command_record_ms": 35.34300400133361,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 46.183931997802574,
+            "resolve_cpu_ms": 0.49407499318476766,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.500096,
+            "wavefront_record_ms": 35.53666499647079,
+            "wavefront_command_record_ms": 35.45222799948533,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.70795600314159,
+            "resolve_cpu_ms": 0.491988001158461,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 9.625536,
+            "wavefront_record_ms": 35.76794800028438,
+            "wavefront_command_record_ms": 35.66984699864406,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 46.60514100032742,
+            "resolve_cpu_ms": 0.5145899958733935,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.381504,
+            "wavefront_record_ms": 35.204923999117455,
+            "wavefront_command_record_ms": 35.109650998492725,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 46.136471999489004,
+            "resolve_cpu_ms": 0.511290996655589,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 6.847008,
+            "wavefront_record_ms": 35.27538100024685,
+            "wavefront_command_record_ms": 35.183733998565,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 42.882338999334024,
+            "resolve_cpu_ms": 0.4944730026181787,
+            "resolve_calls": 8
+          },
+          {
+            "gpu_frame_ms": 10.106336,
+            "wavefront_record_ms": 35.87993499968434,
+            "wavefront_command_record_ms": 35.78874700178858,
+            "wavefront_command_cache_hit": 0.0,
+            "wall_ms": 43.3298569987528,
+            "resolve_cpu_ms": 0.5066139965492766,
+            "resolve_calls": 8
+          }
+        ]
+      }
+    ]
+  },
+  "legacy_ref": "966c745fc5ea6dbc879c285d174998ccb520619a"
+}

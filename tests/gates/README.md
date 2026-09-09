@@ -8,8 +8,33 @@ repository root.
 Run the normal, hardware-independent suite with:
 
 ```bash
-python -m unittest discover -s tests
+python -m pytest -q tests
 ```
+
+The manually dispatched `GPU gates` workflow first builds the FSR2 bridge and
+runs the GPU-enabled pytest suite, then runs the formal gate wrapper below.
+It installs pytest and enables both graph and transport tests. The pytest step
+disables the gate-wrapper flags so the expensive gates are not run twice.
+Its JUnit report and failure diagnostics are uploaded as `gpu-pytest-results`,
+including on test failure.
+
+The self-hosted `ordinarylight-gpu` runner needs a suitable Vulkan ray-tracing
+GPU/driver, a desktop display, g++, Vulkan development headers/libraries, and
+`glslangValidator`. FSR2 is built from this checkout rather than relying on an
+old bridge left on the runner. To reproduce the new step locally:
+
+```bash
+python scripts/build_fsr2.py
+ORDINARYLIGHT_TEST_VULKAN_GRAPH=1 \
+ORDINARYLIGHT_TEST_VULKAN_TRANSPORT=1 \
+ORDINARYLIGHT_RUN_GPU_GATES=0 \
+ORDINARYLIGHT_RUN_PERFORMANCE_GATES=0 \
+ORDINARYLIGHT_FSR2_LIBRARY="$PWD/.tools/fsr2/libordinarylight_fsr2.so" \
+python -m pytest -q tests --junitxml=test-results/gpu-pytest.xml
+```
+
+This does not enable every optional backend or hardware gate, and the workflow
+still requires manual dispatch; ordinary pull-request CI remains GPU-independent.
 
 The formal GPU gate wrapper is intentionally opt-in because it opens Vulkan
 windows, writes captures, and may take several minutes:
@@ -192,3 +217,52 @@ It requires `ordinarylight[video-gpu]`, an NVIDIA GPU, and a driver exposing
 Vulkan ray tracing, CUDA external interop, and NVENC. The default median budget
 is 16.67 ms after four warm-up frames; pass `--maximum-median-ms` when recording
 an explicit hardware-specific exception.
+
+## Native composition regressions
+
+`tests/test_native_gi_composition.py` is discovered by the GPU pytest step. It
+checks exact direct/composed HDR parity across eight moving-camera frames with
+bilinear, FSR1 OrdinaryShade and FSR2, including an application-inserted stage and
+reset to the default graph. Black or nonfinite frames fail independently of parity.
+On mismatch, the test saves both image sequences in pytest's temporary directory;
+the GPU workflow retains these alongside the JUnit report.
+
+FSR1 and FSR2 lifecycle cases exercise command rebuilds, cached graph reuse,
+active render-scale changes, resizing in both directions and resource retirement
+on resize and close. Each case owns a fresh hidden window; opting into these
+integration tests requires a working desktop display rather than silently skipping
+them when window creation fails. The direct primary recorder is an independent
+regression oracle; do not replace it with a call to the composed operation.
+
+These maintained tests supersede the corresponding one-off `primary_parity.py`
+and `viewer_lifecycle.py` checks under `artifacts/denoiser-motion/gi-composition`.
+Additional bounded regressions alternate two live scenes six times under both
+FSR paths, requiring finite/nonblack output and closure of retired scene resources.
+A shared-surface test performs three GI/raster cycles with three frames per backend,
+using GI settings projected through the viewer's raster configuration helper.
+It checks native surface reuse and teardown, not Qt event delivery or raster image
+quality. CPU lifecycle tests separately verify that bursts of restart requests
+cannot retire resources while render/start/update futures are pending.
+Long-duration stress and real Qt interaction automation remain separate work.
+
+## Extended switching stress
+
+Enable the `stress` checkbox when dispatching `GPU gates` to run the three
+switching cases with `ORDINARYLIGHT_STRESS_MULTIPLIER=10`: 60 scene selections
+under each of FSR1 and FSR2, and 30 complete GI/raster cycles on one surface.
+Each selection/backend renders three frames, for 540 rendered frames in total.
+The normal suite remains at multiplier 1, regardless of the runner environment.
+The stress step has a 20-minute timeout; its JUnit report is included in the
+`gpu-pytest-results` artifact. The multiplier is recorded as a test property.
+
+```bash
+ORDINARYLIGHT_TEST_VULKAN_GRAPH=1 ORDINARYLIGHT_STRESS_MULTIPLIER=10 \
+python -m pytest -q tests/test_native_gi_composition.py \
+  -k 'repeated_scene_replacement or repeated_gi_raster_surface_handoff' \
+  --junitxml=/tmp/gpu-stress.xml
+```
+
+Multipliers from 1 to 100 are accepted for local runs. This is an extended,
+finite lifecycle test, not an hours-long soak, a VRAM leak measurement, or a Qt
+input/event-loop test. It checks live output, retired-resource closure and
+successful repeated presentation/device teardown.

@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      stress:
+        description: Include extended scene and backend switching stress tests
+        required: true
+        default: false
+        type: boolean
       nvenc:
         description: Include the 4K zero-copy NVENC gate
         required: true
@@ -39,7 +44,42 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Install Ordinary Light with window integration
-        run: python -m pip install --upgrade pip && python -m pip install -e compatibility/OrdinaryShade -e '.[window]'
+        run: python -m pip install --upgrade pip && python -m pip install -e compatibility/OrdinaryShade -e '.[window]' 'pytest>=8'
+      - name: Build FSR2 bridge for graph tests
+        # Runner prerequisites: g++, Vulkan development headers/libraries,
+        # glslangValidator, and a desktop display for presentation tests.
+        run: python scripts/build_fsr2.py
+      - name: Run GPU-enabled pytest suite
+        env:
+          ORDINARYLIGHT_STRESS_MULTIPLIER: "1"
+          ORDINARYLIGHT_TEST_VULKAN_GRAPH: "1"
+          ORDINARYLIGHT_TEST_VULKAN_TRANSPORT: "1"
+          # The expensive legacy gates run separately below, once only.
+          ORDINARYLIGHT_RUN_GPU_GATES: "0"
+          ORDINARYLIGHT_RUN_PERFORMANCE_GATES: "0"
+          ORDINARYLIGHT_FSR2_LIBRARY: ${{ github.workspace }}/.tools/fsr2/libordinarylight_fsr2.so
+        run: python -m pytest -q tests --junitxml=test-results/gpu-pytest.xml --basetemp=test-results/pytest-temp
+      - name: Run extended native switching stress tests
+        if: ${{ inputs.stress }}
+        timeout-minutes: 20
+        env:
+          ORDINARYLIGHT_TEST_VULKAN_GRAPH: "1"
+          ORDINARYLIGHT_STRESS_MULTIPLIER: "10"
+          ORDINARYLIGHT_RUN_GPU_GATES: "0"
+          ORDINARYLIGHT_RUN_PERFORMANCE_GATES: "0"
+          ORDINARYLIGHT_FSR2_LIBRARY: ${{ github.workspace }}/.tools/fsr2/libordinarylight_fsr2.so
+        run: >-
+          python -m pytest -q tests/test_native_gi_composition.py
+          -k 'repeated_scene_replacement or repeated_gi_raster_surface_handoff'
+          --junitxml=test-results/gpu-stress.xml
+          --basetemp=test-results/stress-temp
+      - name: Upload GPU pytest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-pytest-results
+          path: test-results/
+          if-no-files-found: warn
       - name: Run Vulkan gates
         run: python -m unittest tests.gates.test_gpu_gates -v
       - name: Install optional CUDA/NVENC integration

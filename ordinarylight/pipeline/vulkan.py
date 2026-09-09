@@ -152,7 +152,8 @@ class VulkanPassPipeline:
                 signal_semaphores=signal_semaphores,
             )
 
-    def _execute(self, runtime, *, after, wait_semaphores, signal_semaphores):
+    def _prepare_recording(self, runtime):
+        """Prepare command recording and deferred layout publication."""
         owners = tuple(
             dict.fromkeys(
                 use.resource.owner for stage in self.passes for use in stage.uses
@@ -283,6 +284,15 @@ class VulkanPassPipeline:
                     None,
                 )
 
+        def commit():
+            for key, layout in layouts.items():
+                for owner in image_owners[key]:
+                    owner.layout = layout
+
+        return record, owners, commit
+
+    def _execute(self, runtime, *, after, wait_semaphores, signal_semaphores):
+        record, owners, commit = self._prepare_recording(runtime)
         completion = runtime.submit(
             record,
             resources=owners,
@@ -290,10 +300,7 @@ class VulkanPassPipeline:
             wait_semaphores=wait_semaphores,
             signal_semaphores=signal_semaphores,
         )
-        # Commit layout state only after successful recording and submission.
-        for key, layout in layouts.items():
-            for owner in image_owners[key]:
-                owner.layout = layout
+        commit()
         return completion
 
 

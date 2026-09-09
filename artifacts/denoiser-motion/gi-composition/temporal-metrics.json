@@ -1,0 +1,10 @@
+{
+  "camera": {
+    "frames": 8,
+    "max_hdr_temporal_and_history_error": 0.0
+  },
+  "glass": {
+    "frames": 8,
+    "max_hdr_temporal_and_history_error": 0.0
+  }
+}

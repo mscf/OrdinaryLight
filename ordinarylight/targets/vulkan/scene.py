@@ -61,6 +61,25 @@ class SampledTexture:
         self.sampler = sampler
 
 
+class _SampledSceneView:
+    """Stable graph view of a sampled image, leased through its resident scene."""
+
+    def __init__(self, scene, texture):
+        self.scene, self.runtime = scene, scene.runtime
+        self.image, self.view = texture.image, texture.view
+        self.layout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        self.usage = vk.VK_IMAGE_USAGE_SAMPLED_BIT
+
+    def require_open(self):
+        self.scene.require_open()
+
+    def retain(self, consumer):
+        self.scene.retain(consumer)
+
+    def release(self, consumer):
+        self.scene.release(consumer)
+
+
 class VulkanSceneResources:
     """Owns one uploaded scene's buffers and acceleration structures."""
 
@@ -74,6 +93,7 @@ class VulkanSceneResources:
         self.runtime = core.runtime
         self._core = core
         self._borrowers = set()
+        self._sampled_resource_cache = {}
         self.scene = scene
         self.scene_revision = scene.revision
         self.geometry_revision = scene.geometry_revision
@@ -197,6 +217,47 @@ class VulkanSceneResources:
         if buffer is None:
             raise ValueError(f"Scene does not have a {name} buffer")
         return VulkanResource(self, "buffer", buffer.buffer, buffer.size)
+
+    def sampled_resources(self, kind, *, count=None):
+        """Borrow (sampled image, sampler) pairs in native descriptor order.
+
+        kind is 'textures' (sRGB/linear pairs) or 'volumes' (3D views).
+        count optionally pads with the first descriptor, as native shaders do.
+        Images are imported in SHADER_READ_ONLY_OPTIMAL; graph and descriptor
+        layouts must agree. Keep that layout when sharing with native rendering.
+        """
+        from operator import index
+        from ...pipeline.vulkan import VulkanResource
+        with self.runtime.lock:
+            self.require_open()
+            if kind not in ("textures", "volumes"):
+                raise ValueError("Sampled resource kind must be textures or volumes")
+            if kind not in self._sampled_resource_cache:
+                textures = (self.scene_sampled_textures if kind == "textures"
+                            else self.scene_sampled_volumes)
+                pairs = []
+                for texture in textures:
+                    owner = _SampledSceneView(self, texture)
+                    pairs.append((VulkanResource.sampled_image(owner),
+                                  VulkanResource(owner, "sampler", texture.sampler)))
+                self._sampled_resource_cache[kind] = tuple(pairs)
+            pairs = self._sampled_resource_cache[kind]
+            if count is None:
+                return pairs
+            count = index(count)
+            if count < len(pairs) or count < 1 or not pairs:
+                raise ValueError("Cannot pad sampled resources to requested count")
+            return pairs + (pairs[0],) * (count - len(pairs))
+
+    def retain(self, consumer):
+        """Lease resident allocations to resource-bound kernels."""
+        with self.runtime.lock:
+            self.require_open()
+            self._borrowers.add(consumer)
+
+    def release(self, consumer):
+        with self.runtime.lock:
+            self._borrowers.discard(consumer)
 
     def require_open(self):
         if self._core is None:

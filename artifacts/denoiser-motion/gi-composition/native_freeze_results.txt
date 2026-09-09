@@ -1,0 +1,20 @@
+ray_generation_smoke.py
+glass native=False profiling=False split tracing/rebind/close passed
+opaque native=False profiling=False split tracing/rebind/close passed
+glass native=True profiling=False split tracing/rebind/close passed
+opaque native=False profiling=True split tracing/rebind/close passed
+
+candidate_lifecycle.py
+{'filter': 'fsr1-shade', 'cache_hits': 4, 'extent_changes_reused_bindings': True, 'resize_retired_bindings': True, 'close_retired_bindings': True, 'reconstruction_uses_component': True, 'reconstruction_retired_bindings': True}
+{'filter': 'fsr2', 'cache_hits': 0, 'extent_changes_reused_bindings': True, 'resize_retired_bindings': True, 'close_retired_bindings': True, 'reconstruction_uses_component': True, 'reconstruction_retired_bindings': True}
+
+indirect_output_smoke.py
+radiance default and custom graph HDR identical; reset passed
+history default and custom graph HDR identical; reset passed
+validity default and custom graph HDR identical; reset passed
+acceptance default and custom graph HDR identical; reset passed
+off default and custom graph HDR identical; reset passed
+
+Qt viewer startup/close
+
+exit code: 0

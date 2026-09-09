@@ -1,0 +1,16 @@
+[
+  {
+    "filter": "fsr1-shade",
+    "cache_hits": 5,
+    "extent_changes_reused_bindings": true,
+    "resize_retired_bindings": true,
+    "close_retired_bindings": true
+  },
+  {
+    "filter": "fsr2",
+    "cache_hits": 0,
+    "extent_changes_reused_bindings": true,
+    "resize_retired_bindings": true,
+    "close_retired_bindings": true
+  }
+]

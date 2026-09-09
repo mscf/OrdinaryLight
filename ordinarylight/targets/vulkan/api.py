@@ -341,9 +341,14 @@ class RendererConfig:
             raise ValueError("wavefront_tile_capacity must be between 1 and 4194304")
         if self.wavefront_exposure <= 0.0:
             raise ValueError("wavefront_exposure must be positive")
-        if self.wavefront_upscale_filter not in {"bilinear", "clamped-cubic", "fsr1"}:
-            raise ValueError("wavefront_upscale_filter must be bilinear, clamped-cubic, or fsr1")
-        if self.wavefront_upscale_filter == "fsr1" and (
+        if self.wavefront_upscale_filter not in {"bilinear", "clamped-cubic", "fsr1", "fsr2", "fsr1-shade"}:
+            raise ValueError("wavefront_upscale_filter must be bilinear, clamped-cubic, fsr1, fsr1-shade, or fsr2")
+        if self.wavefront_upscale_filter == "fsr2":
+            if (not self.denoiser_enabled or self.denoiser_planar_mirror_guides
+                or self.wavefront_temporal_reconstruction or self.stationary_accumulation
+                or self.wavefront_diffuse_filter or self.object_effects):
+                raise ValueError("fsr2 requires ReLAX and primary-surface guides, with other reconstruction filters and object effects disabled")
+        if self.wavefront_upscale_filter in {"fsr1", "fsr1-shade"} and (
             self.wavefront_temporal_reconstruction or self.stationary_accumulation
             or self.wavefront_diffuse_filter
         ):
@@ -1829,6 +1834,24 @@ class VulkanGlfwPresenter:
             max_bounces=max_bounces,
             samples=samples,
         )
+
+    def set_gi_pipeline_builder(self, builder=None):
+        """Customize native GI recording with builder(default_pipeline, frame).
+
+        The builder returns a RenderPipeline; its stages borrow this presenter's
+        resources and record on its command buffer. Custom builders disable
+        command reuse. Pass None to restore the default composition. Call only
+        between frames, with no concurrent presentation in progress.
+        """
+        if builder is not None and not callable(builder):
+            raise TypeError("GI pipeline builder must be callable or None")
+        self._core.gi_pipeline_builder = builder
+        for frame in self._core.window_frames:
+            frame["wavefront_command_key"] = None
+            for name in ("wavefront_history_valid", "wavefront_relax_history_valid",
+                         "wavefront_reservoir_valid", "wavefront_indirect_reservoir_valid"):
+                frame[name] = False
+        self._core.reset_accumulation()
 
     def present_wavefront(
         self, scene, camera, width, height, *, render_extent=None,

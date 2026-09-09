@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import fields, replace
 import hashlib
 import json
 import os
@@ -184,6 +184,7 @@ def _gi_config(
         samples_per_pixel=1,
         wavefront_timestamps=True,
         wavefront_render_scale=float(render_scale),
+        wavefront_dynamic_min_scale=min(0.5, float(render_scale)),
         wavefront_upscale_filter=upscale_filter,
         wavefront_custom_inline=custom_inline,
         wavefront_execution_strategy="hybrid" if custom_inline else "wavefront",
@@ -507,17 +508,21 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
             self.render_scale = QtWidgets.QComboBox()
             for title, scale in (("100% (native)", 1.0), ("75%", .75),
-                                 ("67% (two-thirds)", 2 / 3), ("50%", .5)):
+                                 ("67% (two-thirds)", 2 / 3), ("50%", .5),
+                                 ("25%", .25)):
                 self.render_scale.addItem(title, scale)
             self.render_scale.setToolTip(
                 "Scale GI width and height; output stays at the viewport size. "
-                "50% traces one quarter as many pixels. Apply and restart. "
+                "50% traces one quarter as many pixels; 25% traces one sixteenth. "
+                "Apply and restart. "
                 "Available with Ordinary Shade ReLAX. Lower scales may soften detail."
             )
             self.upscale_filter = QtWidgets.QComboBox()
             self.upscale_filter.addItem("Bilinear", "bilinear")
             self.upscale_filter.addItem("Clamped cubic (experimental)", "clamped-cubic")
             self.upscale_filter.addItem("FSR 1 EASU (experimental)", "fsr1")
+            self.upscale_filter.addItem("FSR 2 (experimental, native bridge)", "fsr2")
+            self.upscale_filter.addItem("EASU OrdinaryShade (experimental)", "fsr1-shade")
             self.upscale_filter.setToolTip(
                 "Spatial upscaling: cubic or edge-adaptive FSR 1 without sharpening. "
                 "Only affects reduced render scales. Apply and restart."
@@ -662,6 +667,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self._readback_qimage = None
             self.future = None
             self.renderer_start_future = None
+            self.renderer_close_future = None
             self.renderer_start_target = None
             self.renderer_start_denoiser_backend = None
             self.renderer_update_future = None
@@ -902,6 +908,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.future is not None
                 or self.renderer_start_future is not None
                 or self.renderer_update_future is not None
+                or self.renderer_close_future is not None
             ):
                 return
             self.restart_pending = False
@@ -941,17 +948,31 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     errors.append(error)
             return errors
 
+        def _retire_renderer(self, renderer):
+            """Keep device waits and destruction off the Qt event thread."""
+            self.pending_renderer_updates.clear()
+            self.renderer_denoiser_backend = None
+            self._extension_call("renderer_changed", None, None)
+            self.renderer_close_future = self.executor.submit(renderer.close)
+            self.status.setText("Releasing previous renderer…")
+
         def restart(self):
             if (
                 self.future is not None
                 or self.renderer_start_future is not None
                 or self.renderer_update_future is not None
+                or self.renderer_close_future is not None
             ):
                 self._extension_call("cancel_pending_updates")
                 self.restart_pending = True
                 self.status.setText(
-                    "Cancelling initialization before restarting…"
+                    "Waiting for GPU work before restarting…"
                 )
+                return
+            if self.renderer is not None:
+                renderer, self.renderer = self.renderer, None
+                self.restart_pending = True
+                self._retire_renderer(renderer)
                 return
             self.restart_pending = False
             target_key = self.target.currentData()
@@ -1072,17 +1093,8 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                                 target_settings.get("material_hook"),
                             ),
                         )
-                        target_settings.update(
-                            shadows=shadows,
-                            shadow_map_size=shadow_map_size,
-                        )
-                        target_settings.pop("scene_light_toggle", None)
-                        config = ol.RasterConfig(
-                            state=ol.RasterState(cull_mode="none"),
-                            ambient_light=float(
-                                target_settings.pop("ambient_light", 0.08)
-                            ),
-                            **target_settings,
+                        config = _raster_config(
+                            settings, shadows=shadows, shadow_map_size=shadow_map_size,
                         )
                         renderer_result = (
                             ol.renderers.raster.VulkanRasterRenderer(
@@ -1131,6 +1143,20 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             now = time.perf_counter()
             elapsed = min(now - self.last_tick, 0.1)
             self.last_tick = now
+            if self.renderer_close_future is not None:
+                if not self.renderer_close_future.done():
+                    return
+                try:
+                    self.renderer_close_future.result()
+                except Exception as error:
+                    self.status.setText(f"Renderer shutdown failed: {error}")
+                    traceback.print_exception(error)
+                self.renderer_close_future = None
+                if self.close_pending:
+                    QtCore.QTimer.singleShot(0, self.close)
+                elif self.restart_pending:
+                    QtCore.QTimer.singleShot(0, self._finish_pending_restart)
+                return
             item = self.feature.currentData()
             completed_renderer_update = False
             if self.renderer_start_future is not None:
@@ -1157,7 +1183,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.presentation_failed = True
                 else:
                     if self.restart_pending or self.close_pending:
-                        renderer.close()
+                        self._retire_renderer(renderer)
                     else:
                         self.renderer = renderer
                         self.scene_value = scene
@@ -1585,9 +1611,16 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.future is not None
                 or self.renderer_start_future is not None
                 or self.renderer_update_future is not None
+                or self.renderer_close_future is not None
             ):
                 self.close_pending = True
                 self.status.setText("Cancelling GPU work before closing…")
+                event.ignore()
+                return
+            if self.renderer is not None:
+                renderer, self.renderer = self.renderer, None
+                self.close_pending = True
+                self._retire_renderer(renderer)
                 event.ignore()
                 return
             self.timer.stop()
@@ -1625,6 +1658,16 @@ def _catalog():
     )
 
 
+def _raster_config(settings, *, shadows, shadow_map_size):
+    """Project shared showcase settings onto the selected raster target contract."""
+    supported = {field.name for field in fields(ol.RasterConfig) if field.init}
+    options = {key: value for key, value in settings.items() if key in supported}
+    options.setdefault("state", ol.RasterState(cull_mode="none"))
+    options["ambient_light"] = float(options.get("ambient_light", 0.08))
+    options.update(shadows=shadows, shadow_map_size=shadow_map_size)
+    return ol.RasterConfig(**options)
+
+
 def _renderer(
     showcase, scene, backend_name, shadows, shadow_map_size,
     restir_reservoirs=4,
@@ -1648,11 +1691,8 @@ def _renderer(
             "material_modifier", settings.get("material_hook")
         ),
     )
-    settings.update(shadows=shadows, shadow_map_size=shadow_map_size)
-    config = ol.RasterConfig(
-        state=ol.RasterState(cull_mode="none"),
-        ambient_light=float(settings.pop("ambient_light", 0.08)),
-        **settings,
+    config = _raster_config(
+        settings, shadows=shadows, shadow_map_size=shadow_map_size,
     )
     implementation_type = (
         ol.renderers.raster.VulkanRasterRenderer

@@ -1,0 +1,32 @@
+{
+  "camera-fsr1-shade": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  },
+  "camera-fsr1": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  },
+  "glass-fsr1-shade": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  },
+  "glass-fsr1": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  },
+  "target-fsr1-shade": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  },
+  "target-fsr1": {
+    "frames": 24,
+    "byte_identical": true,
+    "max_display_difference": 0
+  }
+}

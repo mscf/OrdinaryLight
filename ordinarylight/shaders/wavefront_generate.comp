@@ -120,6 +120,10 @@ void main()
     rng = waveHash(rng);
     float jitter_y = waveRandomFloat(rng);
     vec2 jitter = vec2(jitter_x, jitter_y);
+    if ((floatBitsToUint(camera.camera_right.w) != uint(0)))
+    {
+        jitter = unpackHalf2x16(floatBitsToUint(camera.camera_right.w));
+    }
     vec2 ndc = ((((vec2(pixel) + jitter) / vec2(push.image_tile.xy)) * 2.0) - 1.0);
     float aspect = (float(push.image_tile.x) / float(push.image_tile.y));
     int projection = int((camera.camera_up.w + 0.5));

@@ -1,0 +1,4 @@
+{"phase": 0, "scale": 1.0, "internal": [1026, 882], "output": [1026, 882]}
+{"phase": 1, "scale": 0.5, "internal": [513, 441], "output": [1026, 882]}
+{"phase": 2, "scale": 0.5, "internal": [1920, 1080], "output": [3840, 2160]}
+{"phase": 3, "scale": 0.75, "internal": [770, 632], "output": [1026, 843]}

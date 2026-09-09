@@ -13,6 +13,7 @@ if DEFAULT_ORDINARYSHADE.is_dir():
     sys.path.insert(0, str(DEFAULT_ORDINARYSHADE))
 
 import ordinaryshade as osh
+from ordinarylight.shaders.easu import EASU_HELPERS, easu_resolve
 from ordinaryshade_library import (
     acesApproximation, atrousKernel, decodeAtrousNormal, fpsOverlay,
     linearToSrgb,
@@ -1158,6 +1159,35 @@ def reconstructFsr1(pixel: osh.ivec2, size: osh.ivec2) -> osh.vec3:
 
 
 @osh.function
+def reconstructEasuColor(pixel: osh.ivec2) -> osh.vec3:
+    return osh.clamp(linearToSrgb(acesApproximation(
+        osh.maximum(reconstructLoadHdr(pixel), osh.vec3(0.0))*push.exposure
+    )), 0.0, 1.0)
+
+
+@osh.function
+def reconstructEasuShade(pixel: osh.ivec2, size: osh.ivec2) -> osh.vec3:
+    ratio = osh.vec2(push.source_width,push.source_height)*(osh.vec2(1.0)/osh.vec2(size))
+    source = osh.vec2(pixel)*ratio + (0.5*ratio-0.5)
+    base = osh.ivec2(osh.floor(source))
+    pp = source-osh.floor(source)
+    return osh.clamp(easu_resolve(pp,
+        reconstructEasuColor(base+osh.ivec2(0,-1)),
+        reconstructEasuColor(base+osh.ivec2(1,-1)),
+        reconstructEasuColor(base+osh.ivec2(-1,0)),
+        reconstructEasuColor(base),
+        reconstructEasuColor(base+osh.ivec2(1,0)),
+        reconstructEasuColor(base+osh.ivec2(2,0)),
+        reconstructEasuColor(base+osh.ivec2(-1,1)),
+        reconstructEasuColor(base+osh.ivec2(0,1)),
+        reconstructEasuColor(base+osh.ivec2(1,1)),
+        reconstructEasuColor(base+osh.ivec2(2,1)),
+        reconstructEasuColor(base+osh.ivec2(0,2)),
+        reconstructEasuColor(base+osh.ivec2(1,2))
+    ),0.0,1.0)
+
+
+@osh.function
 def reconstructCubicWeights(t: osh.f32) -> osh.vec4:
     t2 = t * t
     t3 = t2 * t
@@ -1558,9 +1588,10 @@ def reconstructMain() -> osh.void:
                 * push.outlier_confidence_strength,
             )
         hdr = osh.mix(hdr, old_hdr, weight)
-    history_color.store(
-        output_pixel, osh.vec4(osh.maximum(hdr, osh.vec3(0.0)), 1.0)
-    )
+    if push.temporal_enabled != 0:
+        history_color.store(
+            output_pixel, osh.vec4(osh.maximum(hdr, osh.vec3(0.0)), 1.0)
+        )
     mapped = acesApproximation(
         osh.maximum(hdr, osh.vec3(0.0)) * push.exposure
     )
@@ -1570,9 +1601,20 @@ def reconstructMain() -> osh.void:
         or push.source_height < osh.u32(output_size.y)
     ):
         encoded.rgb = reconstructFsr1(output_pixel, output_size)
-    effect_slot = reconstructEffectSlot(source_pixel)
+    if push.upscale_filter == osh.u32(4) and (
+        push.source_width < osh.u32(output_size.x)
+        or push.source_height < osh.u32(output_size.y)
+    ):
+        encoded.rgb = reconstructEasuShade(output_pixel, output_size)
+    has_effects = (
+        push.kind0 != osh.u32(0) or push.kind1 != osh.u32(0)
+        or push.kind2 != osh.u32(0) or push.kind3 != osh.u32(0)
+    )
+    effect_slot = osh.u32(0)
+    if has_effects:
+        effect_slot = reconstructEffectSlot(source_pixel)
     output_uv = (osh.vec2(output_pixel) + 0.5) / osh.vec2(output_size)
-    if push.kind0 != osh.u32(0):
+    if has_effects:
         for effect_index in range(4):
             effect = reconstructEffect(effect_index)
             if effect.kind == osh.u32(4) and effect_slot != osh.u32(effect_index + 1):
@@ -6860,6 +6902,8 @@ def wavefront_generate(
     rng = waveHash(rng)
     jitter_y = waveRandomFloat(rng)
     jitter = osh.vec2(jitter_x, jitter_y)
+    if osh.float_bits_to_uint(camera.camera_right.w) != osh.u32(0):
+        jitter = osh.unpack_half2x16(osh.float_bits_to_uint(camera.camera_right.w))
     ndc = ((osh.vec2(pixel) + jitter) / osh.vec2(push.image_tile.xy)) * 2.0 - 1.0
     aspect = osh.f32(push.image_tile.x) / osh.f32(push.image_tile.y)
     projection = osh.i32(camera.camera_up.w + 0.5)
@@ -7181,6 +7225,7 @@ HELPERS = {
         reconstructWorldPosition, reconstructCurrentPosition,
         reconstructPreviousPosition, reconstructBilinearHdr,
         reconstructCubicWeights, reconstructCubicHdr, reconstructFsr1,
+        *EASU_HELPERS, reconstructEasuColor, reconstructEasuShade,
         reconstructLuminance, reconstructReproject,
         reconstructCurrentNormal, reconstructPreviousNormal,
         reconstructFilterDiffuse, reconstructEffect, reconstructMain,
@@ -7329,6 +7374,8 @@ def generated_source(shader, helpers=()):
             + source[end:]
         )
     if shader is wavefront_reconstruct:
+        from ordinarylight.shaders import easu
+        source = source.replace("#version 460\n", "#version 460\n/*\n" + easu.__doc__ + "\n*/\n", 1)
         signature = "vec3 reconstructFsr1("
         start = source.rindex(signature)
         end = source.index("\n}\n", start) + 2

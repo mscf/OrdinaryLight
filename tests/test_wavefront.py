@@ -18,17 +18,26 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn('frame["wavefront_relax_history_valid"] = False', body)
 
     def test_path_resolve_populates_signals_for_denoiser_without_indirect_reuse(self):
-        source = (
-            Path(ol.__file__).parent / "targets" / "vulkan" / "core.py"
-        ).read_text()
-        start = source.index("    def record_path_to_hdr(")
-        end = source.index("\n    def ", start + 5)
-        body = source[start:end]
-        self.assertIn(
-            "self.core.config.wavefront_indirect_reuse_candidates\n"
-            "                or self._denoiser_signals_active()",
-            body,
-        )
+        from collections import OrderedDict
+        from types import SimpleNamespace as NS
+        from unittest.mock import Mock, patch
+        from ordinarylight.targets.vulkan import path_resolve_graph as adapter
+
+        for indirect, denoiser in ((False, False), (False, True), (True, False)):
+            executor = NS(
+                core=NS(runtime=object(), config=NS(
+                    wavefront_indirect_reuse_candidates=indirect,
+                    denoiser_sampled_indirect=True,
+                ), window_frames=[{}]),
+                capacity=1, _denoiser_signals_active=lambda: denoiser,
+                path_resolve_stages={0: ((), NS(runtime=object()), OrderedDict())},
+            )
+            with patch.object(adapter, "_NativeResolveKernel", return_value=NS(bindings={})), \
+                 patch.object(adapter, "path_resolve_operation") as operation, \
+                 patch.object(adapter, "VulkanGraph", return_value=Mock()):
+                adapter.record_path_resolve(executor, object(), 0, 1, 1, 1)
+                self.assertEqual(operation.call_args.kwargs["capture_secondary"], indirect or denoiser)
+                self.assertEqual(operation.call_args.kwargs["sampled_indirect"], indirect or denoiser)
 
     def test_denoiser_signals_resolve_after_all_samples(self):
         source = (
@@ -71,10 +80,15 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn("if custom_attribute_layout is not None:", backend)
         self.assertIn("custom_attribute_layout.pack(scene)", backend)
         self.assertIn("resources.custom_attribute_buffer", backend)
-        self.assertIn("storage(23), storage(24)", backend)
+        from ordinarylight.wavefront.primary_bindings import primary_bindings
+        contract = {b.name: b for b in primary_bindings()}
+        self.assertEqual(contract["custom_attributes"].binding, 24)
+        self.assertEqual(contract["secondary_paths"].binding, 23)
         self.assertIn("storage(15),\n            storage(16)", backend)
         self.assertIn("24, self.core.scene_custom_attribute_buffer", backend)
-        self.assertIn("16, self.core.scene_custom_attribute_buffer", backend)
+        from ordinarylight.wavefront.shading import SHADE_BUFFER_BINDINGS
+        self.assertEqual(SHADE_BUFFER_BINDINGS["custom_attribute"], 16)
+        self.assertIn("custom_attribute=self.core.scene_custom_attribute_buffer", backend)
         self.assertIn("def ensure_custom_material_pipelines(self):", backend)
         self.assertIn("strategy = \"wavefront\"", backend)
         self.assertIn("self.custom_shade_pipeline or self.shade_pipeline", backend)
@@ -403,7 +417,7 @@ class WavefrontLayoutTests(unittest.TestCase):
             "PIPELINE_BIND_POINT_RAY_TRACING_KHR = 1000165000", backend
         )
         self.assertIn("self.medium_capacity = (", backend)
-        self.assertIn("def _ensure_medium_buffer(self, scene):", backend)
+        self.assertIn("def _ensure_medium_buffer(self, scene, *, full=False):", backend)
         self.assertIn('"wavefront_medium_stack_bytes"', backend)
         self.assertIn(
             'strategy == "megakernel" and opaque_specialization', backend)

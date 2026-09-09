@@ -11,6 +11,7 @@ import struct
 
 import vulkan as vk
 
+from .blit import blit_operation
 from .kernel import VulkanKernel
 from .resources import VulkanImage
 from ..pipeline.vulkan import (
@@ -146,6 +147,9 @@ class _SwapchainImage:
         self.runtime = output.runtime
         self.image = image
         self.layout = vk.VK_IMAGE_LAYOUT_UNDEFINED
+        self.width, self.height = output.extent
+        self.format = output._swap_format
+        self.usage = vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
         self.generation = output._swap_generation
 
     def require_open(self):
@@ -270,7 +274,8 @@ class VulkanOutput:
             return False
         if self.swapchain is not None and extent == self.extent:
             return True
-        formats = list(r.get_surface_formats(r.physical_device, r.surface))
+        format_storage = r.get_surface_formats(r.physical_device, r.surface)
+        formats = list(format_storage)
         chosen = next(
             (
                 f
@@ -337,6 +342,7 @@ class VulkanOutput:
             semaphore.close()
         self.swapchain = replacement
         self.extent = extent
+        self._swap_format = chosen.format
         self.images = list(r.get_swapchain_images(r.device, replacement))
         self._swap_generation += 1
         self._swap_images = [_SwapchainImage(self, image) for image in self.images]
@@ -428,34 +434,7 @@ class VulkanOutput:
                     raise RuntimeError("Presentation operation is single-use")
                 target.require_open()
                 source.require_open()
-
-            def blit(command):
-                layers = vk.VkImageSubresourceLayers(
-                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
-                )
-                vk.vkCmdBlitImage(
-                    command,
-                    source.image,
-                    vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    target.image,
-                    vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    1,
-                    [
-                        vk.VkImageBlit(
-                            srcSubresource=layers,
-                            srcOffsets=[
-                                vk.VkOffset3D(0, 0, 0),
-                                vk.VkOffset3D(source.width, source.height, 1),
-                            ],
-                            dstSubresource=layers,
-                            dstOffsets=[
-                                vk.VkOffset3D(0, 0, 0),
-                                vk.VkOffset3D(*self.extent, 1),
-                            ],
-                        )
-                    ],
-                    vk.VK_FILTER_NEAREST,
-                )
+                transfer.validate()
 
             def submitted(completion):
                 nonlocal used
@@ -479,40 +458,9 @@ class VulkanOutput:
                     self._present_success = False
                     self._drop_swapchain()
 
-            destination = VulkanResource(target, "image", target.image)
+            transfer = blit_operation(source, target, present=True)
             return VulkanOperation(
-                [
-                    VulkanPass(
-                        "present_blit",
-                        (
-                            _use(
-                                source,
-                                vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                vk.VK_ACCESS_TRANSFER_READ_BIT,
-                                vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                            ),
-                            VulkanResourceUse(
-                                destination,
-                                vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                vk.VK_ACCESS_TRANSFER_WRITE_BIT,
-                                vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            ),
-                        ),
-                        blit,
-                    ),
-                    VulkanPass(
-                        "present_transition",
-                        (
-                            VulkanResourceUse(
-                                destination,
-                                vk.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                0,
-                                vk.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                            ),
-                        ),
-                        lambda command: None,
-                    ),
-                ],
+                transfer.passes,
                 validate=validate,
                 submitted=submitted,
                 dependencies=lambda: (

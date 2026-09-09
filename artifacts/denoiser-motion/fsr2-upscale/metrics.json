@@ -1,0 +1,23 @@
+{
+  "glass": {
+    "mean_absolute_display_difference": 4.13863525390625,
+    "fsr2_uses_frame_jitter": true,
+    "bilinear_settled_display_std": 0.0059515378762652945,
+    "fsr1_settled_display_std": 0.006928123260384061,
+    "fsr2_settled_display_std": 0.0036552237571718937
+  },
+  "target": {
+    "mean_absolute_display_difference": 4.342023044162326,
+    "fsr2_uses_frame_jitter": true,
+    "bilinear_settled_display_std": 0.0059229813646134635,
+    "fsr1_settled_display_std": 0.006993285348011654,
+    "fsr2_settled_display_std": 0.004209397783569688
+  },
+  "camera": {
+    "mean_absolute_display_difference": 4.140965542263455,
+    "fsr2_uses_frame_jitter": true,
+    "bilinear_settled_display_std": 0.005596949524141974,
+    "fsr1_settled_display_std": 0.006647894375297045,
+    "fsr2_settled_display_std": 0.0038257990261332114
+  }
+}

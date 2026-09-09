@@ -1,0 +1,60 @@
+{
+  "baseline": "/tmp/fsr2-upscale",
+  "capture": "/tmp/gi-fsr2-graph",
+  "comparisons": {
+    "camera-bilinear.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "glass-bilinear.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "target-bilinear.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "camera-fsr1.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "glass-fsr1.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "target-fsr1.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "camera-fsr2.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "glass-fsr2.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    },
+    "target-fsr2.npy": {
+      "equal": true,
+      "max": 0.0,
+      "mean": 0.0,
+      "frames": 24
+    }
+  }
+}

@@ -1068,6 +1068,8 @@ void processPrimaryPixel(uvec2 local_pixel)
                          ^ hashValue(push.tile_frame.w + 1u));
     vec2 jitter = vec2(randomFloat(rng), randomFloat(rng));
 #endif
+    if (floatBitsToUint(camera.right.w) != 0u)
+        jitter = unpackHalf2x16(floatBitsToUint(camera.right.w));
     vec2 ndc = ((vec2(pixel) + jitter) / vec2(push.image_tile.xy)) * 2.0 - 1.0;
     float aspect = float(push.image_tile.x) / float(push.image_tile.y);
     int camera_projection = int(camera.up.w + 0.5);
