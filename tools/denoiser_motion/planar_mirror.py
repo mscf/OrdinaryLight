@@ -13,7 +13,6 @@ import ordinarylight as ol
 from ordinarylight.denoising import DenoiserSignals
 from ordinarylight.renderers.gi.vulkan import VulkanGlobalIlluminationRenderer
 from ordinarylight.showcases.materials import diffuse, mirror, quad, sphere
-from tools.denoiser_motion.replay import ShaderReplay
 from tools.denoiser_motion.run import previous_view_depth, region_error, write_gallery
 
 
@@ -96,6 +95,8 @@ def prepare_signal(source, radiance, mask, *, optical=False):
 
 
 def main():
+    from tools.denoiser_motion.replay import ShaderReplay
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--motion", choices=("camera", "object"), default="camera")
