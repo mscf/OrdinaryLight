@@ -1,5 +1,6 @@
 """Apply prepared scene identity/base roughness to captured primary paths."""
 
+from importlib.resources import files
 from operator import index
 import struct
 import vulkan as vk
@@ -7,24 +8,7 @@ from .kernel import VulkanKernel, compile_compute
 from ..pipeline.graph import VulkanOperation
 from ..pipeline.vulkan import VulkanPass, VulkanResource, VulkanResourceUse
 
-_SOURCE = """#version 460
-layout(local_size_x=64) in;
-layout(binding=0,std430) readonly buffer Paths {uint paths[];};
-layout(binding=1,std430) buffer Secondary {uint secondary[];};
-layout(binding=2,std430) readonly buffer Metadata {uvec4 metadata[];};
-layout(binding=3,r32ui) writeonly uniform uimage2D material_image;
-layout(push_constant) uniform Constants {uint count;uint triangles;};
-void main(){uint i=gl_GlobalInvocationID.x;if(i>=count)return;
-uint pixel=paths[i*12u+8u];ivec2 size=imageSize(material_image);
-if(pixel>=uint(size.x*size.y))return;
-ivec2 p=ivec2(pixel%uint(size.x),pixel/uint(size.x));
-uint base=i*32u;uint primitive=secondary[base+28u];
-if(uintBitsToFloat(secondary[base+27u])<=.5 || primitive>=triangles){
-imageStore(material_image,p,uvec4(0));return;}
-uvec4 value=metadata[primitive];
-secondary[base+27u]=floatBitsToUint(1.0+clamp(uintBitsToFloat(value.z),0.0,1.0));
-secondary[base+31u]=value.y;imageStore(material_image,p,uvec4(value.x));}
-"""
+_SOURCE = files("ordinarylight.shaders").joinpath("primary_metadata.comp").read_text()
 
 
 def prepare_primary_metadata_shader():

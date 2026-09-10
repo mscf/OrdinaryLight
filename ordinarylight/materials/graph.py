@@ -154,7 +154,7 @@ class MaterialGraph:
                     + ", ".join(argument.code for argument in arguments)
                     + ")"
                 )
-                result = Expression("vec4", code)
+                result = Expression("vec4", code, f"ol_graph_{node.value}(" + ", ".join(argument.python for argument in arguments) + ")")
             elif node.operation == "components":
                 if len(arguments) != 1 or not isinstance(node.value, str):
                     raise ValueError("Component nodes require one vector and a swizzle")

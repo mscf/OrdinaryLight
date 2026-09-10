@@ -17,6 +17,8 @@ import venv
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--ordinaryshade-source", type=Path,
+                        help="Existing OrdinaryShade 0.1.0a5 or newer compiler checkout")
     args = parser.parse_args()
     if sys.version_info < (3, 12):
         parser.error("the scientific model dependencies require Python >=3.12")
@@ -32,10 +34,22 @@ def main():
     def run(*command):
         subprocess.run(command, cwd=root, env=env, check=True)
 
+    # Use the compiler release validated with these shader sources.
+    # Other upstream pins are unchanged.
+    shade = args.ordinaryshade_source
+    if shade is None:
+        shade = root / "OrdinaryShade"
+        run("git", "clone", "--no-checkout", "https://github.com/mscf/OrdinaryShade.git", str(shade))
+        run("git", "-C", str(shade), "checkout", "98d12db5dfef408b32134bf5aa0c4a2798eab247")
+    requirements = root / "wheel-requirements.txt"
+    requirements.write_text("\n".join(
+        line for line in (example / "upstream-requirements.txt").read_text().splitlines()
+        if not line.strip().startswith("ordinaryshade @")
+    ) + "\n" + str(shade.resolve()) + "\n")
     wheels = root / "wheels"
     wheels.mkdir()
     run(sys.executable, "-m", "pip", "wheel", "--wheel-dir", str(wheels),
-        "-r", str(example / "upstream-requirements.txt"), str(repo))
+        "-r", str(requirements), str(repo))
     run(sys.executable, str(repo / "scripts" / "verify_wheel.py"),
         *map(str, wheels.glob("ordinarylight-*.whl")))
     venv.create(root / "venv", with_pip=True)

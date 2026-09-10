@@ -109,3 +109,30 @@ def test_custom_preparation_matches_existing_compiler():
     assert prepared.material_layout == layout
     with pytest.raises(ValueError, match="explicit programs"):
         prepare_shading(material_layout=layout)
+
+
+@pytest.mark.parametrize('flags', [
+    {'ordinaryshade': False}, {'overlapping_volumes': True},
+    {'scattering_volumes': True}, {'volume_empty_space_skipping': True},
+])
+def test_surface_only_rejects_incompatible_variants(flags):
+    with pytest.raises(ValueError, match='Surface-only'):
+        ShadeVariant(**({'ordinaryshade': True, 'surface_only': True} | flags))
+
+
+def test_surface_only_requires_compilation():
+    with pytest.raises(ValueError, match='runtime shader compilation'):
+        prepare_shading(variant=ShadeVariant(ordinaryshade=True, surface_only=True))
+
+
+@pytest.mark.parametrize('profiling', [False, True])
+def test_surface_only_compiles_with_denoiser_and_optional_counters(profiling):
+    from ordinarylight.shaders.compiler import find_glsl_compiler
+    if find_glsl_compiler() is None:
+        pytest.skip('GLSL compiler unavailable')
+    prepared = prepare_shading(
+        variant=ShadeVariant(ordinaryshade=True, surface_only=True,
+                             profiling=profiling, denoiser_signal_capture=True),
+        programs=[ol.builtin_material], attribute_layout=ol.VertexAttributeLayout(()),
+    )
+    assert prepared.spirv[:4] == b'\x03\x02#\x07'

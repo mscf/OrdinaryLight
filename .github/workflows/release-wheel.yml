@@ -1,6 +1,8 @@
 name: Build release wheel
 
 on:
+  push:
+    tags: ["v*"]
   release:
     types: [published]
 
@@ -19,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mscf/OrdinaryShade
-          ref: 9f0290f58a857723c214cc79a8d488b9245017d9
+          ref: 98d12db5dfef408b32134bf5aa0c4a2798eab247
           path: compatibility/OrdinaryShade
       - uses: actions/setup-python@v5
         with:
@@ -28,7 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Require release tag to match package version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: python scripts/check_release_version.py "$RELEASE_TAG"
       - name: Install build tools
         run: |
@@ -43,17 +45,22 @@ jobs:
           python scripts/generate_raster_artifacts.py --check
           python scripts/generate_denoiser_artifacts.py
           python scripts/generate_denoiser_artifacts.py --check
-      - name: Build wheel
-        run: python -m build --wheel
+      - name: Build distributions
+        run: python -m build
       - name: Validate wheel
-        run: python -m twine check dist/*.whl && python scripts/verify_wheel.py dist/*.whl
+        run: python -m twine check dist/* && python scripts/verify_wheel.py dist/*.whl
       - uses: actions/upload-artifact@v4
         with:
-          name: ordinarylight-${{ github.event.release.tag_name }}-wheel
-          path: dist/*.whl
+          name: ordinarylight-${{ github.event.release.tag_name || github.ref_name }}-wheel
+          path: dist/*
           if-no-files-found: error
       - name: Attach wheel to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" dist/*.whl --clobber
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag \
+              --title "OrdinaryLight $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber

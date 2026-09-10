@@ -21,7 +21,7 @@ class _Kernel:
             (0, current["wavefront_indirect_reservoir_buffer"]),
             (4, executor.camera_buffers[slot]),
             (5, previous["wavefront_indirect_reservoir_buffer"]),
-            (8, executor.camera_buffers[1 - slot]),
+            (8, executor.previous_camera_buffers[slot]),
             (11, executor.indirect_reuse_counter_buffers[slot]),
         ):
             self.bindings[b] = VulkanResource.buffer(

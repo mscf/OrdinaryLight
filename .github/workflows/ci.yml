@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mscf/OrdinaryShade
-          ref: 9f0290f58a857723c214cc79a8d488b9245017d9
+          ref: 98d12db5dfef408b32134bf5aa0c4a2798eab247
           path: compatibility/OrdinaryShade
       - uses: actions/setup-python@v5
         with:
@@ -43,6 +43,10 @@ jobs:
           python -m pip install -e compatibility/OrdinaryShade -e '.[vulkan]' 'pytest>=8'
       - name: Run hardware-independent tests
         run: python -m pytest -q tests
+      - name: Check shader authorship and migrated sources
+        run: |
+          python scripts/check_shader_authorship.py
+          python scripts/check_generated_shaders.py
 
   package:
     name: Validate distribution
@@ -53,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mscf/OrdinaryShade
-          ref: 9f0290f58a857723c214cc79a8d488b9245017d9
+          ref: 98d12db5dfef408b32134bf5aa0c4a2798eab247
           path: compatibility/OrdinaryShade
       - uses: actions/setup-python@v5
         with:

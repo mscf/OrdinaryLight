@@ -86,10 +86,9 @@ class BoxBatch:
         )
         self.program = IntersectionProgram(
             entry,
-            source.replace("OL_BOX_ENTRY", entry)
-            .replace("OL_BOX_RESOURCE", resource_name)
-            .replace("OL_BOX_INDEX_COUNT", f"uint({resource_name}.length())/3u")
-            .replace("OL_BOX_INDEX", "slot"),
+            "#undef OL_BOX_PARTITIONED\n#define OL_BOX_PARTITIONED 0\n"
+            + source.replace("OL_BOX_ENTRY", entry)
+            .replace("OL_BOX_RESOURCE", resource_name),
             resources=(resource,),
             hit_version=2,
         )
@@ -182,10 +181,9 @@ class BoxPartition:
         source = source.replace("OL_BOX_ENTRY", entry).replace(
             "OL_BOX_RESOURCE", batch.resource_name
         )
-        source = source.replace(
-            "OL_BOX_INDEX_COUNT", f"uint({self.index_resource_name}.length())"
+        source = "#undef OL_BOX_PARTITIONED\n#define OL_BOX_PARTITIONED 1\n" + source.replace(
+            "OL_BOX_INDICES", self.index_resource_name
         )
-        source = source.replace("OL_BOX_INDEX", f"{self.index_resource_name}[slot]")
         self.program = IntersectionProgram(
             entry, source, resources=(*batch.program.resources, resource), hit_version=2
         )

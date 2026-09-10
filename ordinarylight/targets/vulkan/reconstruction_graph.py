@@ -83,8 +83,8 @@ class NativeReconstructionGraph:
                     )
                 ]
             cameras = []
-            for i in (1 - slot, slot):
-                buffer = self.executor.camera_buffers[i]
+            for buffer in (self.executor.previous_camera_buffers[slot],
+                           self.executor.camera_buffers[slot]):
                 cameras.append(
                     _Binding(
                         runtime=self.runtime,

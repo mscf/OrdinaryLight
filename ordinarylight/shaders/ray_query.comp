@@ -121,6 +121,7 @@ float rayQueryRandomValue(uint state);
 vec3 rayQueryReflect(vec3 direction, vec3 normal);
 vec3 rayQueryRefract(vec3 direction, vec3 normal, float eta);
 vec3 rayQueryTracePath(vec3 origin_value, vec3 direction_value, uint initial_random_state);
+void waveSetMaterialAttributes(uint primitive, vec3 weights);
 
 float waveFresnelSchlick(float cosine, float ior_from, float ior_to)
 {
@@ -321,6 +322,7 @@ vec3 rayQueryTracePath(vec3 origin_value, vec3 direction_value, uint initial_ran
         float random_u = rayQueryRandomValue(random_state);
         random_state = rayQueryRandomState(random_state);
         float random_v = rayQueryRandomValue(random_state);
+        waveSetMaterialAttributes(primitive, weights);
         MaterialEvaluation evaluated = evaluateMaterial(material, normal, uv, direction, entering, random_u, random_v, float(bounce), current_ior, exterior_ior);
         vec3 base = evaluated.base_color;
         if ((entering || (material.ior_distance.w > 0.5)))
@@ -454,6 +456,12 @@ vec3 rayQueryTracePath(vec3 origin_value, vec3 direction_value, uint initial_ran
     }
     return radiance;
 }
+
+#if !WAVE_CUSTOM_ATTRIBUTES
+void waveSetMaterialAttributes(uint primitive, vec3 weights)
+{
+}
+#endif
 
 void main()
 {

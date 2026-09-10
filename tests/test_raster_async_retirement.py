@@ -6,6 +6,8 @@ from pathlib import Path
 from threading import Event, get_ident
 from types import SimpleNamespace
 
+from ordinarylight.runtime.lifecycle import timed_call
+
 
 def window_methods():
     # Load only lifecycle methods; no Qt application or GPU is needed to exercise
@@ -29,7 +31,7 @@ def window_methods():
     cls = ast.ClassDef(
         name="Lifecycle", bases=[], keywords=[], body=methods, decorator_list=[]
     )
-    namespace = {}
+    namespace = {"timed_call": timed_call}
     exec(
         compile(
             ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),

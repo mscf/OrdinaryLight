@@ -1,3 +1,13 @@
 recursive-include native/fsr2 *.h *.cpp *.glsl *.md *.txt
 include scripts/build_fsr2.py
 include scripts/compile_shaders.py
+
+include AGENTS.md CONTRIBUTING.md
+include scripts/check_shader_authorship.py
+include scripts/generate_utility_shaders.py
+include scripts/generate_restir_shaders.py
+include scripts/generate_sampling_shaders.py
+include scripts/check_generated_shaders.py
+include scripts/generate_*.py scripts/ordinaryshade_library.py
+include docs/shader_migration.md
+recursive-include docs/releases *.md

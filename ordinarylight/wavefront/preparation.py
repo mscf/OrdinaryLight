@@ -16,6 +16,7 @@ class ShadeVariant:
     multiple_scattering_volumes: bool = False
     volume_empty_space_skipping: bool = False
     denoiser_signal_capture: bool = False
+    surface_only: bool = False
 
     def __post_init__(self):
         if any(
@@ -25,6 +26,11 @@ class ShadeVariant:
             raise TypeError("Shading variant flags must be bools")
         if self.multiple_scattering_volumes and not self.scattering_volumes:
             raise ValueError("Multiple scattering requires scattering")
+        if self.surface_only and (not self.ordinaryshade or any((
+            self.overlapping_volumes, self.scattering_volumes,
+            self.multiple_scattering_volumes, self.volume_empty_space_skipping,
+        ))):
+            raise ValueError("Surface-only shading requires volume-free Ordinary Shade")
 
     @property
     def shader_name(self):
@@ -146,6 +152,8 @@ def prepare_shading(
                 "Prepared camera shading requires material set 1 starting at binding 0"
             )
     if programs is None:
+        if variant.surface_only:
+            raise ValueError("Surface-only shading requires runtime shader compilation")
         if any(
             value is not None
             for value in (attribute_layout, material_layout, material_modifier)
@@ -182,6 +190,7 @@ def prepare_shading(
             material_modifier=material_modifier,
             material_resources=material_layout,
             compiler=compiler,
+            surface_only=variant.surface_only,
         )
         custom = bool(attribute_layout.channels)
     return PreparedShading(spirv, variant, material_layout, custom)

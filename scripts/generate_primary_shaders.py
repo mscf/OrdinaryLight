@@ -1881,13 +1881,13 @@ def generated_source():
             capabilities=("shader_reorder",),
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_integrate_secondary_volumes,
             externals=(integrateVolumesBeforeSurface,),
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION && WAVE_WORK_COUNTERS\n"
+        "#if WAVE_WORK_COUNTERS\n"
         + osh.compile_function(
             ordinarylight_profile_work,
             externals=(profileWork,),
@@ -1899,7 +1899,7 @@ def generated_source():
             externals=(waveApplyMaterialProgram,),
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION && WAVE_PERSISTENT_COARSE\n"
+        "#if WAVE_PERSISTENT_COARSE\n"
         + osh.compile_function(
             ordinarylight_persistent_coarse_schedule,
             externals=(processPrimaryPixel,),
@@ -1908,13 +1908,13 @@ def generated_source():
             },
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_trace_remaining,
             externals=(ordinarylightSecondaryBounce,),
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + "\n".join(
             osh.compile_function(
                 helper,
@@ -1935,7 +1935,7 @@ def generated_source():
             )
         )
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_medium_ior,
             external_values={
@@ -1953,14 +1953,14 @@ def generated_source():
         osh.compile_function(
             ordinarylight_primary_scheduled_group
         ).source.rstrip(),
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_reserve_output_index,
             external_values={"ordinarylight_output_queue_count": osh.u32},
             capabilities=("subgroup_ballot",),
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_secondary_vertex_position,
             external_values={
@@ -1982,7 +1982,7 @@ def generated_source():
             },
         ).source.rstrip()
         + "\n#endif",
-        "#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION\n"
+        "#if 1\n"
         + osh.compile_function(
             ordinarylight_enqueue_continuation,
             external_values={

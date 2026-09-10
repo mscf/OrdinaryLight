@@ -107,8 +107,8 @@ class DirectLightReservoirTests(unittest.TestCase):
         self.assertIn("uvec4 data", shader)
         self.assertIn("uint current_reservoir_words[]", shader)
         self.assertIn("uint previous_reservoir_words[]", shader)
-        self.assertIn("reservoir_index * 3u", shader)
-        self.assertIn("DIRECT_LIGHT_STORAGE_INDEX_BITS = 25u", shader)
+        self.assertIn("reservoir_index * uint(3)", shader)
+        self.assertIn("header >> uint(25)", shader)
         self.assertIn("loadPreviousDirectLightReservoir", shader)
         self.assertIn("storeCurrentDirectLightReservoir", shader)
         self.assertIn("packHalf2x16", shader)
@@ -134,31 +134,31 @@ class DirectLightReservoirTests(unittest.TestCase):
         self.assertIn("uint restir_reservoir_count", primary)
         self.assertIn("uint restir_reservoir_index", primary)
         self.assertIn(
-            "storeCurrentDirectLightReservoir(\n"
-            "                restir_reservoir_index, reservoir)", primary
+            "storeCurrentDirectLightReservoir(restir_reservoir_index, reservoir)", primary
         )
         self.assertIn(
             "previous_index * restir_reservoir_count", primary
         )
         self.assertIn(
-            "proposal_flat_index\n"
-            "                                                * restir_reservoir_count",
+            "proposal_flat_index * restir_reservoir_count",
             primary,
         )
         self.assertIn("directLightReservoirNormalization(reservoir)", primary)
         self.assertIn("reprojectRestir(position, previous_pixel)", primary)
         self.assertIn("mergeDirectLightReservoir(", primary)
-        self.assertIn("profileWork(11u, 1u)", primary)
-        self.assertIn("profileWork(12u, 1u)", primary)
-        self.assertIn("profileWork(13u, 1u)", primary)
+        self.assertIn("profileWork(uint(11), uint(1))", primary)
+        self.assertIn("profileWork(uint(12), uint(1))", primary)
+        self.assertIn("profileWork(uint(13), uint(1))", primary)
         self.assertIn("restirSpatialOffset", primary)
         self.assertIn("push.restir_spatial_neighbors", primary)
         self.assertIn("push.restir_pairwise_mis", primary)
-        self.assertIn("&& !material_textured", primary)
+        self.assertIn("&& (!material_textured)", primary)
         self.assertIn("push.restir_generalized_mis", primary)
         self.assertIn("push.restir_generalized_balance_cap", primary)
         self.assertIn("active_proposals / target_sum", primary)
-        self.assertIn("cancellation-free form", shader)
+        typed_source = (Path(__file__).parents[1]
+                        / "ordinarylight/shaders/restir_programs.py").read_text()
+        self.assertIn("cancellation-free form", typed_source)
         self.assertIn("restirHistorySurfaceCompatible", primary)
         self.assertIn("source_history_limit", primary)
         self.assertIn("!history_source_present", primary)

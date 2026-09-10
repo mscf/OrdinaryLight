@@ -48,14 +48,12 @@ class GpuCustomGeometry:
                     3: VulkanResource.buffer(self.diagnostics),
                 }
                 header = f"#version 460\n#define CAPACITY {scene.custom_capacity}u\n#define PROGRAMS {len(scene.programs)}u\n#define MATERIALS {len(scene._custom_materials)}u\n#define TRIANGLES {scene.triangle_count}u\n"
-                header += "uint boundaryIndex(uint identity) { switch(identity) {\n"
-                for i, boundary in enumerate(scene.boundaries):
-                    header += f"case {boundary.identity}u: return {i}u;\n"
-                header += "default: return 0xffffffffu; }}\n"
-                header += "bool dielectricMaterial(uint index) { switch(index) {\n"
-                for i, material in enumerate(scene._custom_materials):
-                    header += f"case {i}u: return {'true' if material.kind == 'dielectric' else 'false'};\n"
-                header += "default: return false; }}\n"
+                from ..shaders.dynamic import lookup_source
+                header += lookup_source('boundaryIndex', 'identity',
+                    ((boundary.identity, i) for i, boundary in enumerate(scene.boundaries)), 0xffffffff)
+                header += lookup_source('dielectricMaterial', 'index',
+                    ((i, material.kind == 'dielectric') for i, material in enumerate(scene._custom_materials)),
+                    False, boolean=True)
                 shader = (
                     files("ordinarylight.shaders")
                     .joinpath("transport_v1/gpu_geometry.glsl")

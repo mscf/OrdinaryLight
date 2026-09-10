@@ -2571,6 +2571,19 @@ def waveCosineHemisphere(
 
 
 @osh.function
+def waveSetMaterialAttributes(primitive: osh.u32, weights: osh.vec3) -> osh.void:
+    # Replaced by the typed attribute module when custom attributes are bound.
+    pass
+
+
+@osh.function
+def shadeCaptureSecondary(enabled: osh.u32) -> osh.boolean:
+    if osh.specialization("WAVE_DENOISER_SIGNAL_CAPTURE"):
+        return True
+    return enabled != osh.u32(0)
+
+
+@osh.function
 def evaluateMaterial(
     material: MaterialData, normal: osh.vec3, uv: osh.vec2,
     direction: osh.vec3, entering: osh.boolean, random_u: osh.f32,
@@ -4103,7 +4116,10 @@ def shadeEnvironmentRadiance(
         uv = shadeEnvironmentUv(
             direction, descriptor.texture_parameters.y
         )
-        encoded = shadeSamplePackedSceneTexture(texture_index, uv).rgb
+        if osh.specialization("WAVE_NATIVE_TEXTURES"):
+            encoded = shadeSampleNativeSceneTexture(texture_index, uv).rgb
+        else:
+            encoded = shadeSamplePackedSceneTexture(texture_index, uv).rgb
     return shadeDecodeEnvironmentRadiance(
         encoded, descriptor.texture_parameters.z,
         descriptor.color_intensity, descriptor.texture_parameters.x,
@@ -5564,10 +5580,23 @@ def shadeCandidateIntegrateVolumes(
     direction: osh.vec3,
     surface_distance: osh.f32,
 ) -> WavePathState:
+    configured_surface_only = False
+    if osh.specialization("WAVE_SURFACE_ONLY"):
+        configured_surface_only = True
+    if configured_surface_only:
+        return input_path
     configured_overlapping_volumes = False
+    if osh.specialization("WAVE_OVERLAPPING_VOLUMES"):
+        configured_overlapping_volumes = True
     configured_empty_space_skipping = False
+    if osh.specialization("WAVE_VOLUME_EMPTY_SPACE_SKIPPING"):
+        configured_empty_space_skipping = True
     configured_volume_scattering = False
+    if osh.specialization("WAVE_VOLUME_SCATTERING"):
+        configured_volume_scattering = True
     configured_multiple_scattering = False
+    if osh.specialization("WAVE_VOLUME_MULTIPLE_SCATTERING"):
+        configured_multiple_scattering = True
     return shadeIntegrateVolumesBeforeSurfaceConfigured(
         input_path, origin, direction, surface_distance,
         configured_overlapping_volumes, configured_empty_space_skipping,
@@ -5588,11 +5617,25 @@ def shadeCandidateVolumeShadowTransmittance(
     maximum_distance: osh.f32,
     bounce: osh.u32,
 ) -> osh.f32:
-    shadeProfileWork(osh.u32(1), osh.u32(1), bounce)
+    if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+        shadeProfileWork(osh.u32(1), osh.u32(1), bounce)
+    configured_surface_only = False
+    if osh.specialization("WAVE_SURFACE_ONLY"):
+        configured_surface_only = True
+    if configured_surface_only:
+        return 1.0
     configured_overlapping_volumes = False
+    if osh.specialization("WAVE_OVERLAPPING_VOLUMES"):
+        configured_overlapping_volumes = True
     configured_empty_space_skipping = False
+    if osh.specialization("WAVE_VOLUME_EMPTY_SPACE_SKIPPING"):
+        configured_empty_space_skipping = True
     configured_volume_scattering = False
+    if osh.specialization("WAVE_VOLUME_SCATTERING"):
+        configured_volume_scattering = True
     configured_multiple_scattering = False
+    if osh.specialization("WAVE_VOLUME_MULTIPLE_SCATTERING"):
+        configured_multiple_scattering = True
     return shadeVolumeShadowTransmittanceConfigured(
         origin, direction, maximum_distance,
         configured_overlapping_volumes, configured_empty_space_skipping,
@@ -5642,7 +5685,8 @@ def wavefront_shade_candidate(
         return
     path_index = loaded.hit.path_index
     path = paths[path_index]
-    shadeProfileWork(osh.u32(0), osh.u32(1), shadePathBounce(path))
+    if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+        shadeProfileWork(osh.u32(0), osh.u32(1), shadePathBounce(path))
     incoming = loaded.ray.direction_tmax.xyz
     surface_distance = loaded.ray.direction_tmax.w
     if loaded.hit.primitive_index != osh.u32(0xFFFFFFFF):
@@ -5658,9 +5702,8 @@ def wavefront_shade_candidate(
         paths[path_index] = path
         return
     if loaded.hit.primitive_index == osh.u32(0xFFFFFFFF):
-        shadeProfileWork(
-            osh.u32(4), osh.u32(1), shadePathBounce(path)
-        )
+        if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+            shadeProfileWork(osh.u32(4), osh.u32(1), shadePathBounce(path))
         miss = shadeResolveEnvironmentMiss(
             path, shadeEnvironmentRadiance(incoming, push.point_light_count),
             push.environment_samples,
@@ -5671,7 +5714,8 @@ def wavefront_shade_candidate(
         )
         paths[path_index] = miss.path
         return
-    shadeProfileWork(osh.u32(3), osh.u32(1), shadePathBounce(path))
+    if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+        shadeProfileWork(osh.u32(3), osh.u32(1), shadePathBounce(path))
     cone = shadeRayCone(loaded.ray, loaded.hit.position_t.w)
     surface = shadeResolveSurface(
         loaded.hit.primitive_index, loaded.hit.barycentrics,
@@ -5679,6 +5723,7 @@ def wavefront_shade_candidate(
     )
     random_state = shadePathRng(path)
     medium_depth = osh.maximum(path.metadata.w >> osh.u32(8), osh.u32(1))
+    waveSetMaterialAttributes(loaded.hit.primitive_index, surface.weights)
     evaluated = evaluateMaterial(
         surface.material, surface.normal, surface.uv, incoming,
         surface.entering, 0.5, 0.5, osh.f32(shadePathBounce(path)),
@@ -5708,7 +5753,7 @@ def wavefront_shade_candidate(
         surface.material, evaluated
     )
     if (
-        push.indirect_secondary_capture != osh.u32(0)
+        shadeCaptureSecondary(push.indirect_secondary_capture)
         and shadePathBounce(path) == osh.u32(1)
         and secondary_paths[path_index].primary_throughput.w > 0.5
     ):
@@ -5939,7 +5984,7 @@ def wavefront_shade_candidate(
         cone_spread = scattered.cone_spread
         sampled_specular = scattered.sampled_specular
     if (
-        push.indirect_secondary_capture != osh.u32(0)
+        shadeCaptureSecondary(push.indirect_secondary_capture)
         and shadePathBounce(path) == osh.u32(0)
     ):
         secondary = secondary_paths[path_index]
@@ -6355,6 +6400,7 @@ def rayQueryTracePath(
         random_u = rayQueryRandomValue(random_state)
         random_state = rayQueryRandomState(random_state)
         random_v = rayQueryRandomValue(random_state)
+        waveSetMaterialAttributes(primitive, weights)
         evaluated = evaluateMaterial(
             material, normal, uv, direction, entering, random_u, random_v,
             osh.f32(bounce), current_ior, exterior_ior,
@@ -6525,6 +6571,7 @@ def rayQueryImageTracePath(
         random_u = rayQueryRandomValue(random_state)
         random_state = rayQueryRandomState(random_state)
         random_v = rayQueryRandomValue(random_state)
+        waveSetMaterialAttributes(primitive, weights)
         evaluated = evaluateMaterial(
             material, normal, uv, direction, entering, random_u, random_v,
             osh.f32(bounce), current_ior, exterior_ior,
@@ -7242,25 +7289,16 @@ HELPERS = {
 
 
 def generated_source(shader, helpers=()):
+    if shader in (ray_query, ray_query_image, wavefront_shade_candidate):
+        helpers = tuple(helpers) + (waveSetMaterialAttributes,)
+    if shader is wavefront_shade_candidate:
+        helpers += (shadeCaptureSecondary,)
     source = osh.compile(shader, helpers=helpers).source
     if shader is wavefront_shade_candidate:
-        volume_specializations = {
-            "bool configured_overlapping_volumes = false;":
-                "bool configured_overlapping_volumes = "
-                "WAVE_OVERLAPPING_VOLUMES != 0;",
-            "bool configured_empty_space_skipping = false;":
-                "bool configured_empty_space_skipping = "
-                "WAVE_VOLUME_EMPTY_SPACE_SKIPPING != 0;",
-            "bool configured_volume_scattering = false;":
-                "bool configured_volume_scattering = "
-                "WAVE_VOLUME_SCATTERING != 0;",
-            "bool configured_multiple_scattering = false;":
-                "bool configured_multiple_scattering = "
-                "WAVE_VOLUME_MULTIPLE_SCATTERING != 0;",
-        }
-        for baseline, specialized in volume_specializations.items():
-            source = source.replace(baseline, specialized)
         volume_defaults = """\
+#ifndef WAVE_SURFACE_ONLY
+#define WAVE_SURFACE_ONLY 0
+#endif
 #ifndef WAVE_OVERLAPPING_VOLUMES
 #define WAVE_OVERLAPPING_VOLUMES 0
 #endif
@@ -7334,31 +7372,15 @@ def generated_source(shader, helpers=()):
             + source[profile_start:profile_end] + "\n#endif"
             + source[profile_end:]
         )
-        for call in (
-            "shadeProfileWork(uint(1), uint(1), bounce);",
-            "shadeProfileWork(uint(0), uint(1), shadePathBounce(path));",
-            "shadeProfileWork(uint(4), uint(1), shadePathBounce(path));",
-            "shadeProfileWork(uint(3), uint(1), shadePathBounce(path));",
-        ):
-            source = source.replace(
-                call,
-                "#if WAVE_WORK_COUNTERS\n    " + call + "\n#endif",
-                1,
-            )
-        packed_environment_sample = (
-            "encoded = shadeSamplePackedSceneTexture(texture_index, uv).rgb;"
-        )
-        source = source.replace(
-            packed_environment_sample,
-            "#if WAVE_NATIVE_TEXTURES\n"
-            "        encoded = shadeSampleNativeSceneTexture(texture_index, uv).rgb;\n"
-            "#else\n        " + packed_environment_sample + "\n#endif",
-            1,
-        )
     if (
         shader is ray_query or shader is ray_query_image
         or shader is wavefront_shade_candidate
     ):
+        attribute_signature = "void waveSetMaterialAttributes("
+        attribute_start = source.rindex(attribute_signature)
+        attribute_end = source.index("\n}\n", attribute_start) + 2
+        source = (source[:attribute_start] + "#if !WAVE_CUSTOM_ATTRIBUTES\n"
+                  + source[attribute_start:attribute_end] + "\n#endif" + source[attribute_end:])
         signature = "MaterialEvaluation evaluateMaterial("
         source = "\n".join(
             line for line in source.splitlines()

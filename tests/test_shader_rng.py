@@ -11,7 +11,7 @@ class ShaderRngTests(unittest.TestCase):
             "ordinarylight/shaders/wavefront_generate.comp":
                 "uint frame_index = uint((camera.camera_origin.w + 0.5));",
             "ordinarylight/shaders/wavefront_primary_impl.glsl":
-                "uint frame_index = uint(camera.origin.w + 0.5);",
+                "uint frame_index = uint((camera.origin.w + 0.5));",
             "ordinarylight/shaders/wavefront_indirect_candidates.comp":
                 "uint frame_index = uint((camera.origin.w + 0.5));",
         }

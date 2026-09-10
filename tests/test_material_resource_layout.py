@@ -36,7 +36,7 @@ def test_layout_orders_bindings_and_validates_declarations():
     layout = MaterialResourceLayout(declarations, descriptor_set=2, first_binding=4)
     assert [(d.name, b) for d, b in layout.entries] == [("a", 4), ("b", 6), ("z", 7)]
     assert "set=2,binding=5" in layout.source
-    assert "isnan(index)||isinf(index)" in layout.source
+    assert "isnan(index) || isinf(index)" in layout.source
     with pytest.raises(FrozenInstanceError):
         layout.first_binding = 9
     with pytest.raises(ValueError, match="Conflicting"):

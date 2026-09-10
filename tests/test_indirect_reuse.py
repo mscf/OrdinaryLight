@@ -175,7 +175,7 @@ class IndirectReuseTests(unittest.TestCase):
         self.assertIn("indirectAcceptanceColor", debug_shader)
         self.assertIn("reservoir.debug_flags", debug_shader)
         self.assertIn("candidateRejectionDebugFlag", shader)
-        self.assertIn("0x007fff00u", (
+        self.assertIn("uint(8388352)", (
             root / "ordinarylight" / "shaders"
             / "wavefront_indirect_reuse.glsl"
         ).read_text())

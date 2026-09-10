@@ -34,7 +34,7 @@ class NativePrimaryKernel:
             (13, core.scene_texture_binding_buffer),
             (16, current["wavefront_reservoir_buffer"]),
             (17, previous["wavefront_reservoir_buffer"]),
-            (18, executor.camera_buffers[1 - slot]),
+            (18, executor.previous_camera_buffers[slot]),
             (23, executor.secondary_path_buffer),
             (24, core.scene_custom_attribute_buffer or core.scene_attribute_buffer),
             (25, core.scene_volume_header_buffer),

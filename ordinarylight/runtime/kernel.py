@@ -4,6 +4,7 @@ from collections import Counter
 from functools import lru_cache
 
 import vulkan as vk
+from ordinarylight.runtime.lifecycle import timed_call
 
 
 @lru_cache(maxsize=64)
@@ -300,7 +301,8 @@ class VulkanKernel:
                 info = vk.VkComputePipelineCreateInfo(
                     stage=stage, layout=self.pipeline_layout
                 )
-                self.pipeline = vk.vkCreateComputePipelines(
+                self.pipeline = timed_call(
+                    "compute_pipeline_create", vk.vkCreateComputePipelines,
                     runtime.device,
                     runtime.pipeline_cache or vk.VK_NULL_HANDLE,
                     1,

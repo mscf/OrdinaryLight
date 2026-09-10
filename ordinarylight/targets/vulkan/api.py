@@ -58,6 +58,8 @@ class RendererConfig:
     # each stream performs its own selection, temporal/spatial reuse, and
     # final visibility test; their radiance estimates are averaged.
     wavefront_restir_reservoirs: int = 1
+    # Experimental: share primary intersection and indirect path across DI streams.
+    wavefront_restir_shared_primary: bool = False
     wavefront_restir_candidates: int = 1
     wavefront_restir_history_limit: int = 20
     wavefront_restir_history_motion_pixels: float = 16.0
@@ -200,6 +202,16 @@ class RendererConfig:
         modifier_signature(self.material_modifier)
         if not 1 <= self.samples_per_pixel <= 64:
             raise ValueError("samples_per_pixel must be between 1 and 64")
+        if not isinstance(self.wavefront_restir_shared_primary, bool):
+            raise TypeError("wavefront_restir_shared_primary must be a bool")
+        if self.wavefront_restir_shared_primary:
+            if self.wavefront_execution_strategy != "wavefront":
+                raise ValueError("shared primary ReSTIR requires the wavefront strategy")
+            if (self.interactive_samples_per_pixel is not None
+                    or self.wavefront_interactive_sample_scaling):
+                raise ValueError("shared primary ReSTIR requires fixed path SPP")
+            if self.wavefront_restir_spatial_reuse:
+                raise ValueError("shared primary ReSTIR currently supports temporal reuse only")
         if (
             self.interactive_samples_per_pixel is not None
             and not 1 <= self.interactive_samples_per_pixel <= 64
@@ -292,7 +304,8 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_restir_generalized_balance_cap must be between 1 and 8"
             )
-        if self.wavefront_restir_di and self.samples_per_pixel != 1:
+        if (self.wavefront_restir_di and self.samples_per_pixel != 1
+                and not self.wavefront_restir_shared_primary):
             raise ValueError(
                 "wavefront_restir_di currently requires samples_per_pixel=1"
             )

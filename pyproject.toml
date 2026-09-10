@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ordinarylight"
-version = "0.3.9"
+version = "0.4.0"
 description = "A Pythonic, general-purpose hardware-accelerated path tracing renderer"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "ordinaryshade>=0.1.0a4",
+    "ordinaryshade>=0.1.0a5",
     "Pillow>=10.0",
     "pygltflib>=1.16.5",
 ]

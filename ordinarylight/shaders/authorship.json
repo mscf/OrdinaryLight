@@ -1,0 +1,678 @@
+{
+  "schema": 2,
+  "note": "All authored shader logic is typed OrdinaryShade. Existing upstream FSR is temporarily deferred by user instruction.",
+  "sources": {
+    "ordinarylight/portable/volume.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_portable_volume.py",
+        "ordinarylight/shaders/portable_volume_programs.py",
+        "ordinarylight/shaders/volume_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/accumulation_resolve.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/denoise_atrous.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/denoiser_relax_atrous.comp.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_denoiser_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/denoiser_relax_compose.comp.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_denoiser_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/denoiser_relax_prepare.comp.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_denoiser_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/denoiser_relax_temporal.comp.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_denoiser_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/external_hdr_tone_map.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/fsr1_easu.glsl": {
+      "status": "deferred-third-party",
+      "sha256": "65d3438afabd6b1d46704d82ef87d11e6ebcc59d42b4a68802dc439ab7e1762f"
+    },
+    "ordinarylight/shaders/fsr2_prepare.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/hdr_to_p010.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/ordinaryshade_color.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_color_shaders.py"
+      ]
+    },
+    "ordinarylight/shaders/ordinaryshade_effects.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_effect_shaders.py"
+      ]
+    },
+    "ordinarylight/shaders/ordinaryshade_primary.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_primary_shaders.py",
+        "ordinarylight/shaders/abi.py"
+      ]
+    },
+    "ordinarylight/shaders/primary_metadata.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_geometry_products.frag.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_geometry_products.vert.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_scene.frag.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_scene.vert.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_shadow.frag.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_shadow.vert.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_volume.frag.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/raster_volume.vert.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_raster_artifacts.py"
+      ]
+    },
+    "ordinarylight/shaders/ray_query.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/ray_query_image.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/rgba_to_nv12.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/ser_probe.rgen": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/ser_probe.rmiss": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/tone_map.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/box_batch.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_box_programs.py",
+        "ordinarylight/shaders/transport_box_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/bsdf.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/contracts.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/dielectric.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/emissive.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/gpu_geometry.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_gpu_geometry_programs.py",
+        "ordinarylight/shaders/transport_gpu_geometry_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/gpu_reduction.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_gpu_reduction_programs.py",
+        "ordinarylight/shaders/transport_gpu_reduction_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/integrator.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_integrator_programs.py",
+        "ordinarylight/shaders/transport_integrator_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/intersections.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_intersections_programs.py",
+        "ordinarylight/shaders/transport_intersections_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/lighting.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_lighting_shaders.py",
+        "ordinarylight/shaders/lighting_layout.py",
+        "ordinarylight/shaders/lighting_programs.py",
+        "ordinarylight/shaders/restir_programs.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/texture_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/material_contracts.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/reduce.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_kernels.py",
+        "ordinarylight/shaders/transport_reduce_programs.py",
+        "ordinarylight/shaders/transport_reduce_layout.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/transport_callbacks.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/sample_sphere.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/sampling.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_sampling_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/sdf_sphere.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/types.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_transport_shaders.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/transport_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/transport_v1/volumes.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_volume_shaders.py",
+        "ordinarylight/shaders/lighting_programs.py",
+        "ordinarylight/shaders/restir_programs.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/texture_programs.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/volume_layout.py",
+        "ordinarylight/shaders/volume_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/volume_upload.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/volume_upload.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_generate.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_hybrid.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_indirect_candidates.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_indirect_clear.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_indirect_debug.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_indirect_reuse.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_indirect_library.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_indirect_reuse_probe.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_intersect.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_intersect_bucketed.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_lighting.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_megakernel.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_megakernel.rgen": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_path_to_hdr.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_persistent.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_persistent_coarse.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_persistent_continuation.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_prepare_indirect.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_primary.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_primary_impl.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_fused_primary.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/fused_primary_layout.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/lighting_programs.py",
+        "ordinarylight/shaders/material_support.py",
+        "ordinarylight/shaders/material_support_programs.py",
+        "ordinarylight/shaders/restir_programs.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/texture_programs.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/volume_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_reconstruct.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_resolve.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_restir.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_restir_shaders.py",
+        "ordinarylight/shaders/restir_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_shade.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_secondary_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/lighting_programs.py",
+        "ordinarylight/shaders/material_support.py",
+        "ordinarylight/shaders/material_support_programs.py",
+        "ordinarylight/shaders/restir_programs.py",
+        "ordinarylight/shaders/sampling_programs.py",
+        "ordinarylight/shaders/secondary_layout.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/texture_programs.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/volume_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_shade_candidate.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_srgb.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_textures.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_texture_shaders.py",
+        "ordinarylight/shaders/texture_layout.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_tone_map.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_tone_map_image.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_core_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/easu.py"
+      ]
+    },
+    "ordinarylight/shaders/wavefront_volumes.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_entrypoint_shaders.py",
+        "ordinarylight/shaders/abi.py",
+        "ordinarylight/shaders/entrypoint_layouts.py",
+        "ordinarylight/shaders/entrypoint_programs.py",
+        "ordinarylight/shaders/fused_primary_programs.py",
+        "ordinarylight/shaders/secondary_programs.py",
+        "ordinarylight/shaders/srgb_table.py",
+        "ordinarylight/shaders/texture_programs.py"
+      ]
+    }
+  }
+}

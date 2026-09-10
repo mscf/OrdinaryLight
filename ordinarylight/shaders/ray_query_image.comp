@@ -156,6 +156,7 @@ vec3 rayQuerySamplePointLights(vec3 hit, vec3 normal, vec3 diffuse_albedo);
 AreaLightSampleResult rayQuerySampleAreaLight(vec3 hit, vec3 normal, vec3 diffuse_albedo, uint initial_random_state, int sample_index, int sample_count);
 RayQueryTraceResult rayQueryImageTracePath(vec3 origin_value, vec3 direction_value, uint initial_random_state);
 PrimaryRayResult rayQueryImagePrimaryRay(vec2 screen);
+void waveSetMaterialAttributes(uint primitive, vec3 weights);
 
 float waveFresnelSchlick(float cosine, float ior_from, float ior_to)
 {
@@ -511,6 +512,7 @@ RayQueryTraceResult rayQueryImageTracePath(vec3 origin_value, vec3 direction_val
         float random_u = rayQueryRandomValue(random_state);
         random_state = rayQueryRandomState(random_state);
         float random_v = rayQueryRandomValue(random_state);
+        waveSetMaterialAttributes(primitive, weights);
         MaterialEvaluation evaluated = evaluateMaterial(material, normal, uv, direction, entering, random_u, random_v, float(bounce), current_ior, exterior_ior);
         if ((bounce == 0))
         {
@@ -722,6 +724,12 @@ PrimaryRayResult rayQueryImagePrimaryRay(vec2 screen)
     }
     return PrimaryRayResult(origin, direction);
 }
+
+#if !WAVE_CUSTOM_ATTRIBUTES
+void waveSetMaterialAttributes(uint primitive, vec3 weights)
+{
+}
+#endif
 
 void main()
 {

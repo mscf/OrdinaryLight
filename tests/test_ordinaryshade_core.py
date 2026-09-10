@@ -10,6 +10,16 @@ ROOT = Path(__file__).parents[1]
 
 
 class OrdinaryShadeCoreShaderTests(unittest.TestCase):
+    def test_surface_only_stage_matches_installed_ordinaryshade_generator(self):
+        module = self._generator_module()
+        output = ROOT / "ordinarylight/shaders/wavefront_shade_candidate.glsl"
+        source = module.generated_source(
+            module.GENERATED[output], module.HELPERS[output],
+        )
+        self.assertEqual(output.read_text(), source)
+        self.assertIn("#if WAVE_SURFACE_ONLY", source)
+        self.assertIn("configured_surface_only = true;", source)
+
     def test_buffer_ray_query_is_a_generated_complete_stage(self):
         source = (
             ROOT / "ordinarylight/shaders/ray_query.comp"

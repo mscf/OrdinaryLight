@@ -27,7 +27,7 @@ class MaterialProgramTests(unittest.TestCase):
         self.assertIn("#define WAVE_DENOISER_SIGNAL_CAPTURE 1", capture)
         self.assertNotIn("#define WAVE_DENOISER_SIGNAL_CAPTURE 1", ordinary)
         self.assertIn("#if WAVE_DENOISER_SIGNAL_CAPTURE", capture)
-        self.assertIn("| 0x80000000u", capture)
+        self.assertIn("| uint(2147483648)", capture)
         if find_glsl_compiler() is not None:
             binary = compile_wavefront_material_shader(
                 "wavefront_primary.comp", (fresnel_glass,),
@@ -102,8 +102,8 @@ class MaterialProgramTests(unittest.TestCase):
         specialized = vertex_tint.glsl(attribute_slots={
             name: layout.slot(name) for name, _ in layout.channels
         })
-        self.assertIn("waveVertexAttribute3(1u)", specialized)
-        self.assertIn("waveVertexAttribute1(0u)", specialized)
+        self.assertIn("waveVertexAttribute3(uint(1))", specialized)
+        self.assertIn("waveVertexAttribute1(uint(0))", specialized)
         with self.assertRaises(ValueError):
             material_shader_source("ray_query.comp", vertex_tint)
         source = material_shader_source(
@@ -275,10 +275,10 @@ class MaterialProgramTests(unittest.TestCase):
         )
         self.assertIn("binding = 16", candidate_source)
         self.assertIn(
-            "wave_attribute_primitive = loaded.hit.primitive_index",
+            "waveSetMaterialAttributes(loaded.hit.primitive_index, surface.weights)",
             candidate_source,
         )
-        self.assertIn("wave_attribute_weights = surface.weights", candidate_source)
+        self.assertIn("wave_attribute_weights = weights", candidate_source)
         self.assertNotIn("WAVE_ATTRIBUTE_color", candidate_source)
         self.assertEqual(
             candidate_source.count(
@@ -385,7 +385,7 @@ class MaterialProgramTests(unittest.TestCase):
         packed = scene.triangle_material_data(programs, ol.builtin_material)
         self.assertEqual(tuple(packed[:, 3, 2]), (0.0, 1.0))
         source = material_shader_source("ray_query.comp", programs)
-        self.assertIn("if (program_id == 1)", source)
+        self.assertIn("if ((program_id == 1))", source)
         if find_glsl_compiler():
             spirv = compile_material_shader("ray_query.comp", programs)
             self.assertEqual(spirv[:4], b"\x03\x02#\x07")

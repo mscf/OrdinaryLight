@@ -3,11 +3,14 @@
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
+import hashlib
 import shutil
 import subprocess
 import tempfile
 
 from ..materials import MaterialProgram, material_dispatch_glsl
+from .material_support import support_source
+from ordinarylight.runtime.lifecycle import timed_call
 
 
 _BEGIN = "// WAVE_RENDER_MATERIAL_BEGIN"
@@ -68,37 +71,12 @@ def material_shader_source(
         f"{_END}"
     )
     if required:
-        channel_count = len(attribute_layout.channels)
-        support = f"""layout(set = 0, binding = 15, std430) readonly buffer WaveCustomAttributeBuffer {{
-    vec4 wave_custom_attributes[];
-}};
-uint wave_attribute_primitive;
-vec3 wave_attribute_weights;
-vec4 waveVertexAttribute4(uint slot)
-{{
-    uint base = wave_attribute_primitive * {3 * channel_count}u + slot;
-    return wave_custom_attributes[base] * wave_attribute_weights.x
-        + wave_custom_attributes[base + {channel_count}u] * wave_attribute_weights.y
-        + wave_custom_attributes[base + {2 * channel_count}u] * wave_attribute_weights.z;
-}}
-float waveVertexAttribute1(uint slot) {{ return waveVertexAttribute4(slot).x; }}
-vec2 waveVertexAttribute2(uint slot) {{ return waveVertexAttribute4(slot).xy; }}
-vec3 waveVertexAttribute3(uint slot) {{ return waveVertexAttribute4(slot).xyz; }}
-"""
+        support = support_source(len(attribute_layout.channels), 15, staged=False)
         generated = support + generated
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_ATTRIBUTES 1\n", 1)
+        begin = source.find(_BEGIN)
+        end = source.find(_END)
     result = source[:begin] + generated + source[end + len(_END):]
-    if required:
-        call = "MaterialEvaluation evaluated = evaluateMaterial("
-        state = (
-            "wave_attribute_primitive = primitive;\n"
-            "        wave_attribute_weights = weights;\n"
-            "        " + call
-        )
-        if call not in result:
-            raise RuntimeError(
-                f"Shader template {shader_name!r} has no material call site"
-            )
-        result = result.replace(call, state)
     return result
 
 
@@ -165,12 +143,6 @@ def wavefront_material_shader_source(
         source = source.replace(
             "#version 460\n", "#version 460\n#define WAVE_DENOISER_SIGNAL_CAPTURE 1\n", 1,
         )
-    if shader_name == "wavefront_primary.comp":
-        source = source.replace(
-            "#version 460\n",
-            "#version 460\n#define WAVE_CUSTOM_MATERIAL_PROGRAM 1\n",
-            1,
-        )
     if native_textures:
         source = source.replace(
             "#version 460\n",
@@ -183,21 +155,8 @@ def wavefront_material_shader_source(
             "#version 460\n#define WAVE_WORK_COUNTERS 1\n",
             1,
         )
-    if denoiser_signal_capture and shader_name in (
-        "wavefront_shade_candidate.glsl", "wavefront_shade.comp",
-    ):
-        anchors = (
-            "push.indirect_secondary_capture != uint(0)"
-            if shader_name == "wavefront_shade_candidate.glsl"
-            else "push.indirect_secondary_capture != 0u"
-        )
-        replacements = source.count(anchors)
-        if replacements != 2:
-            raise RuntimeError(
-                "denoiser signal-capture shader anchors changed: "
-                f"expected 2, found {replacements}"
-            )
-        source = source.replace(anchors, "true")
+    if denoiser_signal_capture and shader_name in ("wavefront_shade_candidate.glsl", "wavefront_shade.comp"):
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_DENOISER_SIGNAL_CAPTURE 1\n", 1)
     if overlapping_volumes:
         source = source.replace(
             "#version 460\n",
@@ -223,288 +182,24 @@ def wavefront_material_shader_source(
             1,
         )
     if shader_name == "wavefront_shade_candidate.glsl":
-        begin = source.find(_BEGIN)
-        end = source.find(_END)
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_ATTRIBUTES 1\n", 1)
+        begin, end = source.find(_BEGIN), source.find(_END)
         if begin < 0 or end < begin:
-            raise RuntimeError(
-                "Ordinary Shade production source has no material insertion "
-                "point"
-            )
-        channel_count = len(attribute_layout.channels)
-        attribute_support = f"""float waveFresnelSchlick(float cosine, float ior_from, float ior_to)
-{{
-    float ratio = (ior_from - ior_to) / max(ior_from + ior_to, 0.000001);
-    float r0 = ratio * ratio;
-    float one_minus_cosine = 1.0 - clamp(cosine, 0.0, 1.0);
-    return r0 + (1.0 - r0) * one_minus_cosine * one_minus_cosine
-        * one_minus_cosine * one_minus_cosine * one_minus_cosine;
-}}
-layout(set = 0, binding = {int(attribute_binding)}, std430) readonly buffer WaveCustomAttributeBuffer {{
-    vec4 wave_custom_attributes[];
-}};
-uint wave_attribute_primitive;
-vec3 wave_attribute_weights;
-vec4 waveVertexAttribute4(uint slot)
-{{
-    uint base = wave_attribute_primitive * {3 * channel_count}u + slot;
-    return wave_custom_attributes[base] * wave_attribute_weights.x
-        + wave_custom_attributes[base + {channel_count}u] * wave_attribute_weights.y
-        + wave_custom_attributes[base + {2 * channel_count}u] * wave_attribute_weights.z;
-}}
-float waveVertexAttribute1(uint slot) {{ return waveVertexAttribute4(slot).x; }}
-vec2 waveVertexAttribute2(uint slot) {{ return waveVertexAttribute4(slot).xy; }}
-vec3 waveVertexAttribute3(uint slot) {{ return waveVertexAttribute4(slot).xyz; }}
-"""
-        generated = (
-            f"{_BEGIN}\n{attribute_support}"
-            f"{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier, material_resources=material_resources)}\n"
-            f"{_END}"
-        )
-        source = source[:begin] + generated + source[end + len(_END):]
-        call = "    MaterialEvaluation evaluated = evaluateMaterial("
-        if call not in source:
-            raise RuntimeError(
-                "Ordinary Shade production material call site changed"
-            )
-        source = source.replace(
-            call,
-            "    wave_attribute_primitive = loaded.hit.primitive_index;\n"
-            "    wave_attribute_weights = surface.weights;\n" + call,
-            1,
-        )
-        return source
-    anchor = "struct PointLightData"
-    position = source.find(anchor)
-    if position < 0:
-        raise RuntimeError(f"shader {shader_name!r} has no material insertion anchor")
-    channel_count = len(attribute_layout.channels)
-    support = f"""struct MaterialEvaluation {{
-    vec3 base_color; vec3 emission; float metallic; float roughness;
-    float transmission; float ior; vec3 attenuation_color;
-    float attenuation_distance; float custom_scattering; vec3 weight;
-    vec3 next_direction; float event; float pdf;
-}};
-float waveFresnelSchlick(float cosine, float ior_from, float ior_to)
-{{
-    float ratio = (ior_from - ior_to) / max(ior_from + ior_to, 0.000001);
-    float r0 = ratio * ratio;
-    float one_minus_cosine = 1.0 - clamp(cosine, 0.0, 1.0);
-    return r0 + (1.0 - r0) * one_minus_cosine * one_minus_cosine
-        * one_minus_cosine * one_minus_cosine * one_minus_cosine;
-}}
-vec3 waveCosineHemisphere(vec3 normal, float random_u, float random_v)
-{{
-    float radius = sqrt(random_u);
-    float phi = 6.28318530718 * random_v;
-    vec3 tangent = normalize(abs(normal.z) < 0.999
-        ? cross(normal, vec3(0.0, 0.0, 1.0))
-        : cross(normal, vec3(0.0, 1.0, 0.0)));
-    vec3 bitangent = cross(normal, tangent);
-    return normalize(tangent * radius * cos(phi)
-        + bitangent * radius * sin(phi)
-        + normal * sqrt(max(0.0, 1.0 - random_u)));
-}}
-layout(set = 0, binding = {int(attribute_binding)}, std430) readonly buffer WaveCustomAttributeBuffer {{
-    vec4 wave_custom_attributes[];
-}};
-uint wave_attribute_primitive;
-vec3 wave_attribute_weights;
-vec4 waveVertexAttribute4(uint slot)
-{{
-    uint base = wave_attribute_primitive * {3 * channel_count}u + slot;
-    return wave_custom_attributes[base] * wave_attribute_weights.x
-        + wave_custom_attributes[base + {channel_count}u] * wave_attribute_weights.y
-        + wave_custom_attributes[base + {2 * channel_count}u] * wave_attribute_weights.z;
-}}
-float waveVertexAttribute1(uint slot) {{ return waveVertexAttribute4(slot).x; }}
-vec2 waveVertexAttribute2(uint slot) {{ return waveVertexAttribute4(slot).xy; }}
-vec3 waveVertexAttribute3(uint slot) {{ return waveVertexAttribute4(slot).xyz; }}
-{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier, material_resources=material_resources)}
-MaterialEvaluation waveApplyMaterialProgram(
-    inout MaterialData material, vec3 normal, vec2 uv, vec3 direction,
-    bool entering, uint primitive, vec3 weights, float bounce_index)
-{{
-    wave_attribute_primitive = primitive;
-    wave_attribute_weights = weights;
-    MaterialEvaluation evaluated = evaluateMaterial(
-        material, normal, uv, direction, entering, 0.5, 0.5,
-        bounce_index, 1.0, material.ior_distance.x);
-    material.base_roughness = vec4(evaluated.base_color, evaluated.roughness);
-    material.emission_metallic = vec4(evaluated.emission, evaluated.metallic);
-    material.attenuation_transmission = vec4(
-        evaluated.attenuation_color, evaluated.transmission);
-    material.ior_distance.xy = vec2(evaluated.ior, evaluated.attenuation_distance);
-    return evaluated;
-}}
-"""
-    source = source[:position] + support + source[position:]
-    uv = """vec2 wave_material_uv =
-            attributes[primitive * 3u + 0u].texcoord.xy * weights.x
-            + attributes[primitive * 3u + 1u].texcoord.xy * weights.y
-            + attributes[primitive * 3u + 2u].texcoord.xy * weights.z;"""
-    if shader_name == "wavefront_primary.comp":
-        first_anchor = "        // WAVE_MATERIAL_APPLICATION_SECONDARY\n"
-        first_insert = (
-            "        " + uv + "\n"
-            "        MaterialEvaluation wave_surface_response = "
-            "ordinarylight_apply_material_program("
-            "material, normal, wave_material_uv, "
-            "direction, entering, primitive, weights, float(bounce));\n"
-            "        if (wave_surface_response.custom_scattering > 0.5) {\n"
-            "            float wave_current_ior = "
-            "stacks[path_index].ior[medium_depth - 1u];\n"
-            "            float wave_exterior_ior = entering\n"
-            "                ? max(material.ior_distance.x, 1.0001)\n"
-            "                : (medium_depth > 1u\n"
-            "                    ? stacks[path_index].ior[medium_depth - 2u] "
-            ": 1.0);\n"
-            "            float wave_random_u = randomFloat(rng);\n"
-            "            float wave_random_v = randomFloat(rng);\n"
-            "            wave_surface_response = evaluateMaterial(\n"
-            "                material, normal, wave_material_uv, direction, "
-            "entering, wave_random_u, wave_random_v, float(bounce),\n"
-            "                wave_current_ior, wave_exterior_ior);\n"
-            "        }\n"
-        )
-        second_anchor = (
-            "#endif\n\n#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE"
-        )
-        second_insert = (
-            "#endif\n    " + uv.replace("            ", "    ") + "\n"
-            "    MaterialEvaluation wave_surface_response = "
-            "ordinarylight_apply_material_program("
-            "material, normal, wave_material_uv, "
-            "incoming, entering, primitive, weights, 0.0);\n"
-            "    if (wave_surface_response.custom_scattering > 0.5) {\n"
-            "        float wave_random_u = randomFloat(rng);\n"
-            "        float wave_random_v = randomFloat(rng);\n"
-            "        wave_surface_response = evaluateMaterial(\n"
-            "            material, normal, wave_material_uv, incoming, "
-            "entering, wave_random_u, wave_random_v, 0.0, 1.0,\n"
-            "            max(material.ior_distance.x, 1.0001));\n"
-            "    }\n\n"
-            "#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE"
-        )
-        if first_anchor not in source or second_anchor not in source:
-            raise RuntimeError("primary shader material application anchors changed")
-        source = source.replace(first_anchor, first_insert, 1)
-        source = source.replace(second_anchor, second_insert, 1)
-        scatter_anchor = "        if (transmission > 0.001) {"
-        custom_loop = """        if (wave_surface_response.custom_scattering > 0.5) {
-            int wave_event = int(wave_surface_response.event + 0.5);
-            if (wave_event == 0) {
-                path.metadata.w &= ~PATH_ACTIVE_BIT;
-                return false;
-            }
-            next_direction = normalize(wave_surface_response.next_direction);
-            bsdf_pdf = max(wave_surface_response.pdf, 0.000001);
-            path.throughput.rgb *= wave_surface_response.weight / bsdf_pdf;
-            transmission = wave_event == 3 ? 1.0 : 0.0;
-            if (wave_event == 3) {
-                float target_ior = max(material.ior_distance.x, 1.0001);
-                if (entering && medium_depth < WAVE_MAX_MEDIUM_STACK_DEPTH) {
-                    stacks[path_index].ior[medium_depth] = target_ior;
-                    medium_depth++;
-                } else if (!entering && medium_depth > 1u) {
-                    medium_depth--;
-                }
-            }
-        } else if (transmission > 0.001) {"""
-        if scatter_anchor not in source:
-            raise RuntimeError("primary continuation scattering anchor changed")
-        source = source.replace(scatter_anchor, custom_loop, 1)
-
-        primary_scatter_anchor = "    if (transmission > 0.001) {"
-        custom_primary = """    if (wave_surface_response.custom_scattering > 0.5) {
-        int wave_event = int(wave_surface_response.event + 0.5);
-        if (wave_event == 0) {
-            path.metadata.w &= ~PATH_ACTIVE_BIT;
-            setPathRng(path, rng);
-            paths[path_index] = path;
-            return;
-        }
-        next_direction = normalize(wave_surface_response.next_direction);
-        bsdf_pdf = max(wave_surface_response.pdf, 0.000001);
-        path.throughput.rgb *= wave_surface_response.weight / bsdf_pdf;
-        transmission = wave_event == 3 ? 1.0 : 0.0;
-        if (wave_event == 3 && entering) {
-            stacks[path_index].ior[1] = max(material.ior_distance.x, 1.0001);
-            medium_depth = 2u;
-        }
-    } else if (transmission > 0.001) {"""
-        if primary_scatter_anchor not in source:
-            raise RuntimeError("primary initial scattering anchor changed")
-        source = source.replace(primary_scatter_anchor, custom_primary, 1)
-    elif shader_name == "wavefront_shade.comp":
-        shade_anchor = (
-            "    if (push.indirect_secondary_capture != 0u"
-            if not denoiser_signal_capture else "    if (true"
-        )
-        shade_insert = (
-            "    " + uv.replace("            ", "    ") + "\n"
-            "    MaterialEvaluation wave_surface_response = "
-            "waveApplyMaterialProgram(material, normal, wave_material_uv, "
-            "incoming, entering, primitive, weights, float(pathBounce(path)));\n"
-            "    uint wave_surface_rng = pathRng(path);\n"
-            "    if (wave_surface_response.custom_scattering > 0.5) {\n"
-            "        uint wave_medium_depth = max(path.metadata.w >> 8u, 1u);\n"
-            "        float wave_current_ior = "
-            "stacks[path_index].ior[wave_medium_depth - 1u];\n"
-            "        float wave_exterior_ior = entering\n"
-            "            ? max(material.ior_distance.x, 1.0001)\n"
-            "            : (wave_medium_depth > 1u\n"
-            "                ? stacks[path_index].ior[wave_medium_depth - 2u] "
-            ": 1.0);\n"
-            "        float wave_random_u = randomFloat(wave_surface_rng);\n"
-            "        float wave_random_v = randomFloat(wave_surface_rng);\n"
-            "        wave_surface_response = evaluateMaterial(\n"
-            "            material, normal, wave_material_uv, incoming, "
-            "entering, wave_random_u, wave_random_v, "
-            "float(pathBounce(path)), wave_current_ior, wave_exterior_ior);\n"
-            "    }\n"
-            + shade_anchor
-        )
-        if shade_anchor not in source:
-            raise RuntimeError("shade shader material application anchor changed")
-        source = source.replace(shade_anchor, shade_insert, 1)
-        rng_anchor = "    uint rng = pathRng(path);"
-        if rng_anchor not in source:
-            raise RuntimeError("shade shader RNG anchor changed")
-        source = source.replace(
-            rng_anchor,
-            "    uint rng = wave_surface_response.custom_scattering > 0.5\n"
-            "        ? wave_surface_rng : pathRng(path);",
-            1,
-        )
-        scatter_anchor = "    if (transmission > 0.001) {"
-        custom_scatter = """    if (wave_surface_response.custom_scattering > 0.5) {
-        int wave_event = int(wave_surface_response.event + 0.5);
-        if (wave_event == 0) {
-            path.metadata.w &= ~PATH_ACTIVE_BIT;
-            setPathRng(path, rng);
-            paths[path_index] = path;
-            return;
-        }
-        next_direction = normalize(wave_surface_response.next_direction);
-        bsdf_pdf = max(wave_surface_response.pdf, 0.000001);
-        path.throughput.rgb *= wave_surface_response.weight / bsdf_pdf;
-        transmission = wave_event == 3 ? 1.0 : 0.0;
-        if (wave_event == 3) {
-            float target_ior = max(material.ior_distance.x, 1.0001);
-            if (entering && medium_depth < WAVE_MAX_MEDIUM_STACK_DEPTH) {
-                stacks[path_index].ior[medium_depth] = target_ior;
-                medium_depth++;
-            } else if (!entering && medium_depth > 1u) {
-                medium_depth--;
-            }
-        }
-    } else if (transmission > 0.001) {"""
-        if scatter_anchor not in source:
-            raise RuntimeError("shade shader scattering anchor changed")
-        source = source.replace(scatter_anchor, custom_scatter, 1)
-    else:
-        raise ValueError("staged material shader must be primary or shade")
-    return source
+            raise RuntimeError("OrdinaryShade production source has no material insertion point")
+        support = support_source(len(attribute_layout.channels), attribute_binding, candidate=True)
+        generated = (f"{_BEGIN}\n{support}"
+                     f"{material_dispatch_glsl(programs, attribute_slots=slots, material_modifier=material_modifier, material_resources=material_resources)}\n{_END}")
+        return source[:begin] + generated + source[end + len(_END):]
+    if shader_name in ("wavefront_primary.comp", "wavefront_shade.comp"):
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_MATERIAL_PROGRAM 1\n", 1)
+        position = source.find("struct PointLightData")
+        if position < 0:
+            raise RuntimeError("Primary shader has no material module insertion point")
+        support = support_source(len(attribute_layout.channels), attribute_binding)
+        support += material_dispatch_glsl(programs, attribute_slots=slots,
+                                         material_modifier=material_modifier, material_resources=material_resources)
+        return source[:position] + support + source[position:]
+    raise ValueError("staged material shader must be primary or shade")
 
 
 def compile_wavefront_material_shader(
@@ -514,13 +209,12 @@ def compile_wavefront_material_shader(
     native_textures=False, profiling=False, denoiser_signal_capture=False,
     inline_continuation=False,
     material_modifier=None, material_resources=None,
-    compiler=None,
+    compiler=None, shared_primary_reservoirs=0, surface_only=False,
 ):
     compiler = compiler or find_glsl_compiler()
     if compiler is None:
         raise RuntimeError("custom materials require glslangValidator or glslc")
-    return _compile_source(
-        wavefront_material_shader_source(
+    source = wavefront_material_shader_source(
             shader_name, programs, attribute_layout=attribute_layout,
             attribute_binding=attribute_binding,
             overlapping_volumes=overlapping_volumes,
@@ -532,9 +226,27 @@ def compile_wavefront_material_shader(
             denoiser_signal_capture=denoiser_signal_capture,
             inline_continuation=inline_continuation,
             material_modifier=material_modifier, material_resources=material_resources,
-        ),
-        compiler,
-    )
+        )
+    if surface_only:
+        if shader_name != "wavefront_shade_candidate.glsl" or any((
+            overlapping_volumes, scattering_volumes,
+            multiple_scattering_volumes, volume_empty_space_skipping,
+        )):
+            raise ValueError("surface-only specialization requires volume-free Ordinary Shade shading")
+        source = source.replace(
+            "#version 460\n",
+            "#version 460\n#define WAVE_SURFACE_ONLY 1\n",
+            1,
+        )
+    if shared_primary_reservoirs:
+        if shader_name != "wavefront_primary.comp" or not 1 <= shared_primary_reservoirs <= 8:
+            raise ValueError("shared primary reservoirs require primary shader and count 1..8")
+        source = source.replace(
+            "#version 460\n",
+            f"#version 460\n#define WAVE_SHARED_PRIMARY_RESERVOIRS {shared_primary_reservoirs}\n",
+            1,
+        )
+    return _compile_source(source, compiler)
 
 
 @lru_cache(maxsize=32)
@@ -551,7 +263,14 @@ def _compile_source(source, compiler):
                 compiler, "-V", "--target-env", "vulkan1.2", "-S", "comp",
                 str(input_path), "-o", str(output_path),
             ]
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = timed_call(
+            "shader_compile", subprocess.run, command,
+            capture_output=True, text=True,
+            lifecycle_details={
+                "compiler": Path(compiler).name,
+                "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            },
+        )
         if result.returncode:
             diagnostics = (result.stdout + result.stderr).strip()
             raise RuntimeError(f"Material shader compilation failed:\n{diagnostics}")

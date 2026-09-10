@@ -18,7 +18,7 @@ class _NativePrepareKernel:
             (0, executor.path_buffer),
             (1, executor.secondary_path_buffer),
             (9, executor.camera_buffers[slot]),
-            (10, executor.camera_buffers[1 - slot]),
+            (10, executor.previous_camera_buffers[slot]),
             (11, executor.core.scene_previous_vertex_buffer),
         ):
             self.bindings[binding] = VulkanResource.buffer(

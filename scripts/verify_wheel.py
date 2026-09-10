@@ -8,6 +8,17 @@ from zipfile import ZipFile
 
 
 REQUIRED_SUFFIXES = (
+    "ordinarylight/shaders/volume_upload.comp",
+    "ordinarylight/shaders/volume_upload.comp.spv",
+    "ordinarylight/shaders/volume_upload.wgsl",
+    "ordinarylight/shaders/fused_primary_programs.py",
+    "ordinarylight/shaders/scene_dispatch.py",
+    "ordinarylight/materials/shade.py",
+    "ordinarylight/shaders/primary_metadata.comp",
+    "ordinarylight/shaders/primary_metadata.comp.spv",
+    "ordinarylight/shaders/accumulation_resolve.comp",
+    "ordinarylight/shaders/accumulation_resolve.comp.spv",
+    "ordinarylight/shaders/authorship.json",
     "ordinarylight/_presentation/__init__.py",
     "ordinarylight/_presentation/acquisition.py",
     "ordinarylight/portable/__init__.py",

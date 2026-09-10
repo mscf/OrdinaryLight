@@ -49,8 +49,12 @@ class Expression:
 
     type: str
     code: str
+    python: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
+        if self.python is None:
+            # Leaf inputs and numeric literals use the same member syntax.
+            object.__setattr__(self, 'python', {'true': 'True', 'false': 'False'}.get(self.code, self.code))
         if self.type not in _TYPES:
             raise ValueError(f"Unsupported shader type: {self.type}")
 
@@ -66,7 +70,7 @@ class Expression:
             raise TypeError(f"Cannot apply {operator} to {self.type} and {other.type}")
         if comparison and result_type != "float":
             raise TypeError("Material comparisons currently require scalar operands")
-        return Expression("bool" if comparison else result_type, f"({self.code} {operator} {other.code})")
+        return Expression("bool" if comparison else result_type, f"({self.code} {operator} {other.code})", f"({self.python} {operator} {other.python})")
 
     def __add__(self, other): return self._binary(other, "+")
     def __radd__(self, other): return _number(other)._binary(self, "+")
@@ -76,7 +80,7 @@ class Expression:
     def __rmul__(self, other): return _number(other)._binary(self, "*")
     def __truediv__(self, other): return self._binary(other, "/")
     def __rtruediv__(self, other): return _number(other)._binary(self, "/")
-    def __neg__(self): return Expression(self.type, f"(-{self.code})")
+    def __neg__(self): return Expression(self.type, f"(-{self.code})", f"(-{self.python})")
     def __lt__(self, other): return self._binary(other, "<", comparison=True)
     def __le__(self, other): return self._binary(other, "<=", comparison=True)
     def __gt__(self, other): return self._binary(other, ">", comparison=True)
@@ -85,12 +89,12 @@ class Expression:
         other = _number(other)
         if self.type != "bool" or other.type != "bool":
             raise TypeError("Symbolic '&' requires bool operands")
-        return Expression("bool", f"({self.code} && {other.code})")
+        return Expression("bool", f"({self.code} && {other.code})", f"({self.python} and {other.python})")
     def __or__(self, other):
         other = _number(other)
         if self.type != "bool" or other.type != "bool":
             raise TypeError("Symbolic '|' requires bool operands")
-        return Expression("bool", f"({self.code} || {other.code})")
+        return Expression("bool", f"({self.code} || {other.code})", f"({self.python} or {other.python})")
 
     def __bool__(self):
         raise TypeError("Symbolic material conditions must use ordinarylight.select()")
@@ -104,12 +108,15 @@ class Expression:
         if any(indices.index(c) >= width for c in components):
             raise AttributeError(components)
         result_type = "float" if len(components) == 1 else f"vec{len(components)}"
-        return Expression(result_type, f"{self.code}.{components}")
+        return Expression(result_type, f"{self.code}.{components}", f"({self.python}).{components}")
 
 
 def _call(name, result_type, *arguments):
     args = [_number(argument) for argument in arguments]
-    return Expression(result_type, f"{name}({', '.join(arg.code for arg in args)})")
+    intrinsic = {'max': 'maximum'}.get(name, name)
+    function = 'osh.' + intrinsic if name in {'vec2', 'vec3', 'vec4', 'dot', 'normalize', 'reflect', 'refract', 'max', 'mix'} else name
+    return Expression(result_type, f"{name}({', '.join(arg.code for arg in args)})",
+                      f"{function}({', '.join(arg.python for arg in args)})")
 
 
 def _coerce(value, expected_type):
@@ -123,7 +130,7 @@ def _coerce(value, expected_type):
             return _call(expected_type, expected_type, *value)
         if isinstance(value, (int, float)):
             scalar = _number(value)
-            return Expression(expected_type, f"{expected_type}({scalar.code})")
+            return _call(expected_type, expected_type, scalar)
     raise TypeError(f"Cannot convert {value!r} to {expected_type}")
 
 
@@ -131,7 +138,7 @@ def vec2(x, y): return _call("vec2", "vec2", x, y)
 def vec3(x, y=None, z=None):
     if y is None and z is None:
         value = _number(x)
-        return Expression("vec3", f"vec3({value.code})")
+        return _call("vec3", "vec3", value)
     return _call("vec3", "vec3", x, y, z)
 def vec4(x, y, z, w): return _call("vec4", "vec4", x, y, z, w)
 def dot(a, b): return _call("dot", "float", a, b)
@@ -165,6 +172,7 @@ def select(condition, when_true, when_false):
     return Expression(
         when_true.type,
         f"({condition.code} ? {when_true.code} : {when_false.code})",
+        f"({when_true.python} if {condition.python} else {when_false.python})",
     )
 
 
@@ -376,73 +384,8 @@ class MaterialProgram:
         return "pbr"
 
     def glsl(self, function_name="evaluateMaterial", *, attribute_slots=None):
-        if not _IDENTIFIER.match(function_name):
-            raise ValueError("function_name must be a valid shader identifier")
-        material_expected = {
-            "base_color": "vec3", "emission": "vec3", "metallic": "float",
-            "roughness": "float", "transmission": "float", "ior": "float",
-            "attenuation_color": "vec3", "attenuation_distance": "float",
-        }
-        lines = [
-            f"MaterialEvaluation {function_name}(MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
-            "{", "    MaterialEvaluation result;",
-        ]
-        evaluation = (
-            self.evaluation.resolved
-            if isinstance(self.evaluation, LayeredMaterialEvaluation)
-            else self.evaluation
-        )
-        if isinstance(evaluation, MaterialEvaluation):
-            for field_name, field_type in material_expected.items():
-                expression = getattr(evaluation, field_name)
-                self._assign(lines, field_name, field_type, expression)
-            lines.extend((
-                "    result.custom_scattering = 0.0;",
-                "    result.weight = vec3(0.0);",
-                "    result.next_direction = direction;",
-                "    result.event = 0.0;",
-                "    result.pdf = 1.0;",
-            ))
-        else:
-            response_expected = {
-                "emission": "vec3", "weight": "vec3",
-                "next_direction": "vec3", "event": "float", "pdf": "float",
-            }
-            # Preserve the parameter fields so the ABI remains common across
-            # old and new programs, even though the custom path does not use them.
-            lines.extend((
-                "    result.base_color = material.base_roughness.rgb;",
-                "    result.metallic = material.emission_metallic.a;",
-                "    result.roughness = material.base_roughness.a;",
-                "    result.transmission = material.attenuation_transmission.a;",
-                "    result.ior = material.ior_distance.x;",
-                "    result.attenuation_color = material.attenuation_transmission.rgb;",
-                "    result.attenuation_distance = material.ior_distance.y;",
-                "    result.custom_scattering = 1.0;",
-            ))
-            for field_name, field_type in response_expected.items():
-                expression = getattr(evaluation, field_name)
-                self._assign(lines, field_name, field_type, expression)
-        lines.extend(("    return result;", "}"))
-        source = "\n".join(lines)
-        if attribute_slots is not None:
-            for name, components in self.required_attributes:
-                try:
-                    slot = int(attribute_slots[name])
-                except KeyError as error:
-                    raise ValueError(
-                        f"no shader slot was supplied for attribute {name!r}"
-                    ) from error
-                if slot < 0:
-                    raise ValueError("attribute slots cannot be negative")
-                source = source.replace(f"WAVE_ATTRIBUTE_{name}", f"{slot}u")
-        return source
-
-    @staticmethod
-    def _assign(lines, field_name, field_type, expression):
-        if not isinstance(expression, Expression) or expression.type != field_type:
-            raise TypeError(f"{field_name} must be a {field_type} expression")
-        lines.append(f"    result.{field_name} = {expression.code};")
+        from .shade import compile_material
+        return compile_material(self, function_name, attribute_slots=attribute_slots)
 
 
 def material_dispatch_glsl(
@@ -463,40 +406,10 @@ def material_dispatch_glsl(
         )
         for index, program in enumerate(programs)
     ]
-    lines = [
-        material_modifier_glsl(material_modifier),
-        *functions,
-        "MaterialEvaluation evaluateMaterial(inout MaterialData material, inout vec3 normal, vec2 uv, vec3 direction, bool entering, float random_u, float random_v, float bounce_index, float current_ior, float exterior_ior)",
-        "{",
-        "    int program_id = int(floor(material.ior_distance.z));",
-        "    MaterialEvaluation evaluated = evaluateMaterial_0(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);",
-    ]
-    for index in range(1, len(programs)):
-        lines.append(
-            f"    if (program_id == {index}) evaluated = evaluateMaterial_{index}(material, normal, uv, direction, entering, random_u, random_v, bounce_index, current_ior, exterior_ior);"
-        )
-    lines.extend((
-        "    SurfaceParameters surface = SurfaceParameters(evaluated.base_color, evaluated.emission, normal, evaluated.metallic, evaluated.roughness, evaluated.transmission, 1.0, material.advanced0.x, material.advanced0.y, material.sheen_color.rgb, material.advanced0.z, material.advanced0.w, material.advanced1.z, material.advanced1.x, material.subsurface_color.rgb, material.advanced1.y);",
-        "    surface = ordinarylight_material_modifier(surface, SurfaceContext(uv, normal, -direction, float(program_id)));",
-        "    normal = normalize(surface.normal);",
-        "    material.advanced0 = vec4(surface.clearcoat, surface.clearcoat_roughness, surface.sheen_roughness, surface.anisotropy);",
-        "    material.advanced1 = vec4(surface.subsurface, surface.subsurface_radius, surface.thin_walled, 0.0);",
-        "    material.sheen_color = vec4(surface.sheen_color, 0.0);",
-        "    material.subsurface_color = vec4(surface.subsurface_color, 0.0);",
-        "    float subsurface = clamp(surface.subsurface, 0.0, 1.0);",
-        "    evaluated.base_color = clamp(mix(surface.base_color, surface.subsurface_color, subsurface * 0.5) + surface.sheen_color * (1.0 - clamp(surface.sheen_roughness, 0.0, 1.0)) * 0.2, vec3(0.0), vec3(1.0));",
-        "    evaluated.emission = max(surface.emission, vec3(0.0));",
-        "    evaluated.metallic = clamp(surface.metallic, 0.0, 1.0);",
-        "    float coat_mix = clamp(surface.clearcoat, 0.0, 1.0) * 0.25;",
-        "    float anisotropic_roughness = surface.roughness * (1.0 - 0.25 * abs(clamp(surface.anisotropy, -1.0, 1.0)));",
-        "    evaluated.roughness = clamp(mix(anisotropic_roughness, surface.clearcoat_roughness, coat_mix) + subsurface * clamp(surface.subsurface_radius, 0.0, 1.0) * 0.1, 0.001, 1.0);",
-        "    evaluated.transmission = clamp(surface.transmission, 0.0, 1.0);",
-        "    if (surface.thin_walled > 0.5) evaluated.attenuation_distance = 1e30;",
-        "    evaluated.emission *= clamp(surface.occlusion, 0.0, 1.0);",
-        "    return evaluated;",
-        "}",
+    from .shade import compile_dispatch
+    return (material_resources.source if material_resources is not None else "") + "\n".join((
+        material_modifier_glsl(material_modifier), *functions, compile_dispatch(len(programs)),
     ))
-    return (material_resources.source if material_resources is not None else "") + "\n".join(lines)
 
 
 def material(function):

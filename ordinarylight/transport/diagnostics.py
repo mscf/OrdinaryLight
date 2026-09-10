@@ -55,55 +55,11 @@ class VulkanRayQuery:
         packed = np.zeros((len(origins), 2, 4), np.float32)
         packed[:, 0, :3] = origins
         packed[:, 1, :3] = directions
-        source = (
-            scene_source(scene)
-            + """
-    struct RayInput { vec4 origin; vec4 direction; };
-    layout(set=0,binding=8,std430) readonly buffer Rays { RayInput rays[]; };
-    layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightHit hits[]; };
-    layout(push_constant) uniform Constants { uint count; float t_min; float t_max; float tolerance; uint max_steps; } pc;
-    void main() {
-        uint i=gl_GlobalInvocationID.x; if(i>=pc.count) return;
-        hits[i]=ordinarylightIntersect(rays[i].origin.xyz,rays[i].direction.xyz,pc.t_min,pc.t_max,pc.tolerance,pc.max_steps);
-    }
-    """
-        )
+        from ..shaders.diagnostic import diagnostic_source
+        if hdr is not None and colors is None:
+            raise ValueError("HDR output requires a color palette")
+        source = scene_source(scene) + diagnostic_source(colors=colors is not None, hdr=hdr is not None)
         self.hit_dtype = HIT_DTYPE if colors is None else COLOR_HIT_DTYPE
-        if colors is not None:
-            source = source.replace(
-                "layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightHit hits[]; };",
-                """struct OrdinaryLightColorHit { vec4 color; uvec4 identity; };
-layout(set=0,binding=10,std430) readonly buffer QueryColors { vec4 ordinarylightQueryColors[]; };
-layout(set=0,binding=9,std430) writeonly buffer Hits { OrdinaryLightColorHit hits[]; };""",
-            )
-            source = source.replace(
-                "hits[i]=ordinarylightIntersect(rays[i].origin.xyz,rays[i].direction.xyz,pc.t_min,pc.t_max,pc.tolerance,pc.max_steps);",
-                """OrdinaryLightHit hit=ordinarylightIntersect(rays[i].origin.xyz,rays[i].direction.xyz,pc.t_min,pc.t_max,pc.tolerance,pc.max_steps);
-    uint status=hit.boundary.w;
-    vec4 color=vec4(0,0,0,1);
-    if(status==0u && hit.identity.x!=0u) {
-        if(hit.identity.z>=uint(ordinarylightQueryColors.length())) status=32u;
-        else {
-            color=ordinarylightQueryColors[hit.identity.z];
-            if(any(isnan(color))||any(isinf(color))) { status=16u; color=vec4(0,0,0,1); }
-        }
-    }
-    hits[i].color=color;
-    hits[i].identity=uvec4(hit.identity.x,hit.identity.z,hit.identity.w,status);""",
-            )
-        if hdr is not None:
-            if colors is None:
-                raise ValueError("HDR output requires a color palette")
-            source = source.replace(
-                "layout(set=0,binding=10,std430)",
-                "layout(set=0,binding=11,rgba32f) writeonly uniform image2D ordinarylightQueryHdr;\nlayout(set=0,binding=10,std430)",
-            )
-            source = source.replace(
-                "hits[i].color=color;",
-                """hits[i].color=color;
-    uint width=uint(imageSize(ordinarylightQueryHdr).x);
-    imageStore(ordinarylightQueryHdr,ivec2(i%width,i/width),color);""",
-            )
         self.scene, self.runtime = scene, scene.runtime
         self.count = len(origins)
         self.inputs = self.hits = self.kernel = None

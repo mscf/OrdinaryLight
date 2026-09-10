@@ -1,6 +1,7 @@
 """Persistent GPU sums/counts keyed by application IDs, with a resident HDR resolve."""
 
 import struct
+from importlib.resources import files
 from operator import index
 
 import numpy as np
@@ -10,23 +11,7 @@ ACCUMULATION_DTYPE = np.dtype(
     [("radiance", "<f4", (4,)), ("counts", "<u4", (4,)), ("events", "<u4", (4,))]
 )
 
-_RESOLVE = """#version 460
-layout(local_size_x=64) in;
-struct SampleAccumulation { vec4 radiance; uvec4 counts; uvec4 events; };
-layout(set=0,binding=0,std430) readonly buffer Samples { SampleAccumulation accumulated[]; };
-layout(set=0,binding=1,rgba32f) writeonly uniform image2D hdr;
-layout(push_constant) uniform Constants { uint width; uint height; uint capacity; } pc;
-void main() {
-    uint i=gl_GlobalInvocationID.x; if(i>=pc.width*pc.height) return;
-    vec3 value=vec3(0);
-    if(i<pc.capacity) {
-        SampleAccumulation state=accumulated[i];
-        value=state.radiance.w>0.0?state.radiance.rgb/state.radiance.w:vec3(0);
-        if(state.counts.z!=0u) value=vec3(1,0,1);
-    }
-    imageStore(hdr,ivec2(i%pc.width,i/pc.width),vec4(value,1));
-}
-"""
+_RESOLVE = files("ordinarylight.shaders").joinpath("accumulation_resolve.comp").read_text()
 
 
 class GpuSampleAccumulator:

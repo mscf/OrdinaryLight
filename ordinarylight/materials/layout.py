@@ -79,14 +79,16 @@ class MaterialResourceLayout:
             prefix = f"ol_graph_{declaration.name}"
             if declaration.kind == "uniform":
                 sources.append(
-                    f"layout(set={descriptor_set},binding={binding},std140) uniform {prefix}_block {{ vec4 value; }} {prefix}_data;\nvec4 {prefix}() {{ return {prefix}_data.value; }}\n"
+                    f"layout(set={descriptor_set},binding={binding},std140) uniform {prefix}_block {{ vec4 value; }} {prefix}_data;\n"
                 )
             elif declaration.kind == "buffer":
                 sources.append(
-                    f"layout(set={descriptor_set},binding={binding},std430) readonly buffer {prefix}_block {{ vec4 values[]; }} {prefix}_data;\nvec4 {prefix}(float index) {{ if(isnan(index)||isinf(index)||index<0.0||index>=float({prefix}_data.values.length())) return vec4(0); return {prefix}_data.values[uint(index)]; }}\n"
+                    f"layout(set={descriptor_set},binding={binding},std430) readonly buffer {prefix}_block {{ vec4 values[]; }} {prefix}_data;\n"
                 )
             else:
                 sources.append(
-                    f"layout(set={descriptor_set},binding={binding}) uniform texture2D {prefix}_image;\nlayout(set={descriptor_set},binding={binding + 1}) uniform sampler {prefix}_sampler;\nvec4 {prefix}(vec2 uv) {{ return textureLod(sampler2D({prefix}_image,{prefix}_sampler),uv,0.0); }}\n"
+                    f"layout(set={descriptor_set},binding={binding}) uniform texture2D {prefix}_image;\nlayout(set={descriptor_set},binding={binding + 1}) uniform sampler {prefix}_sampler;\n"
                 )
+            from .shade import resource_accessor
+            sources.append(resource_accessor(prefix, declaration.kind))
         return "".join(sources)

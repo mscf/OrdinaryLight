@@ -106,22 +106,9 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
         )
         self.assertIn('#include "ordinaryshade_primary.glsl"', primary)
         self.assertNotIn("rayQueryGetIntersectionInstanceIdEXT", primary)
-        self.assertIn("uintBitsToFloat(instance_key)", primary)
-        self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_CAMERA", primary)
-        self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_STATE", primary)
-        self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_SURFACE", primary)
-        self.assertIn(
-            "#if WAVE_ORDINARYSHADE_PRIMARY_TEXTURE_STATE", primary
-        )
-        self.assertIn("#if WAVE_ORDINARYSHADE_PRIMARY_OUTPUT", primary)
-        self.assertIn(
-            "#if WAVE_ORDINARYSHADE_PRIMARY_TRANSMISSION", primary
-        )
-        self.assertIn(
-            "#if WAVE_ORDINARYSHADE_PRIMARY_CONTINUATION", primary
-        )
-        self.assertIn("#else\n    vec3 ray_origin = camera.origin.xyz", primary)
-        self.assertIn("#else\n    uint rng = hashValue", primary)
+        self.assertIn("uintBitsToFloat(instance_key)", helper)
+        self.assertIn("ordinarylight_store_secondary_primary(", primary)
+        self.assertNotIn("WAVE_ORDINARYSHADE_", primary)
 
     def test_fused_secondary_backend_orchestration_has_generated_default(self):
         primary = (
@@ -131,7 +118,7 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
         end = primary.index("\nvoid main()", start)
         secondary = primary[start:end]
 
-        # Raw backend operations remain only as compile-time fallbacks.
+        # Backend operations and orchestration are compiled from typed functions.
         for primitive in (
             "rayQueryInitializeEXT(",
             "rayQueryProceedEXT(",
@@ -142,8 +129,8 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
 
         for generated in (
             "ordinarylight_secondary_trace_query(",
-            "WAVE_INTEGRATE_VOLUMES(",
-            "WAVE_PROFILE_WORK(",
+            "integrateVolumesBeforeSurface(",
+            "profileWork(",
             "ordinarylight_secondary_material(",
             "ordinarylight_enqueue_continuation(",
             "ordinarylight_trace_remaining(",
@@ -162,9 +149,7 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
             "ordinarylight_secondary_average_contribution(",
         ):
             self.assertIn(policy, secondary)
-        self.assertIn(
-            "#if WAVE_ORDINARYSHADE_SECONDARY_CONTROL", secondary
-        )
+        self.assertNotIn("WAVE_ORDINARYSHADE_", secondary)
 
     @unittest.skipUnless(
         (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
@@ -182,7 +167,7 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
         ).read_text()
         self.assertEqual(module.generated_source(), expected)
 
-    def test_generated_and_fallback_primary_variants_compile(self):
+    def test_obsolete_language_switches_cannot_disable_typed_helpers(self):
         from scripts.compile_shaders import find_compiler
 
         compiler = find_compiler()
@@ -190,13 +175,6 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             feature_count = 19
             configurations = {(0,) * feature_count, (1,) * feature_count}
-            for index in range(feature_count):
-                enabled = [0] * feature_count
-                enabled[index] = 1
-                configurations.add(tuple(enabled))
-                disabled = [1] * feature_count
-                disabled[index] = 0
-                configurations.add(tuple(disabled))
             for (
                 camera_enabled, state_enabled,
                 surface_enabled, texture_state_enabled,

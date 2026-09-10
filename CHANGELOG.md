@@ -5,6 +5,17 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.4.0
+
+- Complete the OrdinaryShade shader migration, including viewer GI, transport,
+  material dispatch, texture/lighting libraries, volumes, and WebGPU shaders.
+- Enforce shader authorship and regenerate all packaged shader artifacts.
+- Require OrdinaryShade 0.1.0a5 and remove the temporary compiler patch.
+- Add shared-primary ReSTIR, bounded command history, lifecycle diagnostics,
+  and stable-width viewer performance counters.
+- Preserve upstream FSR temporarily; document the pre-existing difference
+  between the two volume multiple-scattering implementations.
+
 - Added reusable declarative material graphs, including emission, uniforms,
   storage-buffer and sampled-texture inputs for non-camera transport.
 - Added metallic/rough PBR, rough dielectric scattering, analytic-light NEE and

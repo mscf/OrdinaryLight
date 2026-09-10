@@ -162,17 +162,10 @@ class WebGpuRasterRenderer(RendererImplementation):
                    | wgpu.TextureUsage.STORAGE_BINDING),
         )
         if self._volume_upload_pipeline is None:
-            module = self.device.create_shader_module(code="""
-@group(0) @binding(0) var<storage, read> source: array<f32>;
-@group(0) @binding(1) var destination: texture_storage_3d<rgba16float, write>;
-@compute @workgroup_size(4, 4, 4)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let size = textureDimensions(destination);
-    if (any(id >= size)) { return; }
-    let index = (id.z * size.y + id.y) * size.x + id.x;
-    textureStore(destination, id, vec4<f32>(source[index], 0.0, 0.0, 1.0));
-}
-""")
+            from importlib.resources import files
+            module = self.device.create_shader_module(
+                code=files("ordinarylight.shaders").joinpath("volume_upload.wgsl").read_text()
+            )
             self._volume_upload_pipeline = self.device.create_compute_pipeline(
                 layout="auto", compute={"module": module, "entry_point": "main"},
             )

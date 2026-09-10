@@ -23,14 +23,14 @@ void ordinarylight_secondary_reorder(uint hint)
     reorderThreadNV(hint, uint(7));
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 void integrateVolumesBeforeSurface(vec3 origin, vec3 direction, float distance, inout vec3 radiance, inout vec3 throughput);
 void ordinarylight_integrate_secondary_volumes(vec3 origin, vec3 direction, float distance, inout vec3 radiance, inout vec3 throughput)
 {
     integrateVolumesBeforeSurface(origin, direction, distance, radiance, throughput);
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION && WAVE_WORK_COUNTERS
+#if WAVE_WORK_COUNTERS
 void profileWork(uint counter, uint amount);
 void ordinarylight_profile_work(uint counter, uint amount)
 {
@@ -44,7 +44,7 @@ MaterialEvaluation ordinarylight_apply_material_program(inout MaterialData mater
     return waveApplyMaterialProgram(material, normal, uv, direction, entering, primitive, weights, bounce_index);
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION && WAVE_PERSISTENT_COARSE
+#if WAVE_PERSISTENT_COARSE
 void processPrimaryPixel(uvec2 pixel);
 shared uint persistent_tile_index;
 void ordinarylight_persistent_coarse_schedule(uvec2 tile_extent)
@@ -68,7 +68,7 @@ void ordinarylight_persistent_coarse_schedule(uvec2 tile_extent)
     }
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 bool ordinarylightSecondaryBounce(inout WavePathState path, inout vec3 origin, inout vec3 direction, uint path_index, inout uint medium_depth, inout uint rng, inout float cone_width, inout float cone_spread);
 void ordinarylight_trace_remaining(inout WavePathState path, inout vec3 origin, inout vec3 direction, uint path_index, inout uint medium_depth, inout uint rng, inout float cone_width, inout float cone_spread, uint stop_bounce)
 {
@@ -82,7 +82,7 @@ void ordinarylight_trace_remaining(inout WavePathState path, inout vec3 origin, 
     path.metadata.z = rng;
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 void ordinarylight_store_path(uint path_index, WavePathState path)
 {
     ordinarylight_paths[path_index] = path;
@@ -120,7 +120,7 @@ void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec
     ordinarylight_secondary_paths[path_index].primary_geometry = vec4(uintBitsToFloat(primitive), barycentrics, uintBitsToFloat(instance_key));
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 float ordinarylight_medium_ior(uint path_index, uint depth)
 {
     return ordinarylight_medium_stacks[path_index].ior[depth];
@@ -154,7 +154,7 @@ uvec2 ordinarylight_primary_scheduled_group(uvec2 group_id, uvec2 group_count, u
     }
     return scheduled;
 }
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 uint ordinarylight_reserve_output_index(uint subgroup_enqueue)
 {
     if ((subgroup_enqueue == uint(0)))
@@ -171,7 +171,7 @@ uint ordinarylight_reserve_output_index(uint subgroup_enqueue)
     return (base + subgroupBallotExclusiveBitCount(active_lanes));
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 vec3 ordinarylight_secondary_vertex_position(uint primitive, uint corner)
 {
     return ordinarylight_vertices[((primitive * uint(3)) + corner)].xyz;
@@ -185,7 +185,7 @@ MaterialData ordinarylight_secondary_material(uint primitive)
     return ordinarylight_materials[primitive];
 }
 #endif
-#if WAVE_ORDINARYSHADE_SECONDARY_ORCHESTRATION
+#if 1
 bool ordinarylight_enqueue_continuation(uint output_index, vec4 origin_tmin, vec4 direction_tmax, uint path_index, float cone_width, float cone_spread)
 {
     if ((output_index >= ordinarylight_output_queue.capacity))

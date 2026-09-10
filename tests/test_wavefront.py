@@ -147,8 +147,8 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertIn("#define WAVE_HYBRID 1", hybrid)
         self.assertIn(include, primary_impl)
         self.assertIn(include, shade)
-        self.assertNotIn("vec3 sampleAreaLight(", primary_impl)
-        self.assertNotIn("vec3 sampleAreaLight(", shade)
+        self.assertNotRegex(primary_impl, r"vec3 sampleAreaLight\([^;]*\)\s*\{")
+        self.assertNotRegex(shade, r"vec3 sampleAreaLight\([^;]*\)\s*\{")
         self.assertIn("vec3 sampleAreaLight(", lighting)
         self.assertIn("vec3 sampleEnvironment(", lighting)
         self.assertIn("float powerHeuristic(", lighting)
@@ -158,15 +158,15 @@ class WavefrontLayoutTests(unittest.TestCase):
         self.assertNotIn("else if (metallic > 0.5)", primary_impl)
         self.assertNotIn("else if (metallic > 0.5)", shade)
         self.assertIn("vec3 applyNormalTexture(", textures)
-        self.assertIn("material.attenuation_transmission.a *= transmission", textures)
-        self.assertEqual(primary_impl.count("applyNormalTexture("), 2)
-        self.assertEqual(shade.count("applyNormalTexture("), 1)
+        self.assertIn("material.attenuation_transmission.a = ordinarylight_texture_apply_scalar(material.attenuation_transmission.a, transmission)", textures)
+        self.assertEqual(sum("applyNormalTexture(" in line for line in primary_impl.splitlines() if line.startswith("    ")), 2)
+        self.assertEqual(sum("applyNormalTexture(" in line for line in shade.splitlines() if line.startswith("    ")), 1)
         self.assertIn("uint textureMipOffset(", textures)
         self.assertIn("float triangleUvDensity(", textures)
-        self.assertIn("floatBitsToUint(cone_width)", primary_impl)
+        self.assertIn("ordinarylight_enqueue_continuation(", primary_impl)
         self.assertIn("uintBitsToFloat(input_ray.padding_a)", shade)
         self.assertIn("uint inline_bounces", primary_impl)
-        self.assertIn("min(push.inline_bounces, push.max_bounces)", primary_impl)
+        self.assertIn("ordinarylight_secondary_stop_bounce((WAVE_HYBRID != 0), push.inline_bounces, push.max_bounces)", primary_impl)
         self.assertIn("#define WAVE_LOCAL_SIZE_X 8", primary_impl)
         self.assertIn("#define WAVE_LOCAL_SIZE_Y 8", primary_impl)
         self.assertIn("#define WAVE_UNIFIED_PRIMARY_RESTIR 0u", primary_impl)
@@ -202,7 +202,7 @@ class WavefrontLayoutTests(unittest.TestCase):
 
         self.assertIn("bool selectSecondaryNee(", lighting)
         self.assertIn("bitfieldReverse(frame_index)", lighting)
-        self.assertIn("uint sample_index = frame_sample & 255u", lighting)
+        self.assertIn("uint sample_index = (frame_sample & uint(255))", lighting)
         identity = "(frame_index << 8u) | (push.tile_frame.w & 255u)"
         generated_identity = (
             "(frame_index << uint(8)) | "
@@ -212,9 +212,9 @@ class WavefrontLayoutTests(unittest.TestCase):
             identity in generate or generated_identity in generate,
             "generated primary rays must preserve frame/sample path identity",
         )
-        self.assertIn(identity, primary_impl)
+        self.assertIn("ordinarylight_primary_path_identity(frame_index, push.tile_frame.w)", primary_impl)
         self.assertIn("path.metadata.y, next_bounce", shade)
-        self.assertIn("path.metadata.y,\n                next_bounce", primary_impl)
+        self.assertIn("path.metadata.y, next_bounce", primary_impl)
 
     def test_generated_primary_camera_uses_storage_buffer_abi(self):
         generate = (

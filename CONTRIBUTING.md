@@ -39,6 +39,12 @@ runner registered.
 
 ## Shader inventory
 
+All OrdinaryLight-authored shader logic must be written in typed OrdinaryShade
+Python. GLSL, WGSL, and SPIR-V are generated artifacts. This rule covers shader
+entry points, shared helpers, specializations, and portable shaders. Handwritten
+shader source embedded in Python strings does not satisfy the rule. See
+`AGENTS.md` for the authoring and validation requirements.
+
 `ordinarylight/shaders/manifest.json` owns the compiled shader families and
 target environment. Validate the checked-in SPIR-V inventory without requiring
 a compiler:
