@@ -11,6 +11,7 @@ from threading import RLock
 
 import vulkan as vk
 from ..targets._vulkan_version import vulkan_api_version
+from .lifecycle import LifecycleTimer
 
 DEVICE_EXTENSIONS = (
     "VK_KHR_acceleration_structure",
@@ -198,17 +199,22 @@ class VulkanRuntime:
                 raise RuntimeError(
                     "Close Vulkan runtime consumers before their runtime"
                 )
+            lifecycle = LifecycleTimer("vulkan_runtime_close")
             if self.device is not None:
                 try:
                     vk.vkDeviceWaitIdle(self.device)
+                    lifecycle.mark("wait_idle")
                     self._save_pipeline_cache()
+                    lifecycle.mark("pipeline_cache")
                 except vk.VkErrorDeviceLost:
                     pass
                 if self.command_pool is not None:
                     vk.vkDestroyCommandPool(self.device, self.command_pool, None)
                 if self.pipeline_cache is not None:
                     vk.vkDestroyPipelineCache(self.device, self.pipeline_cache, None)
+                lifecycle.mark("pools")
                 vk.vkDestroyDevice(self.device, None)
+                lifecycle.mark("destroy_device")
                 self.device = None
             if self.instance is not None:
                 if self.surface is not None and self._owns_surface:
@@ -220,6 +226,8 @@ class VulkanRuntime:
                     vk.vkDestroyInstance(self.instance, None)
                 self.instance = None
             self._closed = True
+            lifecycle.mark("destroy_instance")
+            lifecycle.finish()
 
     def __enter__(self):
         self.require_open()

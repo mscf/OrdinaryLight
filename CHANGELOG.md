@@ -5,6 +5,16 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.4.1
+
+- Add experimental four-bounce, one-sample GI with reflections and sensible viewer defaults.
+- Eliminate repeated GI command recording during animation by uploading ReSTIR history policy per frame.
+- Reuse primary BRDF calculations and specialize volume-free, opaque, and production ReSTIR shaders without reducing sampling quality.
+- Fix long fullscreen/resize/shutdown stalls after switching from raster to GI by renewing the Vulkan instance during renderer handoff.
+- Recover from out-of-date raster swapchains and bound GI acquisition retries.
+- Avoid compiling unused shared-primary pipelines and improve shutdown behavior.
+- Add viewer timing, fullscreen, command-recording, and primary-cost diagnostics, including statistics for scene-compiled pipelines.
+
 ## 0.4.0
 
 - Complete the OrdinaryShade shader migration, including viewer GI, transport,

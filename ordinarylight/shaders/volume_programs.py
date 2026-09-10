@@ -564,6 +564,8 @@ def integrateVolumesBeforeSurface(origin: osh.vec3, direction: osh.vec3, surface
 
 @osh.function
 def volumeShadowTransmittance(origin: osh.vec3, direction: osh.vec3, maximum_distance: osh.f32) -> osh.f32:
+    if osh.specialization("WAVE_SURFACE_ONLY"):
+        return 1.0
     ignored_radiance = osh.vec3(0.0)
     transmittance = osh.vec3(1.0)
     integrateVolumesBeforeSurface(origin, direction, maximum_distance, ignored_radiance, transmittance)

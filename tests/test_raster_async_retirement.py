@@ -31,7 +31,8 @@ def window_methods():
     cls = ast.ClassDef(
         name="Lifecycle", bases=[], keywords=[], body=methods, decorator_list=[]
     )
-    namespace = {"timed_call": timed_call}
+    namespace = {"timed_call": timed_call,
+                 "GI_TARGETS": frozenset(("wavefront-gi", "wavefront-gi-fast"))}
     exec(
         compile(
             ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
@@ -60,6 +61,9 @@ def test_restart_and_close_do_not_wait_for_renderer_teardown():
     window.pending_renderer_updates = []
     window._extension_call = lambda *args: None
     window.status = SimpleNamespace(setText=lambda text: None)
+    hidden = []
+    window.hide = lambda: hidden.append("window")
+    window.fps_overlay = SimpleNamespace(hide=lambda: hidden.append("overlay"))
     with ThreadPoolExecutor(max_workers=1) as executor:
         window.executor = executor
         try:
@@ -77,6 +81,8 @@ def test_restart_and_close_do_not_wait_for_renderer_teardown():
             ignored = []
             window.closeEvent(SimpleNamespace(ignore=lambda: ignored.append(True)))
             assert ignored == [True] and window.close_pending
+            assert hidden == ["window", "overlay"]
+            assert not future.done()
         finally:
             release.set()
             if window.renderer_close_future is not None:
@@ -114,3 +120,25 @@ def test_repeated_switch_requests_coalesce_while_work_is_pending():
         window._finish_pending_restart()
         assert window.renderer is original
     assert len(cancellations) == 60
+
+
+def test_restart_resets_instance_before_constructing_another_vulkan_owner():
+    for previous in ("vulkan-raster", "wavefront-gi-fast", "webgpu-raster"):
+        window = window_methods()()
+        window.future = window.renderer_start_future = None
+        window.renderer_update_future = window.renderer_close_future = None
+        window.renderer = None
+        window.renderer_target = previous
+        window.target = SimpleNamespace(currentData=lambda: "wavefront-gi-fast",
+                                        currentText=lambda: "GI")
+        window.denoiser = SimpleNamespace(isChecked=lambda: False)
+        window.status = SimpleNamespace(setText=lambda text: None)
+        events = []
+        window._close_renderer = lambda: events.append("drain") or []
+        def recreate():
+            events.append("fresh-instance")
+            # Stop before starting a real Qt/GPU renderer in this lifecycle test.
+            raise RuntimeError("test boundary")
+        window.surface = SimpleNamespace(recreate_instance=recreate)
+        window.restart()
+        assert events == ["drain", "fresh-instance"]

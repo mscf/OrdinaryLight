@@ -3,7 +3,9 @@
 Enable **Shared primary ReSTIR (experimental)** in the raster workbench's GI
 view, choose **Path samples per pixel**, and apply/restart. The existing ReSTIR
 reservoir control then selects direct-light samples per primary hit, independently
-of the number of complete paths. The default remains the legacy path.
+of the number of complete paths. The viewer defaults to shared-primary ReSTIR with two reservoirs, two path
+samples, and 524,288-ray batches. Use `--no-shared-primary-restir` for the legacy
+path, or `--path-spp 1` for faster rendering with temporal reservoir reuse.
 
 From the repository root:
 

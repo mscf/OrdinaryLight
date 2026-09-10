@@ -119,6 +119,9 @@ layout(set = 0, binding = 7, std430) readonly buffer CameraData {
     vec4 forward;
     vec4 right;
     vec4 up;
+#if WAVE_CAMERA_RESTIR_POLICY
+    uvec4 restir_policy;
+#endif
 } camera;
 layout(set = 0, binding = 8, r32f) uniform writeonly image2D position_image;
 layout(set = 0, binding = 9, r32ui) uniform writeonly uimage2D normal_image;
@@ -260,6 +263,10 @@ uint ordinarylight_reserve_output_index(uint subgroup_enqueue);
 #endif
 
 #if !WAVE_CONTINUATION
+@primaryRestirHistoryValid@
+
+@primaryRestirHistoryLimit@
+
 @processPrimaryPixel@
 #endif
 

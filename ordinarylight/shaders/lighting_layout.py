@@ -32,6 +32,23 @@ LAYOUT = r'''// OrdinaryLight transport ABI v1. See docs/renderer_extensions.md.
 vec3 transportLastSpecularFraction = vec3(0.0);
 vec3 transportPointSpecular = vec3(0.0);
 
+// Per-invocation primary BRDF scratch. Only production ReSTIR enables this:
+// generalized proposal evaluations can use a different normal/view, so their
+// path must remain uncached. Primary disables the cache before continuation.
+#if !defined(WAVE_PREPARED_PRIMARY_PBR)
+#define WAVE_PREPARED_PRIMARY_PBR 1
+#endif
+bool transportPbrPrepared = false;
+vec3 transportPbrF0;
+vec4 transportPbrLobes;
+float transportPbrProbability;
+float transportPbrViewCosine;
+vec3 transportPbrTangent;
+vec3 transportPbrBitangent;
+float transportPbrGeometry;
+float transportPbrCoatGeometry;
+@preparePrimaryPbr@
+
 @evaluatePbr@
 
 @pbrPdf@

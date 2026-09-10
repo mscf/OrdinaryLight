@@ -28,6 +28,11 @@ def generated_source():
                   output_queue=p.OutputQueue, camera=p.CameraData, previous_camera=p.CameraData,
                   stacks=osh.runtime_array(p.WaveMediumStack), push=p.PrimaryConstants,
                   work_counters=osh.runtime_array(osh.u32), profile_bounce=osh.u32, transportLastSpecularFraction=osh.vec3, transportPointSpecular=osh.vec3,
+                  transportPbrPrepared=osh.boolean, transportPbrF0=osh.vec3,
+                  transportPbrLobes=osh.vec4, transportPbrProbability=osh.f32,
+                  transportPbrViewCosine=osh.f32, transportPbrTangent=osh.vec3,
+                  transportPbrBitangent=osh.vec3, transportPbrGeometry=osh.f32,
+                  transportPbrCoatGeometry=osh.f32,
                   gl_GlobalInvocationID=osh.uvec3, gl_LaunchIDEXT=osh.uvec3,
                   gl_LocalInvocationIndex=osh.u32, gl_WorkGroupID=osh.uvec3,
                   gl_LocalInvocationID=osh.uvec3, gl_NumWorkGroups=osh.uvec3)

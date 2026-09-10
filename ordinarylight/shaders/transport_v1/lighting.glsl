@@ -39,12 +39,44 @@ float pbrSpecularProbability(MaterialData material)
 vec3 transportLastSpecularFraction = vec3(0.0);
 vec3 transportPointSpecular = vec3(0.0);
 
+// Per-invocation primary BRDF scratch. Only production ReSTIR enables this:
+// generalized proposal evaluations can use a different normal/view, so their
+// path must remain uncached. Primary disables the cache before continuation.
+#if !defined(WAVE_PREPARED_PRIMARY_PBR)
+#define WAVE_PREPARED_PRIMARY_PBR 1
+#endif
+bool transportPbrPrepared = false;
+vec3 transportPbrF0;
+vec4 transportPbrLobes;
+float transportPbrProbability;
+float transportPbrViewCosine;
+vec3 transportPbrTangent;
+vec3 transportPbrBitangent;
+float transportPbrGeometry;
+float transportPbrCoatGeometry;
+float ggxSmithComponent(float n_dot_direction, float roughness);
+float pbrSpecularProbability(MaterialData material);
+void preparePrimaryPbr(MaterialData material, vec3 normal, vec3 view)
+{
+    transportPbrF0 = mix(vec3(0.04), material.base_roughness.rgb, material.emission_metallic.a);
+    float anisotropy = clamp(material.advanced0.w, (-1.0), 1.0);
+    float alpha = max((material.base_roughness.a * material.base_roughness.a), 0.02);
+    transportPbrLobes = vec4(max((alpha * (1.0 - (0.7 * anisotropy))), 0.02), max((alpha * (1.0 + (0.7 * anisotropy))), 0.02), clamp(material.advanced0.y, 0.02, 1.0), clamp(material.advanced0.x, 0.0, 1.0));
+    transportPbrProbability = clamp((pbrSpecularProbability(material) + (material.advanced0.x * 0.15)), 0.1, 0.95);
+    transportPbrViewCosine = max(dot(normal, view), 0.0);
+    transportPbrTangent = normalize(((abs(normal.z) < 0.999) ? cross(normal, vec3(0.0, 0.0, 1.0)) : cross(normal, vec3(0.0, 1.0, 0.0))));
+    transportPbrBitangent = cross(normal, transportPbrTangent);
+    transportPbrGeometry = ggxSmithComponent(transportPbrViewCosine, material.base_roughness.a);
+    transportPbrCoatGeometry = ggxSmithComponent(transportPbrViewCosine, transportPbrLobes.z);
+    transportPbrPrepared = true;
+}
+
 float ggxDistribution(float n_dot_h, float roughness);
 float ggxSmithComponent(float n_dot_direction, float roughness);
 vec3 pbrFresnel(vec3 f0, float cosine);
 vec3 evaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
 {
-    float n_dot_v = max(dot(normal, view), 0.0);
+    float n_dot_v = (transportPbrPrepared ? transportPbrViewCosine : max(dot(normal, view), 0.0));
     float n_dot_l = max(dot(normal, outgoing), 0.0);
     transportLastSpecularFraction = vec3(0.0);
     if (((n_dot_v <= 0.0) || (n_dot_l <= 0.0)))
@@ -55,27 +87,27 @@ vec3 evaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
     float n_dot_h = max(dot(normal, half_vector), 0.0);
     float v_dot_h = max(dot(view, half_vector), 0.0);
     float metallic = material.emission_metallic.a;
-    vec3 f0 = mix(vec3(0.04), material.base_roughness.rgb, metallic);
+    vec3 f0 = (transportPbrPrepared ? transportPbrF0 : mix(vec3(0.04), material.base_roughness.rgb, metallic));
     vec3 fresnel = pbrFresnel(f0, v_dot_h);
     float anisotropy = clamp(material.advanced0.w, (-1.0), 1.0);
-    vec3 tangent = normalize(((abs(normal.z) < 0.999) ? cross(normal, vec3(0.0, 0.0, 1.0)) : cross(normal, vec3(0.0, 1.0, 0.0))));
-    vec3 bitangent = cross(normal, tangent);
+    vec3 tangent = (transportPbrPrepared ? transportPbrTangent : normalize(((abs(normal.z) < 0.999) ? cross(normal, vec3(0.0, 0.0, 1.0)) : cross(normal, vec3(0.0, 1.0, 0.0)))));
+    vec3 bitangent = (transportPbrPrepared ? transportPbrBitangent : cross(normal, tangent));
     float alpha = max((material.base_roughness.a * material.base_roughness.a), 0.02);
-    float alpha_x = max((alpha * (1.0 - (0.7 * anisotropy))), 0.02);
-    float alpha_y = max((alpha * (1.0 + (0.7 * anisotropy))), 0.02);
+    float alpha_x = (transportPbrPrepared ? transportPbrLobes.x : max((alpha * (1.0 - (0.7 * anisotropy))), 0.02));
+    float alpha_y = (transportPbrPrepared ? transportPbrLobes.y : max((alpha * (1.0 + (0.7 * anisotropy))), 0.02));
     float anisotropic_denominator = ((((dot(half_vector, tangent) * dot(half_vector, tangent)) / (alpha_x * alpha_x)) + ((dot(half_vector, bitangent) * dot(half_vector, bitangent)) / (alpha_y * alpha_y))) + (n_dot_h * n_dot_h));
     float distribution = (1.0 / max(((((3.14159265359 * alpha_x) * alpha_y) * anisotropic_denominator) * anisotropic_denominator), 1e-06));
-    float geometry = (ggxSmithComponent(n_dot_v, material.base_roughness.a) * ggxSmithComponent(n_dot_l, material.base_roughness.a));
+    float geometry = ((transportPbrPrepared ? transportPbrGeometry : ggxSmithComponent(n_dot_v, material.base_roughness.a)) * ggxSmithComponent(n_dot_l, material.base_roughness.a));
     vec3 specular = (((fresnel * distribution) * geometry) / max(((4.0 * n_dot_v) * n_dot_l), 1e-06));
     vec3 diffuse = ((((vec3(1.0) - fresnel) * (1.0 - metallic)) * material.base_roughness.rgb) / 3.14159265359);
     float subsurface = clamp(material.advanced1.x, 0.0, 1.0);
     diffuse = mix(diffuse, (diffuse * material.subsurface_color.rgb), subsurface);
     float sheen_weight = ((1.0 - clamp(material.advanced0.z, 0.0, 1.0)) * pow((1.0 - v_dot_h), 5.0));
     vec3 sheen = (material.sheen_color.rgb * sheen_weight);
-    float clearcoat = clamp(material.advanced0.x, 0.0, 1.0);
-    float coat_roughness = clamp(material.advanced0.y, 0.02, 1.0);
+    float clearcoat = (transportPbrPrepared ? transportPbrLobes.w : clamp(material.advanced0.x, 0.0, 1.0));
+    float coat_roughness = (transportPbrPrepared ? transportPbrLobes.z : clamp(material.advanced0.y, 0.02, 1.0));
     float coat_distribution = ggxDistribution(n_dot_h, coat_roughness);
-    float coat_geometry = (ggxSmithComponent(n_dot_v, coat_roughness) * ggxSmithComponent(n_dot_l, coat_roughness));
+    float coat_geometry = ((transportPbrPrepared ? transportPbrCoatGeometry : ggxSmithComponent(n_dot_v, coat_roughness)) * ggxSmithComponent(n_dot_l, coat_roughness));
     float coat_fresnel = (0.04 + (0.96 * pow((1.0 - v_dot_h), 5.0)));
     vec3 coat = vec3(((((clearcoat * coat_distribution) * coat_geometry) * coat_fresnel) / max(((4.0 * n_dot_v) * n_dot_l), 1e-06)));
     float base_energy = (1.0 - (clearcoat * coat_fresnel));
@@ -99,7 +131,7 @@ float pbrPdf(MaterialData material, vec3 normal, vec3 view, vec3 outgoing)
     float v_dot_h = max(dot(view, half_vector), 1e-06);
     float specular_pdf = ((ggxDistribution(n_dot_h, material.base_roughness.a) * n_dot_h) / (4.0 * v_dot_h));
     float diffuse_pdf = (n_dot_l / 3.14159265359);
-    float probability = clamp((pbrSpecularProbability(material) + (material.advanced0.x * 0.15)), 0.1, 0.95);
+    float probability = (transportPbrPrepared ? transportPbrProbability : clamp((pbrSpecularProbability(material) + (material.advanced0.x * 0.15)), 0.1, 0.95));
     return mix(diffuse_pdf, specular_pdf, probability);
 }
 

@@ -1,0 +1,3399 @@
+{
+  "date": "2026-09-10",
+  "hardware": "RTX 5090 Laptop GPU, 24 GB",
+  "driver": "595.91.07",
+  "timing_unit": "milliseconds",
+  "note": "Driver-statistics runs are diagnostic, not performance controls. Early reports used the old baseline convention; the baseline run explicitly enabled volume-free primary specialization. Shader changes between experiment groups are described in primary_optimization_results.md.",
+  "experiments": {
+    "baseline": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "cases": {
+        "primary_surface_only": {
+          "changes": {
+            "wavefront_primary_scene_specialization": true
+          },
+          "native_textures_enabled": false,
+          "gpu_ms": 15.032496,
+          "gpu_p90_ms": 16.894521599999997,
+          "stages_ms": {
+            "intersect_shade.1": 3.7932960000000002,
+            "intersect_shade.2": 0.619488,
+            "intersect_shade.3": 0.23404799999999998,
+            "present": 1.933104,
+            "primary": 3.9142400000000004,
+            "reconstruct": 0.069056,
+            "relax_prepare": 1.257904,
+            "relax_temporal": 1.491552,
+            "resolve_hdr": 1.56152
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "primary_surface_repeat": {
+          "changes": {
+            "wavefront_primary_scene_specialization": true
+          },
+          "native_textures_enabled": false,
+          "gpu_ms": 15.208368,
+          "gpu_p90_ms": 15.9804832,
+          "stages_ms": {
+            "intersect_shade.1": 3.8065759999999997,
+            "intersect_shade.2": 0.637392,
+            "intersect_shade.3": 0.24110399999999998,
+            "present": 1.9504320000000002,
+            "primary": 4.021584000000001,
+            "reconstruct": 0.07292799999999999,
+            "relax_prepare": 1.259952,
+            "relax_temporal": 1.5131999999999999,
+            "resolve_hdr": 1.5624799999999999
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "texture-guard": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.815888000000001,
+          "gpu_p90_ms": 16.9391712,
+          "stages_ms": {
+            "intersect_shade.1": 3.3009440000000003,
+            "intersect_shade.2": 0.657968,
+            "intersect_shade.3": 0.25014400000000003,
+            "present": 1.942944,
+            "primary": 4.307024,
+            "reconstruct": 0.073488,
+            "relax_prepare": 1.054416,
+            "relax_temporal": 1.468688,
+            "resolve_hdr": 1.311168
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.207968,
+          "gpu_p90_ms": 17.063363199999998,
+          "stages_ms": {
+            "intersect_shade.1": 3.754832,
+            "intersect_shade.2": 0.6227199999999999,
+            "intersect_shade.3": 0.232016,
+            "present": 1.933776,
+            "primary": 4.129808,
+            "reconstruct": 0.069456,
+            "relax_prepare": 1.25904,
+            "relax_temporal": 1.4974560000000001,
+            "resolve_hdr": 1.5604
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "material-cache": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.315168,
+          "gpu_p90_ms": 17.1455264,
+          "stages_ms": {
+            "intersect_shade.1": 3.8125919999999995,
+            "intersect_shade.2": 0.6416799999999999,
+            "intersect_shade.3": 0.24336000000000002,
+            "present": 1.96176,
+            "primary": 4.112608,
+            "reconstruct": 0.07241600000000001,
+            "relax_prepare": 1.2587519999999999,
+            "relax_temporal": 1.51592,
+            "resolve_hdr": 1.562272
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.1816,
+          "gpu_p90_ms": 17.2501216,
+          "stages_ms": {
+            "intersect_shade.1": 3.806928,
+            "intersect_shade.2": 0.6324479999999999,
+            "intersect_shade.3": 0.23899199999999998,
+            "present": 1.9457119999999999,
+            "primary": 4.0516000000000005,
+            "reconstruct": 0.07144,
+            "relax_prepare": 1.25928,
+            "relax_temporal": 1.5020159999999998,
+            "resolve_hdr": 1.5606879999999999
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "clearcoat-guard": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.546784,
+          "gpu_p90_ms": 17.2872,
+          "stages_ms": {
+            "intersect_shade.1": 3.33296,
+            "intersect_shade.2": 0.663904,
+            "intersect_shade.3": 0.25702400000000003,
+            "present": 1.953584,
+            "primary": 4.072992,
+            "reconstruct": 0.075488,
+            "relax_prepare": 1.056512,
+            "relax_temporal": 1.471168,
+            "resolve_hdr": 1.3100640000000001
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.114336,
+          "gpu_p90_ms": 17.0296832,
+          "stages_ms": {
+            "intersect_shade.1": 3.8017440000000002,
+            "intersect_shade.2": 0.632496,
+            "intersect_shade.3": 0.23731200000000002,
+            "present": 1.94584,
+            "primary": 3.966544,
+            "reconstruct": 0.07128000000000001,
+            "relax_prepare": 1.257456,
+            "relax_temporal": 1.504912,
+            "resolve_hdr": 1.5610240000000002
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "no-reservoir-visibility": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.905280000000001,
+          "gpu_p90_ms": 16.6525472,
+          "stages_ms": {
+            "intersect_shade.1": 3.80064,
+            "intersect_shade.2": 0.623024,
+            "intersect_shade.3": 0.233456,
+            "present": 1.94528,
+            "primary": 3.7520960000000003,
+            "reconstruct": 0.069328,
+            "relax_prepare": 1.25632,
+            "relax_temporal": 1.497728,
+            "resolve_hdr": 1.5613920000000001
+          },
+          "hdr_mean": 0.48163124918937683,
+          "hdr_rmse_vs_baseline": 0.0169552094831611,
+          "hdr_max_difference": 3.2720947265625
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.989424,
+          "gpu_p90_ms": 16.6365376,
+          "stages_ms": {
+            "intersect_shade.1": 3.8073119999999996,
+            "intersect_shade.2": 0.6335199999999999,
+            "intersect_shade.3": 0.239616,
+            "present": 1.941184,
+            "primary": 3.8172319999999997,
+            "reconstruct": 0.071792,
+            "relax_prepare": 1.259968,
+            "relax_temporal": 1.508032,
+            "resolve_hdr": 1.561472
+          },
+          "hdr_mean": 0.48162761330604553,
+          "hdr_rmse_vs_baseline": 0.016911312328010002,
+          "hdr_max_difference": 3.2720947265625
+        }
+      }
+    },
+    "opaque": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.960688000000001,
+          "gpu_p90_ms": 16.997552,
+          "stages_ms": {
+            "intersect_shade.1": 3.7912800000000004,
+            "intersect_shade.2": 0.627344,
+            "intersect_shade.3": 0.23393599999999998,
+            "present": 1.9428320000000001,
+            "primary": 3.85848,
+            "reconstruct": 0.06944,
+            "relax_prepare": 1.257168,
+            "relax_temporal": 1.5003039999999999,
+            "resolve_hdr": 1.560352
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.047936,
+          "gpu_p90_ms": 17.1431232,
+          "stages_ms": {
+            "intersect_shade.1": 3.79952,
+            "intersect_shade.2": 0.634368,
+            "intersect_shade.3": 0.23832000000000003,
+            "present": 1.945216,
+            "primary": 3.8867839999999996,
+            "reconstruct": 0.070896,
+            "relax_prepare": 1.260432,
+            "relax_temporal": 1.50616,
+            "resolve_hdr": 1.5627680000000002
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "production": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.571968,
+          "gpu_p90_ms": 16.357692800000002,
+          "stages_ms": {
+            "intersect_shade.1": 3.649488,
+            "intersect_shade.2": 0.660336,
+            "intersect_shade.3": 0.25608,
+            "present": 1.940112,
+            "primary": 3.8118560000000006,
+            "reconstruct": 0.075488,
+            "relax_prepare": 1.249024,
+            "relax_temporal": 1.481936,
+            "resolve_hdr": 1.526992
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.630304,
+          "gpu_p90_ms": 17.2241408,
+          "stages_ms": {
+            "intersect_shade.1": 3.516976,
+            "intersect_shade.2": 0.6619200000000001,
+            "intersect_shade.3": 0.259376,
+            "present": 1.941408,
+            "primary": 3.849024,
+            "reconstruct": 0.07550399999999999,
+            "relax_prepare": 1.2493279999999998,
+            "relax_temporal": 1.4852,
+            "resolve_hdr": 1.5118719999999999
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        }
+      }
+    },
+    "small-group": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 4,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.639312,
+          "gpu_p90_ms": 16.6731968,
+          "stages_ms": {
+            "intersect_shade.1": 3.7720640000000003,
+            "intersect_shade.2": 0.6557919999999999,
+            "intersect_shade.3": 0.25374399999999997,
+            "present": 1.946624,
+            "primary": 3.8172639999999998,
+            "reconstruct": 0.07470399999999999,
+            "relax_prepare": 1.257088,
+            "relax_temporal": 1.4912,
+            "resolve_hdr": 1.559936
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.495984,
+          "gpu_p90_ms": 16.294336,
+          "stages_ms": {
+            "intersect_shade.1": 3.429264,
+            "intersect_shade.2": 0.6490560000000001,
+            "intersect_shade.3": 0.24672,
+            "present": 1.957024,
+            "primary": 3.6870080000000005,
+            "reconstruct": 0.073488,
+            "relax_prepare": 1.161072,
+            "relax_temporal": 1.481904,
+            "resolve_hdr": 1.393088
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 4.359392335226738e-05,
+          "hdr_max_difference": 0.0625
+        }
+      }
+    },
+    "final-control-a": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 64,
+      "frames": 256,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "surface-only",
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.706544000000001,
+          "gpu_p90_ms": 15.933152,
+          "stages_ms": {
+            "intersect_shade.1": 3.5157119999999997,
+            "intersect_shade.2": 0.6992160000000001,
+            "intersect_shade.3": 0.27012800000000003,
+            "present": 1.9583840000000001,
+            "primary": 3.868768,
+            "reconstruct": 0.077664,
+            "relax_prepare": 1.118464,
+            "relax_temporal": 1.520896,
+            "resolve_hdr": 1.361856
+          },
+          "hdr_mean": 0.4783796966075897,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.179024,
+          "gpu_p90_ms": 15.946767999999999,
+          "stages_ms": {
+            "intersect_shade.1": 3.790928,
+            "intersect_shade.2": 0.643696,
+            "intersect_shade.3": 0.24257599999999999,
+            "present": 1.9540639999999998,
+            "primary": 3.988592,
+            "reconstruct": 0.071616,
+            "relax_prepare": 1.2600639999999999,
+            "relax_temporal": 1.51248,
+            "resolve_hdr": 1.562528
+          },
+          "hdr_mean": 0.4783860445022583,
+          "hdr_rmse_vs_baseline": 0.008657370891303763,
+          "hdr_max_difference": 17.5625
+        }
+      }
+    },
+    "final-enabled": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 64,
+      "frames": 256,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "reference": "/tmp/primary-list-final-control-a/repeat.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.178384000000001,
+          "gpu_p90_ms": 15.485872,
+          "stages_ms": {
+            "intersect_shade.1": 3.3124000000000002,
+            "intersect_shade.2": 0.6683359999999999,
+            "intersect_shade.3": 0.260528,
+            "present": 1.9619520000000001,
+            "primary": 3.8983359999999996,
+            "reconstruct": 0.07564799999999999,
+            "relax_prepare": 1.050768,
+            "relax_temporal": 1.470608,
+            "resolve_hdr": 1.306768
+          },
+          "hdr_mean": 0.4783859848976135,
+          "hdr_rmse_vs_baseline": 1.412950719667392e-05,
+          "hdr_max_difference": 0.02001953125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.385328,
+          "gpu_p90_ms": 16.070480000000003,
+          "stages_ms": {
+            "intersect_shade.1": 3.383216,
+            "intersect_shade.2": 0.692688,
+            "intersect_shade.3": 0.270528,
+            "present": 1.959424,
+            "primary": 3.795184,
+            "reconstruct": 0.078704,
+            "relax_prepare": 1.0889440000000001,
+            "relax_temporal": 1.528784,
+            "resolve_hdr": 1.3381759999999998
+          },
+          "hdr_mean": 0.4783796966075897,
+          "hdr_rmse_vs_baseline": 0.008657351452615134,
+          "hdr_max_difference": 17.5625
+        }
+      }
+    },
+    "final-control-b": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 64,
+      "frames": 256,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "surface-only",
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.12968,
+          "gpu_p90_ms": 16.093311999999997,
+          "stages_ms": {
+            "intersect_shade.1": 3.788544,
+            "intersect_shade.2": 0.63936,
+            "intersect_shade.3": 0.23983999999999997,
+            "present": 1.95264,
+            "primary": 3.9851840000000003,
+            "reconstruct": 0.071392,
+            "relax_prepare": 1.2586080000000002,
+            "relax_temporal": 1.505584,
+            "resolve_hdr": 1.560512
+          },
+          "hdr_mean": 0.47838589549064636,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.502224,
+          "gpu_p90_ms": 15.40968,
+          "stages_ms": {
+            "intersect_shade.1": 3.343072,
+            "intersect_shade.2": 0.6883360000000001,
+            "intersect_shade.3": 0.26783999999999997,
+            "present": 1.9548640000000002,
+            "primary": 4.172992000000001,
+            "reconstruct": 0.076016,
+            "relax_prepare": 1.050176,
+            "relax_temporal": 1.467776,
+            "resolve_hdr": 1.304848
+          },
+          "hdr_mean": 0.47838595509529114,
+          "hdr_rmse_vs_baseline": 2.5642277094674275e-06,
+          "hdr_max_difference": 0.001953125
+        }
+      }
+    },
+    "native-and-floor": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.581071999999999,
+          "gpu_p90_ms": 16.4587136,
+          "stages_ms": {
+            "intersect_shade.1": 3.6536480000000005,
+            "intersect_shade.2": 0.6317119999999999,
+            "intersect_shade.3": 0.238656,
+            "present": 1.955136,
+            "primary": 3.6663680000000003,
+            "reconstruct": 0.06984,
+            "relax_prepare": 1.24976,
+            "relax_temporal": 1.481152,
+            "resolve_hdr": 1.4814079999999998
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 4.359392335226738e-05,
+          "hdr_max_difference": 0.0625
+        },
+        "hit_material_floor": {
+          "changes": {
+            "max_bounces": 1
+          },
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 6.998976,
+          "gpu_p90_ms": 7.08448,
+          "stages_ms": {
+            "present": 1.968304,
+            "primary": 1.495152,
+            "reconstruct": 0.069472,
+            "relax_prepare": 0.9143680000000001,
+            "relax_temporal": 0.8828,
+            "resolve_hdr": 1.523072
+          },
+          "hdr_mean": 0.2438049614429474,
+          "hdr_rmse_vs_baseline": 1.4189562434373049,
+          "hdr_max_difference": 638.0
+        },
+        "native_textures": {
+          "changes": {
+            "wavefront_native_textures": true
+          },
+          "native_textures_enabled": true,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.13832,
+          "gpu_p90_ms": 15.4920928,
+          "stages_ms": {
+            "intersect_shade.1": 3.795088,
+            "intersect_shade.2": 0.548832,
+            "intersect_shade.3": 0.21944,
+            "present": 1.94432,
+            "primary": 3.269424,
+            "reconstruct": 0.071712,
+            "relax_prepare": 1.251296,
+            "relax_temporal": 1.485072,
+            "resolve_hdr": 1.554608
+          },
+          "hdr_mean": 0.47870033979415894,
+          "hdr_rmse_vs_baseline": 0.0014539068006763768,
+          "hdr_max_difference": 1.25
+        },
+        "baseline_end": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 13.747264,
+          "gpu_p90_ms": 16.1316192,
+          "stages_ms": {
+            "intersect_shade.1": 3.276192,
+            "intersect_shade.2": 0.6455679999999999,
+            "intersect_shade.3": 0.247216,
+            "present": 1.945568,
+            "primary": 3.701536,
+            "reconstruct": 0.073536,
+            "relax_prepare": 1.02848,
+            "relax_temporal": 1.436336,
+            "resolve_hdr": 1.2852640000000002
+          },
+          "hdr_mean": 0.47854286432266235,
+          "hdr_rmse_vs_baseline": 3.125792833732949e-05,
+          "hdr_max_difference": 0.01318359375
+        }
+      }
+    },
+    "full-brdf-cache": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.336224,
+          "gpu_p90_ms": 15.939254400000001,
+          "stages_ms": {
+            "intersect_shade.1": 3.38632,
+            "intersect_shade.2": 0.632352,
+            "intersect_shade.3": 0.242496,
+            "present": 1.94136,
+            "primary": 3.54728,
+            "reconstruct": 0.073376,
+            "relax_prepare": 1.105584,
+            "relax_temporal": 1.46976,
+            "resolve_hdr": 1.358992
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 13.573936,
+          "gpu_p90_ms": 16.2416832,
+          "stages_ms": {
+            "intersect_shade.1": 3.2701919999999998,
+            "intersect_shade.2": 0.6299999999999999,
+            "intersect_shade.3": 0.242512,
+            "present": 1.9554559999999999,
+            "primary": 3.530608,
+            "reconstruct": 0.073328,
+            "relax_prepare": 1.027504,
+            "relax_temporal": 1.426656,
+            "resolve_hdr": 1.282192
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        }
+      }
+    },
+    "cache-control-after": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": false,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.061824000000001,
+          "gpu_p90_ms": 17.148368,
+          "stages_ms": {
+            "intersect_shade.1": 3.8065439999999997,
+            "intersect_shade.2": 0.652944,
+            "intersect_shade.3": 0.247712,
+            "present": 1.956016,
+            "primary": 3.830928,
+            "reconstruct": 0.073616,
+            "relax_prepare": 1.261632,
+            "relax_temporal": 1.523408,
+            "resolve_hdr": 1.5662880000000001
+          },
+          "hdr_mean": 0.4785355031490326,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 15.22008,
+          "gpu_p90_ms": 17.4579712,
+          "stages_ms": {
+            "intersect_shade.1": 3.8200000000000003,
+            "intersect_shade.2": 0.663408,
+            "intersect_shade.3": 0.256704,
+            "present": 1.9654880000000001,
+            "primary": 3.9150079999999994,
+            "reconstruct": 0.073808,
+            "relax_prepare": 1.265968,
+            "relax_temporal": 1.5307680000000001,
+            "resolve_hdr": 1.566704
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 0.0017740063448824046,
+          "hdr_max_difference": 1.25
+        }
+      }
+    },
+    "fast-final": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": true,
+      "reference": "/tmp/primary-list-baseline/primary_surface_only.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.633168,
+          "gpu_p90_ms": 18.044928000000002,
+          "stages_ms": {
+            "intersect_shade.1": 3.522768,
+            "intersect_shade.2": 0.660048,
+            "intersect_shade.3": 0.251904,
+            "present": 1.953296,
+            "primary": 3.715712,
+            "reconstruct": 0.07553599999999999,
+            "relax_prepare": 1.2523680000000001,
+            "relax_temporal": 1.494,
+            "resolve_hdr": 1.5471840000000001
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 14.548032,
+          "gpu_p90_ms": 16.565513600000003,
+          "stages_ms": {
+            "intersect_shade.1": 3.5308960000000003,
+            "intersect_shade.2": 0.634384,
+            "intersect_shade.3": 0.24384,
+            "present": 1.9442080000000002,
+            "primary": 3.5777599999999996,
+            "reconstruct": 0.073568,
+            "relax_prepare": 1.230144,
+            "relax_temporal": 1.487232,
+            "resolve_hdr": 1.47944
+          },
+          "hdr_mean": 0.4785428047180176,
+          "hdr_rmse_vs_baseline": 8.302461996139267e-07,
+          "hdr_max_difference": 0.00048828125
+        }
+      }
+    },
+    "full-control": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 2,
+      "bounces": 8,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "surface-only",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": true,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 26.656432,
+          "gpu_p90_ms": 28.8772,
+          "stages_ms": {
+            "intersect_shade.1": 7.716272,
+            "intersect_shade.2": 1.2710400000000002,
+            "intersect_shade.3": 0.7423200000000001,
+            "intersect_shade.4": 0.5372319999999999,
+            "intersect_shade.5": 0.505968,
+            "intersect_shade.6": 0.465472,
+            "intersect_shade.7": 0.31655999999999995,
+            "present": 1.9468640000000001,
+            "primary": 7.1554079999999995,
+            "reconstruct": 0.072032,
+            "relax_prepare": 2.5068,
+            "relax_temporal": 1.502432,
+            "resolve_hdr": 1.7889119999999998
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 26.614112,
+          "gpu_p90_ms": 27.570396799999997,
+          "stages_ms": {
+            "intersect_shade.1": 7.695328,
+            "intersect_shade.2": 1.2697120000000002,
+            "intersect_shade.3": 0.7392480000000001,
+            "intersect_shade.4": 0.534592,
+            "intersect_shade.5": 0.50832,
+            "intersect_shade.6": 0.46340800000000004,
+            "intersect_shade.7": 0.31353600000000004,
+            "present": 1.9616,
+            "primary": 7.10688,
+            "reconstruct": 0.071376,
+            "relax_prepare": 2.504912,
+            "relax_temporal": 1.495456,
+            "resolve_hdr": 1.7875839999999998
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 4.0367166832010586e-08,
+          "hdr_max_difference": 0.0001220703125
+        }
+      }
+    },
+    "full-final": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 2,
+      "bounces": 8,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": true,
+      "reference": "/tmp/primary-list-full-control/repeat.npy",
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 24.522512,
+          "gpu_p90_ms": 27.3203232,
+          "stages_ms": {
+            "intersect_shade.1": 6.6539839999999995,
+            "intersect_shade.2": 1.3099999999999998,
+            "intersect_shade.3": 0.7838879999999999,
+            "intersect_shade.4": 0.5662880000000001,
+            "intersect_shade.5": 0.540144,
+            "intersect_shade.6": 0.487232,
+            "intersect_shade.7": 0.329968,
+            "present": 1.9553280000000002,
+            "primary": 6.628912,
+            "reconstruct": 0.075456,
+            "relax_prepare": 2.1040479999999997,
+            "relax_temporal": 1.439552,
+            "resolve_hdr": 1.509712
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 3.8183517170534375e-08,
+          "hdr_max_difference": 0.0001220703125
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 24.554512000000003,
+          "gpu_p90_ms": 26.8745472,
+          "stages_ms": {
+            "intersect_shade.1": 6.649424,
+            "intersect_shade.2": 1.305344,
+            "intersect_shade.3": 0.7810560000000001,
+            "intersect_shade.4": 0.564416,
+            "intersect_shade.5": 0.540656,
+            "intersect_shade.6": 0.48912,
+            "intersect_shade.7": 0.33199999999999996,
+            "present": 1.946336,
+            "primary": 6.656624,
+            "reconstruct": 0.07488,
+            "relax_prepare": 2.101072,
+            "relax_temporal": 1.442736,
+            "resolve_hdr": 1.512368
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 3.8183517170534375e-08,
+          "hdr_max_difference": 0.0001220703125
+        }
+      }
+    },
+    "full-control-after": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 2,
+      "bounces": 8,
+      "textures": 3,
+      "warmup": 32,
+      "frames": 64,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": false,
+      "primary_variant": "surface-only",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": true,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 25.115648,
+          "gpu_p90_ms": 28.698656,
+          "stages_ms": {
+            "intersect_shade.1": 6.667952,
+            "intersect_shade.2": 1.30688,
+            "intersect_shade.3": 0.776032,
+            "intersect_shade.4": 0.562688,
+            "intersect_shade.5": 0.532848,
+            "intersect_shade.6": 0.487584,
+            "intersect_shade.7": 0.321968,
+            "present": 1.9589599999999998,
+            "primary": 7.238384000000001,
+            "reconstruct": 0.07366400000000001,
+            "relax_prepare": 2.092768,
+            "relax_temporal": 1.4379840000000002,
+            "resolve_hdr": 1.507024
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        },
+        "repeat": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {},
+          "gpu_ms": 25.623663999999998,
+          "gpu_p90_ms": 28.6448448,
+          "stages_ms": {
+            "intersect_shade.1": 6.726303999999999,
+            "intersect_shade.2": 1.3314400000000002,
+            "intersect_shade.3": 0.797296,
+            "intersect_shade.4": 0.5804,
+            "intersect_shade.5": 0.552224,
+            "intersect_shade.6": 0.512352,
+            "intersect_shade.7": 0.34718400000000005,
+            "present": 1.9616479999999998,
+            "primary": 7.422176000000001,
+            "reconstruct": 0.07488,
+            "relax_prepare": 2.142992,
+            "relax_temporal": 1.457472,
+            "resolve_hdr": 1.528944
+          },
+          "hdr_mean": 0.48564597964286804,
+          "hdr_rmse_vs_baseline": 3.8183517170534375e-08,
+          "hdr_max_difference": 0.0001220703125
+        }
+      }
+    },
+    "statistics-baseline": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 4,
+      "frames": 4,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": true,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {
+            "wavefront_resolve.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 896,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_prepare_indirect.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 640,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_tone_map.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 1536,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_primary.comp (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 690432,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476832,
+                  "Shared Memory Size": 6144
+                }
+              }
+            ],
+            "wavefront_shade_candidate.glsl (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 285824,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476752,
+                  "Shared Memory Size": 3072
+                }
+              }
+            ]
+          },
+          "gpu_ms": 15.01704,
+          "gpu_p90_ms": 15.3088256,
+          "stages_ms": {
+            "intersect_shade.1": 4.00928,
+            "intersect_shade.2": 0.540144,
+            "intersect_shade.3": 0.204704,
+            "present": 1.987216,
+            "primary": 3.43872,
+            "reconstruct": 0.06742400000000001,
+            "relax_prepare": 1.3999039999999998,
+            "relax_temporal": 1.467584,
+            "resolve_hdr": 1.7315680000000002
+          },
+          "hdr_mean": 0.47709760069847107,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "statistics-opaque": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 4,
+      "frames": 4,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": true,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {
+            "wavefront_resolve.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 896,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_prepare_indirect.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 640,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_tone_map.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 1536,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_primary.comp (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 684032,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476784,
+                  "Shared Memory Size": 6144
+                }
+              }
+            ],
+            "wavefront_shade_candidate.glsl (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 285824,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476752,
+                  "Shared Memory Size": 3072
+                }
+              }
+            ]
+          },
+          "gpu_ms": 14.282271999999999,
+          "gpu_p90_ms": 14.988182400000001,
+          "stages_ms": {
+            "intersect_shade.1": 3.7879039999999997,
+            "intersect_shade.2": 0.5480799999999999,
+            "intersect_shade.3": 0.20851200000000003,
+            "present": 1.933728,
+            "primary": 3.43112,
+            "reconstruct": 0.06708800000000001,
+            "relax_prepare": 1.2514079999999999,
+            "relax_temporal": 1.484432,
+            "resolve_hdr": 1.6172
+          },
+          "hdr_mean": 0.47709760069847107,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "statistics-production": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 4,
+      "frames": 4,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": true,
+      "primary_variant": "current",
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {
+            "wavefront_resolve.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 896,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_prepare_indirect.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 640,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_tone_map.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 1536,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_primary.comp (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 152,
+                  "Binary Size": 311808,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_shade_candidate.glsl (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 285824,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476752,
+                  "Shared Memory Size": 3072
+                }
+              }
+            ]
+          },
+          "gpu_ms": 14.228656,
+          "gpu_p90_ms": 14.854944,
+          "stages_ms": {
+            "intersect_shade.1": 3.8877119999999996,
+            "intersect_shade.2": 0.54616,
+            "intersect_shade.3": 0.21056,
+            "present": 1.955104,
+            "primary": 3.088176,
+            "reconstruct": 0.066592,
+            "relax_prepare": 1.363808,
+            "relax_temporal": 1.4861119999999999,
+            "resolve_hdr": 1.676752
+          },
+          "hdr_mean": 0.47709882259368896,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    },
+    "statistics-final": {
+      "showcase": "optical-screen-rough-reflection",
+      "extent": [
+        2052,
+        1764
+      ],
+      "spp": 1,
+      "bounces": 4,
+      "textures": 3,
+      "warmup": 4,
+      "frames": 4,
+      "primary_specialization": true,
+      "pipeline_statistics_enabled": true,
+      "primary_variant": "current",
+      "primary_workgroup_rows": 8,
+      "primary_brdf_cache": true,
+      "reference": null,
+      "cases": {
+        "baseline": {
+          "changes": {},
+          "native_textures_enabled": false,
+          "pipeline_statistics": {
+            "wavefront_resolve.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 896,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_prepare_indirect.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 640,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_tone_map.comp": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 16,
+                  "Binary Size": 1536,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_primary.comp (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 164,
+                  "Binary Size": 309760,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476736,
+                  "Shared Memory Size": 0
+                }
+              }
+            ],
+            "wavefront_shade_candidate.glsl (scene)": [
+              {
+                "name": "CS",
+                "description": "Compute Shader",
+                "statistics": {
+                  "Register Count": 128,
+                  "Binary Size": 285824,
+                  "Stack Size": 0,
+                  "Local Memory Size": 68719476752,
+                  "Shared Memory Size": 3072
+                }
+              }
+            ]
+          },
+          "gpu_ms": 13.524592,
+          "gpu_p90_ms": 13.8582048,
+          "stages_ms": {
+            "intersect_shade.1": 3.6708,
+            "intersect_shade.2": 0.533504,
+            "intersect_shade.3": 0.20851199999999998,
+            "present": 1.967232,
+            "primary": 3.06384,
+            "reconstruct": 0.06792000000000001,
+            "relax_prepare": 1.2378239999999998,
+            "relax_temporal": 1.440288,
+            "resolve_hdr": 1.5383040000000001
+          },
+          "hdr_mean": 0.47709760069847107,
+          "hdr_rmse_vs_baseline": 0.0,
+          "hdr_max_difference": 0.0
+        }
+      }
+    }
+  },
+  "validation": {
+    "summary": {
+      "optical-screen-refraction": {
+        "control_rmse": 0.0006008825835618238,
+        "optimized_rmse": 0.0006008825880465588,
+        "optimized_max": 0.0380859375,
+        "control_mean": 0.5118876972384061
+      },
+      "optical-screen-nested-dielectric": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 1.8716941126352623e-07,
+        "optimized_max": 6.103515625e-05,
+        "control_mean": 0.5304880911474013
+      },
+      "advanced-clearcoat": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.11592023087113544
+      },
+      "advanced-anisotropy": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0005418847622779197,
+        "optimized_max": 0.078125,
+        "control_mean": 0.14396144276450354
+      },
+      "raster-material-program-room": {
+        "control_rmse": 0.0003616475181448277,
+        "optimized_rmse": 2.936555324247364e-07,
+        "optimized_max": 0.0001220703125,
+        "control_mean": 0.5399846155882847
+      },
+      "portable-surface-modifier": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.14671081752102408
+      },
+      "volume-multiple-scattering": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.12421946049840361
+      }
+    },
+    "cases": {
+      "advanced-anisotropy/current": {
+        "showcase": "advanced-anisotropy",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 1,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/advanced-anisotropy/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.291808,
+            "gpu_p90_ms": 0.2978272,
+            "stages_ms": {
+              "intersect_shade.1": 0.038512000000000005,
+              "intersect_shade.2": 0.024608,
+              "intersect_shade.3": 0.01448,
+              "present": 0.036512,
+              "primary": 0.050688,
+              "reconstruct": 0.00728,
+              "relax_prepare": 0.01424,
+              "relax_temporal": 0.053536,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.293024,
+            "gpu_p90_ms": 0.29808640000000003,
+            "stages_ms": {
+              "intersect_shade.1": 0.038672,
+              "intersect_shade.2": 0.024608,
+              "intersect_shade.3": 0.01536,
+              "present": 0.036704,
+              "primary": 0.050368,
+              "reconstruct": 0.007456,
+              "relax_prepare": 0.014384000000000001,
+              "relax_temporal": 0.053504,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.14396262168884277,
+            "hdr_rmse_vs_baseline": 0.0005418847622779197,
+            "hdr_max_difference": 0.078125
+          }
+        }
+      },
+      "advanced-anisotropy/surface-only": {
+        "showcase": "advanced-anisotropy",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 1,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.29512,
+            "gpu_p90_ms": 0.3026688,
+            "stages_ms": {
+              "intersect_shade.1": 0.036832,
+              "intersect_shade.2": 0.024576,
+              "intersect_shade.3": 0.015376,
+              "present": 0.036624000000000004,
+              "primary": 0.054528,
+              "reconstruct": 0.007072,
+              "relax_prepare": 0.012879999999999999,
+              "relax_temporal": 0.053536,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.295648,
+            "gpu_p90_ms": 0.3008096,
+            "stages_ms": {
+              "intersect_shade.1": 0.037456,
+              "intersect_shade.2": 0.024544,
+              "intersect_shade.3": 0.015392,
+              "present": 0.036496,
+              "primary": 0.054447999999999996,
+              "reconstruct": 0.00696,
+              "relax_prepare": 0.01424,
+              "relax_temporal": 0.053456000000000004,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "advanced-clearcoat/current": {
+        "showcase": "advanced-clearcoat",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/advanced-clearcoat/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.272896,
+            "gpu_p90_ms": 0.2788832,
+            "stages_ms": {
+              "intersect_shade.1": 0.034944,
+              "intersect_shade.2": 0.01848,
+              "intersect_shade.3": 0.00944,
+              "present": 0.036592,
+              "primary": 0.044912,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014288,
+              "relax_temporal": 0.053472,
+              "resolve_hdr": 0.015344
+            },
+            "hdr_mean": 0.11592023074626923,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.27288,
+            "gpu_p90_ms": 0.278192,
+            "stages_ms": {
+              "intersect_shade.1": 0.035344,
+              "intersect_shade.2": 0.018496,
+              "intersect_shade.3": 0.009376,
+              "present": 0.036368,
+              "primary": 0.044944,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014304,
+              "relax_temporal": 0.053536,
+              "resolve_hdr": 0.015344
+            },
+            "hdr_mean": 0.11592023074626923,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "advanced-clearcoat/surface-only": {
+        "showcase": "advanced-clearcoat",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.27576,
+            "gpu_p90_ms": 0.281088,
+            "stages_ms": {
+              "intersect_shade.1": 0.034784,
+              "intersect_shade.2": 0.018464,
+              "intersect_shade.3": 0.010224,
+              "present": 0.036448,
+              "primary": 0.047423999999999994,
+              "reconstruct": 0.007008,
+              "relax_prepare": 0.014368,
+              "relax_temporal": 0.053536,
+              "resolve_hdr": 0.015344
+            },
+            "hdr_mean": 0.11592023074626923,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.274768,
+            "gpu_p90_ms": 0.279232,
+            "stages_ms": {
+              "intersect_shade.1": 0.034816,
+              "intersect_shade.2": 0.0184,
+              "intersect_shade.3": 0.009488,
+              "present": 0.036576,
+              "primary": 0.047423999999999994,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.014336,
+              "relax_temporal": 0.053472,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.11592023074626923,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "optical-screen-nested-dielectric/current": {
+        "showcase": "optical-screen-nested-dielectric",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/optical-screen-nested-dielectric/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.301344,
+            "gpu_p90_ms": 0.3088224,
+            "stages_ms": {
+              "intersect_shade.1": 0.030576,
+              "intersect_shade.2": 0.026592,
+              "intersect_shade.3": 0.017584000000000002,
+              "present": 0.036416000000000004,
+              "primary": 0.065456,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012256,
+              "relax_temporal": 0.053391999999999995,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 1.8716941126352623e-07,
+            "hdr_max_difference": 6.103515625e-05
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.3024,
+            "gpu_p90_ms": 0.306064,
+            "stages_ms": {
+              "intersect_shade.1": 0.030592,
+              "intersect_shade.2": 0.026624,
+              "intersect_shade.3": 0.017504,
+              "present": 0.036384,
+              "primary": 0.065264,
+              "reconstruct": 0.006992,
+              "relax_prepare": 0.012272,
+              "relax_temporal": 0.05344,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 1.8716941126352623e-07,
+            "hdr_max_difference": 6.103515625e-05
+          }
+        }
+      },
+      "optical-screen-nested-dielectric/surface-only": {
+        "showcase": "optical-screen-nested-dielectric",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.31328,
+            "gpu_p90_ms": 0.3192992,
+            "stages_ms": {
+              "intersect_shade.1": 0.030511999999999997,
+              "intersect_shade.2": 0.026624,
+              "intersect_shade.3": 0.018016,
+              "present": 0.036592,
+              "primary": 0.075872,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012288,
+              "relax_temporal": 0.053391999999999995,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.31252800000000003,
+            "gpu_p90_ms": 0.31744,
+            "stages_ms": {
+              "intersect_shade.1": 0.03048,
+              "intersect_shade.2": 0.026848,
+              "intersect_shade.3": 0.01792,
+              "present": 0.036032,
+              "primary": 0.07572799999999999,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012352,
+              "relax_temporal": 0.053295999999999996,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "optical-screen-refraction/current": {
+        "showcase": "optical-screen-refraction",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/optical-screen-refraction/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.30243200000000003,
+            "gpu_p90_ms": 0.3064448,
+            "stages_ms": {
+              "intersect_shade.1": 0.030656,
+              "intersect_shade.2": 0.02632,
+              "intersect_shade.3": 0.017984,
+              "present": 0.036447999999999994,
+              "primary": 0.066768,
+              "reconstruct": 0.007568,
+              "relax_prepare": 0.012303999999999999,
+              "relax_temporal": 0.053456000000000004,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0006008825880465588,
+            "hdr_max_difference": 0.0380859375
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.30302399999999996,
+            "gpu_p90_ms": 0.3069888,
+            "stages_ms": {
+              "intersect_shade.1": 0.030576,
+              "intersect_shade.2": 0.026368,
+              "intersect_shade.3": 0.018032,
+              "present": 0.036384,
+              "primary": 0.066624,
+              "reconstruct": 0.007392,
+              "relax_prepare": 0.012416,
+              "relax_temporal": 0.053376,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0006008825880465588,
+            "hdr_max_difference": 0.0380859375
+          }
+        }
+      },
+      "optical-screen-refraction/surface-only": {
+        "showcase": "optical-screen-refraction",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.311856,
+            "gpu_p90_ms": 0.3161728,
+            "stages_ms": {
+              "intersect_shade.1": 0.030528,
+              "intersect_shade.2": 0.026175999999999998,
+              "intersect_shade.3": 0.018032,
+              "present": 0.035952,
+              "primary": 0.0756,
+              "reconstruct": 0.00696,
+              "relax_prepare": 0.012352,
+              "relax_temporal": 0.053232,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.31152,
+            "gpu_p90_ms": 0.3177504,
+            "stages_ms": {
+              "intersect_shade.1": 0.030112,
+              "intersect_shade.2": 0.026512,
+              "intersect_shade.3": 0.017984,
+              "present": 0.036768,
+              "primary": 0.075936,
+              "reconstruct": 0.007072,
+              "relax_prepare": 0.012528000000000001,
+              "relax_temporal": 0.052448,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.5118877291679382,
+            "hdr_rmse_vs_baseline": 0.0006008825835618238,
+            "hdr_max_difference": 0.0380859375
+          }
+        }
+      },
+      "portable-surface-modifier/current": {
+        "showcase": "portable-surface-modifier",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 6,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/portable-surface-modifier/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.36172800000000005,
+            "gpu_p90_ms": 0.3677568,
+            "stages_ms": {
+              "intersect_shade.1": 0.04296,
+              "intersect_shade.2": 0.041024,
+              "intersect_shade.3": 0.032240000000000005,
+              "present": 0.03608,
+              "primary": 0.083632,
+              "reconstruct": 0.007008,
+              "relax_prepare": 0.012303999999999999,
+              "relax_temporal": 0.052528000000000005,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.361216,
+            "gpu_p90_ms": 0.365536,
+            "stages_ms": {
+              "intersect_shade.1": 0.042944,
+              "intersect_shade.2": 0.041344000000000006,
+              "intersect_shade.3": 0.032288,
+              "present": 0.036064,
+              "primary": 0.08369599999999999,
+              "reconstruct": 0.006912,
+              "relax_prepare": 0.01232,
+              "relax_temporal": 0.051552,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "portable-surface-modifier/surface-only": {
+        "showcase": "portable-surface-modifier",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 6,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.9381759999999999,
+            "gpu_p90_ms": 0.9457504,
+            "stages_ms": {
+              "intersect_shade.1": 0.051904,
+              "intersect_shade.2": 0.04736,
+              "intersect_shade.3": 0.039232,
+              "present": 0.262704,
+              "primary": 0.094208,
+              "reconstruct": 0.009904,
+              "relax_prepare": 0.025088,
+              "relax_temporal": 0.06248,
+              "resolve_hdr": 0.019328
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.368864,
+            "gpu_p90_ms": 0.3737952,
+            "stages_ms": {
+              "intersect_shade.1": 0.043136,
+              "intersect_shade.2": 0.04104,
+              "intersect_shade.3": 0.032304,
+              "present": 0.035856,
+              "primary": 0.09121599999999999,
+              "reconstruct": 0.006928,
+              "relax_prepare": 0.012352,
+              "relax_temporal": 0.053184,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "raster-material-program-room/current": {
+        "showcase": "raster-material-program-room",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/raster-material-program-room/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.35176,
+            "gpu_p90_ms": 0.3578784,
+            "stages_ms": {
+              "intersect_shade.1": 0.046896,
+              "intersect_shade.2": 0.028656,
+              "intersect_shade.3": 0.015823999999999998,
+              "present": 0.03616,
+              "primary": 0.09816,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.01248,
+              "relax_temporal": 0.05344,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.5399824380874634,
+            "hdr_rmse_vs_baseline": 0.00039121898143858804,
+            "hdr_max_difference": 0.024658203125
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.351952,
+            "gpu_p90_ms": 0.35579520000000003,
+            "stages_ms": {
+              "intersect_shade.1": 0.046912,
+              "intersect_shade.2": 0.02864,
+              "intersect_shade.3": 0.015904,
+              "present": 0.036688,
+              "primary": 0.09824,
+              "reconstruct": 0.00704,
+              "relax_prepare": 0.012512,
+              "relax_temporal": 0.053408,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.5399845838546753,
+            "hdr_rmse_vs_baseline": 2.936555324247364e-07,
+            "hdr_max_difference": 0.0001220703125
+          }
+        }
+      },
+      "raster-material-program-room/surface-only": {
+        "showcase": "raster-material-program-room",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.354336,
+            "gpu_p90_ms": 0.3587616,
+            "stages_ms": {
+              "intersect_shade.1": 0.046816,
+              "intersect_shade.2": 0.028672,
+              "intersect_shade.3": 0.015488,
+              "present": 0.036384,
+              "primary": 0.10209599999999999,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012384,
+              "relax_temporal": 0.053472,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.5399835109710693,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.35584,
+            "gpu_p90_ms": 0.3641472,
+            "stages_ms": {
+              "intersect_shade.1": 0.046624,
+              "intersect_shade.2": 0.028672,
+              "intersect_shade.3": 0.015904,
+              "present": 0.036608,
+              "primary": 0.102176,
+              "reconstruct": 0.0070880000000000006,
+              "relax_prepare": 0.012512,
+              "relax_temporal": 0.053408,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.5399845838546753,
+            "hdr_rmse_vs_baseline": 0.0003616475181448277,
+            "hdr_max_difference": 0.021484375
+          }
+        }
+      },
+      "volume-multiple-scattering/current": {
+        "showcase": "volume-multiple-scattering",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "reference": "/tmp/primary-list-validation/volume-multiple-scattering/surface-only/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.219792,
+            "gpu_p90_ms": 3.8859776,
+            "stages_ms": {
+              "intersect_shade.1": 0.354128,
+              "intersect_shade.2": 0.121104,
+              "intersect_shade.3": 0.010464000000000001,
+              "present": 0.037391999999999995,
+              "primary": 0.57096,
+              "reconstruct": 0.007776,
+              "relax_prepare": 0.014528,
+              "relax_temporal": 0.055648,
+              "resolve_hdr": 0.015456
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.210864,
+            "gpu_p90_ms": 1.2380608,
+            "stages_ms": {
+              "intersect_shade.1": 0.346864,
+              "intersect_shade.2": 0.11740800000000001,
+              "intersect_shade.3": 0.010144,
+              "present": 0.037232,
+              "primary": 0.5678719999999999,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014304,
+              "relax_temporal": 0.055584,
+              "resolve_hdr": 0.015376
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "volume-multiple-scattering/surface-only": {
+        "showcase": "volume-multiple-scattering",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "surface-only",
+        "primary_workgroup_rows": 8,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.218368,
+            "gpu_p90_ms": 1.2450687999999999,
+            "stages_ms": {
+              "intersect_shade.1": 0.347696,
+              "intersect_shade.2": 0.118848,
+              "intersect_shade.3": 0.010144,
+              "present": 0.036816,
+              "primary": 0.569728,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014447999999999999,
+              "relax_temporal": 0.05552,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.208256,
+            "gpu_p90_ms": 1.2335744,
+            "stages_ms": {
+              "intersect_shade.1": 0.34531199999999995,
+              "intersect_shade.2": 0.117936,
+              "intersect_shade.3": 0.010112,
+              "present": 0.03648,
+              "primary": 0.564512,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014447999999999999,
+              "relax_temporal": 0.05552,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      }
+    }
+  },
+  "cache-validation": {
+    "summary": {
+      "optical-screen-refraction": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.5118760507705586
+      },
+      "optical-screen-nested-dielectric": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.5304880909707949
+      },
+      "advanced-clearcoat": {
+        "control_rmse": 6.092204443887425e-05,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.11592188165385138
+      },
+      "advanced-anisotropy": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.14396144276450354
+      },
+      "raster-material-program-room": {
+        "control_rmse": 0.0,
+        "optimized_rmse": 0.0,
+        "optimized_max": 0.0,
+        "control_mean": 0.5399824562379055
+      },
+      "portable-surface-modifier": {
+        "control_rmse": 0.0001327828193528402,
+        "optimized_rmse": 0.00011346789451633983,
+        "optimized_max": 0.00341796875,
+        "control_mean": 0.14671559736581036
+      },
+      "volume-multiple-scattering": {
+        "control_rmse": 5.0758421698007837e-05,
+        "optimized_rmse": 5.0758421698007837e-05,
+        "optimized_max": 0.0020751953125,
+        "control_mean": 0.1242185237120699
+      }
+    },
+    "cases": {
+      "advanced-anisotropy/current": {
+        "showcase": "advanced-anisotropy",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 1,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/advanced-anisotropy/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.290512,
+            "gpu_p90_ms": 0.29552,
+            "stages_ms": {
+              "intersect_shade.1": 0.038336,
+              "intersect_shade.2": 0.024655999999999997,
+              "intersect_shade.3": 0.015392,
+              "present": 0.036143999999999996,
+              "primary": 0.049152,
+              "reconstruct": 0.007024000000000001,
+              "relax_prepare": 0.014176000000000001,
+              "relax_temporal": 0.053504,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.291056,
+            "gpu_p90_ms": 0.2954496,
+            "stages_ms": {
+              "intersect_shade.1": 0.03824,
+              "intersect_shade.2": 0.024608,
+              "intersect_shade.3": 0.015312,
+              "present": 0.03608,
+              "primary": 0.049328,
+              "reconstruct": 0.006992,
+              "relax_prepare": 0.014112,
+              "relax_temporal": 0.053536,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "advanced-anisotropy/uncached": {
+        "showcase": "advanced-anisotropy",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 1,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.29148799999999997,
+            "gpu_p90_ms": 0.2965024,
+            "stages_ms": {
+              "intersect_shade.1": 0.038592,
+              "intersect_shade.2": 0.025264,
+              "intersect_shade.3": 0.015328,
+              "present": 0.036320000000000005,
+              "primary": 0.050496,
+              "reconstruct": 0.006912,
+              "relax_prepare": 0.014368,
+              "relax_temporal": 0.053344,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.29126399999999997,
+            "gpu_p90_ms": 0.2960032,
+            "stages_ms": {
+              "intersect_shade.1": 0.038176,
+              "intersect_shade.2": 0.025088,
+              "intersect_shade.3": 0.015344,
+              "present": 0.036224,
+              "primary": 0.0508,
+              "reconstruct": 0.006912,
+              "relax_prepare": 0.014176,
+              "relax_temporal": 0.053504,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.14396144449710846,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "advanced-clearcoat/current": {
+        "showcase": "advanced-clearcoat",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/advanced-clearcoat/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.272032,
+            "gpu_p90_ms": 0.278464,
+            "stages_ms": {
+              "intersect_shade.1": 0.035968,
+              "intersect_shade.2": 0.018496,
+              "intersect_shade.3": 0.009392000000000001,
+              "present": 0.036,
+              "primary": 0.044832,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.014304,
+              "relax_temporal": 0.053504,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.11592023074626923,
+            "hdr_rmse_vs_baseline": 7.075612188549012e-05,
+            "hdr_max_difference": 0.00390625
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.272688,
+            "gpu_p90_ms": 0.2771168,
+            "stages_ms": {
+              "intersect_shade.1": 0.03568,
+              "intersect_shade.2": 0.0184,
+              "intersect_shade.3": 0.010128,
+              "present": 0.0368,
+              "primary": 0.044704,
+              "reconstruct": 0.0074719999999999995,
+              "relax_prepare": 0.014496,
+              "relax_temporal": 0.053408,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.11592187732458115,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "advanced-clearcoat/uncached": {
+        "showcase": "advanced-clearcoat",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.272928,
+            "gpu_p90_ms": 0.2761696,
+            "stages_ms": {
+              "intersect_shade.1": 0.035168000000000005,
+              "intersect_shade.2": 0.0184,
+              "intersect_shade.3": 0.00952,
+              "present": 0.036768,
+              "primary": 0.044896,
+              "reconstruct": 0.00696,
+              "relax_prepare": 0.014432,
+              "relax_temporal": 0.053472,
+              "resolve_hdr": 0.015344
+            },
+            "hdr_mean": 0.11592314392328262,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.273296,
+            "gpu_p90_ms": 0.2771072,
+            "stages_ms": {
+              "intersect_shade.1": 0.036143999999999996,
+              "intersect_shade.2": 0.018432,
+              "intersect_shade.3": 0.010144,
+              "present": 0.036592,
+              "primary": 0.044832,
+              "reconstruct": 0.00704,
+              "relax_prepare": 0.014496,
+              "relax_temporal": 0.053391999999999995,
+              "resolve_hdr": 0.015344
+            },
+            "hdr_mean": 0.11592187732458115,
+            "hdr_rmse_vs_baseline": 6.092204443887425e-05,
+            "hdr_max_difference": 0.005859375
+          }
+        }
+      },
+      "optical-screen-nested-dielectric/current": {
+        "showcase": "optical-screen-nested-dielectric",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/optical-screen-nested-dielectric/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.30070399999999997,
+            "gpu_p90_ms": 0.3068448,
+            "stages_ms": {
+              "intersect_shade.1": 0.030592,
+              "intersect_shade.2": 0.026624,
+              "intersect_shade.3": 0.017616,
+              "present": 0.036288,
+              "primary": 0.063616,
+              "reconstruct": 0.007072,
+              "relax_prepare": 0.012384,
+              "relax_temporal": 0.053391999999999995,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.29992,
+            "gpu_p90_ms": 0.3044928,
+            "stages_ms": {
+              "intersect_shade.1": 0.030656,
+              "intersect_shade.2": 0.026592,
+              "intersect_shade.3": 0.017647999999999997,
+              "present": 0.036544,
+              "primary": 0.064048,
+              "reconstruct": 0.007424,
+              "relax_prepare": 0.012256,
+              "relax_temporal": 0.05344,
+              "resolve_hdr": 0.015424
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "optical-screen-nested-dielectric/uncached": {
+        "showcase": "optical-screen-nested-dielectric",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.303296,
+            "gpu_p90_ms": 0.3065792,
+            "stages_ms": {
+              "intersect_shade.1": 0.030656,
+              "intersect_shade.2": 0.026592,
+              "intersect_shade.3": 0.0176,
+              "present": 0.036288,
+              "primary": 0.06590399999999999,
+              "reconstruct": 0.007584,
+              "relax_prepare": 0.012384,
+              "relax_temporal": 0.053328,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.301456,
+            "gpu_p90_ms": 0.3064384,
+            "stages_ms": {
+              "intersect_shade.1": 0.030656,
+              "intersect_shade.2": 0.026592,
+              "intersect_shade.3": 0.017808,
+              "present": 0.036143999999999996,
+              "primary": 0.065216,
+              "reconstruct": 0.00696,
+              "relax_prepare": 0.012384,
+              "relax_temporal": 0.05328,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.530488133430481,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "optical-screen-refraction/current": {
+        "showcase": "optical-screen-refraction",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/optical-screen-refraction/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.299968,
+            "gpu_p90_ms": 0.305264,
+            "stages_ms": {
+              "intersect_shade.1": 0.030528,
+              "intersect_shade.2": 0.024752,
+              "intersect_shade.3": 0.018320000000000003,
+              "present": 0.036351999999999995,
+              "primary": 0.06488,
+              "reconstruct": 0.007424,
+              "relax_prepare": 0.012416,
+              "relax_temporal": 0.053376,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.5118877291679382,
+            "hdr_rmse_vs_baseline": 0.0006008825835618238,
+            "hdr_max_difference": 0.0380859375
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.29977600000000004,
+            "gpu_p90_ms": 0.3045376,
+            "stages_ms": {
+              "intersect_shade.1": 0.03056,
+              "intersect_shade.2": 0.02592,
+              "intersect_shade.3": 0.017872,
+              "present": 0.036416,
+              "primary": 0.064448,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012384,
+              "relax_temporal": 0.05328,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "optical-screen-refraction/uncached": {
+        "showcase": "optical-screen-refraction",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 3,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.302528,
+            "gpu_p90_ms": 0.30629439999999997,
+            "stages_ms": {
+              "intersect_shade.1": 0.030656,
+              "intersect_shade.2": 0.026512,
+              "intersect_shade.3": 0.017904,
+              "present": 0.036736000000000005,
+              "primary": 0.06572800000000001,
+              "reconstruct": 0.007056,
+              "relax_prepare": 0.012352,
+              "relax_temporal": 0.053376,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.30259199999999997,
+            "gpu_p90_ms": 0.3065312,
+            "stages_ms": {
+              "intersect_shade.1": 0.030608,
+              "intersect_shade.2": 0.026336,
+              "intersect_shade.3": 0.017696,
+              "present": 0.036463999999999996,
+              "primary": 0.066784,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012288,
+              "relax_temporal": 0.05344,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.511876106262207,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "portable-surface-modifier/current": {
+        "showcase": "portable-surface-modifier",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 6,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/portable-surface-modifier/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.35928,
+            "gpu_p90_ms": 0.36418880000000003,
+            "stages_ms": {
+              "intersect_shade.1": 0.042976,
+              "intersect_shade.2": 0.04096,
+              "intersect_shade.3": 0.031872,
+              "present": 0.036304,
+              "primary": 0.083248,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.01232,
+              "relax_temporal": 0.051552,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0001327828193528402,
+            "hdr_max_difference": 0.00439453125
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.360448,
+            "gpu_p90_ms": 0.3643744,
+            "stages_ms": {
+              "intersect_shade.1": 0.042816,
+              "intersect_shade.2": 0.04096,
+              "intersect_shade.3": 0.031984,
+              "present": 0.036448,
+              "primary": 0.083584,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.012352,
+              "relax_temporal": 0.0516,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.1467178761959076,
+            "hdr_rmse_vs_baseline": 0.00011346789451633983,
+            "hdr_max_difference": 0.00341796875
+          }
+        }
+      },
+      "portable-surface-modifier/uncached": {
+        "showcase": "portable-surface-modifier",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 6,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.361696,
+            "gpu_p90_ms": 0.3650976,
+            "stages_ms": {
+              "intersect_shade.1": 0.042976,
+              "intersect_shade.2": 0.041056,
+              "intersect_shade.3": 0.031984,
+              "present": 0.036559999999999995,
+              "primary": 0.083792,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.012416,
+              "relax_temporal": 0.051984,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.1467108130455017,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.361008,
+            "gpu_p90_ms": 0.3676512,
+            "stages_ms": {
+              "intersect_shade.1": 0.042992,
+              "intersect_shade.2": 0.040928,
+              "intersect_shade.3": 0.032256,
+              "present": 0.036288,
+              "primary": 0.08371200000000001,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.0124,
+              "relax_temporal": 0.052816,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.14671559631824493,
+            "hdr_rmse_vs_baseline": 0.0001327828193528402,
+            "hdr_max_difference": 0.00439453125
+          }
+        }
+      },
+      "raster-material-program-room/current": {
+        "showcase": "raster-material-program-room",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/raster-material-program-room/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.349808,
+            "gpu_p90_ms": 0.35464640000000003,
+            "stages_ms": {
+              "intersect_shade.1": 0.046944,
+              "intersect_shade.2": 0.02864,
+              "intersect_shade.3": 0.015872,
+              "present": 0.036672,
+              "primary": 0.095936,
+              "reconstruct": 0.007296,
+              "relax_prepare": 0.012544,
+              "relax_temporal": 0.05344,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.5399845838546753,
+            "hdr_rmse_vs_baseline": 0.00039121909164995775,
+            "hdr_max_difference": 0.024658203125
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.349424,
+            "gpu_p90_ms": 0.3579872,
+            "stages_ms": {
+              "intersect_shade.1": 0.046912,
+              "intersect_shade.2": 0.028784,
+              "intersect_shade.3": 0.015872,
+              "present": 0.036624000000000004,
+              "primary": 0.09590399999999999,
+              "reconstruct": 0.007008,
+              "relax_prepare": 0.012576,
+              "relax_temporal": 0.053632,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.5399824380874634,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "raster-material-program-room/uncached": {
+        "showcase": "raster-material-program-room",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.351408,
+            "gpu_p90_ms": 0.358048,
+            "stages_ms": {
+              "intersect_shade.1": 0.046944,
+              "intersect_shade.2": 0.028672,
+              "intersect_shade.3": 0.015616000000000001,
+              "present": 0.036432,
+              "primary": 0.098144,
+              "reconstruct": 0.006944,
+              "relax_prepare": 0.012464,
+              "relax_temporal": 0.053472,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.5399824380874634,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 0.351936,
+            "gpu_p90_ms": 0.3567392,
+            "stages_ms": {
+              "intersect_shade.1": 0.046976,
+              "intersect_shade.2": 0.02864,
+              "intersect_shade.3": 0.015536000000000001,
+              "present": 0.036592,
+              "primary": 0.098048,
+              "reconstruct": 0.0070880000000000006,
+              "relax_prepare": 0.01248,
+              "relax_temporal": 0.053552,
+              "resolve_hdr": 0.01536
+            },
+            "hdr_mean": 0.5399824380874634,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          }
+        }
+      },
+      "volume-multiple-scattering/current": {
+        "showcase": "volume-multiple-scattering",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": true,
+        "reference": "/tmp/primary-list-cache-validation/volume-multiple-scattering/uncached/repeat.npy",
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.21976,
+            "gpu_p90_ms": 3.7552736,
+            "stages_ms": {
+              "intersect_shade.1": 0.349408,
+              "intersect_shade.2": 0.118896,
+              "intersect_shade.3": 0.010144,
+              "present": 0.036864,
+              "primary": 0.56968,
+              "reconstruct": 0.007776,
+              "relax_prepare": 0.014464,
+              "relax_temporal": 0.055632,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 5.0758421698007837e-05,
+            "hdr_max_difference": 0.0020751953125
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.2088800000000002,
+            "gpu_p90_ms": 1.2376704,
+            "stages_ms": {
+              "intersect_shade.1": 0.34648,
+              "intersect_shade.2": 0.117808,
+              "intersect_shade.3": 0.010112,
+              "present": 0.037248,
+              "primary": 0.567712,
+              "reconstruct": 0.006976,
+              "relax_prepare": 0.014336,
+              "relax_temporal": 0.055568,
+              "resolve_hdr": 0.015392
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 5.0758421698007837e-05,
+            "hdr_max_difference": 0.0020751953125
+          }
+        }
+      },
+      "volume-multiple-scattering/uncached": {
+        "showcase": "volume-multiple-scattering",
+        "extent": [
+          320,
+          180
+        ],
+        "spp": 1,
+        "bounces": 4,
+        "textures": 0,
+        "warmup": 32,
+        "frames": 64,
+        "primary_specialization": true,
+        "pipeline_statistics_enabled": false,
+        "primary_variant": "current",
+        "primary_workgroup_rows": 8,
+        "primary_brdf_cache": false,
+        "reference": null,
+        "cases": {
+          "baseline": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 3.738256,
+            "gpu_p90_ms": 3.8866816,
+            "stages_ms": {
+              "intersect_shade.1": 0.373776,
+              "intersect_shade.2": 0.123376,
+              "intersect_shade.3": 0.019248,
+              "present": 0.262976,
+              "primary": 2.27224,
+              "reconstruct": 0.040576,
+              "relax_prepare": 0.08104,
+              "relax_temporal": 0.138224,
+              "resolve_hdr": 0.08752
+            },
+            "hdr_mean": 0.12421946227550507,
+            "hdr_rmse_vs_baseline": 0.0,
+            "hdr_max_difference": 0.0
+          },
+          "repeat": {
+            "changes": {},
+            "native_textures_enabled": false,
+            "pipeline_statistics": {},
+            "gpu_ms": 1.205616,
+            "gpu_p90_ms": 1.230224,
+            "stages_ms": {
+              "intersect_shade.1": 0.3456,
+              "intersect_shade.2": 0.118176,
+              "intersect_shade.3": 0.010416,
+              "present": 0.03728,
+              "primary": 0.56096,
+              "reconstruct": 0.007712,
+              "relax_prepare": 0.0144,
+              "relax_temporal": 0.055552,
+              "resolve_hdr": 0.015328
+            },
+            "hdr_mean": 0.12421852350234985,
+            "hdr_rmse_vs_baseline": 5.0758421698007837e-05,
+            "hdr_max_difference": 0.0020751953125
+          }
+        }
+      }
+    }
+  }
+}

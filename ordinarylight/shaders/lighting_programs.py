@@ -15,8 +15,26 @@ def pbrSpecularProbability(material: MaterialData) -> osh.f32:
     return osh.clamp(osh.maximum(f0.r, osh.maximum(f0.g, f0.b)), 0.1, 0.9)
 
 @osh.function
+def preparePrimaryPbr(material: MaterialData, normal: osh.vec3, view: osh.vec3) -> osh.void:
+    transportPbrF0 = osh.mix(osh.vec3(0.04), material.base_roughness.rgb, material.emission_metallic.a)
+    anisotropy = osh.clamp(material.advanced0.w, -1.0, 1.0)
+    alpha = osh.maximum(material.base_roughness.a * material.base_roughness.a, 0.02)
+    transportPbrLobes = osh.vec4(
+        osh.maximum(alpha * (1.0 - 0.7 * anisotropy), 0.02),
+        osh.maximum(alpha * (1.0 + 0.7 * anisotropy), 0.02),
+        osh.clamp(material.advanced0.y, 0.02, 1.0),
+        osh.clamp(material.advanced0.x, 0.0, 1.0))
+    transportPbrProbability = osh.clamp(pbrSpecularProbability(material) + material.advanced0.x * 0.15, 0.1, 0.95)
+    transportPbrViewCosine = osh.maximum(osh.dot(normal, view), 0.0)
+    transportPbrTangent = osh.normalize(osh.cross(normal, osh.vec3(0.0, 0.0, 1.0)) if osh.absolute(normal.z) < 0.999 else osh.cross(normal, osh.vec3(0.0, 1.0, 0.0)))
+    transportPbrBitangent = osh.cross(normal, transportPbrTangent)
+    transportPbrGeometry = ggxSmithComponent(transportPbrViewCosine, material.base_roughness.a)
+    transportPbrCoatGeometry = ggxSmithComponent(transportPbrViewCosine, transportPbrLobes.z)
+    transportPbrPrepared = True
+
+@osh.function
 def evaluatePbr(material: MaterialData, normal: osh.vec3, view: osh.vec3, outgoing: osh.vec3) -> osh.vec3:
-    n_dot_v = osh.maximum(osh.dot(normal, view), 0.0)
+    n_dot_v = transportPbrViewCosine if transportPbrPrepared else osh.maximum(osh.dot(normal, view), 0.0)
     n_dot_l = osh.maximum(osh.dot(normal, outgoing), 0.0)
     transportLastSpecularFraction = osh.vec3(0.0)
     if n_dot_v <= 0.0 or n_dot_l <= 0.0:
@@ -25,27 +43,27 @@ def evaluatePbr(material: MaterialData, normal: osh.vec3, view: osh.vec3, outgoi
     n_dot_h = osh.maximum(osh.dot(normal, half_vector), 0.0)
     v_dot_h = osh.maximum(osh.dot(view, half_vector), 0.0)
     metallic = material.emission_metallic.a
-    f0 = osh.mix(osh.vec3(0.04), material.base_roughness.rgb, metallic)
+    f0 = transportPbrF0 if transportPbrPrepared else osh.mix(osh.vec3(0.04), material.base_roughness.rgb, metallic)
     fresnel = pbrFresnel(f0, v_dot_h)
     anisotropy = osh.clamp(material.advanced0.w, -1.0, 1.0)
-    tangent = osh.normalize(osh.cross(normal, osh.vec3(0.0, 0.0, 1.0)) if osh.absolute(normal.z) < 0.999 else osh.cross(normal, osh.vec3(0.0, 1.0, 0.0)))
-    bitangent = osh.cross(normal, tangent)
+    tangent = transportPbrTangent if transportPbrPrepared else osh.normalize(osh.cross(normal, osh.vec3(0.0, 0.0, 1.0)) if osh.absolute(normal.z) < 0.999 else osh.cross(normal, osh.vec3(0.0, 1.0, 0.0)))
+    bitangent = transportPbrBitangent if transportPbrPrepared else osh.cross(normal, tangent)
     alpha = osh.maximum(material.base_roughness.a * material.base_roughness.a, 0.02)
-    alpha_x = osh.maximum(alpha * (1.0 - 0.7 * anisotropy), 0.02)
-    alpha_y = osh.maximum(alpha * (1.0 + 0.7 * anisotropy), 0.02)
+    alpha_x = transportPbrLobes.x if transportPbrPrepared else osh.maximum(alpha * (1.0 - 0.7 * anisotropy), 0.02)
+    alpha_y = transportPbrLobes.y if transportPbrPrepared else osh.maximum(alpha * (1.0 + 0.7 * anisotropy), 0.02)
     anisotropic_denominator = osh.dot(half_vector, tangent) * osh.dot(half_vector, tangent) / (alpha_x * alpha_x) + osh.dot(half_vector, bitangent) * osh.dot(half_vector, bitangent) / (alpha_y * alpha_y) + n_dot_h * n_dot_h
     distribution = 1.0 / osh.maximum(3.14159265359 * alpha_x * alpha_y * anisotropic_denominator * anisotropic_denominator, 1e-06)
-    geometry = ggxSmithComponent(n_dot_v, material.base_roughness.a) * ggxSmithComponent(n_dot_l, material.base_roughness.a)
+    geometry = (transportPbrGeometry if transportPbrPrepared else ggxSmithComponent(n_dot_v, material.base_roughness.a)) * ggxSmithComponent(n_dot_l, material.base_roughness.a)
     specular = fresnel * distribution * geometry / osh.maximum(4.0 * n_dot_v * n_dot_l, 1e-06)
     diffuse = (osh.vec3(1.0) - fresnel) * (1.0 - metallic) * material.base_roughness.rgb / 3.14159265359
     subsurface = osh.clamp(material.advanced1.x, 0.0, 1.0)
     diffuse = osh.mix(diffuse, diffuse * material.subsurface_color.rgb, subsurface)
     sheen_weight = (1.0 - osh.clamp(material.advanced0.z, 0.0, 1.0)) * osh.power(1.0 - v_dot_h, 5.0)
     sheen = material.sheen_color.rgb * sheen_weight
-    clearcoat = osh.clamp(material.advanced0.x, 0.0, 1.0)
-    coat_roughness = osh.clamp(material.advanced0.y, 0.02, 1.0)
+    clearcoat = transportPbrLobes.w if transportPbrPrepared else osh.clamp(material.advanced0.x, 0.0, 1.0)
+    coat_roughness = transportPbrLobes.z if transportPbrPrepared else osh.clamp(material.advanced0.y, 0.02, 1.0)
     coat_distribution = ggxDistribution(n_dot_h, coat_roughness)
-    coat_geometry = ggxSmithComponent(n_dot_v, coat_roughness) * ggxSmithComponent(n_dot_l, coat_roughness)
+    coat_geometry = (transportPbrCoatGeometry if transportPbrPrepared else ggxSmithComponent(n_dot_v, coat_roughness)) * ggxSmithComponent(n_dot_l, coat_roughness)
     coat_fresnel = 0.04 + 0.96 * osh.power(1.0 - v_dot_h, 5.0)
     coat = osh.vec3(clearcoat * coat_distribution * coat_geometry * coat_fresnel / osh.maximum(4.0 * n_dot_v * n_dot_l, 1e-06))
     base_energy = 1.0 - clearcoat * coat_fresnel
@@ -64,7 +82,7 @@ def pbrPdf(material: MaterialData, normal: osh.vec3, view: osh.vec3, outgoing: o
     v_dot_h = osh.maximum(osh.dot(view, half_vector), 1e-06)
     specular_pdf = ggxDistribution(n_dot_h, material.base_roughness.a) * n_dot_h / (4.0 * v_dot_h)
     diffuse_pdf = n_dot_l / 3.14159265359
-    probability = osh.clamp(pbrSpecularProbability(material) + material.advanced0.x * 0.15, 0.1, 0.95)
+    probability = transportPbrProbability if transportPbrPrepared else osh.clamp(pbrSpecularProbability(material) + material.advanced0.x * 0.15, 0.1, 0.95)
     return osh.mix(diffuse_pdf, specular_pdf, probability)
 
 @osh.function

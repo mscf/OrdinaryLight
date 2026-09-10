@@ -24,7 +24,12 @@ def generated_source():
     values = {name: value for module in (transport_programs, p) for name, value in vars(module).items() if isinstance(value, osh.StructType)}
     values.update(point_lights=osh.runtime_array(p.PointLightData), area_lights=osh.runtime_array(p.AreaLightData),
                   scene_tlas=osh.opaque_type('acceleration_structure'), texture_words=osh.runtime_array(osh.u32),
-                  transportLastSpecularFraction=osh.vec3, transportPointSpecular=osh.vec3)
+                  transportLastSpecularFraction=osh.vec3, transportPointSpecular=osh.vec3,
+                  transportPbrPrepared=osh.boolean, transportPbrF0=osh.vec3,
+                  transportPbrLobes=osh.vec4, transportPbrProbability=osh.f32,
+                  transportPbrViewCosine=osh.f32, transportPbrTangent=osh.vec3,
+                  transportPbrBitangent=osh.vec3, transportPbrGeometry=osh.f32,
+                  transportPbrCoatGeometry=osh.f32)
     for name in ('OL_TRANSPORT_AREA_LIGHT_COUNT','OL_TRANSPORT_POINT_LIGHT_COUNT','OL_TRANSPORT_ENVIRONMENT_SAMPLES',
                  'OL_TRANSPORT_SECONDARY_AREA_LIGHT_SAMPLES','gl_RayFlagsOpaqueEXT','gl_RayFlagsTerminateOnFirstHitEXT',
                  'gl_RayQueryCommittedIntersectionNoneEXT','ENVIRONMENT_LIGHT_CANDIDATE_INDEX'):

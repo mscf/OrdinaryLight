@@ -20,19 +20,26 @@ def main():
     parser.add_argument('--height', type=int, default=540)
     parser.add_argument('--output', type=Path, default=Path('/tmp/command-recording.json'))
     parser.add_argument('--spp', type=int, default=2, choices=(1, 2))
+    parser.add_argument('--fast', action='store_true', help='Use experimental four-bounce GI (requires --spp 1)')
+    parser.add_argument('--uploaded-policy', action='store_true',
+                        help='Compare recorded ReSTIR policy with per-frame uploaded policy')
     parser.add_argument('--history-resets', action='store_true',
                         help='Alternate camera jumps and stops; compare forced recording with reuse')
     args = parser.parse_args()
     if min(args.frames, args.width, args.height) <= 0:
         parser.error('frames and dimensions must be positive')
+    if args.fast and args.spp != 1:
+        parser.error('--fast requires --spp 1')
     item = next(s for s in SHOWCASES if s.id == 'optical-screen-rough-reflection')
     scene = item.build()
     config = replace(_gi_config(item, shared_primary=True, path_spp=args.spp,
-                               restir_reservoirs=2), wavefront_hdr_capture=True)
+                               restir_reservoirs=2, low_bounce=args.fast), wavefront_hdr_capture=True)
     glfw = load_glfw()
     if not glfw.init():
         raise RuntimeError('GLFW initialization failed')
     original = core._command_history_limits
+    from ordinarylight.shaders import compiler
+    original_compile = compiler.compile_wavefront_material_shader
     window = None
     results, images = {}, {}
     try:
@@ -42,6 +49,11 @@ def main():
         if not window:
             raise RuntimeError('Window creation failed')
         for name in ('baseline', 'optimized'):
+            def compile_variant(*positional, **kwargs):
+                if args.uploaded_policy and name == 'baseline':
+                    kwargs['camera_restir_policy'] = False
+                return original_compile(*positional, **kwargs)
+            compiler.compile_wavefront_material_shader = compile_variant
             core._command_history_limits = (
                 (lambda indirect, restir, **kw: (indirect, restir))
                 if name == 'baseline' else original
@@ -61,7 +73,7 @@ def main():
                             angle += 0.0003 + 0.002 * (0.5 + 0.5 * np.sin(frame * 0.7))
                     camera = item.camera.camera(scene, angle=float(angle))
                     glfw.poll_events()
-                    if args.history_resets and name == 'baseline':
+                    if (args.history_resets or args.uploaded_policy) and name == 'baseline':
                         for slot in renderer._core.window_frames:
                             slot['wavefront_command_key'] = None
                     start = time.perf_counter()
@@ -88,12 +100,13 @@ def main():
         args.output.write_text(json.dumps(results, indent=2) + '\n')
         print('HDR difference:', difference, 'report:', args.output, flush=True)
         assert difference == 0, 'Cache optimization changed rendering'
-        if args.history_resets:
+        if args.history_resets or args.uploaded_policy:
             assert results['optimized']['command_cache_hit_fraction'] > 0.9, (
                 'History resets caused repeated command recording'
             )
     finally:
         core._command_history_limits = original
+        compiler.compile_wavefront_material_shader = original_compile
         if window:
             glfw.destroy_window(window)
         glfw.terminate()

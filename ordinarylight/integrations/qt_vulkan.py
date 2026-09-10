@@ -79,14 +79,30 @@ class QtVulkanSurface:
 
         A renderer must be closed before this method is called.  The Qt
         ``QWindow`` and Vulkan instance stay alive, while a fresh surface
-        prevents sequential logical devices from inheriting presentation
-        state associated with the previous swapchain.
+        replaces the VkSurfaceKHR handle. For handoff between independent
+        renderer devices, use recreate_instance() to also reset instance-owned
+        driver presentation state.
         """
         if self._closed:
             raise RuntimeError("cannot recreate a closed Qt Vulkan surface")
         if self.surface is not None:
             self._destroy_surface(self.instance, self.surface, None)
         self.surface = self._new_surface()
+        return self.surface
+
+    def recreate_instance(self):
+        """Reset presentation ownership between independently created devices.
+
+        Every renderer/consumer of this instance must already be closed. Merely
+        replacing VkSurfaceKHR retains driver state that can make later XCB
+        swapchain destruction stall after a raster-to-GI handoff. Keep the Qt
+        window, but release the old surface and instance before creating both.
+        """
+        if self._closed:
+            raise RuntimeError("cannot recreate a closed Qt Vulkan surface")
+        window = self.window
+        self.close()
+        self.__init__(window)
         return self.surface
 
     def close(self):

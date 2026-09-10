@@ -158,6 +158,7 @@ class RendererConfig:
     wavefront_persistent_coarse_tiles: bool = False
     wavefront_persistent_continuations: bool = False
     wavefront_scene_specialization: bool = True
+    wavefront_primary_scene_specialization: bool = True
     # Production Ordinary Shade stage. Set False for the handwritten fallback.
     wavefront_ordinaryshade_shade: bool = True
     wavefront_untextured_specialization: bool = False
@@ -629,6 +630,8 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_persistent_continuations requires hybrid execution"
             )
+        if not isinstance(self.wavefront_primary_scene_specialization, bool):
+            raise TypeError("wavefront_primary_scene_specialization must be a bool")
         if not isinstance(self.wavefront_scene_specialization, bool):
             raise TypeError("wavefront_scene_specialization must be a bool")
         if not isinstance(self.wavefront_ordinaryshade_shade, bool):

@@ -39,7 +39,11 @@ def test_acquisition_preserves_index_zero_and_error_recovery(timeout):
 @pytest.mark.parametrize("error", [vk.VkTimeout, vk.VkNotReady])
 def test_raster_timeout_does_not_submit_reset_or_advance_slot(error):
     renderer = object.__new__(VulkanRasterRenderer)
-    renderer.vk = SimpleNamespace(VK_TRUE=vk.VK_TRUE, vkWaitForFences=Mock())
+    renderer.vk = SimpleNamespace(
+        VK_TRUE=vk.VK_TRUE, vkWaitForFences=Mock(), ffi=vk.ffi,
+        VkSuboptimalKhr=vk.VkSuboptimalKhr,
+        VkErrorOutOfDateKhr=vk.VkErrorOutOfDateKhr,
+    )
     renderer.device = "device"
     renderer.config = RasterConfig(acquire_timeout_ns=42)
     renderer._ensure_swapchain = Mock()
@@ -98,3 +102,37 @@ def test_output_rejects_infinite_timeout_before_retaining_runtime():
     with pytest.raises(ValueError, match="acquire_timeout_ns"):
         VulkanOutput(runtime, acquire_timeout_ns=(1 << 64) - 1)
     runtime.retain.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["present_wavefront_window", "present_window"])
+def test_core_resize_acquisition_returns_without_recursive_recreation(method):
+    """Exercise the real exception handler, including repeated resize races."""
+    import ast
+    from pathlib import Path
+    import ordinarylight.targets.vulkan.core as core_module
+
+    tree = ast.parse(Path(core_module.__file__).read_text())
+    function = next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef) and n.name == method)
+    handler = next(n for n in ast.walk(function)
+                   if isinstance(n, ast.ExceptHandler) and n.type is not None
+                   and 'VkErrorOutOfDateKhr' in ast.unparse(n.type))
+    stub = ast.parse('def recover(self, frame):\n    pass').body[0]
+    stub.body = handler.body
+    namespace = {'vk': SimpleNamespace(
+        vkDeviceWaitIdle=Mock(), vkDestroySemaphore=Mock(),
+        vkCreateSemaphore=Mock(return_value='replacement'),
+        VkSemaphoreCreateInfo=lambda **kw: kw,
+        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO=1,
+    ), 'report_lifecycle': Mock()}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[stub], type_ignores=[])),
+                 '<resize recovery>', 'exec'), namespace)
+    # No scene, camera, dimensions or recursive presentation method: recovery
+    # must return to the caller to obtain fresh values, not retry stale ones.
+    owner = SimpleNamespace(device='device', swapchain_extent=(32, 32))
+    frame = {'image_available': 'old'}
+    for _ in range(20):
+        assert namespace['recover'](owner, frame) is None
+        assert owner.swapchain_extent is None
+        assert frame['image_available'] == 'replacement'
+    assert namespace['vk'].vkDeviceWaitIdle.call_count == 20

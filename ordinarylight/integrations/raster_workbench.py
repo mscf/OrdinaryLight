@@ -18,12 +18,19 @@ import traceback
 import numpy as np
 
 import ordinarylight as ol
-from ordinarylight.runtime.lifecycle import LifecycleTimer, timed_call
+from ordinarylight.runtime.lifecycle import LifecycleTimer, timed_call, report as report_lifecycle
 from ordinarylight.denoising.reference import NrdRelaxReference
 from ordinarylight.integrations.workbench import discover_showcases
 from ordinarylight.integrations.resize import ResizeRecreationGate
 from ordinarylight.outputs import to_sdr
 from ordinarylight.renderers.raster._diagnostics import frame_difference
+
+
+# Measured high-resolution GI defaults; retain overrides across target switches.
+GI_RESTIR_RESERVOIRS = 2
+GI_SHARED_PRIMARY = True
+GI_PATH_SPP = 2
+GI_RAY_BATCH_CAPACITY = 524288
 
 
 CUSTOM_INLINE_SHOWCASES = frozenset((
@@ -37,9 +44,12 @@ RESOLUTIONS = (
     ("Ultra HD — 4K", (3840, 2160)),
 )
 
+GI_TARGETS = frozenset(("wavefront-gi", "wavefront-gi-fast"))
+
 TARGETS = (
     ("Vulkan raster", "vulkan-raster"),
     ("Wavefront GI", "wavefront-gi"),
+    ("GI — 1 sample / 4 bounces (experimental)", "wavefront-gi-fast"),
     ("WebGPU raster", "webgpu-raster"),
 )
 
@@ -174,15 +184,18 @@ def _camera_pose_argument(value):
 
 
 def _gi_config(
-    showcase, *, present=False, capture=False, restir_reservoirs=4,
+    showcase, *, present=False, capture=False, restir_reservoirs=GI_RESTIR_RESERVOIRS,
     denoiser_enabled=True, denoiser_iterations=3, denoiser_motion_history_floor=3,
     denoiser_sampled_indirect=True, denoiser_color_weight=4.0,
     denoiser_planar_mirror_guides=False, denoiser_transmission_motion_cap=False,
     custom_inline=False, render_scale=1.0, upscale_filter="bilinear",
-    shared_primary=False, path_spp=1, ray_batch_capacity=131072,
+    shared_primary=GI_SHARED_PRIMARY, path_spp=GI_PATH_SPP,
+    ray_batch_capacity=GI_RAY_BATCH_CAPACITY, low_bounce=False,
 ):
     """Build the interactive GI configuration corresponding to a showcase."""
     settings = dict(showcase.renderer)
+    if low_bounce:
+        shared_primary, path_spp = True, 1
     custom_inline = bool(custom_inline and not shared_primary
                          and getattr(showcase, "id", None) in CUSTOM_INLINE_SHOWCASES)
     return ol.RendererConfig(
@@ -232,7 +245,9 @@ def _gi_config(
         # wavefront_restir_history_limit=4,
         # wavefront_restir_spatial_reuse=False,
 
-        max_bounces=int(settings.get("max_bounces", 8)),
+        # The terminal secondary hit contributes emission, but stops before
+        # direct-light evaluation. Depth 3 lights the first reflected surface.
+        max_bounces=4 if low_bounce else int(settings.get("max_bounces", 8)),
         present_mode="mailbox",
         # The Ordinary Shade ReLAX stage owns a recurrent temporal history.
         # Progressive history supplies the previous-frame guides while
@@ -373,7 +388,7 @@ def _gi_performance_text(timings):
 
 def _direct_render_extent(target, selected_extent, surface_extent):
     """Resolve the extent consumed by a direct-presentation renderer."""
-    if target == "wavefront-gi":
+    if target in GI_TARGETS:
         return tuple(surface_extent)
     return tuple(selected_extent)
 
@@ -509,14 +524,14 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             for count in (1, 2, 4, 8):
                 self.restir_reservoirs.addItem(str(count), count)
             self.restir_reservoirs.setCurrentIndex(
-                self.restir_reservoirs.findData(4)
+                self.restir_reservoirs.findData(args.restir_reservoirs)
             )
             self.restir_reservoirs.setEnabled(
-                self.target.currentData() == "wavefront-gi"
+                self.target.currentData() in GI_TARGETS
             )
             self.shared_primary = QtWidgets.QCheckBox()
-            self.shared_primary.setChecked(getattr(args, "shared_primary_restir", False))
-            self.shared_primary.setEnabled(self.target.currentData() == "wavefront-gi")
+            self.shared_primary.setChecked(getattr(args, "shared_primary_restir", GI_SHARED_PRIMARY))
+            self.shared_primary.setEnabled(self.target.currentData() in GI_TARGETS)
             self.shared_primary.setToolTip(
                 "Share the primary hit and indirect path across direct-light reservoirs. "
                 "Requires a shader compiler. Apply and restart."
@@ -529,7 +544,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             for count in (1, 2, 4, 8):
                 self.path_spp.addItem(str(count), count)
             self.path_spp.setCurrentIndex(
-                self.path_spp.findData(getattr(args, "path_spp", 1))
+                self.path_spp.findData(getattr(args, "path_spp", GI_PATH_SPP))
             )
             self.path_spp.setEnabled(
                 self.shared_primary.isChecked() and self.shared_primary.isEnabled()
@@ -539,9 +554,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             for count in (131072, 524288, 1048576):
                 self.ray_batch_capacity.addItem(f"{count:,} rays", count)
             self.ray_batch_capacity.setCurrentIndex(self.ray_batch_capacity.findData(
-                getattr(args, "ray_batch_capacity", 131072)
+                getattr(args, "ray_batch_capacity", GI_RAY_BATCH_CAPACITY)
             ))
-            self.ray_batch_capacity.setEnabled(self.target.currentData() == "wavefront-gi")
+            self.ray_batch_capacity.setEnabled(self.target.currentData() in GI_TARGETS)
             self.ray_batch_capacity.setToolTip(
                 "Larger batches can reduce GPU dispatch overhead at high resolutions. "
                 "Uses more GPU memory; does not change SPP or the bounce limit. "
@@ -614,7 +629,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 "Accept a wider luminance range when filtering neighbors. "
                 "Reduces noise but may soften detail. Apply and restart to compare."
             )
-            gi_selected = self.target.currentData() == "wavefront-gi"
+            gi_selected = self.target.currentData() in GI_TARGETS
             self.render_scale.setEnabled(
                 gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
             )
@@ -738,6 +753,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             self.timer.timeout.connect(self.tick)
             self.timer.start()
             QtWidgets.QApplication.instance().installEventFilter(self)
+            self._sync_gi_budget_controls()
             self._selection_changed()
             QtCore.QTimer.singleShot(0, self.restart)
 
@@ -761,6 +777,24 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             return super().eventFilter(watched, event)
 
         def _toggle_fullscreen(self):
+            self._fullscreen_transition = (
+                time.perf_counter(), not self.isFullScreen(), self.extent,
+            )
+            report_lifecycle(
+                "fullscreen_requested", fullscreen=not self.isFullScreen(),
+                target=self.renderer_target, showcase=self.feature.currentData().id,
+                extent=self.extent, device_pixel_ratio=self.native_window.devicePixelRatio(),
+                render_pending=self.future is not None,
+                renderer_start_pending=self.renderer_start_future is not None,
+                completed_frames=self.completed_frame_count,
+                path_spp=self.path_spp.currentData(),
+                reservoirs=self.restir_reservoirs.currentData(),
+                shared_primary=self.shared_primary.isChecked(),
+                render_scale=self.render_scale.currentData(),
+                ray_batch_capacity=self.ray_batch_capacity.currentData(),
+                denoiser=self.denoiser_backend.currentData(),
+                upscale_filter=self.upscale_filter.currentData(),
+            )
             layout = self.centralWidget().layout()
             if self.isFullScreen():
                 self.showNormal()
@@ -855,7 +889,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
         def _selection_changed(self, _index=None):
             item = self.feature.currentData()
             self.custom_inline.setEnabled(
-                self.target.currentData() == "wavefront-gi"
+                self.target.currentData() in GI_TARGETS
                 and item.id in CUSTOM_INLINE_SHOWCASES
             )
             required_target = item.renderer.get("required_target")
@@ -874,11 +908,31 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             index = self.map_size.findData(value)
             self.map_size.setCurrentIndex(max(index, 0))
 
+        def _sync_gi_budget_controls(self):
+            low_bounce = self.target.currentData() == "wavefront-gi-fast"
+            saved = getattr(self, "_standard_gi_budget", None)
+            if low_bounce and saved is None:
+                self._standard_gi_budget = (
+                    self.shared_primary.isChecked(), self.path_spp.currentIndex(),
+                )
+                self.shared_primary.setChecked(True)
+                self.path_spp.setCurrentIndex(self.path_spp.findData(1))
+            elif not low_bounce and saved is not None:
+                self.shared_primary.setChecked(saved[0])
+                self.path_spp.setCurrentIndex(saved[1])
+                self._standard_gi_budget = None
+            gi_selected = self.target.currentData() in GI_TARGETS
+            self.shared_primary.setEnabled(gi_selected and not low_bounce)
+            self.path_spp.setEnabled(
+                gi_selected and not low_bounce and self.shared_primary.isChecked()
+            )
+
         def _target_changed(self, _index=None):
-            gi_selected = self.target.currentData() == "wavefront-gi"
+            gi_selected = self.target.currentData() in GI_TARGETS
             self.shared_primary.setEnabled(gi_selected)
             self.ray_batch_capacity.setEnabled(gi_selected)
             self.path_spp.setEnabled(gi_selected and self.shared_primary.isChecked())
+            self._sync_gi_budget_controls()
             self.restir_reservoirs.setEnabled(gi_selected)
             self.render_scale.setEnabled(
                 gi_selected and self.denoiser_backend.currentData() != "nrd-reference"
@@ -1028,7 +1082,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             target_key = self.target.currentData()
             requested_denoiser_backend = (
                 self.denoiser_backend.currentData()
-                if target_key == "wavefront-gi" and self.denoiser.isChecked()
+                if target_key in GI_TARGETS and self.denoiser.isChecked()
                 else None
             )
             self.status.setText(f"Initializing {self.target.currentText()}…")
@@ -1040,10 +1094,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         f"Recovering from presentation failure: {close_errors[0]}"
                     )
                 if (
-                    previous_target in {"vulkan-raster", "wavefront-gi"}
-                    and target_key in {"vulkan-raster", "wavefront-gi"}
+                    previous_target is not None
+                    and target_key in ({"vulkan-raster"} | GI_TARGETS)
                 ):
-                    timed_call("surface_recreate", self.surface.recreate_surface)
+                    timed_call("surface_recreate", self.surface.recreate_instance)
                 item = self.feature.currentData()
                 previous_scene = self.scene_value
                 previous_controller = self.controller
@@ -1084,12 +1138,13 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                         controller = ol.ArcballCameraController.from_camera(
                             startup_camera,
                         )
-                    if target_key == "wavefront-gi":
+                    if target_key in GI_TARGETS:
                         nrd_reference = (
                             requested_denoiser_backend == "nrd-reference"
                         )
                         gi_config = _gi_config(
                             item, present=not nrd_reference,
+                            low_bounce=target_key == "wavefront-gi-fast",
                             capture=args.diagnostic_frames > 0,
                             restir_reservoirs=restir_reservoirs,
                             shared_primary=shared_primary,
@@ -1332,7 +1387,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     QtCore.QTimer.singleShot(0, self.close)
                     return
                 nrd_reference = (
-                    self.renderer_target == "wavefront-gi"
+                    self.renderer_target in GI_TARGETS
                     and self.renderer_denoiser_backend == "nrd-reference"
                 )
                 if self.renderer_target == "webgpu-raster" or nrd_reference:
@@ -1351,7 +1406,26 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 self.fps_overlay.adjustSize()
                 width, height = self.extent
                 timings = self.renderer.last_timings
-                if self.renderer_target == "wavefront-gi":
+                transition = getattr(self, "_fullscreen_transition", None)
+                if transition is not None:
+                    ratio = float(self.native_window.devicePixelRatio())
+                    expected = (
+                        round(self.native_window.width() * ratio),
+                        round(self.native_window.height() * ratio),
+                    )
+                    rendered = timings.get("wavefront_output_extent")
+                    if rendered is None:
+                        rendered = getattr(self.renderer, "_swapchain_extent", None)
+                    if (rendered is not None and tuple(rendered) == expected
+                            and self.isFullScreen() == transition[1]
+                            and tuple(rendered) != transition[2]):
+                        report_lifecycle(
+                            "fullscreen_frame_ready", fullscreen=transition[1],
+                            extent=rendered, target=self.renderer_target,
+                            total_ms=(time.perf_counter() - transition[0]) * 1000,
+                        )
+                        self._fullscreen_transition = None
+                if self.renderer_target in GI_TARGETS:
                     performance = _gi_performance_text(timings)
                     self.fps_overlay.setText(f"{fps:8.2f} FPS\n{performance}")
                     self.fps_overlay.adjustSize()
@@ -1363,7 +1437,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                            or key in ("gpu_frame_ms", "fence_wait_ms")},
                     })
                 if (
-                    self.renderer_target == "wavefront-gi"
+                    self.renderer_target in GI_TARGETS
                     and not nrd_reference
                     and args.diagnostic_frames > 0
                     and not self._diagnostic_exit_requested
@@ -1533,7 +1607,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                             if self.denoiser.isChecked()
                             else "disabled (raw GI)"
                         )
-                        if self.renderer_target == "wavefront-gi" else ""
+                        if self.renderer_target in GI_TARGETS else ""
                     ),
                 )
                 if nrd_reference:
@@ -1615,7 +1689,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     ),
                 )
             elif (
-                self.renderer_target == "wavefront-gi"
+                self.renderer_target in GI_TARGETS
                 and self.renderer_denoiser_backend == "nrd-reference"
             ):
                 if not isinstance(self.renderer, _NrdReferencePreview):
@@ -1628,7 +1702,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                     self.scene_value, camera,
                     (render_width, render_height),
                 )
-            elif self.renderer_target == "wavefront-gi":
+            elif self.renderer_target in GI_TARGETS:
                 # A direct Vulkan swapchain must follow the native Qt client
                 # extent.  The selected output extent can differ by title-bar
                 # and fractional-scaling pixels when the window is maximized;
@@ -1672,6 +1746,10 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
             )
 
         def closeEvent(self, event):
+            # Hide promptly, but keep the native surface alive until all queued
+            # work and driver teardown finish. The timer continues retirement.
+            self.hide()
+            self.fps_overlay.hide()
             self._extension_call("cancel_pending_updates")
             self.pending_renderer_updates.clear()
             if (
@@ -1681,7 +1759,7 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 or self.renderer_close_future is not None
             ):
                 self.close_pending = True
-                self.status.setText("Cancelling GPU work before closing…")
+                self.status.setText("Finishing GPU work before closing…")
                 event.ignore()
                 return
             if self.renderer is not None:
@@ -1702,6 +1780,9 @@ def _direct_main(QtCore, QtGui, QtWidgets, showcases, args):
                 except Exception as error:
                     print(f"Vulkan surface shutdown warning: {error}")
             event.accept()
+            # A hidden window may not emit lastWindowClosed. End the event
+            # loop explicitly only after the worker and surface are released.
+            QtCore.QTimer.singleShot(0, QtWidgets.QApplication.instance().quit)
 
     window = DirectWindow(); window.show()
     if args.close_after_ms > 0:
@@ -1737,12 +1818,17 @@ def _raster_config(settings, *, shadows, shadow_map_size):
 
 def _renderer(
     showcase, scene, backend_name, shadows, shadow_map_size,
-    restir_reservoirs=4,
+    restir_reservoirs=GI_RESTIR_RESERVOIRS, *,
+    shared_primary=GI_SHARED_PRIMARY, path_spp=GI_PATH_SPP,
+    ray_batch_capacity=GI_RAY_BATCH_CAPACITY,
 ):
-    if backend_name == "wavefront-gi":
+    if backend_name in GI_TARGETS:
         return ol.Renderer(
             config=_gi_config(
                 showcase, restir_reservoirs=restir_reservoirs,
+                low_bounce=backend_name == "wavefront-gi-fast",
+                shared_primary=shared_primary, path_spp=path_spp,
+                ray_batch_capacity=ray_batch_capacity,
             ),
             renderer_preference="gi",
         )
@@ -1780,12 +1866,16 @@ def main():
         "--profile-lifecycle", action="store_true",
         help="log restart, resize, and uncached/slow GI frame host timings to stderr",
     )
-    parser.add_argument("--shared-primary-restir", action="store_true",
-                        help="share primary work across GI direct-light reservoirs (experimental)")
-    parser.add_argument("--path-spp", type=int, choices=(1, 2, 4, 8), default=1,
-                        help="path samples per pixel in shared-primary ReSTIR mode")
+    parser.add_argument("--shared-primary-restir", action=argparse.BooleanOptionalAction,
+                        default=GI_SHARED_PRIMARY,
+                        help="share primary work across GI direct-light reservoirs (default: enabled)")
+    parser.add_argument("--restir-reservoirs", type=int, choices=(1, 2, 4, 8),
+                        default=GI_RESTIR_RESERVOIRS,
+                        help="GI direct-light reservoirs (default: 2)")
+    parser.add_argument("--path-spp", type=int, choices=(1, 2, 4, 8), default=None,
+                        help="path samples per pixel (default: 2 shared, 1 legacy)")
     parser.add_argument("--ray-batch-capacity", type=int,
-                        choices=(131072, 524288, 1048576), default=131072,
+                        choices=(131072, 524288, 1048576), default=GI_RAY_BATCH_CAPACITY,
                         help="GI rays per batch; larger batches use more GPU memory")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
@@ -1833,6 +1923,8 @@ def main():
     parser.add_argument("--close-after-ms", type=int, default=0,
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.path_spp is None:
+        args.path_spp = GI_PATH_SPP if args.shared_primary_restir else 1
     if args.path_spp != 1 and not args.shared_primary_restir:
         parser.error("--path-spp requires --shared-primary-restir")
     if args.profile_lifecycle:
@@ -2004,10 +2096,10 @@ def main():
             for count in (1, 2, 4, 8):
                 self.restir_reservoirs.addItem(str(count), count)
             self.restir_reservoirs.setCurrentIndex(
-                self.restir_reservoirs.findData(4)
+                self.restir_reservoirs.findData(args.restir_reservoirs)
             )
             self.restir_reservoirs.setEnabled(
-                "wavefront-gi" in tuple(self.backend.currentData())
+                bool(GI_TARGETS.intersection(self.backend.currentData()))
             )
             self.animate = QtWidgets.QCheckBox()
             self.animate.setChecked(args.diagnostic_camera_pose is None)
@@ -2061,7 +2153,7 @@ def main():
 
         def _target_changed(self, _index=None):
             self.restir_reservoirs.setEnabled(
-                "wavefront-gi" in tuple(self.backend.currentData())
+                bool(GI_TARGETS.intersection(self.backend.currentData()))
             )
             if self.scene_value is not None:
                 self.restart()
@@ -2103,6 +2195,9 @@ def main():
                         item, self.scene_value, name, self.shadows.isChecked(),
                         int(self.map_size.currentData()),
                         int(self.restir_reservoirs.currentData()),
+                        shared_primary=args.shared_primary_restir,
+                        path_spp=args.path_spp,
+                        ray_batch_capacity=args.ray_batch_capacity,
                     ))
                     for name in names
                 ]

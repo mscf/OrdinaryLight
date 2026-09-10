@@ -29,9 +29,9 @@ def _showcase(identifier, counter):
     )
 
 
-def test_parity_viewer_lists_all_three_rendering_targets():
+def test_parity_viewer_lists_rendering_targets():
     assert tuple(key for _title, key in viewer.TARGETS) == (
-        "vulkan-raster", "wavefront-gi", "webgpu-raster",
+        "vulkan-raster", "wavefront-gi", "wavefront-gi-fast", "webgpu-raster",
     )
 
 
@@ -111,12 +111,14 @@ def test_feature_switch_replaces_scene_and_camera_controller():
 def test_gi_viewer_config_uses_quality_wavefront_defaults():
     showcase = SimpleNamespace(renderer={})
     config = viewer._gi_config(showcase, present=True)
-    assert config.samples_per_pixel == 1
+    assert config.samples_per_pixel == 2
     assert config.max_bounces == 8
     assert config.wavefront_restir_di is True
-    assert config.wavefront_restir_reservoirs == 4
+    assert config.wavefront_restir_reservoirs == 2
     assert config.wavefront_restir_candidates == 4
-    assert config.wavefront_restir_history_limit == 4
+    assert config.wavefront_restir_history_limit == 20
+    assert config.wavefront_restir_shared_primary is True
+    assert config.wavefront_tile_capacity == 524288
     assert config.wavefront_restir_spatial_reuse is False
     assert config.progressive_accumulation is True
     assert config.temporal_history is True
@@ -265,7 +267,7 @@ def test_custom_inline_is_opt_in_and_limited_to_validated_showcases():
     for name in viewer.CUSTOM_INLINE_SHOWCASES:
         showcase = SimpleNamespace(id=name, renderer={})
         default = viewer._gi_config(showcase)
-        enabled = viewer._gi_config(showcase, custom_inline=True)
+        enabled = viewer._gi_config(showcase, custom_inline=True, shared_primary=False)
         assert not default.wavefront_custom_inline
         assert default.wavefront_execution_strategy == "wavefront"
         assert enabled.wavefront_custom_inline
@@ -305,3 +307,32 @@ def test_fsr1_is_opt_in_and_rejects_bypassed_reconstruction_features():
                 wavefront_upscale_filter="fsr1", progressive_accumulation=True,
                 **{option: True},
             )
+
+
+def test_low_bounce_gi_limits_paths_without_lowering_resolution():
+    showcase = SimpleNamespace(renderer={"max_bounces": 8})
+    regular = viewer._gi_config(showcase)
+    fast = viewer._gi_config(
+        showcase, low_bounce=True, path_spp=8, shared_primary=False,
+    )
+    assert regular.max_bounces == 8
+    assert regular.samples_per_pixel == 2
+    assert fast.max_bounces == 4
+    assert fast.samples_per_pixel == 1
+    assert fast.wavefront_restir_shared_primary
+    assert fast.wavefront_restir_reservoirs == regular.wavefront_restir_reservoirs
+    assert fast.wavefront_render_scale == regular.wavefront_render_scale == 1.0
+    assert fast.denoiser_enabled
+
+
+def test_low_bounce_readback_uses_gi_renderer(monkeypatch):
+    monkeypatch.setattr(viewer.ol, "Renderer", lambda **options: options)
+    result = viewer._renderer(
+        SimpleNamespace(renderer={}), None, "wavefront-gi-fast", True, 512,
+    )
+    assert result["renderer_preference"] == "gi"
+    assert result["config"].max_bounces == 4
+    assert result["config"].samples_per_pixel == 1
+    assert viewer._direct_render_extent(
+        "wavefront-gi-fast", (1280, 720), (2052, 1764),
+    ) == (2052, 1764)

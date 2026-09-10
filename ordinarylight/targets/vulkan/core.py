@@ -253,16 +253,17 @@ def _camera_motion_pixels(previous_camera, camera, image_height):
 
 def _command_history_limits(indirect_limit, restir_limit, *, indirect_enabled,
                             restir_enabled, restir_history_valid,
-                            restir_spatial_reuse):
+                            restir_spatial_reuse, camera_restir_policy=False):
     """Key only history limits that recorded shaders can actually consume.
 
-    Keep the real limits for dispatch and diagnostics. If a history consumer
-    becomes active, its enable/validity key changes and commands are rebuilt.
+    Keep the real limits for dispatch and diagnostics. Shared-primary reads its
+    direct history policy from the per-slot camera upload, so that limit never
+    needs a command rebuild. Other consumers still key their recorded policy.
     Spatial reservoirs can consume the direct limit without temporal history.
     """
     return (
         indirect_limit if indirect_enabled else None,
-        restir_limit if restir_enabled and (
+        restir_limit if not camera_restir_policy and restir_enabled and (
             restir_history_valid or restir_spatial_reuse
         ) else None,
     )
@@ -550,15 +551,15 @@ class VulkanWavefrontExecutor:
         staging_usage = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
         camera_usage = vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
         self.camera_buffers = [core._create_buffer(
-            64, camera_usage, staging_flags
+            80, camera_usage, staging_flags
         ) for _ in range(WINDOW_FRAMES_IN_FLIGHT)]
         # A neighboring frame can still read its previous camera while the
         # host prepares this slot. Each submission owns a snapshot protected
         # by its own fence instead of reading another slot's host-written data.
         self.previous_camera_buffers = [core._create_buffer(
-            64, camera_usage, staging_flags
+            80, camera_usage, staging_flags
         ) for _ in range(WINDOW_FRAMES_IN_FLIGHT)]
-        self._camera_payloads = [bytes(64) for _ in range(WINDOW_FRAMES_IN_FLIGHT)]
+        self._camera_payloads = [bytes(80) for _ in range(WINDOW_FRAMES_IN_FLIGHT)]
         self.relax_temporal_constant_buffers = [core._create_buffer(
             32, vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, staging_flags
         ) for _ in range(WINDOW_FRAMES_IN_FLIGHT)] if (
@@ -685,7 +686,9 @@ class VulkanWavefrontExecutor:
             [vk.VkComputePipelineCreateInfo(
                 sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 flags=flags, stage=stage, layout=layout,
-            )], None, lifecycle_details={"shader": shader_name},
+            )], None, lifecycle_details={
+                "shader": shader_name, "spirv_sha256": hashlib.sha256(code).hexdigest(),
+            },
         )[0]
         if self.core.config.wavefront_pipeline_statistics:
             self.pipeline_statistics[shader_name] = (
@@ -694,30 +697,12 @@ class VulkanWavefrontExecutor:
         return module, pipeline
 
     def _pipeline_bytes(self, code, layout):
-        module = vk.vkCreateShaderModule(
-            self.core.device,
-            vk.VkShaderModuleCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-                codeSize=len(code), pCode=code,
-            ), None,
-        )
-        stage = vk.VkPipelineShaderStageCreateInfo(
-            sType=vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            stage=vk.VK_SHADER_STAGE_COMPUTE_BIT, module=module, pName="main",
-        )
-        pipeline = timed_call(
-            "compute_pipeline_create", vk.vkCreateComputePipelines,
-            self.core.device,
-            self.core.pipeline_cache or vk.VK_NULL_HANDLE,
-            1,
-            [vk.VkComputePipelineCreateInfo(
-                sType=vk.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                stage=stage, layout=layout,
-            )], None, lifecycle_details={
-                "spirv_sha256": hashlib.sha256(code).hexdigest(),
-            },
-        )[0]
-        return module, pipeline
+        # Scene-specialized pipelines must participate in the same diagnostic
+        # statistics capture as packaged pipelines; these are the GI hot path.
+        name = ("wavefront_primary.comp (scene)"
+                if layout == self.primary_pipeline_layout
+                else "wavefront_shade_candidate.glsl (scene)")
+        return self._pipeline(name, layout, code=code)
 
     def ensure_custom_material_pipelines(self):
         """Install staged evaluators for the resident scene's custom attributes."""
@@ -749,6 +734,20 @@ class VulkanWavefrontExecutor:
             and self.core.config.wavefront_ordinaryshade_shade
             and not scene.visible_volumes
         )
+        opaque_primary = bool(
+            surface_only and self.core.config.wavefront_primary_scene_specialization
+            and self.core.config.material_modifier is None
+            and not self.core.config.object_effects
+            and all(program is builtin_material for program in programs)
+            and self.core._use_opaque_scene_specialization(scene)
+        )
+        production_restir = bool(
+            self.core.config.wavefront_restir_specialization
+            and not self.core.config.wavefront_profiling
+            and not self.core.config.wavefront_restir_generalized_mis
+            and not self.core.config.wavefront_unified_primary_restir
+            and not self.core.config.wavefront_stratified_primary_restir
+        )
         signature = (
             programs, layout, overlapping_volumes, scattering_volumes,
             multiple_scattering_volumes, volume_empty_space_skipping,
@@ -759,7 +758,8 @@ class VulkanWavefrontExecutor:
             self.core.config.wavefront_custom_inline,
             self.core.config.material_modifier,
             shared_primary, self.core.config.wavefront_restir_reservoirs,
-            surface_only,
+            surface_only, self.core.config.wavefront_primary_scene_specialization,
+            opaque_primary, production_restir,
         )
         if signature == self.custom_material_signature:
             return
@@ -790,6 +790,10 @@ class VulkanWavefrontExecutor:
                 material_modifier=self.core.config.material_modifier,
                 material_resources=(self.core.material_resources.resource_layout
                                     if self.core.material_resources is not None else None),
+                surface_only=(surface_only and self.core.config.wavefront_primary_scene_specialization),
+                opaque_primary=opaque_primary,
+                production_restir=production_restir,
+                camera_restir_policy=shared_primary,
                 shared_primary_reservoirs=(
                     self.core.config.wavefront_restir_reservoirs if shared_primary else 0
                 ),
@@ -1223,11 +1227,15 @@ class VulkanWavefrontExecutor:
         )
         self.production_restir = production_restir
         production_suffix = "_production" if production_restir else ""
-        self.primary_module, self.primary_pipeline = self._pipeline(
-            f"wavefront_primary{native_suffix}{profile_suffix}"
-            f"{'_denoiser' if self._denoiser_signals_active() else ''}.comp",
-            self.primary_pipeline_layout,
-        )
+        # Shared-primary always installs scene-specialized primary and shade
+        # pipelines before dispatch. Compiling the unused generic pair can cost
+        # many seconds on a cold driver cache.
+        if not self.core.config.wavefront_restir_shared_primary:
+            self.primary_module, self.primary_pipeline = self._pipeline(
+                f"wavefront_primary{native_suffix}{profile_suffix}"
+                f"{'_denoiser' if self._denoiser_signals_active() else ''}.comp",
+                self.primary_pipeline_layout,
+            )
         strategy = self.strategy
         eager_strategies = False
         scene = self.core.scene_resources.scene
@@ -1384,10 +1392,11 @@ class VulkanWavefrontExecutor:
             native_textures=self.core.native_textures_enabled,
             profiling=self.core.config.wavefront_profiling,
         ))
-        self.shade_module, self.shade_pipeline = self._pipeline(
-            prepared_shade.variant.shader_name, self.shade_pipeline_layout,
-            code=prepared_shade.spirv,
-        )
+        if not self.core.config.wavefront_restir_shared_primary:
+            self.shade_module, self.shade_pipeline = self._pipeline(
+                prepared_shade.variant.shader_name, self.shade_pipeline_layout,
+                code=prepared_shade.spirv,
+            )
         self.resolve_module, self.resolve_pipeline = self._pipeline(
             "wavefront_resolve.comp", self.resolve_pipeline_layout
         )
@@ -1779,7 +1788,7 @@ class VulkanWavefrontExecutor:
 
     def update_camera(
         self, slot, camera_vectors, frame_sequence=0, output_image_index=0,
-        projection=0, jitter=None,
+        projection=0, jitter=None, restir_history_valid=None, restir_history_limit=0,
     ):
         """Upload one frame slot's camera basis to coherent host memory."""
         values = np.concatenate([
@@ -1793,7 +1802,14 @@ class VulkanWavefrontExecutor:
         ]).astype(np.float32, copy=False)
         if jitter is not None:
             values[11] = np.frombuffer(np.asarray([jitter[0]+.5,jitter[1]+.5], dtype=np.float16).tobytes(), dtype=np.float32)[0]
-        payload = values.tobytes()
+        # Preserve the 64-byte camera prefix for all existing consumers. The
+        # shared-primary shader reads this fence-protected per-frame policy
+        # instead of baking motion-dependent limits into reusable commands.
+        policy = np.asarray([
+            int(restir_history_valid is not None), bool(restir_history_valid),
+            restir_history_limit, 0,
+        ], dtype=np.uint32)
+        payload = values.tobytes() + policy.tobytes()
         for buffer, data in (
             (self.previous_camera_buffers[slot], self._camera_payloads[1 - slot]),
             (self.camera_buffers[slot], payload),
@@ -6411,11 +6427,12 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                         sType=vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
                     ), None,
                 )
-                self.create_window_swapchain(width, height, wavefront_only=True)
-                return self.present_wavefront_window(
-                    scene, camera, width, height,
-                    render_extent=render_extent,
-                )
+                # Return to the caller for a fresh surface extent. Recursively
+                # rebuilding with stale dimensions can monopolize the worker
+                # throughout a fullscreen/compositor transition.
+                self.swapchain_extent = None
+                report_lifecycle("swapchain_acquire_retry", renderer="wavefront")
+                return None
         acquire_ms = (time.perf_counter() - acquire_start) * 1000.0
         vk.vkResetFences(self.device, 1, [frame["fence"]])
 
@@ -6485,11 +6502,6 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             self.reconstruction_graph = NativeReconstructionGraph(self)
             for cached_frame in self.window_frames:
                 cached_frame["wavefront_command_key"] = None
-        self.wavefront_executor.update_camera(
-            frame_slot, camera_vectors, self.wavefront_frame_sequence,
-            image_index if self.swapchain_direct_storage else 0,
-            projection=_camera_projection(camera), jitter=fsr2_jitter,
-        )
         self.wavefront_executor.bind_scene()
 
         camera_motion_pixels = _camera_angular_motion_pixels(
@@ -6576,6 +6588,13 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             and temporal_motion_valid
             and perspective_history_compatible
         )
+        self.wavefront_executor.update_camera(
+            frame_slot, camera_vectors, self.wavefront_frame_sequence,
+            image_index if self.swapchain_direct_storage else 0,
+            projection=_camera_projection(camera), jitter=fsr2_jitter,
+            restir_history_valid=restir_history_valid,
+            restir_history_limit=restir_history_limit,
+        )
         indirect_needs_clear = bool(
             frame.get("wavefront_indirect_reservoir_buffer") is not None
             and not frame.get("wavefront_indirect_reservoir_initialized", False)
@@ -6604,6 +6623,7 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             restir_enabled=self.wavefront_restir_runtime_enabled,
             restir_history_valid=restir_history_valid,
             restir_spatial_reuse=self.config.wavefront_restir_spatial_reuse,
+            camera_restir_policy=self.config.wavefront_restir_shared_primary,
         )
         render_key = (
             width, height, render_width, render_height,
@@ -6617,7 +6637,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             self.resolved_execution_strategy,
             self.wavefront_restir_runtime_enabled,
             self.config.wavefront_restir_reservoirs,
-            restir_history_valid,
+            # Shared-primary reads validity and limit from its camera suffix.
+            # Camera jumps must change history policy, not recorded commands.
+            None if self.config.wavefront_restir_shared_primary else restir_history_valid,
             indirect_needs_clear,
             indirect_history_valid,
             indirect_command_limit,
@@ -7715,12 +7737,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                 ),
                 None,
             )
-            self.create_window_swapchain(width, height)
-            return self.present_window(
-                scene, camera, width, height, overlay_fps=overlay_fps,
-                max_bounces=max_bounces,
-                samples=samples,
-            )
+            self.swapchain_extent = None
+            report_lifecycle("swapchain_acquire_retry", renderer="ray-query")
+            return None
         timings["acquire_ms"] = (time.perf_counter() - stage_start) * 1000.0
         vk.vkResetFences(self.device, 1, [frame["fence"]])
 

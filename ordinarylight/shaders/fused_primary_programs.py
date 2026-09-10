@@ -382,6 +382,20 @@ def traceRemaining(path: osh.inout(WavePathState), origin: osh.inout(osh.vec3), 
     ordinarylight_trace_remaining(path, origin, direction, path_index, medium_depth, rng, cone_width, cone_spread, stop_bounce)
 
 @osh.function
+def primaryRestirHistoryValid() -> osh.u32:
+    if osh.specialization("WAVE_CAMERA_RESTIR_POLICY"):
+        if camera.restir_policy.x != osh.u32(0):
+            return camera.restir_policy.y
+    return push.restir_history_valid
+
+@osh.function
+def primaryRestirHistoryLimit() -> osh.u32:
+    if osh.specialization("WAVE_CAMERA_RESTIR_POLICY"):
+        if camera.restir_policy.x != osh.u32(0):
+            return camera.restir_policy.z
+    return push.restir_history_limit
+
+@osh.function
 def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profile_bounce = osh.u32(0)
@@ -444,7 +458,8 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
         pass
     surface_hit = query.intersection_type(True) == gl_RayQueryCommittedIntersectionTriangleEXT
     distance = query.intersection_t(True) if surface_hit else 1e+30
-    integrateVolumesBeforeSurface(ray_origin, incoming, distance, path.radiance.rgb, path.throughput.rgb)
+    if osh.specialization("!WAVE_SURFACE_ONLY"):
+        integrateVolumesBeforeSurface(ray_origin, incoming, distance, path.radiance.rgb, path.throughput.rgb)
     if not surface_hit or osh.maximum(path.throughput.r, osh.maximum(path.throughput.g, path.throughput.b)) < 0.0001:
         if osh.specialization('WAVE_WORK_COUNTERS'):
             profileWork(osh.u32(4), osh.u32(1))
@@ -578,6 +593,8 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
         tint = osh.mix(osh.vec3(1.0), material.base_roughness.rgb, material.advanced1.z)
         path.throughput.rgb = path.throughput.rgb * (absorption * tint * transmission)
     else:
+        if osh.specialization("WAVE_PRODUCTION_RESTIR && WAVE_PREPARED_PRIMARY_PBR"):
+            preparePrimaryPbr(material, normal, -incoming)
         path.radiance.rgb = path.radiance.rgb + samplePointLights(position, normal, incoming, material)
         primary_specular = primary_specular + transportPointSpecular
         light_samples = osh.clamp(push.area_light_samples, osh.u32(1), osh.u32(16))
@@ -596,7 +613,7 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
                     candidate = generateUnifiedPrimaryCandidate(position, normal, incoming, material, rng, sample_index, candidate_count) if WAVE_UNIFIED_PRIMARY_RESTIR != osh.u32(0) else generateAreaLightCandidate(position, normal, incoming, material, rng, sample_index, candidate_count)
                     updateDirectLightReservoir(reservoir, candidate.light_index, candidate.barycentrics, candidate.target, candidate.target, 1.0, randomFloat(rng))
                     sample_index = sample_index + 1
-                if push.restir_history_valid != osh.u32(0):
+                if primaryRestirHistoryValid() != osh.u32(0):
                     previous_pixel = osh.ivec2(0)
                     if reprojectRestir(position, previous_pixel):
                         spatial_count = osh.clamp(push.restir_spatial_neighbors, osh.u32(1), osh.u32(8)) if push.restir_spatial_reuse != osh.u32(0) else osh.u32(0)
@@ -621,7 +638,7 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
                                     history = emptyDirectLightReservoir()
                             if geometry_valid:
                                 current_count = osh.unpack_half2x16(reservoir.data.w).y
-                                remaining_history = osh.maximum(osh.f32(push.restir_history_limit) - current_count, 0.0)
+                                remaining_history = osh.maximum(osh.f32(primaryRestirHistoryLimit()) - current_count, 0.0)
                                 source_history_limit = osh.minimum(remaining_history, 1.0) if spatial_count > osh.u32(0) else remaining_history
                                 history = limitDirectLightReservoir(history, source_history_limit)
                                 if osh.unpack_half2x16(history.data.w).y <= 0.0:
@@ -724,13 +741,13 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
                     candidate.target = osh.maximum(osh.dot(contribution, osh.vec3(0.2126, 0.7152, 0.0722)), 0.0)
                     updateDirectLightReservoir(environment_reservoir, candidate.light_index, candidate.barycentrics, candidate.target, candidate.target, 1.0, randomFloat(rng))
                     sample_index = sample_index + 1
-                if push.restir_history_valid != osh.u32(0):
+                if primaryRestirHistoryValid() != osh.u32(0):
                     history_pixel = osh.ivec2(0)
                     if (reprojectRestir(position, history_pixel) and osh.all_value(history_pixel >= osh.ivec2(0))) and osh.all_value(history_pixel < osh.ivec2(push.image_tile.xy)):
                         if restirHistorySurfaceMatches(history_pixel, position, shading_normal, distance, surface_class, material_signature, True):
                             history_index = osh.u32(history_pixel.y) * push.image_tile.x + osh.u32(history_pixel.x)
                             history = loadPreviousEnvironmentReservoir(history_index * restir_reservoir_count + restir_stream, reservoir_pixel_count)
-                            history = limitDirectLightReservoir(history, osh.maximum(osh.f32(push.restir_history_limit) - osh.unpack_half2x16(environment_reservoir.data.w).y, 0.0))
+                            history = limitDirectLightReservoir(history, osh.maximum(osh.f32(primaryRestirHistoryLimit()) - osh.unpack_half2x16(environment_reservoir.data.w).y, 0.0))
                             if history.data.x != osh.u32(4294967295):
                                 history_candidate = AreaLightCandidate(osh.u32(0), osh.vec2(0), osh.f32(0))
                                 history_candidate.light_index = history.data.x
@@ -762,6 +779,7 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
                 primary_specular = primary_specular + contribution * transportLastSpecularFraction / osh.f32(environment_samples)
                 sample_index = sample_index + 1
             path.radiance.rgb = path.radiance.rgb + environment_direct / osh.f32(environment_samples)
+        transportPbrPrepared = False
         bsdf_weight = osh.vec3(0)
         samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular)
         indirect_specular_fraction = transportLastSpecularFraction
@@ -853,6 +871,7 @@ class CameraData:
     forward: osh.vec4
     right: osh.vec4
     up: osh.vec4
+    restir_policy: osh.uvec4
 
 @osh.structure
 class OutputQueue:

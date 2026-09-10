@@ -137,6 +137,9 @@ layout(set = 0, binding = 7, std430) readonly buffer CameraData {
     vec4 forward;
     vec4 right;
     vec4 up;
+#if WAVE_CAMERA_RESTIR_POLICY
+    uvec4 restir_policy;
+#endif
 } camera;
 layout(set = 0, binding = 8, r32f) uniform writeonly image2D position_image;
 layout(set = 0, binding = 9, r32ui) uniform writeonly uimage2D normal_image;
@@ -706,6 +709,28 @@ void traceRemaining(inout WavePathState path, inout vec3 origin, inout vec3 dire
 #endif
 
 #if !WAVE_CONTINUATION
+uint primaryRestirHistoryValid()
+{
+#if WAVE_CAMERA_RESTIR_POLICY
+    if ((camera.restir_policy.x != uint(0)))
+    {
+        return camera.restir_policy.y;
+    }
+#endif
+    return push.restir_history_valid;
+}
+
+uint primaryRestirHistoryLimit()
+{
+#if WAVE_CAMERA_RESTIR_POLICY
+    if ((camera.restir_policy.x != uint(0)))
+    {
+        return camera.restir_policy.z;
+    }
+#endif
+    return push.restir_history_limit;
+}
+
 void applyMaterialTextures(inout MaterialData material, vec2 uv0, vec2 uv1, float uv0_footprint, float uv1_footprint);
 vec3 applyNormalTexture(MaterialData material, vec2 uv0, vec2 uv1, float uv0_footprint, float uv1_footprint, vec3 shading_normal, vec4 tangent_data);
 float areaLightCandidateVisibility(vec3 hit, vec3 normal, vec3 direction, float distance_to_light);
@@ -781,6 +806,9 @@ void ordinarylight_store_path(uint path_index, WavePathState path);
 void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf, float sampled_specular, float specular_probability, vec3 position, float roughness, uint primitive, vec2 barycentrics, uint instance_key);
 float pathPreviousPdf(WavePathState path);
 float pbrSpecularProbability(MaterialData material);
+void preparePrimaryPbr(MaterialData material, vec3 normal, vec3 view);
+uint primaryRestirHistoryLimit();
+uint primaryRestirHistoryValid();
 void profileWork(uint counter, uint amount);
 float randomFloat(inout uint state);
 bool reprojectRestir(vec3 world_position, out ivec2 previous_pixel);
@@ -887,7 +915,9 @@ void processPrimaryPixel(uvec2 local_pixel)
     }
     bool surface_hit = (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionTriangleEXT);
     float distance = (surface_hit ? rayQueryGetIntersectionTEXT(query, true) : 1e+30);
+#if !WAVE_SURFACE_ONLY
     integrateVolumesBeforeSurface(ray_origin, incoming, distance, path.radiance.rgb, path.throughput.rgb);
+#endif
     if (((!surface_hit) || (max(path.throughput.r, max(path.throughput.g, path.throughput.b)) < 0.0001)))
     {
 #if WAVE_WORK_COUNTERS
@@ -1070,6 +1100,9 @@ void processPrimaryPixel(uvec2 local_pixel)
         }
         else
         {
+#if WAVE_PRODUCTION_RESTIR && WAVE_PREPARED_PRIMARY_PBR
+            preparePrimaryPbr(material, normal, (-incoming));
+#endif
             path.radiance.rgb = (path.radiance.rgb + samplePointLights(position, normal, incoming, material));
             primary_specular = (primary_specular + transportPointSpecular);
             uint light_samples = clamp(push.area_light_samples, uint(1), uint(16));
@@ -1092,7 +1125,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                         updateDirectLightReservoir(reservoir, candidate.light_index, candidate.barycentrics, candidate.target, candidate.target, 1.0, randomFloat(rng));
                         sample_index = (sample_index + 1);
                     }
-                    if ((push.restir_history_valid != uint(0)))
+                    if ((primaryRestirHistoryValid() != uint(0)))
                     {
                         ivec2 previous_pixel = ivec2(0);
                         if (reprojectRestir(position, previous_pixel))
@@ -1130,7 +1163,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                                 if (geometry_valid)
                                 {
                                     float current_count = unpackHalf2x16(reservoir.data.w).y;
-                                    float remaining_history = max((float(push.restir_history_limit) - current_count), 0.0);
+                                    float remaining_history = max((float(primaryRestirHistoryLimit()) - current_count), 0.0);
                                     float source_history_limit = ((spatial_count > uint(0)) ? min(remaining_history, 1.0) : remaining_history);
                                     history = limitDirectLightReservoir(history, source_history_limit);
                                     if ((unpackHalf2x16(history.data.w).y <= 0.0))
@@ -1276,7 +1309,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                         updateDirectLightReservoir(environment_reservoir, candidate.light_index, candidate.barycentrics, candidate.target, candidate.target, 1.0, randomFloat(rng));
                         sample_index = (sample_index + 1);
                     }
-                    if ((push.restir_history_valid != uint(0)))
+                    if ((primaryRestirHistoryValid() != uint(0)))
                     {
                         ivec2 history_pixel = ivec2(0);
                         if (((reprojectRestir(position, history_pixel) && all(greaterThanEqual(history_pixel, ivec2(0)))) && all(lessThan(history_pixel, ivec2(push.image_tile.xy)))))
@@ -1285,7 +1318,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                             {
                                 uint history_index = ((uint(history_pixel.y) * push.image_tile.x) + uint(history_pixel.x));
                                 DirectLightReservoir history = loadPreviousEnvironmentReservoir(((history_index * restir_reservoir_count) + restir_stream), reservoir_pixel_count);
-                                history = limitDirectLightReservoir(history, max((float(push.restir_history_limit) - unpackHalf2x16(environment_reservoir.data.w).y), 0.0));
+                                history = limitDirectLightReservoir(history, max((float(primaryRestirHistoryLimit()) - unpackHalf2x16(environment_reservoir.data.w).y), 0.0));
                                 if ((history.data.x != uint(4294967295)))
                                 {
                                     AreaLightCandidate history_candidate = AreaLightCandidate(uint(0), vec2(0), float(0));
@@ -1330,6 +1363,7 @@ void processPrimaryPixel(uvec2 local_pixel)
                 }
                 path.radiance.rgb = (path.radiance.rgb + (environment_direct / float(environment_samples)));
             }
+            transportPbrPrepared = false;
             vec3 bsdf_weight = vec3(0);
             samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
             indirect_specular_fraction = transportLastSpecularFraction;

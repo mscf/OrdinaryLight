@@ -894,6 +894,9 @@ void integrateVolumesBeforeSurface(vec3 origin, vec3 direction, float surface_di
 void integrateVolumesBeforeSurface(vec3 origin, vec3 direction, float surface_distance, inout vec3 radiance, inout vec3 throughput);
 float volumeShadowTransmittance(vec3 origin, vec3 direction, float maximum_distance)
 {
+#if WAVE_SURFACE_ONLY
+    return 1.0;
+#endif
     vec3 ignored_radiance = vec3(0.0);
     vec3 transmittance = vec3(1.0);
     integrateVolumesBeforeSurface(origin, direction, maximum_distance, ignored_radiance, transmittance);

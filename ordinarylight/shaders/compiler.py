@@ -209,7 +209,8 @@ def compile_wavefront_material_shader(
     native_textures=False, profiling=False, denoiser_signal_capture=False,
     inline_continuation=False,
     material_modifier=None, material_resources=None,
-    compiler=None, shared_primary_reservoirs=0, surface_only=False,
+    compiler=None, shared_primary_reservoirs=0, surface_only=False, opaque_primary=False,
+    production_restir=False, camera_restir_policy=False,
 ):
     compiler = compiler or find_glsl_compiler()
     if compiler is None:
@@ -228,7 +229,7 @@ def compile_wavefront_material_shader(
             material_modifier=material_modifier, material_resources=material_resources,
         )
     if surface_only:
-        if shader_name != "wavefront_shade_candidate.glsl" or any((
+        if shader_name not in ("wavefront_shade_candidate.glsl", "wavefront_primary.comp") or any((
             overlapping_volumes, scattering_volumes,
             multiple_scattering_volumes, volume_empty_space_skipping,
         )):
@@ -237,6 +238,24 @@ def compile_wavefront_material_shader(
             "#version 460\n",
             "#version 460\n#define WAVE_SURFACE_ONLY 1\n",
             1,
+        )
+    if camera_restir_policy:
+        if shader_name != "wavefront_primary.comp":
+            raise ValueError("camera ReSTIR policy requires a primary shader")
+        source = source.replace(
+            "#version 460\n", "#version 460\n#define WAVE_CAMERA_RESTIR_POLICY 1\n", 1,
+        )
+    if production_restir:
+        if shader_name != "wavefront_primary.comp":
+            raise ValueError("production ReSTIR specialization requires a primary shader")
+        source = source.replace(
+            "#version 460\n", "#version 460\n#define WAVE_PRODUCTION_RESTIR 1\n", 1,
+        )
+    if opaque_primary:
+        if shader_name != "wavefront_primary.comp" or not surface_only:
+            raise ValueError("opaque primary specialization requires a surface-only primary shader")
+        source = source.replace(
+            "#version 460\n", "#version 460\n#define WAVE_OPAQUE_SCENE 1\n", 1,
         )
     if shared_primary_reservoirs:
         if shader_name != "wavefront_primary.comp" or not 1 <= shared_primary_reservoirs <= 8:

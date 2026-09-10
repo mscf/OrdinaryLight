@@ -504,11 +504,55 @@ class VulkanRasterRenderer(RendererImplementation):
             None if shadow_indices is None else shadow_indices.shape,
         )
 
+    def _acquire_present_image(self, semaphore):
+        """Acquire through resize races without losing a suboptimal image."""
+        vk = self.vk
+        image_index = vk.ffi.new("uint32_t *")
+
+        def acquire(device, swapchain, timeout, available, fence):
+            try:
+                self._acquire_next_image(
+                    device, swapchain, timeout, available, fence, image_index,
+                )
+            except vk.VkSuboptimalKhr:
+                # Acquisition succeeded and signaled the semaphore. Submit this
+                # image before rebuilding, so the semaphore is consumed safely.
+                self._swapchain_recreate_pending = True
+            return int(image_index[0])
+
+        try:
+            return acquire_image(
+                acquire, self.device, self._swapchain, semaphore,
+                self.config.acquire_timeout_ns,
+            )
+        except vk.VkErrorOutOfDateKhr:
+            # No image acquired: retain the signaled frame fence and retry next
+            # frame, after _ensure_swapchain has drained and rebuilt resources.
+            self._swapchain_recreate_pending = True
+            return None
+
+    def _present_image(self, image_index, render_finished):
+        vk = self.vk
+        try:
+            self._queue_present(self.queue, vk.VkPresentInfoKHR(
+                sType=vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                waitSemaphoreCount=1,
+                pWaitSemaphores=[render_finished],
+                swapchainCount=1,
+                pSwapchains=[self._swapchain],
+                pImageIndices=[image_index],
+            ))
+        except (vk.VkErrorOutOfDateKhr, vk.VkSuboptimalKhr):
+            # Submission already happened. Finish recording its ownership and
+            # fence bookkeeping before next frame drains/recreates the chain.
+            self._swapchain_recreate_pending = True
+
     def _ensure_swapchain(self, width, height):
         if self.surface is None:
             raise RuntimeError("direct presentation requires an external surface")
         requested = (int(width), int(height))
-        if self._swapchain is not None and self._swapchain_extent == requested:
+        if (self._swapchain is not None and self._swapchain_extent == requested
+                and not getattr(self, "_swapchain_recreate_pending", False)):
             return
         vk = self.vk
         vk.vkDeviceWaitIdle(self.device)
@@ -603,6 +647,7 @@ class VulkanRasterRenderer(RendererImplementation):
             for _image in self._swapchain_images
         ]
         self._swapchain_extent = (extent.width, extent.height)
+        self._swapchain_recreate_pending = False
         self._swapchain_format = preferred.format
 
     def _render_finished_for_image(self, image_index):
@@ -1366,10 +1411,7 @@ class VulkanRasterRenderer(RendererImplementation):
                 vk.VK_TRUE, (1 << 64) - 1,
             )
             image_available = present_frame["image_available"]
-            image_index = acquire_image(
-                self._acquire_next_image, self.device, self._swapchain,
-                image_available, self.config.acquire_timeout_ns,
-            )
+            image_index = self._acquire_present_image(image_available)
             if image_index is None:
                 return None
             render_finished = self._render_finished_for_image(image_index)
@@ -1565,14 +1607,7 @@ class VulkanRasterRenderer(RendererImplementation):
                 )], fence)
                 cached["last_fence"] = fence
                 cached["last_submission"] = self._present_submission_sequence
-                self._queue_present(self.queue, vk.VkPresentInfoKHR(
-                    sType=vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-                    waitSemaphoreCount=1,
-                    pWaitSemaphores=[render_finished],
-                    swapchainCount=1,
-                    pSwapchains=[self._swapchain],
-                    pImageIndices=[image_index],
-                ))
+                self._present_image(image_index, render_finished)
                 self._present_frame_index = (
                     self._present_frame_index + 1
                 ) % len(self._present_frames)
@@ -3527,14 +3562,7 @@ class VulkanRasterRenderer(RendererImplementation):
             pSignalSemaphores=[render_finished] if present else None,
         )], fence)
         if present:
-            self._queue_present(self.queue, vk.VkPresentInfoKHR(
-                sType=vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-                waitSemaphoreCount=1,
-                pWaitSemaphores=[render_finished],
-                swapchainCount=1,
-                pSwapchains=[self._swapchain],
-                pImageIndices=[image_index],
-            ))
+            self._present_image(image_index, render_finished)
         result = None
         if present:
             self._present_frame_index = (
