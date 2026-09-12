@@ -1,5 +1,6 @@
 """Mechanical resource ABI and variant guards. Algorithms are typed helpers."""
 LAYOUT = r'''// OrdinaryLight transport ABI v1. See docs/renderer_extensions.md.
+#include "native_intersection.glsl"
 #if !defined(ORDINARYLIGHT_TRANSPORT_LIGHTING_V1)
 #define ORDINARYLIGHT_TRANSPORT_LIGHTING_V1 1
 #if !defined(OL_TRANSPORT_RAY_ORIGIN)
@@ -59,15 +60,17 @@ float transportPbrCoatGeometry;
 
 @samplePointLights@
 
-@sampleAreaLightTechnique@
-
-@sampleAreaLight@
-
 struct AreaLightCandidate {
     uint light_index;
     vec2 barycentrics;
     float target;
 };
+
+@sampleAreaLightTechnique@
+
+@sampleAreaLight@
+
+
 
 const uint ENVIRONMENT_LIGHT_CANDIDATE_INDEX = 0x01fffffeu;
 

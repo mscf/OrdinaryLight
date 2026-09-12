@@ -1,5 +1,7 @@
 """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
 import ordinaryshade as osh
+from .native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount, nativeEmitterValid, nativeSelectEmitter, nativeEvaluateEmitter)
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
 from .transport_programs import MaterialData, AreaLightData, PointLightData
 from .restir_programs import DirectLightReservoir
 
@@ -148,13 +150,10 @@ def samplePointLights(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, mater
             continue
         shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
         shadow_distance = ordinarylight_analytic_light_shadow_distance(light_type, distance_to_light)
-        shadow = osh.ray_query()
         if osh.specialization('WAVE_WORK_COUNTERS'):
             profileWork(osh.u32(1), osh.u32(1))
-        shadow.initialize(scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 1, shadow_origin, 0.001, direction, shadow_distance)
-        while shadow.proceed():
-            pass
-        if shadow.intersection_type(True) != gl_RayQueryCommittedIntersectionNoneEXT:
+        shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+        if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
             index = index + 1
             continue
         incident = ordinarylight_analytic_light_incident(light.color_intensity.rgb, light.color_intensity.a, attenuation, volumeShadowTransmittance(shadow_origin, direction, shadow_distance))
@@ -166,11 +165,22 @@ def samplePointLights(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, mater
 
 @osh.function
 def sampleAreaLightTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, rng: osh.inout(osh.u32), sample_index: osh.u32, sample_count: osh.u32, technique_probability: osh.f32) -> osh.vec3:
-    if OL_TRANSPORT_AREA_LIGHT_COUNT == osh.u32(0):
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
+            return osh.vec3(0.0)
+        custom_selector = (osh.f32(sample_index) + randomFloat(rng)) / osh.f32(sample_count)
+        custom_candidate = AreaLightCandidate(nativeSelectEmitter(custom_selector),
+            osh.vec2(randomFloat(rng), randomFloat(rng)), 0.0)
+        custom_direction = normal
+        custom_distance_to_light = 0.0
+        custom_contribution = evaluateAreaLightCandidateTechnique(custom_candidate, hit, normal, incoming, material,
+            sample_count, technique_probability, custom_direction, custom_distance_to_light)
+        return custom_contribution * areaLightCandidateVisibility(hit, normal, custom_direction, custom_distance_to_light)
+    if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
         return osh.vec3(0.0)
     selection = (osh.f32(sample_index) + randomFloat(rng)) / osh.f32(sample_count)
     lower = osh.u32(0)
-    upper = OL_TRANSPORT_AREA_LIGHT_COUNT - osh.u32(1)
+    upper = nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) - osh.u32(1)
     step = osh.u32(0)
     while step < osh.u32(32) and lower < upper:
         middle = lower + (upper - lower) / osh.u32(2)
@@ -193,13 +203,10 @@ def sampleAreaLightTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3
         return osh.vec3(0.0)
     shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
-    shadow = osh.ray_query()
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow.initialize(scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 1, shadow_origin, 0.001, direction, shadow_distance)
-    while shadow.proceed():
-        pass
-    if shadow.intersection_type(True) != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
         return osh.vec3(0.0)
     effective_pdf = ordinarylight_area_light_pdf(light.distribution.y, distance_squared, light_cosine, light.emission_area.a, technique_probability)
     bsdf_pdf = pbrPdf(material, normal, -incoming, direction)
@@ -213,14 +220,40 @@ def sampleAreaLight(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, materia
 
 @osh.function
 def unifiedAreaDomainProbability() -> osh.f32:
-    return ordinarylight_unified_area_probability(OL_TRANSPORT_AREA_LIGHT_COUNT, OL_TRANSPORT_ENVIRONMENT_SAMPLES, OL_TRANSPORT_AREA_LIGHT_WEIGHT)
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
+            return 0.0
+        return 1.0 if OL_TRANSPORT_ENVIRONMENT_SAMPLES == osh.u32(0) else 0.5
+    return ordinarylight_unified_area_probability(nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT), OL_TRANSPORT_ENVIRONMENT_SAMPLES, OL_TRANSPORT_AREA_LIGHT_WEIGHT)
 
 @osh.function
 def evaluateAreaLightCandidateTechnique(candidate: AreaLightCandidate, hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, sample_count: osh.u32, technique_probability: osh.f32, direction: osh.out(osh.vec3), distance_to_light: osh.out(osh.f32)) -> osh.vec3:
-    if candidate.light_index >= OL_TRANSPORT_AREA_LIGHT_COUNT:
+    if candidate.light_index >= nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT):
         direction = normal
         distance_to_light = 0.0
         return osh.vec3(0.0)
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        custom_sample = nativeEvaluateEmitter(candidate.light_index, candidate.barycentrics)
+        direction = normal
+        distance_to_light = 0.0
+        if not nativeEmitterValid(custom_sample):
+            return osh.vec3(0.0)
+        custom_offset = custom_sample.position - hit
+        custom_distance_squared = osh.dot(custom_offset, custom_offset)
+        distance_to_light = osh.sqrt(custom_distance_squared)
+        direction = custom_offset / osh.maximum(distance_to_light, 1e-6)
+        custom_surface_cosine = osh.maximum(osh.dot(normal, direction), 0.0)
+        custom_light_cosine = osh.dot(custom_sample.normal, -direction)
+        custom_light_cosine = osh.absolute(custom_light_cosine) if custom_sample.two_sided else osh.maximum(custom_light_cosine, 0.0)
+        if custom_surface_cosine <= 0.0 or custom_light_cosine <= 1e-6:
+            return osh.vec3(0.0)
+        custom_effective_pdf = custom_sample.area_pdf * custom_distance_squared / custom_light_cosine * technique_probability
+        custom_bsdf_pdf = pbrPdf(material, normal, -incoming, direction)
+        # Unit-count power weights remain complementary for every configured
+        # custom_sample count, including reservoir candidate counts.
+        custom_mis = ordinarylight_area_light_mis(custom_effective_pdf, 1.0, custom_bsdf_pdf)
+        return ordinarylight_area_light_contribution(evaluatePbr(material, normal, -incoming, direction),
+            custom_sample.emission, custom_surface_cosine, custom_mis, 1.0, custom_effective_pdf)
     light = area_lights[candidate.light_index]
     light_position = ordinarylight_area_light_barycentric_position(light.a.xyz, light.b.xyz, light.c.xyz, candidate.barycentrics)
     offset = light_position - hit
@@ -246,11 +279,21 @@ def generateAreaLightCandidate(hit: osh.vec3, normal: osh.vec3, incoming: osh.ve
     candidate.light_index = osh.u32(4294967295)
     candidate.barycentrics = osh.vec2(0.0)
     candidate.target = 0.0
-    if OL_TRANSPORT_AREA_LIGHT_COUNT == osh.u32(0):
+    if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
+        return candidate
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        custom_selector = (osh.f32(sample_index) + randomFloat(rng)) / osh.f32(sample_count)
+        candidate.light_index = nativeSelectEmitter(custom_selector)
+        candidate.barycentrics = osh.unpack_half2x16(osh.pack_half2x16(osh.vec2(randomFloat(rng), randomFloat(rng))))
+        custom_direction = normal
+        custom_distance = 0.0
+        custom_contribution = evaluateAreaLightCandidate(candidate, hit, normal, incoming, material,
+                                                  sample_count, custom_direction, custom_distance)
+        candidate.target = ordinarylight_light_candidate_target(custom_contribution)
         return candidate
     selection = (osh.f32(sample_index) + randomFloat(rng)) / osh.f32(sample_count)
     lower = osh.u32(0)
-    upper = OL_TRANSPORT_AREA_LIGHT_COUNT - osh.u32(1)
+    upper = nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) - osh.u32(1)
     step = osh.u32(0)
     while step < osh.u32(32) and lower < upper:
         middle = lower + (upper - lower) / osh.u32(2)
@@ -275,13 +318,10 @@ def areaLightCandidateVisibility(hit: osh.vec3, normal: osh.vec3, direction: osh
         return 0.0
     shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
-    shadow = osh.ray_query()
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow.initialize(scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 1, shadow_origin, 0.001, direction, shadow_distance)
-    while shadow.proceed():
-        pass
-    if shadow.intersection_type(True) != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
         return 0.0
     return volumeShadowTransmittance(shadow_origin, direction, shadow_distance)
 
@@ -307,13 +347,10 @@ def environmentColor(direction: osh.vec3) -> osh.vec3:
 def sampleEnvironmentTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, rng: osh.inout(osh.u32), sample_count: osh.u32, technique_probability: osh.f32) -> osh.vec3:
     direction = ordinarylight_pbr_cosine_hemisphere(normal, randomFloat(rng), randomFloat(rng))
     shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
-    shadow = osh.ray_query()
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow.initialize(scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 1, shadow_origin, 0.001, direction, 1e+30)
-    while shadow.proceed():
-        pass
-    if shadow.intersection_type(True) != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, 1e+30, True, nativeSurfaceMask())
+    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
         return osh.vec3(0.0)
     cosine = ordinarylight_analytic_light_cosine(normal, direction)
     pdf = cosine / 3.14159265359
@@ -328,11 +365,13 @@ def sampleEnvironment(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, mater
 
 @osh.function
 def sampleUnifiedSecondaryLight(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, rng: osh.inout(osh.u32)) -> osh.vec3:
-    area_enabled = OL_TRANSPORT_AREA_LIGHT_COUNT > osh.u32(0)
+    area_enabled = nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) > osh.u32(0)
     environment_enabled = OL_TRANSPORT_ENVIRONMENT_SAMPLES > osh.u32(0)
     if not area_enabled and (not environment_enabled):
         return osh.vec3(0.0)
     area_probability = ordinarylight_unified_secondary_area_probability(area_enabled, environment_enabled, OL_TRANSPORT_AREA_LIGHT_WEIGHT, OL_TRANSPORT_SECONDARY_AREA_LIGHT_SAMPLES, OL_TRANSPORT_ENVIRONMENT_SAMPLES)
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        area_probability = unifiedAreaDomainProbability()
     if randomFloat(rng) < area_probability:
         return sampleAreaLightTechnique(hit, normal, incoming, material, rng, osh.u32(0), osh.u32(1), area_probability)
     return sampleEnvironmentTechnique(hit, normal, incoming, material, rng, osh.u32(1), 1.0 - area_probability)

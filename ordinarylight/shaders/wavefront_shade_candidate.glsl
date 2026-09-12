@@ -194,11 +194,23 @@ struct ShadeSurface
     bool entering;
 };
 
+struct NativeIntersection
+{
+    vec4 position_distance;
+    vec4 geometric_normal;
+    vec4 shading_normal;
+    uvec4 identity;
+    uvec4 address;
+    vec4 texcoord;
+    vec4 previous_position;
+};
+
 struct ShadeHitInput
 {
     bool valid;
     WaveHit hit;
     WaveRay ray;
+    NativeIntersection intersection;
 };
 
 struct ShadeMissResult
@@ -350,6 +362,30 @@ struct ShadeVolumeIntegrationResult
 {
     ShadeVolumeMarchState state;
     float exit_distance;
+};
+
+struct OrdinaryLightDielectricEvent
+{
+    vec3 direction;
+    float throughput;
+    bool reflected;
+    bool tir;
+    float fresnel;
+};
+
+struct NativeEmitterSample
+{
+    vec3 position;
+    vec3 normal;
+    vec3 emission;
+    float area_pdf;
+    bool two_sided;
+};
+
+struct NativeOpticalBoundary
+{
+    vec2 ior;
+    bool enabled;
 };
 
 layout(std430, set = 0, binding = 0) readonly buffer hit_queue_Block
@@ -572,6 +608,21 @@ WavePathState shadeCandidateIntegrateVolumes(WavePathState input_path, vec3 orig
 float shadeCandidateVolumeShadowTransmittance(vec3 origin, vec3 direction, float maximum_distance, uint bounce);
 void waveSetMaterialAttributes(uint primitive, vec3 weights);
 bool shadeCaptureSecondary(uint enabled);
+OrdinaryLightDielectricEvent ordinarylightDielectric(vec3 direction, vec3 incident_normal, float eta_i, float eta_t, float selector);
+uint nativeAreaLightCount(uint fallback);
+bool nativeEmitterValid(NativeEmitterSample sample_);
+NativeIntersection nativeIntersectionMiss();
+uint nativeSurfaceMask();
+bool nativeBoundaryEnabled(NativeOpticalBoundary boundary);
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+
+NativeIntersection nativeIntersectCandidate(vec3 origin, vec3 direction, float t_min, float t_max, uint primitive, uint instance, uint instance_offset);
+NativeOpticalBoundary nativeEvaluateBoundary(NativeIntersection hit);
+MaterialData nativeEvaluateMaterial(NativeIntersection hit, float cone_width);
+uint nativeEmitterCount();
+uint nativeSelectEmitter(float selector);
+NativeEmitterSample nativeEvaluateEmitter(uint emitter, vec2 coordinates);
+float nativeEmitterPdf(NativeIntersection hit);
 
 vec3 waveCosineHemisphere(vec3 normal, float random_u, float random_v)
 {
@@ -1121,37 +1172,43 @@ ShadeHitInput shadeLoadHit(uint hit_index)
     {
         if ((hit_index >= min(hit_queue.count, hit_queue.capacity)))
         {
-            return ShadeHitInput(false, empty_hit, empty_ray);
+            return ShadeHitInput(false, empty_hit, empty_ray, nativeIntersectionMiss());
         }
         WaveHit hit = hit_queue.hits[hit_index];
-        return ShadeHitInput(true, hit, input_queue.rays[hit.ray_index]);
+        return ShadeHitInput(true, hit, input_queue.rays[hit.ray_index], nativeIntersectionMiss());
     }
     if ((hit_index >= min(input_queue.count, input_queue.capacity)))
     {
-        return ShadeHitInput(false, empty_hit, empty_ray);
+        return ShadeHitInput(false, empty_hit, empty_ray, nativeIntersectionMiss());
     }
     WaveRay input_ray = input_queue.rays[hit_index];
-    rayQueryEXT query;
-    rayQueryInitializeEXT(query, scene_tlas, uint(1), uint(1), input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w);
-    while (rayQueryProceedEXT(query))
-    {
-    }
+    NativeIntersection query = nativeTraceSurface(input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w, false, nativeSurfaceMask());
     WaveHit hit = empty_hit;
     hit.path_index = input_ray.path_index;
     hit.ray_index = hit_index;
-    if ((rayQueryGetIntersectionTypeEXT(query, true) == uint(1)))
+    if ((query.address.w == uint(1)))
     {
-        float distance = rayQueryGetIntersectionTEXT(query, true);
-        uint primitive = (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+        float distance = query.position_distance.w;
+        uint primitive = (query.address.y + query.address.z);
         vec3 vertex_a = vertices[(primitive * uint(3))].xyz;
         vec3 vertex_b = vertices[((primitive * uint(3)) + uint(1))].xyz;
         vec3 vertex_c = vertices[((primitive * uint(3)) + uint(2))].xyz;
         hit.position_t = vec4((input_ray.origin_tmin.xyz + (distance * input_ray.direction_tmax.xyz)), distance);
         hit.geometric_normal = normalize(cross((vertex_b - vertex_a), (vertex_c - vertex_a)));
         hit.primitive_index = primitive;
-        hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+        hit.barycentrics = query.texcoord.xy;
     }
-    return ShadeHitInput(true, hit, input_ray);
+    else
+    {
+        if ((query.address.w == uint(2)))
+        {
+            hit.position_t = query.position_distance;
+            hit.geometric_normal = query.geometric_normal.xyz;
+            hit.primitive_index = query.address.x;
+            hit.barycentrics = query.texcoord.xy;
+        }
+    }
+    return ShadeHitInput(true, hit, input_ray, query);
 }
 
 vec2 shadeRayCone(WaveRay ray, float distance)
@@ -1549,12 +1606,8 @@ bool shadePointLightVisible(ShadePointLightSample sample_)
     {
         return false;
     }
-    rayQueryEXT shadow;
-    rayQueryInitializeEXT(shadow, scene_tlas, uint(5), uint(1), sample_.shadow_origin, 0.001, sample_.direction, sample_.shadow_distance);
-    while (rayQueryProceedEXT(shadow))
-    {
-    }
-    return (rayQueryGetIntersectionTypeEXT(shadow, true) == uint(0));
+    NativeIntersection shadow = nativeTraceSurface(sample_.shadow_origin, 0.001, sample_.direction, sample_.shadow_distance, true, nativeSurfaceMask());
+    return (shadow.address.w == uint(0));
 }
 
 vec3 shadePointLightContribution(ShadePointLightSample sample_, MaterialData material, vec3 normal, vec3 incoming, vec3 volume_transmittance)
@@ -1564,6 +1617,9 @@ vec3 shadePointLightContribution(ShadePointLightSample sample_, MaterialData mat
 
 uint shadeSelectAreaLight(uint area_light_count, float selection)
 {
+#if WAVE_NATIVE_EMITTERS
+    return nativeSelectEmitter(selection);
+#endif
     uint lower = uint(0);
     uint upper = (area_light_count - uint(1));
     for (int step = 0; step < 32; step += 1)
@@ -1595,6 +1651,34 @@ ShadeAreaLightSample shadePrepareAreaLight(vec3 hit, vec3 normal, uint initial_r
     random_state = rayQueryRandomState(random_state);
     float selection = ((float(sample_index) + rayQueryRandomValue(random_state)) / float(sample_count));
     uint light_index = shadeSelectAreaLight(area_light_count, selection);
+#if WAVE_NATIVE_EMITTERS
+    random_state = rayQueryRandomState(random_state);
+    float random_u = rayQueryRandomValue(random_state);
+    random_state = rayQueryRandomState(random_state);
+    float random_v = rayQueryRandomValue(random_state);
+    if ((light_index >= area_light_count))
+    {
+        return ShadeAreaLightSample(normal, hit, vec3(0.0), 0.0, 0.0, float(sample_count), 0.0, random_state, false);
+    }
+    NativeEmitterSample custom_sample = nativeEvaluateEmitter(light_index, vec2(random_u, random_v));
+    if ((!nativeEmitterValid(custom_sample)))
+    {
+        return ShadeAreaLightSample(normal, hit, vec3(0.0), 0.0, 0.0, float(sample_count), 0.0, random_state, false);
+    }
+    vec3 custom_offset = (custom_sample.position - hit);
+    float custom_distance_squared = dot(custom_offset, custom_offset);
+    float custom_distance = sqrt(custom_distance_squared);
+    vec3 custom_direction = (custom_offset / max(custom_distance, 1e-06));
+    float custom_cosine = max(dot(normal, custom_direction), 0.0);
+    float custom_light_cosine = dot(custom_sample.normal, (-custom_direction));
+    custom_light_cosine = (custom_sample.two_sided ? abs(custom_light_cosine) : max(custom_light_cosine, 0.0));
+    if (((custom_cosine <= 0.0) || (custom_light_cosine <= 1e-06)))
+    {
+        return ShadeAreaLightSample(custom_direction, hit, custom_sample.emission, custom_cosine, 0.0, float(sample_count), 0.0, random_state, false);
+    }
+    float custom_pdf = (((custom_sample.area_pdf * custom_distance_squared) / custom_light_cosine) * technique_probability);
+    return ShadeAreaLightSample(custom_direction, (hit + (normal * 0.002)), custom_sample.emission, custom_cosine, custom_pdf, 1.0, max((custom_distance - 0.004), 0.001), random_state, true);
+#endif
     AreaLightData light = area_lights[light_index];
     random_state = rayQueryRandomState(random_state);
     float root_u = sqrt(rayQueryRandomValue(random_state));
@@ -1630,12 +1714,8 @@ bool shadeAreaLightVisible(ShadeAreaLightSample sample_)
     {
         return false;
     }
-    rayQueryEXT shadow;
-    rayQueryInitializeEXT(shadow, scene_tlas, uint(5), uint(1), sample_.shadow_origin, 0.001, sample_.direction, sample_.shadow_distance);
-    while (rayQueryProceedEXT(shadow))
-    {
-    }
-    return (rayQueryGetIntersectionTypeEXT(shadow, true) == uint(0));
+    NativeIntersection shadow = nativeTraceSurface(sample_.shadow_origin, 0.001, sample_.direction, sample_.shadow_distance, true, nativeSurfaceMask());
+    return (shadow.address.w == uint(0));
 }
 
 vec3 shadeAreaLightContribution(ShadeAreaLightSample sample_, MaterialData material, vec3 normal, vec3 incoming, vec3 volume_transmittance)
@@ -1647,6 +1727,13 @@ vec3 shadeAreaLightContribution(ShadeAreaLightSample sample_, MaterialData mater
 
 float shadeUnifiedAreaDomainProbability(uint area_light_count, uint environment_samples, float area_light_weight)
 {
+#if WAVE_NATIVE_EMITTERS
+    if ((area_light_count == uint(0)))
+    {
+        return 0.0;
+    }
+    return ((environment_samples == uint(0)) ? 1.0 : 0.5);
+#endif
     if ((area_light_count == uint(0)))
     {
         return 0.0;
@@ -1823,6 +1910,10 @@ ShadeUnifiedDomainSelection shadeSelectUnifiedSecondaryDomain(bool area_enabled,
     {
         environment_weight = float(min(environment_samples, uint(4)));
     }
+#if WAVE_NATIVE_EMITTERS
+    area_weight = (area_enabled ? 1.0 : 0.0);
+    environment_weight = (environment_enabled ? 1.0 : 0.0);
+#endif
     float area_probability = (area_weight / max((area_weight + environment_weight), 1e-06));
     random_state = rayQueryRandomState(random_state);
     bool area_selected = (rayQueryRandomValue(random_state) < area_probability);
@@ -1848,12 +1939,8 @@ bool shadeEnvironmentVisible(ShadeEnvironmentSample sample_)
     {
         return false;
     }
-    rayQueryEXT shadow;
-    rayQueryInitializeEXT(shadow, scene_tlas, uint(5), uint(1), sample_.shadow_origin, 0.001, sample_.direction, 1e+30);
-    while (rayQueryProceedEXT(shadow))
-    {
-    }
-    return (rayQueryGetIntersectionTypeEXT(shadow, true) == uint(0));
+    NativeIntersection shadow = nativeTraceSurface(sample_.shadow_origin, 0.001, sample_.direction, 1e+30, true, nativeSurfaceMask());
+    return (shadow.address.w == uint(0));
 }
 
 vec3 shadeEnvironmentContribution(ShadeEnvironmentSample sample_, vec3 environment_radiance, MaterialData material, vec3 normal, vec3 incoming, vec3 volume_transmittance)
@@ -2117,12 +2204,8 @@ float shadeVolumeOpaqueVisibility(vec3 world_position, vec3 direction, float max
     {
         shadow_distance = max((maximum_distance - 0.004), 0.001);
     }
-    rayQueryEXT shadow;
-    rayQueryInitializeEXT(shadow, scene_tlas, uint(5), uint(1), (world_position + (direction * 0.002)), 0.001, direction, shadow_distance);
-    while (rayQueryProceedEXT(shadow))
-    {
-    }
-    return ((rayQueryGetIntersectionTypeEXT(shadow, true) == uint(0)) ? 1.0 : 0.0);
+    NativeIntersection shadow = nativeTraceSurface((world_position + (direction * 0.002)), 0.001, direction, shadow_distance, true, nativeSurfaceMask());
+    return ((shadow.address.w == uint(0)) ? 1.0 : 0.0);
 }
 
 float shadeApproximateVolumeLightTransmittance(vec3 world_position, vec3 light_direction, float light_distance)
@@ -2747,6 +2830,147 @@ bool shadeCaptureSecondary(uint enabled)
     return (enabled != uint(0));
 }
 
+OrdinaryLightDielectricEvent ordinarylightDielectric(vec3 direction, vec3 incident_normal, float eta_i, float eta_t, float selector)
+{
+    OrdinaryLightDielectricEvent event = OrdinaryLightDielectricEvent(vec3(0), float(0.0), bool(false), bool(false), float(0.0));
+    float ci = clamp((-dot(direction, incident_normal)), 0.0, 1.0);
+    float eta = (eta_i / eta_t);
+    float st2 = ((eta * eta) * max(0.0, (1.0 - (ci * ci))));
+    event.tir = (st2 >= 1.0);
+    float ct = sqrt(max(0.0, (1.0 - st2)));
+    float rs = (((eta_i * ci) - (eta_t * ct)) / max(((eta_i * ci) + (eta_t * ct)), 1e-20));
+    float rp = (((eta_t * ci) - (eta_i * ct)) / max(((eta_t * ci) + (eta_i * ct)), 1e-20));
+    event.fresnel = (event.tir ? 1.0 : ((eta_i == eta_t) ? 0.0 : (0.5 * ((rs * rs) + (rp * rp)))));
+    event.reflected = (event.tir || (selector < event.fresnel));
+    event.direction = normalize((event.reflected ? reflect(direction, incident_normal) : ((eta * direction) + (((eta * ci) - ct) * incident_normal))));
+    event.throughput = (event.reflected ? 1.0 : (eta * eta));
+    return event;
+}
+
+uint nativeAreaLightCount(uint fallback)
+{
+#if WAVE_NATIVE_EMITTERS
+    return min(nativeEmitterCount(), uint(33554430));
+#endif
+    return fallback;
+}
+
+bool nativeEmitterValid(NativeEmitterSample sample_)
+{
+    return (((((((((((sample_.area_pdf > 0.0) && (!isnan(sample_.area_pdf))) && (!isinf(sample_.area_pdf))) && (!any(isnan(sample_.position)))) && (!any(isinf(sample_.position)))) && (!any(isnan(sample_.normal)))) && (!any(isinf(sample_.normal)))) && (abs((dot(sample_.normal, sample_.normal) - 1.0)) < 0.001)) && (!any(isnan(sample_.emission)))) && (!any(isinf(sample_.emission)))) && all(greaterThanEqual(sample_.emission, vec3(0.0))));
+}
+
+NativeIntersection nativeIntersectionMiss()
+{
+    return NativeIntersection(vec4(0.0, 0.0, 0.0, (-1.0)), vec4(0.0), vec4(0.0), uvec4(4294967295), uvec4(4294967295, 4294967295, 0, 0), vec4(0.0), vec4(0.0));
+}
+
+uint nativeSurfaceMask()
+{
+#if WAVE_CUSTOM_GEOMETRY
+    return uint(3);
+#endif
+    return uint(1);
+}
+
+bool nativeBoundaryEnabled(NativeOpticalBoundary boundary)
+{
+    return (((boundary.enabled && all(greaterThan(boundary.ior, vec2(0.0)))) && (!any(isnan(boundary.ior)))) && (!any(isinf(boundary.ior))));
+}
+
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask)
+{
+    NativeIntersection hit = nativeIntersectionMiss();
+    NativeIntersection selected = hit;
+    uint selected_primitive = uint(4294967295);
+    uint selected_instance = uint(4294967295);
+    uint flags = uint(1);
+    if (visibility)
+    {
+        flags = (flags | uint(4));
+    }
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, scene_tlas, flags, mask, origin, t_min, direction, t_max);
+    while (rayQueryProceedEXT(query))
+    {
+#if WAVE_CUSTOM_GEOMETRY
+        if ((rayQueryGetIntersectionTypeEXT(query, false) != uint(1)))
+        {
+            continue;
+        }
+        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, false);
+        uint instance = rayQueryGetIntersectionInstanceIdEXT(query, false);
+        float limit = t_max;
+        if ((rayQueryGetIntersectionTypeEXT(query, true) != uint(0)))
+        {
+            limit = min(limit, rayQueryGetIntersectionTEXT(query, true));
+        }
+        NativeIntersection candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+        float distance = candidate.position_distance.w;
+        if (((distance < t_min) || (distance > limit)))
+        {
+            continue;
+        }
+        if ((isnan(distance) || isinf(distance)))
+        {
+            continue;
+        }
+        if (((any(isnan(candidate.geometric_normal.xyz)) || any(isinf(candidate.geometric_normal.xyz))) || (abs((dot(candidate.geometric_normal.xyz, candidate.geometric_normal.xyz) - 1.0)) > 0.001)))
+        {
+            continue;
+        }
+        if ((((any(isnan(candidate.shading_normal.xyz)) || any(isinf(candidate.shading_normal.xyz))) || (abs((dot(candidate.shading_normal.xyz, candidate.shading_normal.xyz) - 1.0)) > 0.001)) || (dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0)))
+        {
+            continue;
+        }
+        candidate.position_distance = vec4((origin + (distance * direction)), distance);
+        candidate.address = uvec4((primitive + rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)), primitive, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false), 2);
+#if WAVE_NATIVE_OPTICAL_BOUNDARIES
+        if (visibility)
+        {
+            NativeOpticalBoundary boundary = nativeEvaluateBoundary(candidate);
+            if ((nativeBoundaryEnabled(boundary) && (boundary.ior.x == boundary.ior.y)))
+            {
+                continue;
+            }
+        }
+#endif
+        rayQueryGenerateIntersectionEXT(query, distance);
+        if (((((rayQueryGetIntersectionTypeEXT(query, true) == uint(2)) && (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) == primitive)) && (rayQueryGetIntersectionInstanceIdEXT(query, true) == instance)) && (rayQueryGetIntersectionTEXT(query, true) == distance)))
+        {
+            selected = candidate;
+            selected_primitive = primitive;
+            selected_instance = instance;
+        }
+#endif
+    }
+    uint kind = rayQueryGetIntersectionTypeEXT(query, true);
+    if ((kind == uint(0)))
+    {
+        return hit;
+    }
+    float distance = rayQueryGetIntersectionTEXT(query, true);
+    uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true);
+    uint instance = rayQueryGetIntersectionInstanceIdEXT(query, true);
+    uint instance_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+    if ((kind == uint(2)))
+    {
+        if (((primitive != selected_primitive) || (instance != selected_instance)))
+        {
+            return hit;
+        }
+        hit = selected;
+    }
+    else
+    {
+        hit.identity = uvec4(instance, primitive, (primitive + instance_offset), 0);
+        hit.texcoord.xy = rayQueryGetIntersectionBarycentricsEXT(query, true);
+    }
+    hit.position_distance = vec4((origin + (distance * direction)), distance);
+    hit.address = uvec4((primitive + instance_offset), primitive, instance_offset, kind);
+    return hit;
+}
+
 void main()
 {
     ShadeHitInput loaded = shadeLoadHit(gl_GlobalInvocationID.x);
@@ -2777,7 +3001,7 @@ void main()
 #if !defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS
         shadeProfileWork(uint(4), uint(1), shadePathBounce(path));
 #endif
-        ShadeMissResult miss = shadeResolveEnvironmentMiss(path, shadeEnvironmentRadiance(incoming, push.point_light_count), push.environment_samples, shadeUnifiedAreaDomainProbability(push.area_light_count, push.environment_samples, push.area_light_weight));
+        ShadeMissResult miss = shadeResolveEnvironmentMiss(path, shadeEnvironmentRadiance(incoming, push.point_light_count), push.environment_samples, shadeUnifiedAreaDomainProbability(nativeAreaLightCount(push.area_light_count), push.environment_samples, push.area_light_weight));
         paths[path_index] = miss.path;
         return;
     }
@@ -2785,7 +3009,33 @@ void main()
     shadeProfileWork(uint(3), uint(1), shadePathBounce(path));
 #endif
     vec2 cone = shadeRayCone(loaded.ray, loaded.hit.position_t.w);
-    ShadeSurface surface = shadeResolveSurface(loaded.hit.primitive_index, loaded.hit.barycentrics, loaded.hit.geometric_normal, incoming, cone.x);
+    ShadeSurface surface = ShadeSurface(MaterialData(vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0)), vec3(0.0), vec3(0.0), vec3(0.0), vec2(0.0), vec3(0.0), vec3(0.0), vec3(0.0), false);
+    if ((loaded.intersection.address.w == uint(2)))
+    {
+#if WAVE_CUSTOM_GEOMETRY
+        bool entering = (dot(incoming, loaded.intersection.geometric_normal.xyz) < 0.0);
+        vec3 shading_normal = loaded.intersection.shading_normal.xyz;
+        surface = ShadeSurface(nativeEvaluateMaterial(loaded.intersection, cone.x), (entering ? shading_normal : (-shading_normal)), loaded.intersection.geometric_normal.xyz, vec3(0.0), loaded.intersection.texcoord.xy, vec3(0.0), vec3(0.0), vec3(0.0), entering);
+#endif
+    }
+    else
+    {
+        surface = shadeResolveSurface(loaded.hit.primitive_index, loaded.hit.barycentrics, loaded.hit.geometric_normal, incoming, cone.x);
+    }
+    NativeOpticalBoundary optical_boundary = NativeOpticalBoundary(vec2(1.0), false);
+#if WAVE_NATIVE_OPTICAL_BOUNDARIES
+    if ((loaded.intersection.address.w == uint(2)))
+    {
+        optical_boundary = nativeEvaluateBoundary(loaded.intersection);
+    }
+#endif
+    if (nativeBoundaryEnabled(optical_boundary))
+    {
+        surface.material.attenuation_transmission.a = 1.0;
+        surface.material.base_roughness.a = 0.0;
+        surface.material.ior_distance.x = optical_boundary.ior.y;
+        surface.normal = (surface.entering ? surface.geometric_normal : (-surface.geometric_normal));
+    }
     uint random_state = shadePathRng(path);
     uint medium_depth = max((path.metadata.w >> uint(8)), uint(1));
     waveSetMaterialAttributes(loaded.hit.primitive_index, surface.weights);
@@ -2816,7 +3066,35 @@ void main()
         secondary.normal_pdf = vec4(surface.normal, secondary.normal_pdf.w);
         secondary_paths[path_index] = secondary;
     }
-    ShadeEmissionResult emission = shadeEmissionContribution(path, surface.material, surface.vertex_a, surface.vertex_b, surface.vertex_c, surface.geometric_normal, incoming, loaded.hit.position_t.w, surface.entering, push.area_light_weight, push.secondary_area_light_samples, ((path.metadata.w & uint(4)) != uint(0)), shadeUnifiedAreaDomainProbability(push.area_light_count, push.environment_samples, push.area_light_weight));
+    ShadeEmissionResult emission = shadeEmissionContribution(path, surface.material, surface.vertex_a, surface.vertex_b, surface.vertex_c, surface.geometric_normal, incoming, loaded.hit.position_t.w, surface.entering, push.area_light_weight, push.secondary_area_light_samples, ((path.metadata.w & uint(4)) != uint(0)), shadeUnifiedAreaDomainProbability(nativeAreaLightCount(push.area_light_count), push.environment_samples, push.area_light_weight));
+#if WAVE_NATIVE_EMITTERS
+    float weight = 1.0;
+    if (((path.metadata.w & uint(2)) != uint(0)))
+    {
+        NativeIntersection emitter_hit = loaded.intersection;
+        emitter_hit.position_distance = loaded.hit.position_t;
+        emitter_hit.geometric_normal = vec4(surface.geometric_normal, 0.0);
+        emitter_hit.shading_normal = vec4((surface.entering ? surface.normal : (-surface.normal)), 0.0);
+        float area_pdf = nativeEmitterPdf(emitter_hit);
+        float cosine = dot(surface.geometric_normal, (-incoming));
+        cosine = ((surface.material.ior_distance.w > 0.5) ? abs(cosine) : max(cosine, 0.0));
+        if (((((area_pdf > 0.0) && (!isnan(area_pdf))) && (!isinf(area_pdf))) && (cosine > 1e-06)))
+        {
+            float pdf = (((area_pdf * loaded.hit.position_t.w) * loaded.hit.position_t.w) / cosine);
+            if (((path.metadata.w & uint(4)) != uint(0)))
+            {
+                pdf = (pdf * shadeUnifiedAreaDomainProbability(nativeAreaLightCount(push.area_light_count), push.environment_samples, push.area_light_weight));
+            }
+            weight = shadePowerHeuristic(path.radiance.w, pdf);
+        }
+    }
+    vec3 contribution = vec3(0.0);
+    if ((surface.entering || (surface.material.ior_distance.w > 0.5)))
+    {
+        contribution = ((path.throughput.rgb * surface.material.emission_metallic.rgb) * weight);
+    }
+    emission = ShadeEmissionResult(contribution, weight);
+#endif
     path.radiance = vec4((path.radiance.rgb + emission.contribution), path.radiance.w);
     uint next_bounce = (shadePathBounce(path) + uint(1));
     if ((next_bounce >= push.max_bounces))
@@ -2832,146 +3110,179 @@ void main()
     bool sampled_specular = false;
     vec3 primary_specular = vec3(0.0);
     vec3 primary_weight = path.throughput.rgb;
-    if ((evaluated.custom_scattering > 0.5))
+    if (nativeBoundaryEnabled(optical_boundary))
     {
-        int event = int((evaluated.event + 0.5));
-        if ((event == 0))
+        float incident_ior = (surface.entering ? optical_boundary.ior.x : optical_boundary.ior.y);
+        float target_ior = (surface.entering ? optical_boundary.ior.y : optical_boundary.ior.x);
+        random_state = rayQueryRandomState(random_state);
+        OrdinaryLightDielectricEvent optical_event = ordinarylightDielectric(incoming, (surface.entering ? surface.geometric_normal : (-surface.geometric_normal)), incident_ior, target_ior, rayQueryRandomValue(random_state));
+        next_direction = optical_event.direction;
+        path.throughput = vec4((path.throughput.rgb * optical_event.throughput), path.throughput.w);
+        bsdf_pdf = 0.0;
+        sampled_specular = true;
+        transmission = (optical_event.reflected ? 0.0 : 1.0);
+        if ((!optical_event.reflected))
         {
-            path.metadata.w = (path.metadata.w & (~uint(1)));
-            paths[path_index] = path;
-            return;
-        }
-        next_direction = normalize(evaluated.next_direction);
-        bsdf_pdf = max(evaluated.pdf, 1e-06);
-        path.throughput = vec4(((path.throughput.rgb * evaluated.weight) / bsdf_pdf), path.throughput.w);
-        sampled_specular = (event != 1);
-        transmission = 0.0;
-        if ((event == 3))
-        {
-            transmission = 1.0;
-            ShadeTransmissionResult tracked = shadeTrackCustomTransmission(path, stacks[path_index], surface.material, next_direction, surface.entering);
-            path = tracked.path;
-            stacks[path_index] = tracked.stack;
-            medium_depth = tracked.medium_depth;
+            ShadeMediumStack stack = stacks[path_index];
+            if ((surface.entering && (medium_depth < uint(16))))
+            {
+                stack = shadeSetMediumIor(stack, medium_depth, target_ior);
+                medium_depth = (medium_depth + uint(1));
+            }
+            else
+            {
+                if (((!surface.entering) && (medium_depth > uint(1))))
+                {
+                    medium_depth = (medium_depth - uint(1));
+                }
+            }
+            stack = shadeSetMediumIor(stack, (medium_depth - uint(1)), target_ior);
+            stacks[path_index] = stack;
         }
     }
     else
     {
-        if ((transmission > 0.001))
+        if ((evaluated.custom_scattering > 0.5))
         {
-            ShadeTransmissionResult transmitted = shadeTransmitPath(path, stacks[path_index], surface.material, surface.normal, incoming, surface.entering, loaded.hit.position_t.w);
-            path = transmitted.path;
-            stacks[path_index] = transmitted.stack;
-            next_direction = transmitted.direction;
-            medium_depth = transmitted.medium_depth;
-            sampled_specular = true;
+            int event = int((evaluated.event + 0.5));
+            if ((event == 0))
+            {
+                path.metadata.w = (path.metadata.w & (~uint(1)));
+                paths[path_index] = path;
+                return;
+            }
+            next_direction = normalize(evaluated.next_direction);
+            bsdf_pdf = max(evaluated.pdf, 1e-06);
+            path.throughput = vec4(((path.throughput.rgb * evaluated.weight) / bsdf_pdf), path.throughput.w);
+            sampled_specular = (event != 1);
+            transmission = 0.0;
+            if ((event == 3))
+            {
+                transmission = 1.0;
+                ShadeTransmissionResult tracked = shadeTrackCustomTransmission(path, stacks[path_index], surface.material, next_direction, surface.entering);
+                path = tracked.path;
+                stacks[path_index] = tracked.stack;
+                medium_depth = tracked.medium_depth;
+            }
         }
         else
         {
-            float nee_probability = clamp(push.secondary_nee_probability, 1e-06, 1.0);
-            bool sample_direct = shadeSelectSecondaryNee(nee_probability, path.metadata.x, path.metadata.y, next_bounce);
-            vec3 direct = vec3(0.0);
-            if (sample_direct)
+            if ((transmission > 0.001))
             {
-                for (int light_index = 0; light_index < 64; light_index += 1)
-                {
-                    if ((uint(light_index) >= push.point_light_count))
-                    {
-                        break;
-                    }
-                    ShadePointLightSample point_sample = shadePreparePointLight(point_lights[uint(light_index)], loaded.hit.position_t.xyz, surface.normal);
-                    if (shadePointLightVisible(point_sample))
-                    {
-                        float volume_transmittance = shadeCandidateVolumeShadowTransmittance(point_sample.shadow_origin, point_sample.direction, point_sample.shadow_distance, shadePathBounce(path));
-                        vec3 lobe_contribution = shadePointLightContribution(point_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
-                        direct = (direct + lobe_contribution);
-                        primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), point_sample.direction)) / 1.0));
-                    }
-                }
-                if ((push.unified_secondary_nee != uint(0)))
-                {
-                    ShadeUnifiedDomainSelection domain = shadeSelectUnifiedSecondaryDomain((push.area_light_count > uint(0)), (push.environment_samples > uint(0)), push.area_light_weight, push.secondary_area_light_samples, push.environment_samples, random_state);
-                    random_state = domain.random_state;
-                    if ((domain.valid && domain.area_selected))
-                    {
-                        ShadeAreaLightSample area_sample = shadePrepareAreaLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(0), uint(1), push.area_light_count, domain.area_probability);
-                        random_state = area_sample.random_state;
-                        if (shadeAreaLightVisible(area_sample))
-                        {
-                            float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
-                            vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
-                            direct = (direct + lobe_contribution);
-                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / 1.0));
-                        }
-                    }
-                    if ((domain.valid && (!domain.area_selected)))
-                    {
-                        ShadeEnvironmentSample environment_sample = shadePrepareEnvironmentLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(1), (1.0 - domain.area_probability));
-                        random_state = environment_sample.random_state;
-                        if (shadeEnvironmentVisible(environment_sample))
-                        {
-                            vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
-                            float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
-                            vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
-                            direct = (direct + lobe_contribution);
-                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / 1.0));
-                        }
-                    }
-                }
-                else
-                {
-                    uint area_sample_count = clamp(push.secondary_area_light_samples, uint(1), uint(16));
-                    vec3 area_direct = vec3(0.0);
-                    for (int sample_index = 0; sample_index < 16; sample_index += 1)
-                    {
-                        if ((uint(sample_index) >= area_sample_count))
-                        {
-                            break;
-                        }
-                        ShadeAreaLightSample area_sample = shadePrepareAreaLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(sample_index), area_sample_count, push.area_light_count, 1.0);
-                        random_state = area_sample.random_state;
-                        if (shadeAreaLightVisible(area_sample))
-                        {
-                            float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
-                            vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
-                            area_direct = (area_direct + lobe_contribution);
-                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / float(area_sample_count)));
-                        }
-                    }
-                    direct = (direct + (area_direct / float(area_sample_count)));
-                    uint environment_count = min(push.environment_samples, uint(4));
-                    vec3 environment_direct = vec3(0.0);
-                    for (int sample_index = 0; sample_index < 4; sample_index += 1)
-                    {
-                        if ((uint(sample_index) >= environment_count))
-                        {
-                            break;
-                        }
-                        ShadeEnvironmentSample environment_sample = shadePrepareEnvironmentLight(loaded.hit.position_t.xyz, surface.normal, random_state, environment_count, 1.0);
-                        random_state = environment_sample.random_state;
-                        if (shadeEnvironmentVisible(environment_sample))
-                        {
-                            vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
-                            float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
-                            vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
-                            environment_direct = (environment_direct + lobe_contribution);
-                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / float(environment_count)));
-                        }
-                    }
-                    if ((environment_count > uint(0)))
-                    {
-                        direct = (direct + (environment_direct / float(environment_count)));
-                    }
-                }
-                path = shadeAccumulateDirectContribution(path, direct, nee_probability);
+                ShadeTransmissionResult transmitted = shadeTransmitPath(path, stacks[path_index], surface.material, surface.normal, incoming, surface.entering, loaded.hit.position_t.w);
+                path = transmitted.path;
+                stacks[path_index] = transmitted.stack;
+                next_direction = transmitted.direction;
+                medium_depth = transmitted.medium_depth;
+                sampled_specular = true;
             }
-            ShadeOpaqueScatterResult scattered = shadeScatterOpaquePath(path, surface.material, surface.normal, incoming, random_state, cone_spread);
-            path = scattered.path;
-            next_direction = scattered.direction;
-            bsdf_pdf = scattered.pdf;
-            random_state = scattered.random_state;
-            cone_spread = scattered.cone_spread;
-            sampled_specular = scattered.sampled_specular;
+            else
+            {
+                float nee_probability = clamp(push.secondary_nee_probability, 1e-06, 1.0);
+                bool sample_direct = shadeSelectSecondaryNee(nee_probability, path.metadata.x, path.metadata.y, next_bounce);
+                vec3 direct = vec3(0.0);
+                if (sample_direct)
+                {
+                    for (int light_index = 0; light_index < 64; light_index += 1)
+                    {
+                        if ((uint(light_index) >= push.point_light_count))
+                        {
+                            break;
+                        }
+                        ShadePointLightSample point_sample = shadePreparePointLight(point_lights[uint(light_index)], loaded.hit.position_t.xyz, surface.normal);
+                        if (shadePointLightVisible(point_sample))
+                        {
+                            float volume_transmittance = shadeCandidateVolumeShadowTransmittance(point_sample.shadow_origin, point_sample.direction, point_sample.shadow_distance, shadePathBounce(path));
+                            vec3 lobe_contribution = shadePointLightContribution(point_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                            direct = (direct + lobe_contribution);
+                            primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), point_sample.direction)) / 1.0));
+                        }
+                    }
+                    if ((push.unified_secondary_nee != uint(0)))
+                    {
+                        ShadeUnifiedDomainSelection domain = shadeSelectUnifiedSecondaryDomain((nativeAreaLightCount(push.area_light_count) > uint(0)), (push.environment_samples > uint(0)), push.area_light_weight, push.secondary_area_light_samples, push.environment_samples, random_state);
+                        random_state = domain.random_state;
+                        if ((domain.valid && domain.area_selected))
+                        {
+                            ShadeAreaLightSample area_sample = shadePrepareAreaLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(0), uint(1), nativeAreaLightCount(push.area_light_count), domain.area_probability);
+                            random_state = area_sample.random_state;
+                            if (shadeAreaLightVisible(area_sample))
+                            {
+                                float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
+                                vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                                direct = (direct + lobe_contribution);
+                                primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / 1.0));
+                            }
+                        }
+                        if ((domain.valid && (!domain.area_selected)))
+                        {
+                            ShadeEnvironmentSample environment_sample = shadePrepareEnvironmentLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(1), (1.0 - domain.area_probability));
+                            random_state = environment_sample.random_state;
+                            if (shadeEnvironmentVisible(environment_sample))
+                            {
+                                vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
+                                float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
+                                vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                                direct = (direct + lobe_contribution);
+                                primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / 1.0));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        uint area_sample_count = clamp(push.secondary_area_light_samples, uint(1), uint(16));
+                        vec3 area_direct = vec3(0.0);
+                        for (int sample_index = 0; sample_index < 16; sample_index += 1)
+                        {
+                            if ((uint(sample_index) >= area_sample_count))
+                            {
+                                break;
+                            }
+                            ShadeAreaLightSample area_sample = shadePrepareAreaLight(loaded.hit.position_t.xyz, surface.normal, random_state, uint(sample_index), area_sample_count, nativeAreaLightCount(push.area_light_count), 1.0);
+                            random_state = area_sample.random_state;
+                            if (shadeAreaLightVisible(area_sample))
+                            {
+                                float volume_transmittance = shadeCandidateVolumeShadowTransmittance(area_sample.shadow_origin, area_sample.direction, area_sample.shadow_distance, shadePathBounce(path));
+                                vec3 lobe_contribution = shadeAreaLightContribution(area_sample, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                                area_direct = (area_direct + lobe_contribution);
+                                primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), area_sample.direction)) / float(area_sample_count)));
+                            }
+                        }
+                        direct = (direct + (area_direct / float(area_sample_count)));
+                        uint environment_count = min(push.environment_samples, uint(4));
+                        vec3 environment_direct = vec3(0.0);
+                        for (int sample_index = 0; sample_index < 4; sample_index += 1)
+                        {
+                            if ((uint(sample_index) >= environment_count))
+                            {
+                                break;
+                            }
+                            ShadeEnvironmentSample environment_sample = shadePrepareEnvironmentLight(loaded.hit.position_t.xyz, surface.normal, random_state, environment_count, 1.0);
+                            random_state = environment_sample.random_state;
+                            if (shadeEnvironmentVisible(environment_sample))
+                            {
+                                vec3 environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count);
+                                float volume_transmittance = shadeCandidateVolumeShadowTransmittance(environment_sample.shadow_origin, environment_sample.direction, 1e+30, shadePathBounce(path));
+                                vec3 lobe_contribution = shadeEnvironmentContribution(environment_sample, environment_radiance, surface.material, surface.normal, incoming, vec3(volume_transmittance));
+                                environment_direct = (environment_direct + lobe_contribution);
+                                primary_specular = (primary_specular + ((lobe_contribution * shadeSpecularFraction(surface.material, surface.normal, (-incoming), environment_sample.direction)) / float(environment_count)));
+                            }
+                        }
+                        if ((environment_count > uint(0)))
+                        {
+                            direct = (direct + (environment_direct / float(environment_count)));
+                        }
+                    }
+                    path = shadeAccumulateDirectContribution(path, direct, nee_probability);
+                }
+                ShadeOpaqueScatterResult scattered = shadeScatterOpaquePath(path, surface.material, surface.normal, incoming, random_state, cone_spread);
+                path = scattered.path;
+                next_direction = scattered.direction;
+                bsdf_pdf = scattered.pdf;
+                random_state = scattered.random_state;
+                cone_spread = scattered.cone_spread;
+                sampled_specular = scattered.sampled_specular;
+            }
         }
     }
     if ((shadeCaptureSecondary(push.indirect_secondary_capture) && (shadePathBounce(path) == uint(0))))
@@ -2997,6 +3308,11 @@ void main()
         return;
     }
     ShadeContinuationResult continuation = shadeBuildContinuation(roulette.path, loaded.hit.position_t.xyz, next_direction, path_index, next_bounce, medium_depth, transmission, bsdf_pdf, roulette.random_state, cone.x, cone_spread, (push.unified_secondary_nee != uint(0)));
+    if (nativeBoundaryEnabled(optical_boundary))
+    {
+        continuation.path.metadata.w = (continuation.path.metadata.w & (~uint(6)));
+        continuation.path.radiance.w = 0.0;
+    }
     uint output_index = shadeReserveOutputIndex((push.subgroup_enqueue != uint(0)));
     ShadeEnqueueResult enqueue = shadeEnqueueContinuation(continuation, output_index);
     paths[path_index] = enqueue.path;

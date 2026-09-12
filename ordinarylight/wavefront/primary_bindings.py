@@ -44,16 +44,21 @@ _BASE = (
 )
 
 
-def primary_bindings(*, native_textures=False, profiling=False):
+def primary_bindings(*, native_textures=False, profiling=False, primary_hits=False, custom_history=False):
     """Return the immutable native-compatible fused layout in binding order.
 
     Reserved custom attributes remain in the layout even when a shader does not
     use them. Access is conservative across primary/hybrid/megakernel variants;
     optional runtime policies may disable individual writes. No handles required.
     """
-    if not isinstance(native_textures, bool) or not isinstance(profiling, bool):
+    if any(type(flag) is not bool for flag in (native_textures, profiling, primary_hits, custom_history)):
         raise TypeError("Primary layout flags must be bools")
     bindings = list(_BASE)
+    if custom_history:
+        bindings.extend((PrimaryBinding("primary_history", 31, "buffer", access="write"),
+                         PrimaryBinding("previous_vertices", 32, "buffer")))
+    if primary_hits:
+        bindings.append(PrimaryBinding("primary_hits", 30, "buffer", access="write"))
     if native_textures:
         bindings.append(
             PrimaryBinding("sampled_textures", 14, "combined_image_sampler", 128)

@@ -1,5 +1,6 @@
 """Mechanical resource ABI and variant guards. Algorithms are typed helpers."""
 LAYOUT = r'''#include "transport_v1/material_contracts.glsl"
+#include "transport_v1/dielectric.glsl"
 
 #if !defined(WAVE_SHARED_PRIMARY_RESERVOIRS)
 #define WAVE_SHARED_PRIMARY_RESERVOIRS 0
@@ -95,6 +96,27 @@ struct AreaLightData {
 struct TextureBindingData { vec4 texture_rotation; vec4 offset_scale; };
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT scene_tlas;
+#if WAVE_PRIMARY_HITS
+struct PrimaryHitOutput {
+    vec4 position_distance;
+    vec4 geometric_normal;
+    vec4 shading_normal;
+    uvec4 identity;
+    vec4 ray_origin;
+    vec4 ray_direction;
+};
+layout(set = 0, binding = 30, std430) buffer PrimaryHitOutputs {
+    PrimaryHitOutput primary_hits[];
+};
+#endif
+#if WAVE_CUSTOM_GEOMETRY && WAVE_DENOISER_SIGNAL_CAPTURE
+layout(set = 0, binding = 31, std430) buffer PrimaryHistory {
+    vec4 primary_history[];
+};
+layout(set = 0, binding = 32, std430) readonly buffer PreviousVertices {
+    vec4 previous_vertices[];
+};
+#endif
 layout(set = 0, binding = 1, std430) buffer PathStates {
     WavePathState paths[];
 };
@@ -237,6 +259,7 @@ uint ordinarylight_reserve_output_index(uint subgroup_enqueue);
 @hashValue@
 
 #define WAVE_RESTIR_PRIMARY 1
+#include "native_intersection.glsl"
 #include "wavefront_textures.glsl"
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"

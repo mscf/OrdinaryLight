@@ -298,7 +298,8 @@
         "ordinarylight/shaders/restir_programs.py",
         "ordinarylight/shaders/sampling_programs.py",
         "ordinarylight/shaders/texture_programs.py",
-        "ordinarylight/shaders/transport_programs.py"
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/native_emitter_programs.py"
       ]
     },
     "ordinarylight/shaders/transport_v1/material_contracts.glsl": {
@@ -573,7 +574,10 @@
         "ordinarylight/shaders/sampling_programs.py",
         "ordinarylight/shaders/texture_programs.py",
         "ordinarylight/shaders/transport_programs.py",
-        "ordinarylight/shaders/volume_programs.py"
+        "ordinarylight/shaders/volume_programs.py",
+        "ordinarylight/shaders/native_surface_programs.py",
+        "ordinarylight/shaders/native_intersection_programs.py",
+        "ordinarylight/shaders/native_emitter_programs.py"
       ]
     },
     "ordinarylight/shaders/wavefront_reconstruct.comp": {
@@ -621,7 +625,11 @@
       "sources": [
         "scripts/generate_core_shaders.py",
         "ordinarylight/shaders/abi.py",
-        "ordinarylight/shaders/easu.py"
+        "ordinarylight/shaders/easu.py",
+        "ordinarylight/shaders/native_surface_programs.py",
+        "ordinarylight/shaders/native_intersection_programs.py",
+        "ordinarylight/shaders/transport_programs.py",
+        "ordinarylight/shaders/native_emitter_programs.py"
       ]
     },
     "ordinarylight/shaders/wavefront_srgb.glsl": {
@@ -672,6 +680,21 @@
         "ordinarylight/shaders/secondary_programs.py",
         "ordinarylight/shaders/srgb_table.py",
         "ordinarylight/shaders/texture_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/external_hdr_tone_map_16f.comp": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_utility_shaders.py",
+        "ordinarylight/shaders/utility_programs.py"
+      ]
+    },
+    "ordinarylight/shaders/native_intersection.glsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_native_intersection.py",
+        "ordinarylight/shaders/native_intersection_programs.py",
+        "ordinarylight/shaders/native_emitter_programs.py"
       ]
     }
   }

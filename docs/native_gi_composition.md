@@ -28,7 +28,7 @@ not Vulkan allocation handles and do not automatically generate barriers.
 ## Integrating an application stage
 
 Both `VulkanGlfwPresenter` and `VulkanSurfacePresenter` expose
-`set_gi_pipeline_builder(builder)`. The builder receives the prepared default
+`set_gi_pipeline_builder(builder, reuse_commands=False)`. The builder receives the prepared default
 pipeline and the current frame, and returns a `RenderPipeline`. For example,
 an application can insert a compute effect between denoising and display
 conversion without copying HDR to the CPU:
@@ -44,12 +44,12 @@ def compose(default, frame):
         # read/write barriers and dispatch. Existing images stay in GENERAL.
         effect.record(
             command=current.command,
-            image=current.resources['wavefront_hdr_image'],
-            image_view=current.resources['wavefront_hdr_view'],
+            image=current.images['hdr'].image,
+            image_view=current.images['hdr'].view,
             extent=current.render_extent,
         )
 
-    return default.insert_before('gi.reconstruct', RenderStage(
+    return frame.process_hdr(default, RenderStage(
         'application.hdr_effect',
         reads={'gi.hdr'}, writes={'gi.hdr'}, recorder=record,
     ))
@@ -61,9 +61,8 @@ presenter.set_gi_pipeline_builder(compose)
 # presenter.set_gi_pipeline_builder(None)
 ```
 
-This particular insertion point is suitable for spatial upscalers. With FSR 2,
-insert an internal-resolution HDR effect before `gi.upscale`, so it is consumed
-by temporal upscaling. The reconstruction stage reads the FSR output in that mode.
+`frame.process_hdr()` inserts after denoising and before upscaling or display
+conversion, including when FSR 2 is selected.
 
 The supplied stages can be assembled into a new `RenderPipeline` alongside
 application stages. Keep the default stages required by the active renderer
@@ -78,9 +77,9 @@ arbitrary removal/replacement of temporal stages with different history policies
 - `resources` and `previous_resources` are read-only snapshots of backend frame
   bindings. The native objects remain owned by the presenter. Do not destroy,
   rebind, retain across frames, or write previous-frame resources.
-- Bindings currently use the backend's existing names, such as
-  `wavefront_hdr_image` and `wavefront_hdr_view`; this is an experimental native
-  interface, not a portable resource package.
+- `images` provides named `GiImage` views compatible with `VulkanResource.image`.
+  The old `resources` mapping remains for compatibility; new consumers should
+  use named images. `require_open()` rejects retired image allocations.
 - `render_extent` and `output_extent` distinguish the active internal dimensions
   from the display dimensions. Allocation dimensions can differ.
 - Custom stages must supply their own Vulkan synchronization and restore borrowed
@@ -89,8 +88,186 @@ arbitrary removal/replacement of temporal stages with different history policies
   and retirement remain the presenter's responsibility.
 - Set/change the builder only between presentation calls, without concurrent
   rendering. Changing it invalidates cached commands and temporal validity.
-- An active custom builder disables command caching, so its per-frame arguments
-  and recording callbacks cannot become stale. Default caching is unchanged.
+- Custom builders default to recording every frame. With `reuse_commands=True`,
+  the renderer reuses each slot's commands. Callbacks then run on recording,
+  **not on every frame**. Store changing inputs in persistent GPU resources.
+  Call `invalidate_gi_commands()` after changing embedded constants or bindings.
+  Changing buffer contents alone does not require invalidating commands.
+
+### Named images and application graph submission
+
+`frame.images['hdr']` contains linear scene radiance. Before `gi.denoise` it is
+raw transport; afterward it is denoised, before exposure, tone mapping and display
+encoding. Denoising overwrites this image. To retain raw radiance simultaneously,
+enable `RendererConfig(wavefront_raw_hdr_output=True)` at construction. This adds
+`gi.snapshot_hdr` after transport/indirect application and before denoising. Its
+`frame.images['raw_hdr']` is a distinct persistent RGBA16F image per frame slot.
+It costs 8 bytes per allocated pixel per slot and one GPU image copy per frame;
+there is no automatic host readback. The default has no snapshot cost.
+
+Other image keys expose native diagnostics: `diffuse`, `specular`,
+`normal_roughness`, `view_z`, `motion`, `identity`, `temporal_diffuse`,
+`temporal_specular`, `atrous_diffuse`, `atrous_specular`, `diffuse_history`, and
+`specular_history`. Their contents are meaningful only after the producing stage
+and when the corresponding denoiser configuration is enabled. `ray_distance`,
+`packed_normal_class`, and `material_signature` expose transport guides.
+**These are not the requested general application primary-hit ABI:** identity
+is the existing denoiser identity, and material signature is not object identity.
+They do not provide independent instance/slot/face IDs.
+
+Image `width` and `height` describe actual allocation dimensions, which can be
+1×1 for disabled guides. The active image rectangle is `[0, render_width) ×
+[0, render_height)`, from `frame.render_extent`, within enabled full-size images.
+Do not dispatch over allocation padding. A GI pixel `(x,y)` covers normalized
+coordinates `[x/W,(x+1)/W) × [y/H,(y+1)/H)` before upscaling. Output pixel centers
+map to GI coordinates by `(output_xy + 0.5) * render_extent / output_extent - 0.5`.
+Reconstruction filters neighboring radiance; there is no one-to-one primary hit
+per upscaled output pixel. Existing guides also do not represent every sampled
+camera ray when SPP exceeds one. No retraced or reconstructed guide should be
+treated as the requested exact sampled-ray identity export.
+
+An application can record a compiled `VulkanGraph` in an inserted stage using
+`context['frame'].record_graph(compiled_graph)`. Prepare persistent kernels and
+bindings for each slot; graph passes declare their resource accesses and record
+GPU work. The native frame records graph barriers and publishes `submitted()`
+callbacks only after successful submission, including cached command replay.
+All prior completions must belong to the same runtime queue. Imported semaphore
+operations are rejected; this is not an external-queue synchronization API.
+Operation preparation must not allocate, submit, or wait. Keep borrowed GI images
+in GENERAL layout. Graph resources and kernels must stay alive until submitted
+work retires; invalidate native commands before replacing recorded bindings.
+
+`invalidate_gi_history()` rejects progressive, ReSTIR, denoiser and reconstruction
+history without dropping pending synchronization or reallocating images.
+`invalidate_gi_commands()` preserves history. Neither method makes in-flight
+buffers safe to overwrite. Use completion ordering or explicit `wait_idle()` at
+replacement boundaries; it waits the runtime queue, not unrelated queues.
+`use_scene_resources()` publicly binds an existing native resident **triangle**
+scene from the same runtime, retaining application ownership. It currently waits
+before binding replacement and does not accept arbitrary external TLAS layouts.
+
+`reconfigure()` supports samples, bounce count, exposure, render scales and
+stationary delay. Invalid changes fail before mutation. Sample-capacity/render-
+scale changes retire and recreate frame allocations at the next present call.
+Changes to adaptive controller bounds and other settings explicitly require
+presenter recreation. Camera and output size continue to be arguments to
+`present_wavefront()`; resizing retires old image views.
+
+## Native lighting without presentation
+
+`ordinarylight.runtime.VulkanWavefrontPipeline` accepts an application-owned
+`VulkanRuntime`, an uploaded native `VulkanSceneResources`, and `RendererConfig`.
+It shares native preparation, transport, denoising, recording caches and history
+with `present_wavefront()`. It creates no swapchain and runs no reconstruction,
+tone mapping or display encoding. FSR2 and external video interop are unsupported
+in this session; downstream application operations may provide display processing.
+
+```python
+from ordinarylight.runtime import VulkanWavefrontPipeline, VulkanOutput
+from ordinarylight.pipeline.graph import VulkanGraph
+
+with runtime.upload_scene(scene) as resident:
+    with VulkanWavefrontPipeline(runtime, resident, config=config) as gi:
+        with VulkanOutput(runtime) as output:
+            frame = gi.prepare(camera, (output_width, output_height))
+            # Prepare a tone target for each persistent slot; reuse it on subsequent
+            # frames with the same image allocation and active extent.
+            with output.prepare(frame.images['hdr'], extent=frame.render_extent) as tone:
+                graph = VulkanGraph().add('lighting', frame.operation)
+                # Insert application averaging here. Declare the HDR image and
+                # primary-hit buffer uses so the graph supplies dependencies.
+                graph.add('tone', tone.operation())
+                completion = graph.compile().execute(runtime)
+                # Optional: append output.present_operation(tone) before compile.
+                completion.wait()  # Explicit diagnostic/retirement boundary only.
+```
+
+`prepare()` advances no history until the operation is submitted. At most one
+frame may be prepared at a time. Submit it once or call `frame.cancel()` before
+changing configuration, rebinding scene resources, or preparing another frame.
+Prepare a fresh operation each frame; native rendering commands are reused
+internally. `render(camera, extent)` is the convenience form that submits lighting
+and returns the prepared frame and its completion without waiting for readback.
+
+Preparation may allocate or wait at frame-slot reuse or resize boundaries. Native
+stage recording performs no allocations, readbacks, queue submissions or CPU waits
+between transport and denoising. Application graph submission still allocates its
+primary command buffer and fence. GPU consumers must be submitted on the same
+runtime queue before that output slot is reused. Retire downstream consumers
+before resizing or closing. Borrowed view validation rejects retired allocations;
+it does not preserve old frame contents after slot reuse.
+
+`VulkanOutput.prepare()` accepts both RGBA16F native HDR and RGBA32F application
+HDR with the same display transform. Its optional `extent` selects the active
+rectangle and excludes native allocation padding. Keep prepared output targets
+and application kernels per slot and recreate them when their views retire.
+
+### Exact sampled primary hits
+
+Enable `RendererConfig(wavefront_primary_hits=True)` at pipeline construction.
+The native primary camera dispatch writes `frame.buffers['primary_hits']`; it
+never retraces a visibility ray. This opt-in output forces wavefront execution
+when the strategy is `auto`. Other explicit execution strategies are rejected.
+
+`ordinarylight.wavefront.PRIMARY_HIT_DTYPE` describes a 96-byte record:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `position_distance` | float4 | World position xyz, ray distance w; w is -1 on miss |
+| `geometric_normal` | float4 | World geometric normal xyz |
+| `shading_normal` | float4 | World shading normal xyz, including native normal mapping |
+| `identity` | uint4 | TLAS instance index, instance-local triangle, packed triangle, reserved zero |
+| `ray_origin` | float4 | Actual world camera origin xyz, horizontal jitter w |
+| `ray_direction` | float4 | Actual unit world direction xyz, vertical jitter w |
+
+Miss identities are four `0xffffffff` values. If volume attenuation terminates
+transport before surface evaluation, the shading normal remains the geometric
+normal. Padding components otherwise carry no additional meaning.
+
+The active records are sample-major `[frame.sample_count, render_height,
+render_width]`, tightly packed at the start of the buffer. Index is
+`sample * W * H + y * W + x`. Buffer byte capacity may exceed the active range.
+Each SPP contributor has its own ray and hit; HDR averages their contributions.
+The image/pixel mapping described above applies at GI resolution, before any
+upscale filter. There is no unique hit for a reconstructed output pixel.
+
+This currently exports native **triangle** identity. Application-defined slot and
+face identity from a custom primitive still requires the custom hit ABI below;
+the denoiser identity image is not a replacement for that ABI.
+
+### Resident updates
+
+`resident.notify_content_changed(after=(), invalidate_history=True)` publishes
+in-place buffer or acceleration updates. Producers must already be submitted on
+the same runtime queue; supplied completions are validated without CPU waiting.
+Keep packing, capacity and compiled shader capabilities fixed. Set
+`invalidate_history=False` only when previous geometry and history remain valid.
+That preserves native command caches. The method increments `content_revision`
+without changing `binding_revision` or allocation handles. Graph producers can
+also precede lighting in the same submission through declared resource uses.
+
+`resident.replace_resources(buffers={name: allocation}, acceleration=resource)`
+replaces same-capacity native-layout bindings at an explicit queue-idle boundary.
+Buffers must be same-runtime `VulkanBuffer` storage allocations. A TLAS must be a
+same-runtime acceleration `VulkanResource` with an owner supporting lifetime
+leases. The resident scene retains replacements; the application still owns them
+and must close the scene before freeing its replacements. Replacement refreshes
+native borrowers and rejects history. External kernels borrowing the resident
+scene must close first. `binding_revision` changes invalidate compiled graphs;
+recreate bindings and recompile their graphs. This does not translate arbitrary
+custom geometry into the native triangle ABI.
+
+### Remaining resident-wavefront integration
+
+Custom intersections and evaluated native materials now work in primary and
+fused OrdinaryShade secondary stages through `NativeGeometryProgram`. The native
+GI GPU test imports the application's AABB TLAS and buffers, exports exact
+primary slot/face identity, and receives indirect light from a custom emitter.
+
+Still required: absorbing or rough boundaries,
+inline/split/bucketed continuation and indirect reservoir reuse. Custom denoiser
+history and local rejection now use the application-provided previous position. See
+[vxl8r_native_gi.md](vxl8r_native_gi.md) for verified behavior and remaining work.
 
 ## Independent spatial denoising
 
@@ -1285,3 +1462,211 @@ continuation, material-bucket scheduling and general evaluated primary-guide
 production remain specialized backend work. They are not claimed to be fully
 modularized. Performance and validation results for this freeze are recorded in
 [the validation report](../artifacts/denoiser-motion/gi-composition/validation_freeze.md).
+
+### Importing an existing acceleration structure
+
+`runtime.import_scene(scene, acceleration=tlas_resource, buffers=bindings)`
+creates resident scene resources without building a BLAS or TLAS. The supplied
+`VulkanResource` must identify a same-runtime acceleration structure with an
+owner implementing `require_open`, `retain`, and `release`. That owner must also
+keep every referenced BLAS and its required dependencies alive. Both uploaded
+native scenes and `VulkanTransportScene` provide this ownership contract.
+
+`scene` supplies native material/lighting metadata and packing capabilities. It
+may be empty; no dummy triangle is created. Optional `bindings` map names from
+`resident.bindings` to application-owned `VulkanBuffer` allocations using the
+native scene ABI. Supplied allocations are bound directly, without copying or
+uploading replacement contents; omitted bindings are uploaded from `scene`.
+Buffers must have storage usage, share the runtime, and fit the packed metadata.
+When packing materials, use `scene.triangle_material_data(programs, default)`
+with the same material program order/default as the renderer. Program IDs are
+part of the ABI, including when the material parameters otherwise match.
+
+Imports lease their owners until replacement or close; close attached pipelines
+before the imported scene, and the imported scene before its external owners.
+The constructor performs initialization at a resource boundary. Publish already
+submitted same-queue content/AS updates using `notify_content_changed`; replace
+handles using `replace_resources`. Neither method implies cross-queue ownership
+transfer. CPU changes to the metadata require a new resident snapshot.
+
+### Typed native custom geometry
+
+Declare an intersection function using
+`@ordinaryshade.function(name="nativeIntersectCandidate")`. Its parameters are
+`(origin: vec3, direction: vec3, t_min: f32, t_max: f32, primitive: u32,
+instance: u32, instance_offset: u32)` and its result is `NativeIntersection`.
+The callback owns traversal within the candidate primitive. Return a miss with
+`nativeIntersectionMiss()`, or a valid distance, unit geometric/shading normals,
+application `identity: uvec4`, texture coordinates, and previous world position.
+The query fills the committed native `address` independently of application IDs.
+Shading normals must share the geometric normal's hemisphere. Both ray vectors
+and returned normals use world space. Native custom surface queries include
+visibility mask bits 1 and 2.
+
+Declare the material callback using
+`@ordinaryshade.function(name="nativeEvaluateMaterial")`, taking
+`(hit: NativeIntersection, cone_width: f32)` and returning `NativeMaterial`.
+The cone width is a world-space footprint; the application evaluates its own
+material data. The returned parameters use OrdinaryLight's native BSDF.
+`NativeIntersection`, `NativeMaterial`, and `nativeIntersectionMiss` are exported
+from `ordinarylight.geometry`.
+
+```python
+from dataclasses import replace
+from ordinarylight.geometry import (
+    NativeGeometryBuffer, NativeGeometryProgram, VulkanNativeGeometryResources,
+    NativeMaterial,
+)
+
+program = NativeGeometryProgram(
+    intersect_cell, evaluate_cell_material,
+    buffers=(NativeGeometryBuffer("cells", CellRecord),
+             NativeGeometryBuffer("cell_materials", NativeMaterial)),
+)
+with VulkanNativeGeometryResources(runtime, program, {
+    "cells": cell_buffer, "cell_materials": material_buffer,
+}) as geometry:
+    config = replace(base_config, geometry_resources=geometry)
+    with runtime.import_scene(metadata, acceleration=app_tlas, config=config) as resident:
+        with VulkanWavefrontPipeline(runtime, resident, config=config) as gi:
+            frame = gi.prepare(camera, output_extent)
+            graph = VulkanGraph().add("lighting", frame.operation)
+            # Add GPU consumers of frame.images and frame.buffers here.
+            completion = graph.compile().execute(runtime)
+```
+
+Use a base configuration with `wavefront_ordinaryshade_shade=True`,
+`wavefront_fused_secondary=True`, `wavefront_custom_inline=False`,
+`wavefront_material_bucketing=False`, and indirect reservoir reuse disabled.
+Denoising is supported with `denoiser_enabled=True`, `temporal_history=True`,
+and `progressive_accumulation=True`. Alternate continuation paths remain
+explicitly rejected. Custom scenes currently exclude native volumes and
+custom triangle attribute/material programs. Emissive custom surfaces work via
+path sampling and optional application-owned emitter sampling/PDF callbacks.
+Smooth lossless optical boundaries are supported as described below. Ordinary triangle rendering retains its existing modes.
+
+Buffer declarations are typed read-only std430 arrays at set 2, assigned in list
+order. The supplied buffers must match the declarations and share the runtime.
+Each value can be a `VulkanBuffer` or a storage-buffer `VulkanResource` view,
+including `transport_scene.resource("materials")` or a bounded `.byte_range()`.
+The view's owner must implement `require_open`, `retain`, and `release`; the
+bundle leases that owner and preserves the descriptor's byte offset and range.
+Uniform-buffer and non-buffer descriptors are rejected. This permits borrowing
+resident scene buffers without copying or accessing private allocations.
+Programs are immutable; resource bundles retain allocations until replacement or
+close. Buffers can be written by application GPU stages between frames. Publish
+already-submitted same-queue changes with
+`geometry.notify_content_changed(after=(completion,), invalidate_history=False)`
+to retain command recordings. `geometry.replace_buffers({"cells": new_buffer})`
+leases replacement allocations, waits at the explicit resource boundary, and
+invalidates native commands/history. Submit or cancel a prepared frame before
+publishing changes. Update the application's acceleration structures coherently;
+voxel occupancy and dirty-slot tracking remain application-owned. Rebuild any
+application graph that references replaced allocations directly.
+
+Custom history uses `NativeIntersection.previous_position`: xyz is the previous
+world-space position of the same surface point, and w greater than 0.5 declares
+valid correspondence. Non-finite positions or w at most 0.5 reject temporal
+history locally. Static geometry should return its current world position with
+w=1. The application can invalidate dirty slots without a global reset by
+returning w=0 for those hits and publishing buffer changes with
+`invalidate_history=False`. This does not make concurrent buffer writes safe;
+follow the same-queue update and lifetime rules above.
+
+All four application identity words participate in a 32-bit fingerprint used by
+the denoiser's identity guide. This fingerprint can collide; consume the exact
+`uvec4` primary-hit identity for slot/face averaging. Denoiser guides describe the
+last contributing camera sample per GI pixel; primary-hit records retain every
+contributing sample. Both use the active GI pixel extent, before upscaling.
+The extra 32-byte-per-pixel history buffer is device-local and is allocated and
+written only when denoising or signal capture is enabled.
+
+
+### Custom optical boundaries
+
+Pass an optional typed callback as `NativeGeometryProgram(..., boundary=callback)`:
+
+```python
+@osh.function(name="nativeEvaluateBoundary")
+def evaluate_boundary(hit: NativeIntersection) -> NativeOpticalBoundary:
+    record = cells[hit.address.y]
+    return NativeOpticalBoundary(record.parameters.xy, record.metadata.z != osh.u32(4294967295))
+```
+
+`NativeOpticalBoundary` is exported from `ordinarylight.geometry`. Its `ior` pair
+is `(outside, inside)` and `enabled` selects a smooth lossless dielectric instead
+of the material BSDF. The geometric normal must point outside. IORs must be
+finite and positive; disabled or invalid boundaries fall back to material
+shading and opaque visibility. Application identity is available at every
+callback, independently of the acceleration primitive address.
+
+Primary and fused secondary stages use the same exact unpolarized Fresnel
+sampler, including total internal reflection and radiance-mode eta-squared
+transmission. The explicit media pair also handles a camera starting inside a
+solid. No boundary-buffer upload or CPU work is inserted between GPU stages.
+Optical callbacks must agree on the media shared by adjacent/nested faces.
+The native stack retains IOR tracking for subsequent native material surfaces;
+it does not validate application boundary topology or overlapping media.
+
+All native shadow and ReSTIR visibility queries use the same boundary callback.
+An enabled index-matched boundary passes a straight visibility ray; a refractive
+boundary blocks it. Direct-light connections do not trace refractive caustics.
+Path samples can still carry light through the refractive boundary. Boundary
+transport currently excludes absorption, scattering, and rough interfaces;
+material attenuation parameters do not add those effects to this callback.
+Existing material-based transmission remains available when no boundary is enabled.
+
+
+### Application-owned emitter sampling
+
+Attach `NativeEmitterProgram(count, select, evaluate, pdf)` with
+`NativeGeometryProgram(..., emitters=emitters)`. All four callbacks are typed
+OrdinaryShade functions validated when the geometry program is compiled:
+
+| Exported function | Signature | Meaning |
+| --- | --- | --- |
+| `nativeEmitterCount` | `() -> u32` | Current number of area emitters |
+| `nativeSelectEmitter` | `(selector: f32) -> u32` | Select an emitter using a uniform variate |
+| `nativeEvaluateEmitter` | `(emitter: u32, coordinates: vec2) -> NativeEmitterSample` | Map two uniform variates to an emitter point |
+| `nativeEmitterPdf` | `(hit: NativeIntersection) -> f32` | Joint emitter-selection/area PDF of an emissive hit |
+
+`NativeEmitterProgram` and `NativeEmitterSample` are exported from
+`ordinarylight.geometry`. A sample contains world-space `position`, unit `normal`,
+nonnegative linear `emission`, positive finite `area_pdf`, and `two_sided`.
+The area PDF includes the probability of selecting the emitter; do not include
+the area/environment domain probability or a solid-angle Jacobian. OrdinaryLight
+applies those factors. The hit-PDF callback must describe the same distribution;
+return zero for hits outside its support. Its exact instance/slot/face identity
+is independent of the enclosing acceleration primitive. Emission and sidedness
+must agree with the material callback.
+
+These callbacks own the **complete area-emitter distribution**, replacing native
+triangle-emitter selection for this pipeline. Include native triangle emitters
+in the application distribution if they should receive next-event samples.
+Emissive surfaces omitted from it still contribute through BSDF path hits.
+Point/directional/spot and environment lighting retain their existing interfaces.
+When unified area/environment sampling is active and both domains exist, the
+custom area domain uses probability 1/2. Otherwise its probability is 1 or 0.
+
+Emitter IDs are contiguous in `[0, count)` with `count <= 0x01fffffe`; the upper
+value is reserved for the environment candidate. ReSTIR stores these IDs and
+half-precision sample coordinates, then calls the evaluator again during reuse.
+Keep IDs and the coordinate-to-surface mapping stable while retaining history,
+and handle coordinates rounded to either endpoint. Reset history when the
+mapping or sampling distribution changes. Sampling, PDF, and count callbacks
+read the same persistent application buffers as the geometry callbacks.
+No proxy triangles or CPU emitter-count readback is required. Use the existing
+resource update/publication methods to make changes visible safely.
+
+Primary and fused secondary next-event sampling and emissive-hit evaluation use
+complementary unit-count power-heuristic weights. The sample count still controls
+estimator averaging; it does not change the MIS partition. This also keeps the
+partition consistent across ReSTIR candidate counts. Delta optical events retain
+unit emissive-hit weight. All emitter visibility uses the shared geometry and
+optical-boundary query contract.
+
+GPU comparisons check ordinary NEE, multiple light samples, ReSTIR candidates,
+temporal/spatial reuse, mixed area/environment domain selection, and GPU-resident
+emitter-count updates against a path-only reference. A second scene hides the
+diffuse receiver behind a reflection to exercise secondary NEE. GPU work counters
+verify that shadow queries and accepted reservoir history actually occur.

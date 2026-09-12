@@ -25,6 +25,8 @@ def primary_operation(kernel, constants, *, workgroups, after=()):
     contract = primary_bindings(
         native_textures=14 in kernel.sampled_image_arrays,
         profiling=15 in kernel.bindings,
+        primary_hits=30 in kernel.bindings,
+        custom_history=31 in kernel.bindings,
     )
     scalars = {b.binding: b for b in contract if b.count == 1}
     arrays = {b.binding: b for b in contract if b.count != 1}
@@ -92,6 +94,11 @@ def primary_operation(kernel, constants, *, workgroups, after=()):
     material = getattr(kernel, "material_resources", None)
     if material is not None:
         for use in material.uses:
+            add(use.resource, use.access, use.layout, use.stage)
+
+    geometry = getattr(kernel, "geometry_resources", None)
+    if geometry is not None:
+        for use in geometry.uses:
             add(use.resource, use.access, use.layout, use.stage)
 
     def record(command):

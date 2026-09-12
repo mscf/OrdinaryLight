@@ -413,6 +413,16 @@ class VulkanTransportScene:
         buffer = borrowed if borrowed is not None else self._buffers[name]
         return VulkanResource(self, "buffer", buffer.buffer, buffer.size)
 
+    @serialized
+    def retain(self, consumer):
+        """Lease the TLAS, its BLAS dependencies and resident buffers."""
+        self.require_open()
+        self._borrowers.add(consumer)
+
+    @serialized
+    def release(self, consumer):
+        self._borrowers.discard(consumer)
+
     def require_open(self):
         self.runtime.require_open()
         if self.closed:

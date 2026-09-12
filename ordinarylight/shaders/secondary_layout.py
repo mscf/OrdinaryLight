@@ -163,6 +163,7 @@ layout(push_constant) uniform PushConstants {
 #define WAVE_VOLUME_TRANSFER_BINDING 19
 #define WAVE_VOLUME_TRIANGLE_BINDING 20
 #define WAVE_VOLUME_SAMPLER_BINDING 21
+#include "native_intersection.glsl"
 #include "wavefront_textures.glsl"
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"

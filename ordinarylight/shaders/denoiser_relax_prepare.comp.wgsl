@@ -27,6 +27,12 @@ struct PrepareConstants {
     samples: vec4<u32>,
 }
 
+struct PrepareSurfaceHistory {
+    previous_position: vec3<f32>,
+    identity: u32,
+    valid: bool,
+}
+
 @group(0) @binding(0) var<storage, read> paths: array<WavePathState>;
 @group(0) @binding(1) var<storage, read> secondary_paths: array<SecondaryPathState>;
 @group(0) @binding(2) var packed_normal: texture_storage_2d<r32uint, read>;
@@ -65,9 +71,18 @@ fn prepare_previous_pixel(world_position: vec3<f32>, extent: vec2<i32>) -> vec3<
     if (((depth <= 0.0001) || (vertical_scale <= 0.0001))) {
         return vec3<f32>((-1.0), (-1.0), depth);
     }
-    let ndc: vec2<f32> = vec2<f32>((dot(offset, normalize(previous_camera.right.xyz)) / ((depth * aspect) * vertical_scale)), ((-dot(offset, normalize(previous_camera.up.xyz))) / (depth * vertical_scale)));
+    let projection_scale: f32 = select(depth, 1.0, (i32((previous_camera.up.w + 0.5)) == 1));
+    let ndc: vec2<f32> = vec2<f32>((dot(offset, normalize(previous_camera.right.xyz)) / ((projection_scale * aspect) * vertical_scale)), ((-dot(offset, normalize(previous_camera.up.xyz))) / (projection_scale * vertical_scale)));
     let pixel: vec2<f32> = ((((ndc * 0.5) + 0.5) * vec2<f32>(extent)) - 0.5);
     return vec3<f32>(pixel, depth);
+}
+
+fn prepare_surface_history(secondary: SecondaryPathState, pixel_index: u32) -> PrepareSurfaceHistory {
+    let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
+    let barycentrics: vec2<f32> = vec2<f32>(abs(secondary.primary_geometry.y), secondary.primary_geometry.z);
+    let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
+    let previous: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
+    return PrepareSurfaceHistory(previous, bitcast<u32>(secondary.primary_geometry.w), true);
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -150,12 +165,10 @@ fn main(
     var normal: vec3<f32> = prepare_unpack_normal(textureLoad(packed_normal, pixel).x);
     let roughness: f32 = clamp((secondary.primary_position.w - 1.0), 0.0, 1.0);
     var view_z: f32 = dot((world_position - current_camera.origin.xyz), current_camera.forward.xyz);
-    let primitive: u32 = bitcast<u32>(secondary.primary_geometry.x);
-    let instance_key: u32 = bitcast<u32>(secondary.primary_geometry.w);
+    let surface_history: PrepareSurfaceHistory = prepare_surface_history(secondary, pixel_index);
+    let instance_key: u32 = surface_history.identity;
+    var previous_world_position: vec3<f32> = surface_history.previous_position;
     let transmissive: bool = ((bitcast<u32>(secondary.primary_geometry.y) & u32(2147483648)) != u32(0));
-    let barycentrics: vec2<f32> = vec2<f32>(abs(secondary.primary_geometry.y), secondary.primary_geometry.z);
-    let weights: vec3<f32> = vec3<f32>(((1.0 - barycentrics.x) - barycentrics.y), barycentrics.x, barycentrics.y);
-    var previous_world_position: vec3<f32> = (((previous_vertices[(primitive * u32(3))].xyz * weights.x) + (previous_vertices[((primitive * u32(3)) + u32(1))].xyz * weights.y)) + (previous_vertices[((primitive * u32(3)) + u32(2))].xyz * weights.z));
     if (((((constants.samples.w != u32(0)) && (abs(world_position.z) < 0.0001)) && (abs(normal.z) > 0.9999)) && (roughness <= 0.0011))) {
         if ((secondary.position_valid.w > 0.5)) {
             let reflected: vec3<f32> = secondary.position_valid.xyz;
@@ -171,7 +184,7 @@ fn main(
     let old: vec3<f32> = prepare_previous_pixel(previous_world_position, extent);
     var motion: vec2<f32> = (old.xy - vec2<f32>(pixel));
     var previous_view_z: f32 = old.z;
-    if ((((old.z <= 0.0001) || any((old.xy < vec2<f32>((-0.5))))) || any((old.xy >= (vec2<f32>(extent) - 0.5))))) {
+    if (((((!surface_history.valid) || (old.z <= 0.0001)) || any((old.xy < vec2<f32>((-0.5))))) || any((old.xy >= (vec2<f32>(extent) - 0.5))))) {
         motion = vec2<f32>(0.0);
         previous_view_z = 0.0;
     }

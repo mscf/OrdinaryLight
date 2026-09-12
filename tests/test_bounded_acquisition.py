@@ -104,7 +104,7 @@ def test_output_rejects_infinite_timeout_before_retaining_runtime():
     runtime.retain.assert_not_called()
 
 
-@pytest.mark.parametrize("method", ["present_wavefront_window", "present_window"])
+@pytest.mark.parametrize("method", ["prepare_wavefront_window", "present_window"])
 def test_core_resize_acquisition_returns_without_recursive_recreation(method):
     """Exercise the real exception handler, including repeated resize races."""
     import ast

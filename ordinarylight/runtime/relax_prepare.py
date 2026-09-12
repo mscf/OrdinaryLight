@@ -9,11 +9,32 @@ from ..pipeline.graph import VulkanOperation
 from ..pipeline.vulkan import VulkanPass, VulkanResource, VulkanResourceUse
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _custom_history_shader():
+    import ordinaryshade as osh
+    from .kernel import compile_compute
+    from ..denoising.kernels import (
+        prepare_relax_signals, prepare_decode_normal, prepare_unpack_normal,
+        prepare_previous_pixel, prepare_custom_surface_history,
+    )
+    shader = osh.compile(prepare_relax_signals, helpers=(
+        prepare_decode_normal, prepare_unpack_normal, prepare_previous_pixel,
+        prepare_custom_surface_history,
+    ))
+    return compile_compute(shader.source)
+
+
 class VulkanRelaxPrepare:
     """Borrow path records, cameras, previous geometry and denoiser images.
 
     Paths must address unique pixels. Previous vertices must cover every primitive
     referenced by valid secondary records, using the native world-space vec4 ABI.
+    With custom_history=True, previous_vertices instead contains pixel-indexed
+    32-byte records: uint4 identity followed by float4 previous_position. The w
+    component is validity (>0.5); invalid/nonfinite positions reject history.
     Initialize uncovered image pixels before use; the shader preserves them.
     """
 
@@ -35,8 +56,12 @@ class VulkanRelaxPrepare:
         motion,
         identity,
         capacity,
+        custom_history=False,
     ):
         self.runtime, self.closed, self.completion = runtime, False, None
+        if type(custom_history) is not bool:
+            raise TypeError("custom_history must be a bool")
+        self.custom_history = custom_history
         self.capacity = index(capacity)
         if not 0 < self.capacity <= 0xFFFFFFFF:
             raise ValueError("Preparation capacity must fit a positive uint32")
@@ -75,7 +100,7 @@ class VulkanRelaxPrepare:
                 (secondary_paths, self.capacity * 128),
                 (current_camera, 64),
                 (previous_camera, 64),
-                (previous_vertices, 48),
+                (previous_vertices, self.extent[0] * self.extent[1] * 32 if custom_history else 48),
             ):
                 buffer.require_open()
                 if buffer.byte_size < size:
@@ -95,14 +120,11 @@ class VulkanRelaxPrepare:
                     for binding, image in zip((2, 3, 4, 5, 6, 7, 8, 12), images)
                 }
             )
-            self.kernel = VulkanKernel(
-                runtime,
-                files("ordinarylight.shaders")
-                .joinpath("denoiser_relax_prepare.comp.spv")
-                .read_bytes(),
-                bindings,
-                push_constant_size=32,
-            )
+            if custom_history:
+                spirv = _custom_history_shader()
+            else:
+                spirv = files("ordinarylight.shaders").joinpath("denoiser_relax_prepare.comp.spv").read_bytes()
+            self.kernel = VulkanKernel(runtime, spirv, bindings, push_constant_size=32)
 
     def require_open(self):
         if self.closed:

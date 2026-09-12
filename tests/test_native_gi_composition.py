@@ -5,6 +5,8 @@ These tests require a desktop display and the built FSR2 bridge.
 """
 
 import os
+from dataclasses import replace
+from contextlib import ExitStack
 from types import SimpleNamespace
 import numpy as np
 import pytest
@@ -70,6 +72,141 @@ def direct_primary(executor, command, pipeline, slot, constants, groups):
         vk.ffi.from_buffer(constants),
     )
     vk.vkCmdDispatch(command, *groups)
+
+
+def test_reusable_application_graph_shares_native_hdr_and_submission(desktop):
+    from ordinarylight.pipeline.graph import VulkanGraph, VulkanOperation
+    from ordinarylight.pipeline.vulkan import VulkanPass, VulkanResource, VulkanResourceUse
+
+    _glfw, window = desktop
+    results = []
+    for reuse in (False, True):
+        scene, glass, bars = fixture()
+        config = replace(_gi_config(
+            SimpleNamespace(id="glass-detail", renderer={}),
+            render_scale=0.25, upscale_filter="bilinear", capture=True,
+        ), max_bounces=4, samples_per_pixel=1, wavefront_raw_hdr_output=True)
+        calls, submissions, borrowed = [], [], []
+        with ol.VulkanGlfwPresenter(window, config=config) as presenter:
+            def builder(default, frame):
+                hdr = frame.images["hdr"]
+                assert frame.images["raw_hdr"].image != hdr.image
+                assert "gi.snapshot_hdr" in default.stage_names
+                assert (hdr.width, hdr.height) == (80, 60)
+                borrowed.append(hdr)
+                operation = VulkanOperation([VulkanPass(
+                    "consume", (VulkanResourceUse(
+                        VulkanResource.image(hdr), vk.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        vk.VK_ACCESS_SHADER_READ_BIT, vk.VK_IMAGE_LAYOUT_GENERAL,
+                    ),), lambda command: calls.append(frame.slot),
+                )], submitted=lambda completion: submissions.append(completion))
+                graph = VulkanGraph().add("consume", operation).compile()
+                return frame.process_hdr(default, RenderStage(
+                    "app.consume", reads={"gi.hdr"},
+                    recorder=lambda context: context["frame"].record_graph(graph),
+                ))
+            presenter.set_gi_pipeline_builder(builder, reuse_commands=reuse)
+            frames = []
+            for index in range(12):
+                presenter.present_wavefront(
+                    scene, pose(scene, glass, bars, "camera", index * 0.001), 320, 240,
+                )
+                frames.append(presenter.capture_wavefront_hdr())
+            assert len(submissions) == 12
+            assert len(calls) < 12 if reuse else len(calls) == 12
+            presenter.wait_idle()
+            borrowed[-1].require_open()
+            presenter.invalidate_gi_history()
+            presenter.present_wavefront(
+                scene, pose(scene, glass, bars, "camera", 0.012), 320, 240,
+            )
+            assert len(submissions) == 13
+            results.append(np.array(frames))
+        with pytest.raises(RuntimeError, match="retired"):
+            borrowed[-1].require_open()
+    assert np.any(results[0][..., :3] > 0)
+    np.testing.assert_array_equal(results[0], results[1])
+
+
+def test_standalone_native_history_matches_presentation(desktop):
+    from ordinarylight.runtime import VulkanWavefrontPipeline
+
+    _glfw, window = desktop
+    scene, glass, bars = fixture()
+    config = replace(_gi_config(
+        SimpleNamespace(id="glass-detail", renderer={}),
+        render_scale=0.25, upscale_filter="bilinear", capture=True,
+    ), max_bounces=4, samples_per_pixel=1)
+    with ol.VulkanGlfwPresenter(window, config=config) as presenter:
+        with presenter.runtime.upload_scene(scene) as resident:
+            # Release both borrowers before closing application-owned scene allocations.
+            with VulkanWavefrontPipeline(presenter.runtime, resident, config=config) as standalone:
+                for index in range(8):
+                    camera = pose(scene, glass, bars, "camera", index * 0.001)
+                    presenter.present_wavefront(scene, camera, 320, 240)
+                    presented = presenter.capture_wavefront_hdr()
+                    standalone.render(camera, (320, 240)).completion.wait()
+                    independent = standalone.capture_wavefront_hdr()
+                    assert np.any(presented[..., :3] > 0)
+                    np.testing.assert_allclose(independent, presented, atol=2e-3, rtol=2e-3)
+
+
+def test_application_modifies_denoised_hdr_without_overwriting_raw(desktop):
+    import ordinaryshade as osh
+    from ordinarylight.pipeline.graph import VulkanGraph, reflected_operation
+    from ordinarylight.pipeline.vulkan import VulkanResource
+    from ordinarylight.runtime import VulkanKernel, compile_compute
+
+    @osh.compute(workgroup_size=(1, 1, 1))
+    def inspect_and_clear(
+        hdr: osh.storage_image("rgba16f", access="write", binding=0),
+        raw: osh.storage_image("rgba16f", access="read", binding=1),
+        samples: osh.storage_buffer(osh.vec4, access="write", binding=2),
+    ):
+        pixel = osh.ivec2(osh.global_invocation_id.xy)
+        samples[osh.global_invocation_id.y * osh.u32(80) + osh.global_invocation_id.x] = raw.load(pixel)
+        hdr.store(pixel, osh.vec4(0.0, 0.0, 0.0, 1.0))
+
+    program = osh.compile(inspect_and_clear)
+    spirv = compile_compute(program.source)
+    _glfw, window = desktop
+    scene, glass, bars = fixture()
+    config = replace(_gi_config(
+        SimpleNamespace(id="glass-detail", renderer={}),
+        render_scale=0.25, upscale_filter="bilinear", capture=True,
+    ), max_bounces=4, samples_per_pixel=1, wavefront_raw_hdr_output=True)
+    with ol.VulkanGlfwPresenter(window, config=config) as presenter, ExitStack() as lifetime:
+        graphs, diagnostics = {}, []
+
+        def builder(default, frame):
+            hdr, raw = frame.images["hdr"], frame.images["raw_hdr"]
+            if hdr not in graphs:
+                samples = lifetime.enter_context(hdr.runtime.buffer(80 * 60 * 16))
+                kernel = lifetime.enter_context(VulkanKernel(hdr.runtime, spirv, {
+                    0: VulkanResource.image(hdr), 1: VulkanResource.image(raw),
+                    2: VulkanResource.buffer(samples),
+                }))
+                graphs[hdr] = VulkanGraph().add("application", reflected_operation(
+                    kernel, program.reflection, workgroups=(80, 60, 1),
+                )).compile()
+                diagnostics.append(samples)
+            return frame.process_hdr(default, RenderStage(
+                "app.inspect_and_clear", reads={"gi.hdr", "gi.raw_hdr"}, writes={"gi.hdr"},
+                recorder=lambda context: context["frame"].record_graph(graphs[hdr]),
+            ))
+
+        presenter.set_gi_pipeline_builder(builder, reuse_commands=True)
+        for index in range(6):
+            presenter.present_wavefront(
+                scene, pose(scene, glass, bars, "camera", index * 0.001), 320, 240,
+            )
+        presenter.wait_idle()
+        np.testing.assert_array_equal(presenter.capture_wavefront_hdr()[..., :3], 0)
+        assert len(diagnostics) == 2
+        for samples in diagnostics:
+            raw = np.frombuffer(samples.read(), np.float32).reshape(-1, 4)
+            assert np.isfinite(raw).all()
+            assert np.any(raw[:, :3] > 0), "Raw HDR must survive the downstream clear"
 
 
 @pytest.mark.parametrize("mode", ["bilinear", "fsr1-shade", "fsr2"])

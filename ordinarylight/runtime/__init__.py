@@ -1,6 +1,8 @@
 """Algorithm-independent GPU services (Vulkan loaded on demand)."""
 
 _MODULES = {
+    "VulkanWavefrontPipeline": "wavefront",
+    "PreparedGiFrame": "wavefront",
     "primary_operation": "primary",
     "indirect_apply_operation": "indirect_apply",
     "indirect_candidates_operation": "indirect_candidates",

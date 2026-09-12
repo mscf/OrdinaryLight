@@ -361,8 +361,17 @@ class VulkanGraphRecording:
         if not self._recorded:
             raise RuntimeError("Record commands before publishing submission")
         self._commit()
+        failure = None
         for node in self._nodes:
-            node.operation.submitted(completion)
+            try:
+                node.operation.submitted(completion)
+            except BaseException as error:
+                # Submission has already happened. Every consumer must receive
+                # its completion even if an application callback fails.
+                if failure is None:
+                    failure = error
+        if failure is not None:
+            raise failure
 
 
 def reflected_operation(kernel, reflection, *, workgroups, push_constants=b""):

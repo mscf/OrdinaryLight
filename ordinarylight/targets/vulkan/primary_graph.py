@@ -17,6 +17,7 @@ class NativePrimaryKernel:
         core = executor.core
         self.runtime = core.runtime
         self.material_resources = core.material_resources
+        self.geometry_resources = core.geometry_resources
         self.bindings, self.image_arrays = {}, {}
         self.sampled_image_arrays, self.sampled_image_layouts = {}, {}
         current, previous = core.window_frames[slot], core.window_frames[1 - slot]
@@ -45,6 +46,11 @@ class NativePrimaryKernel:
             self.bindings[binding] = self.buffer(value)
         if core.config.wavefront_profiling:
             self.bindings[15] = self.buffer(executor.work_counter_buffers[slot])
+        if core.config.wavefront_primary_hits:
+            self.bindings[30] = self.buffer(current["wavefront_primary_hit_buffer"])
+        if core.config.geometry_resources is not None and executor._denoiser_signals_active():
+            self.bindings[31] = self.buffer(current["wavefront_primary_history_buffer"])
+            self.bindings[32] = self.buffer(core.scene_previous_vertex_buffer)
         owner = _Binding(runtime=self.runtime, require_open=self.require_open)
         self.bindings[0] = VulkanResource(
             owner, "acceleration_structure", core.scene_tlas.handle

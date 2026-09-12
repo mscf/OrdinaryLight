@@ -78,6 +78,10 @@ def shade_operation(kernel, settings, *, indirect=None, ray_capacity=None, after
     if material_resources is not None:
         for use in material_resources.uses:
             add(use.resource, use.stage, use.access, use.layout)
+    geometry_resources = getattr(kernel, "geometry_resources", None)
+    if geometry_resources is not None:
+        for use in geometry_resources.uses:
+            add(use.resource, use.stage, use.access, use.layout)
     if indirect is not None:
         if (
             indirect.byte_size < 12

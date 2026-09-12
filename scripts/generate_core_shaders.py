@@ -13,6 +13,11 @@ if DEFAULT_ORDINARYSHADE.is_dir():
     sys.path.insert(0, str(DEFAULT_ORDINARYSHADE))
 
 import ordinaryshade as osh
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask, NativeOpticalBoundary, nativeEvaluateBoundary, nativeBoundaryEnabled
+from ordinarylight.shaders.native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount,
+    nativeEmitterValid, nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)
+from ordinarylight.shaders.native_surface_programs import nativeEvaluateMaterial
+from ordinarylight.shaders.transport_programs import ordinarylightDielectric, OrdinaryLightDielectricEvent
 from ordinarylight.shaders.easu import EASU_HELPERS, easu_resolve
 from ordinaryshade_library import (
     acesApproximation, atrousKernel, decodeAtrousNormal, fpsOverlay,
@@ -521,6 +526,7 @@ class ShadeHitInput:
     valid: osh.boolean
     hit: WaveHit
     ray: WaveRay
+    intersection: NativeIntersection
 
 
 @osh.structure
@@ -839,15 +845,8 @@ def candidateSecondaryVisible(
     if connection_distance <= 0.006:
         return True
     direction = offset / connection_distance
-    query = osh.ray_query()
-    query.initialize(
-        scene_tlas, osh.u32(5), osh.u32(0x01),
-        primary_position + primary_normal * 0.002, 0.001,
-        direction, osh.maximum(connection_distance - 0.004, 0.001),
-    )
-    while query.proceed():
-        pass
-    return query.intersection_type(True) == osh.u32(0)
+    query = nativeTraceSurface(primary_position + primary_normal * 0.002, 0.001, direction, osh.maximum(connection_distance - 0.004, 0.001), True, nativeSurfaceMask())
+    return query.address.w == osh.u32(0)
 
 
 @osh.function
@@ -3454,26 +3453,19 @@ def shadeLoadHit(hit_index: osh.u32) -> ShadeHitInput:
     )
     if push.fused_intersection == osh.u32(0):
         if hit_index >= osh.minimum(hit_queue.count, hit_queue.capacity):
-            return ShadeHitInput(False, empty_hit, empty_ray)
+            return ShadeHitInput(False, empty_hit, empty_ray, nativeIntersectionMiss())
         hit = hit_queue.hits[hit_index]
-        return ShadeHitInput(True, hit, input_queue.rays[hit.ray_index])
+        return ShadeHitInput(True, hit, input_queue.rays[hit.ray_index], nativeIntersectionMiss())
     if hit_index >= osh.minimum(input_queue.count, input_queue.capacity):
-        return ShadeHitInput(False, empty_hit, empty_ray)
+        return ShadeHitInput(False, empty_hit, empty_ray, nativeIntersectionMiss())
     input_ray = input_queue.rays[hit_index]
-    query = osh.ray_query()
-    query.initialize(
-        scene_tlas, osh.u32(1), osh.u32(0x01),
-        input_ray.origin_tmin.xyz, input_ray.origin_tmin.w,
-        input_ray.direction_tmax.xyz, input_ray.direction_tmax.w,
-    )
-    while query.proceed():
-        pass
+    query = nativeTraceSurface(input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w, False, nativeSurfaceMask())
     hit = empty_hit
     hit.path_index = input_ray.path_index
     hit.ray_index = hit_index
-    if query.intersection_type(True) == osh.u32(1):
-        distance = query.intersection_t(True)
-        primitive = query.primitive_index(True) + query.instance_custom_index(True)
+    if query.address.w == osh.u32(1):
+        distance = query.position_distance.w
+        primitive = query.address.y + query.address.z
         vertex_a = vertices[primitive * osh.u32(3)].xyz
         vertex_b = vertices[primitive * osh.u32(3) + osh.u32(1)].xyz
         vertex_c = vertices[primitive * osh.u32(3) + osh.u32(2)].xyz
@@ -3485,8 +3477,13 @@ def shadeLoadHit(hit_index: osh.u32) -> ShadeHitInput:
             vertex_b - vertex_a, vertex_c - vertex_a
         ))
         hit.primitive_index = primitive
-        hit.barycentrics = query.barycentrics(True)
-    return ShadeHitInput(True, hit, input_ray)
+        hit.barycentrics = query.texcoord.xy
+    elif query.address.w == osh.u32(2):
+        hit.position_t = query.position_distance
+        hit.geometric_normal = query.geometric_normal.xyz
+        hit.primitive_index = query.address.x
+        hit.barycentrics = query.texcoord.xy
+    return ShadeHitInput(True, hit, input_ray, query)
 
 
 @osh.function
@@ -3801,14 +3798,8 @@ def shadePreparePointLight(
 def shadePointLightVisible(sample: ShadePointLightSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = osh.ray_query()
-    shadow.initialize(
-        scene_tlas, osh.u32(5), osh.u32(0x01), sample.shadow_origin, 0.001,
-        sample.direction, sample.shadow_distance,
-    )
-    while shadow.proceed():
-        pass
-    return shadow.intersection_type(True) == osh.u32(0)
+    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, True, nativeSurfaceMask())
+    return shadow.address.w == osh.u32(0)
 
 
 @osh.function
@@ -3825,6 +3816,8 @@ def shadePointLightContribution(
 
 @osh.function
 def shadeSelectAreaLight(area_light_count: osh.u32, selection: osh.f32) -> osh.u32:
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        return nativeSelectEmitter(selection)
     lower = osh.u32(0)
     upper = area_light_count - osh.u32(1)
     for step in range(32):
@@ -3859,6 +3852,31 @@ def shadePrepareAreaLight(
         osh.f32(sample_index) + rayQueryRandomValue(random_state)
     ) / osh.f32(sample_count)
     light_index = shadeSelectAreaLight(area_light_count, selection)
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        random_state = rayQueryRandomState(random_state)
+        random_u = rayQueryRandomValue(random_state)
+        random_state = rayQueryRandomState(random_state)
+        random_v = rayQueryRandomValue(random_state)
+        if light_index >= area_light_count:
+            return ShadeAreaLightSample(normal, hit, osh.vec3(0.0), 0.0, 0.0,
+                osh.f32(sample_count), 0.0, random_state, False)
+        custom_sample = nativeEvaluateEmitter(light_index, osh.vec2(random_u, random_v))
+        if not nativeEmitterValid(custom_sample):
+            return ShadeAreaLightSample(normal, hit, osh.vec3(0.0), 0.0, 0.0,
+                osh.f32(sample_count), 0.0, random_state, False)
+        custom_offset = custom_sample.position - hit
+        custom_distance_squared = osh.dot(custom_offset, custom_offset)
+        custom_distance = osh.sqrt(custom_distance_squared)
+        custom_direction = custom_offset / osh.maximum(custom_distance, 1e-6)
+        custom_cosine = osh.maximum(osh.dot(normal, custom_direction), 0.0)
+        custom_light_cosine = osh.dot(custom_sample.normal, -custom_direction)
+        custom_light_cosine = osh.absolute(custom_light_cosine) if custom_sample.two_sided else osh.maximum(custom_light_cosine, 0.0)
+        if custom_cosine <= 0.0 or custom_light_cosine <= 1e-6:
+            return ShadeAreaLightSample(custom_direction, hit, custom_sample.emission, custom_cosine, 0.0,
+                osh.f32(sample_count), 0.0, random_state, False)
+        custom_pdf = custom_sample.area_pdf * custom_distance_squared / custom_light_cosine * technique_probability
+        return ShadeAreaLightSample(custom_direction, hit + normal * .002, custom_sample.emission, custom_cosine,
+            custom_pdf, 1.0, osh.maximum(custom_distance - .004, .001), random_state, True)
     light = area_lights[light_index]
     random_state = rayQueryRandomState(random_state)
     root_u = osh.sqrt(rayQueryRandomValue(random_state))
@@ -3903,14 +3921,8 @@ def shadePrepareAreaLight(
 def shadeAreaLightVisible(sample: ShadeAreaLightSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = osh.ray_query()
-    shadow.initialize(
-        scene_tlas, osh.u32(5), osh.u32(0x01), sample.shadow_origin, 0.001,
-        sample.direction, sample.shadow_distance,
-    )
-    while shadow.proceed():
-        pass
-    return shadow.intersection_type(True) == osh.u32(0)
+    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, True, nativeSurfaceMask())
+    return shadow.address.w == osh.u32(0)
 
 
 @osh.function
@@ -3938,6 +3950,10 @@ def shadeUnifiedAreaDomainProbability(
     environment_samples: osh.u32,
     area_light_weight: osh.f32,
 ) -> osh.f32:
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        if area_light_count == osh.u32(0):
+            return 0.0
+        return 1.0 if environment_samples == osh.u32(0) else 0.5
     if area_light_count == osh.u32(0):
         return 0.0
     if environment_samples == osh.u32(0):
@@ -4468,15 +4484,8 @@ def shadeVolumeOpaqueVisibility(
     shadow_distance = 1.0e30
     if maximum_distance < 1.0e29:
         shadow_distance = osh.maximum(maximum_distance - 0.004, 0.001)
-    shadow = osh.ray_query()
-    shadow.initialize(
-        scene_tlas, osh.u32(5), osh.u32(0x01),
-        world_position + direction * 0.002, 0.001,
-        direction, shadow_distance,
-    )
-    while shadow.proceed():
-        pass
-    return 1.0 if shadow.intersection_type(True) == osh.u32(0) else 0.0
+    shadow = nativeTraceSurface(world_position + direction * 0.002, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+    return 1.0 if shadow.address.w == osh.u32(0) else 0.0
 
 
 @osh.function
@@ -5292,14 +5301,8 @@ def shadePrepareEnvironmentLight(
 def shadeEnvironmentVisible(sample: ShadeEnvironmentSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = osh.ray_query()
-    shadow.initialize(
-        scene_tlas, osh.u32(5), osh.u32(0x01), sample.shadow_origin, 0.001,
-        sample.direction, 1.0e30,
-    )
-    while shadow.proceed():
-        pass
-    return shadow.intersection_type(True) == osh.u32(0)
+    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, 1e+30, True, nativeSurfaceMask())
+    return shadow.address.w == osh.u32(0)
 
 
 @osh.function
@@ -5348,6 +5351,9 @@ def shadeSelectUnifiedSecondaryDomain(
         environment_weight = osh.f32(
             osh.minimum(environment_samples, osh.u32(4))
         )
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        area_weight = 1.0 if area_enabled else 0.0
+        environment_weight = 1.0 if environment_enabled else 0.0
     area_probability = area_weight / osh.maximum(
         area_weight + environment_weight, 0.000001
     )
@@ -5708,7 +5714,7 @@ def wavefront_shade_candidate(
             path, shadeEnvironmentRadiance(incoming, push.point_light_count),
             push.environment_samples,
             shadeUnifiedAreaDomainProbability(
-                push.area_light_count, push.environment_samples,
+                nativeAreaLightCount(push.area_light_count), push.environment_samples,
                 push.area_light_weight,
             ),
         )
@@ -5717,10 +5723,38 @@ def wavefront_shade_candidate(
     if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
         shadeProfileWork(osh.u32(3), osh.u32(1), shadePathBounce(path))
     cone = shadeRayCone(loaded.ray, loaded.hit.position_t.w)
-    surface = shadeResolveSurface(
-        loaded.hit.primitive_index, loaded.hit.barycentrics,
-        loaded.hit.geometric_normal, incoming, cone.x,
+    surface = ShadeSurface(
+        MaterialData(osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0),
+                     osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0),
+                     osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0), osh.vec4(0.0)),
+        osh.vec3(0.0), osh.vec3(0.0), osh.vec3(0.0), osh.vec2(0.0),
+        osh.vec3(0.0), osh.vec3(0.0), osh.vec3(0.0), False,
     )
+    if loaded.intersection.address.w == osh.u32(2):
+        if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
+            entering = osh.dot(incoming, loaded.intersection.geometric_normal.xyz) < 0.0
+            shading_normal = loaded.intersection.shading_normal.xyz
+            surface = ShadeSurface(
+                nativeEvaluateMaterial(loaded.intersection, cone.x),
+                shading_normal if entering else -shading_normal,
+                loaded.intersection.geometric_normal.xyz, osh.vec3(0.0),
+                loaded.intersection.texcoord.xy, osh.vec3(0.0), osh.vec3(0.0),
+                osh.vec3(0.0), entering,
+            )
+    else:
+        surface = shadeResolveSurface(
+            loaded.hit.primitive_index, loaded.hit.barycentrics,
+            loaded.hit.geometric_normal, incoming, cone.x,
+        )
+    optical_boundary = NativeOpticalBoundary(osh.vec2(1.0), False)
+    if osh.specialization('WAVE_NATIVE_OPTICAL_BOUNDARIES'):
+        if loaded.intersection.address.w == osh.u32(2):
+            optical_boundary = nativeEvaluateBoundary(loaded.intersection)
+    if nativeBoundaryEnabled(optical_boundary):
+        surface.material.attenuation_transmission.a = 1.0
+        surface.material.base_roughness.a = 0.0
+        surface.material.ior_distance.x = optical_boundary.ior.y
+        surface.normal = surface.geometric_normal if surface.entering else -surface.geometric_normal
     random_state = shadePathRng(path)
     medium_depth = osh.maximum(path.metadata.w >> osh.u32(8), osh.u32(1))
     waveSetMaterialAttributes(loaded.hit.primitive_index, surface.weights)
@@ -5772,10 +5806,30 @@ def wavefront_shade_candidate(
         # lighting mode may differ from the mode used by this next bounce.
         (path.metadata.w & osh.u32(4)) != osh.u32(0),
         shadeUnifiedAreaDomainProbability(
-            push.area_light_count, push.environment_samples,
+            nativeAreaLightCount(push.area_light_count), push.environment_samples,
             push.area_light_weight,
         ),
     )
+    if osh.specialization('WAVE_NATIVE_EMITTERS'):
+        weight = 1.0
+        if (path.metadata.w & osh.u32(2)) != osh.u32(0):
+            emitter_hit = loaded.intersection
+            emitter_hit.position_distance = loaded.hit.position_t
+            emitter_hit.geometric_normal = osh.vec4(surface.geometric_normal, 0.0)
+            emitter_hit.shading_normal = osh.vec4(surface.normal if surface.entering else -surface.normal, 0.0)
+            area_pdf = nativeEmitterPdf(emitter_hit)
+            cosine = osh.dot(surface.geometric_normal, -incoming)
+            cosine = osh.absolute(cosine) if surface.material.ior_distance.w > 0.5 else osh.maximum(cosine, 0.0)
+            if area_pdf > 0.0 and not osh.is_nan(area_pdf) and not osh.is_inf(area_pdf) and cosine > 1e-6:
+                pdf = area_pdf * loaded.hit.position_t.w * loaded.hit.position_t.w / cosine
+                if (path.metadata.w & osh.u32(4)) != osh.u32(0):
+                    pdf = pdf * shadeUnifiedAreaDomainProbability(nativeAreaLightCount(push.area_light_count),
+                        push.environment_samples, push.area_light_weight)
+                weight = shadePowerHeuristic(path.radiance.w, pdf)
+        contribution = osh.vec3(0.0)
+        if surface.entering or surface.material.ior_distance.w > 0.5:
+            contribution = path.throughput.rgb * surface.material.emission_metallic.rgb * weight
+        emission = ShadeEmissionResult(contribution, weight)
     path.radiance = osh.vec4(
         path.radiance.rgb + emission.contribution, path.radiance.w
     )
@@ -5791,7 +5845,28 @@ def wavefront_shade_candidate(
     sampled_specular = False
     primary_specular = osh.vec3(0.0)
     primary_weight = path.throughput.rgb
-    if evaluated.custom_scattering > 0.5:
+    if nativeBoundaryEnabled(optical_boundary):
+        incident_ior = optical_boundary.ior.x if surface.entering else optical_boundary.ior.y
+        target_ior = optical_boundary.ior.y if surface.entering else optical_boundary.ior.x
+        random_state = rayQueryRandomState(random_state)
+        optical_event = ordinarylightDielectric(incoming,
+            surface.geometric_normal if surface.entering else -surface.geometric_normal,
+            incident_ior, target_ior, rayQueryRandomValue(random_state))
+        next_direction = optical_event.direction
+        path.throughput = osh.vec4(path.throughput.rgb * optical_event.throughput, path.throughput.w)
+        bsdf_pdf = 0.0
+        sampled_specular = True
+        transmission = 0.0 if optical_event.reflected else 1.0
+        if not optical_event.reflected:
+            stack = stacks[path_index]
+            if surface.entering and medium_depth < osh.u32(16):
+                stack = shadeSetMediumIor(stack, medium_depth, target_ior)
+                medium_depth = medium_depth + osh.u32(1)
+            elif not surface.entering and medium_depth > osh.u32(1):
+                medium_depth = medium_depth - osh.u32(1)
+            stack = shadeSetMediumIor(stack, medium_depth - osh.u32(1), target_ior)
+            stacks[path_index] = stack
+    elif evaluated.custom_scattering > 0.5:
         event = osh.i32(evaluated.event + 0.5)
         if event == 0:
             path.metadata.w = path.metadata.w & ~osh.u32(1)
@@ -5855,7 +5930,7 @@ def wavefront_shade_candidate(
                     ) / 1.0
             if push.unified_secondary_nee != osh.u32(0):
                 domain = shadeSelectUnifiedSecondaryDomain(
-                    push.area_light_count > osh.u32(0),
+                    nativeAreaLightCount(push.area_light_count) > osh.u32(0),
                     push.environment_samples > osh.u32(0),
                     push.area_light_weight, push.secondary_area_light_samples,
                     push.environment_samples, random_state,
@@ -5865,7 +5940,7 @@ def wavefront_shade_candidate(
                     area_sample = shadePrepareAreaLight(
                         loaded.hit.position_t.xyz, surface.normal,
                         random_state, osh.u32(0), osh.u32(1),
-                        push.area_light_count, domain.area_probability,
+                        nativeAreaLightCount(push.area_light_count), domain.area_probability,
                     )
                     random_state = area_sample.random_state
                     if shadeAreaLightVisible(area_sample):
@@ -5918,7 +5993,7 @@ def wavefront_shade_candidate(
                     area_sample = shadePrepareAreaLight(
                         loaded.hit.position_t.xyz, surface.normal,
                         random_state, osh.u32(sample_index), area_sample_count,
-                        push.area_light_count, 1.0,
+                        nativeAreaLightCount(push.area_light_count), 1.0,
                     )
                     random_state = area_sample.random_state
                     if shadeAreaLightVisible(area_sample):
@@ -6025,6 +6100,9 @@ def wavefront_shade_candidate(
         roulette.random_state, cone.x, cone_spread,
         push.unified_secondary_nee != osh.u32(0),
     )
+    if nativeBoundaryEnabled(optical_boundary):
+        continuation.path.metadata.w = continuation.path.metadata.w & ~osh.u32(6)
+        continuation.path.radiance.w = 0.0
     output_index = shadeReserveOutputIndex(
         push.subgroup_enqueue != osh.u32(0)
     )
@@ -7015,25 +7093,16 @@ def wavefront_intersect(
         return
     if ray_index == osh.u32(0):
         hit_queue.count = osh.minimum(active_count, hit_queue.capacity)
-    query = osh.ray_query()
-    query.initialize(
-        scene_tlas, osh.u32(1), osh.u32(0x01),
-        ray_queue.rays[ray_index].origin_tmin.xyz,
-        ray_queue.rays[ray_index].origin_tmin.w,
-        ray_queue.rays[ray_index].direction_tmax.xyz,
-        ray_queue.rays[ray_index].direction_tmax.w,
-    )
-    while query.proceed():
-        pass
+    query = nativeTraceSurface(ray_queue.rays[ray_index].origin_tmin.xyz, ray_queue.rays[ray_index].origin_tmin.w, ray_queue.rays[ray_index].direction_tmax.xyz, ray_queue.rays[ray_index].direction_tmax.w, False, nativeSurfaceMask())
     hit_index = ray_index
     if hit_index >= hit_queue.capacity:
         return
     hit_queue.hits[hit_index].path_index = ray_queue.rays[ray_index].path_index
     hit_queue.hits[hit_index].ray_index = ray_index
-    if query.intersection_type(True) == osh.u32(1):
-        distance = query.intersection_t(True)
+    if query.address.w == osh.u32(1):
+        distance = query.position_distance.w
         primitive = (
-            query.primitive_index(True) + query.instance_custom_index(True)
+            query.address.y + query.address.z
         )
         vertex_a = vertices[primitive * osh.u32(3) + osh.u32(0)].xyz
         vertex_b = vertices[primitive * osh.u32(3) + osh.u32(1)].xyz
@@ -7047,7 +7116,7 @@ def wavefront_intersect(
             osh.cross(vertex_b - vertex_a, vertex_c - vertex_a)
         )
         hit_queue.hits[hit_index].primitive_index = primitive
-        hit_queue.hits[hit_index].barycentrics = query.barycentrics(True)
+        hit_queue.hits[hit_index].barycentrics = query.texcoord.xy
     else:
         hit_queue.hits[hit_index].position_t = osh.vec4(0.0, 0.0, 0.0, -1.0)
         hit_queue.hits[hit_index].geometric_normal = osh.vec3(0.0)
@@ -7067,26 +7136,17 @@ def wavefront_intersect_bucketed(
     ray_index = osh.global_invocation_id.x
     if ray_index >= osh.minimum(ray_queue.ray_count, ray_queue.ray_capacity):
         return
-    query = osh.ray_query()
-    query.initialize(
-        scene_tlas, osh.u32(1), osh.u32(0x01),
-        ray_queue.rays[ray_index].origin_tmin.xyz,
-        ray_queue.rays[ray_index].origin_tmin.w,
-        ray_queue.rays[ray_index].direction_tmax.xyz,
-        ray_queue.rays[ray_index].direction_tmax.w,
-    )
-    while query.proceed():
-        pass
+    query = nativeTraceSurface(ray_queue.rays[ray_index].origin_tmin.xyz, ray_queue.rays[ray_index].origin_tmin.w, ray_queue.rays[ray_index].direction_tmax.xyz, ray_queue.rays[ray_index].direction_tmax.w, False, nativeSurfaceMask())
     hit = WaveHit(
         osh.vec4(0.0, 0.0, 0.0, -1.0), osh.vec3(0.0),
         osh.u32(0xFFFFFFFF), osh.vec2(0.0), ray_index,
         ray_queue.rays[ray_index].path_index,
     )
     textured = False
-    if query.intersection_type(True) == osh.u32(1):
-        distance = query.intersection_t(True)
+    if query.address.w == osh.u32(1):
+        distance = query.position_distance.w
         primitive = (
-            query.primitive_index(True) + query.instance_custom_index(True)
+            query.address.y + query.address.z
         )
         vertex_a = vertices[primitive * osh.u32(3)].xyz
         vertex_b = vertices[primitive * osh.u32(3) + osh.u32(1)].xyz
@@ -7100,7 +7160,7 @@ def wavefront_intersect_bucketed(
             osh.cross(vertex_b - vertex_a, vertex_c - vertex_a)
         )
         hit.primitive_index = primitive
-        hit.barycentrics = query.barycentrics(True)
+        hit.barycentrics = query.texcoord.xy
         textured = (
             osh.any_value(materials[primitive].texture_indices >= osh.vec4(0.0))
             or materials[primitive].texture_parameters.y >= 0.0
@@ -7292,8 +7352,18 @@ def generated_source(shader, helpers=()):
     if shader in (ray_query, ray_query_image, wavefront_shade_candidate):
         helpers = tuple(helpers) + (waveSetMaterialAttributes,)
     if shader is wavefront_shade_candidate:
-        helpers += (shadeCaptureSecondary,)
-    source = osh.compile(shader, helpers=helpers).source
+        helpers += (shadeCaptureSecondary, ordinarylightDielectric, nativeAreaLightCount, nativeEmitterValid,)
+    uses_native_query = any(
+        'nativeTraceSurface' in helper.function.__code__.co_names
+        for helper in (shader, *helpers)
+    )
+    if uses_native_query:
+        helpers = tuple(helpers) + (nativeIntersectionMiss, nativeSurfaceMask, nativeBoundaryEnabled, nativeTraceSurface)
+    source = osh.compile(shader, helpers=helpers,
+                         externals=((nativeIntersectCandidate, nativeEvaluateBoundary, nativeEvaluateMaterial,
+                                        nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)
+                                    if shader is wavefront_shade_candidate else (nativeIntersectCandidate, nativeEvaluateBoundary,))
+                                   if uses_native_query else ()).source
     if shader is wavefront_shade_candidate:
         volume_defaults = """\
 #ifndef WAVE_SURFACE_ONLY

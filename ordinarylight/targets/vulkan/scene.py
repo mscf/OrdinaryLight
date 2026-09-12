@@ -83,7 +83,7 @@ class _SampledSceneView:
 class VulkanSceneResources:
     """Owns one uploaded scene's buffers and acceleration structures."""
 
-    def __init__(self, core, scene, *, config=None):
+    def __init__(self, core, scene, *, config=None, acceleration=None, buffers=None):
         from ...runtime.vulkan import VulkanRuntime
         if isinstance(core, VulkanRuntime):
             core = VulkanSceneUploader(core, config=config)
@@ -93,6 +93,26 @@ class VulkanSceneResources:
         self.runtime = core.runtime
         self._core = core
         self._borrowers = set()
+        self.content_revision = 0
+        self.binding_revision = 0
+        self._external_buffers = {}
+        self._external_tlas = None
+        supplied = dict(buffers or {})
+        if supplied and acceleration is None:
+            raise ValueError("Imported scene buffers require an application-owned TLAS")
+        if acceleration is not None:
+            self._validate_acceleration(acceleration)
+        from ...runtime.resources import VulkanBuffer
+        names = {"vertex", "previous_vertex", "material", "light", "area_light",
+                 "attribute", "custom_attribute", "texture", "texture_binding",
+                 "volume_header", "volume_scalar", "volume_transfer", "triangle_volume"}
+        for name, allocation in supplied.items():
+            if name not in names:
+                raise ValueError(f"Unknown native scene buffer: {name}")
+            if (not isinstance(allocation, VulkanBuffer) or allocation.runtime is not self.runtime
+                    or not allocation.usage & vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT):
+                raise ValueError("Imported scene buffers require same-runtime storage buffers")
+            allocation.require_open()
         self._sampled_resource_cache = {}
         self.scene = scene
         self.scene_revision = scene.revision
@@ -105,8 +125,18 @@ class VulkanSceneResources:
         buffer_start = len(core._buffers)
         structure_start = len(core._structures)
         texture_start = len(core._sampled_textures)
+        retained = []
         try:
-            self.tlas = core._build_scene(scene)
+            owners = set(supplied.values())
+            if acceleration is not None:
+                owners.add(acceleration.owner)
+            for owner in owners:
+                owner.retain(self)
+                retained.append(owner)
+            if acceleration is None:
+                self.tlas = core._build_scene(scene)
+            else:
+                self.tlas = core._build_scene(scene, acceleration=acceleration, buffers=supplied)
         except Exception:
             core._release_resources(
                 core._structures[structure_start:], core._buffers[buffer_start:]
@@ -115,7 +145,11 @@ class VulkanSceneResources:
             del core._structures[structure_start:]
             del core._buffers[buffer_start:]
             del core._sampled_textures[texture_start:]
+            for owner in retained:
+                owner.release(self)
             raise
+        self._external_buffers = supplied
+        self._external_tlas = acceleration
         self.vertex_buffer = core.scene_vertex_buffer
         self.previous_vertex_buffer = core.scene_previous_vertex_buffer
         positions = scene.render_triangles().reshape((-1, 3))
@@ -218,6 +252,107 @@ class VulkanSceneResources:
             raise ValueError(f"Scene does not have a {name} buffer")
         return VulkanResource(self, "buffer", buffer.buffer, buffer.size)
 
+    def notify_content_changed(self, *, after=(), invalidate_history=True):
+        """Publish in-place GPU content/AS updates without replacing bindings.
+
+        Producers must already be submitted on this runtime queue. Native/graph
+        resource barriers provide GPU ordering; this method does not CPU-wait.
+        Keep packing, capacity and compiled material/geometry capabilities fixed.
+        Update previous geometry coherently when retaining motion history.
+        """
+        from ...runtime.resources import VulkanCompletion
+        with self.runtime.lock:
+            self.require_open()
+            if any(getattr(owner, "gi_frame_prepared", False) for owner in self._borrowers):
+                raise RuntimeError("Submit or cancel prepared GI frames before publishing scene updates")
+            if any(not isinstance(c, VulkanCompletion) or c.runtime is not self.runtime for c in after):
+                raise ValueError("Scene producers must be completions from this runtime queue")
+            self.content_revision += 1
+            if invalidate_history:
+                for owner in self._borrowers:
+                    reset = getattr(owner, "_invalidate_scene_history", None)
+                    if callable(reset):
+                        reset()
+            return self.content_revision
+
+    def _validate_acceleration(self, acceleration):
+        from ...pipeline.vulkan import VulkanResource
+        if (not isinstance(acceleration, VulkanResource)
+                or acceleration.kind != "acceleration_structure"
+                or acceleration.owner is self
+                or getattr(acceleration.owner, "runtime", None) is not self.runtime
+                or not callable(getattr(acceleration.owner, "retain", None))
+                or not callable(getattr(acceleration.owner, "release", None))):
+            raise ValueError("TLAS requires a leased same-runtime acceleration resource")
+        acceleration.owner.require_open()
+
+    def replace_resources(self, *, buffers=None, acceleration=None):
+        """Replace native-layout buffers and/or TLAS at an explicit idle boundary.
+
+        Supplied buffers are VulkanBuffers on this runtime with unchanged byte
+        capacities. ``acceleration`` is a same-runtime acceleration-structure
+        VulkanResource whose owner implements retain/release. The caller owns
+        these allocations; this scene borrows them until replacement or close.
+        Close external kernels borrowing this scene before replacing bindings.
+        Recompile application graphs after binding_revision changes. This is
+        native scene ABI replacement, not a custom intersection program API.
+        """
+        from ...runtime.resources import VulkanBuffer
+        with self.runtime.lock:
+            self.require_open()
+            supplied = dict(buffers or {})
+            if not supplied and acceleration is None:
+                return self.binding_revision
+            consumers = tuple(self._borrowers)
+            if any(not callable(getattr(c, "_activate_scene_resources", None)) for c in consumers):
+                raise RuntimeError("Close external scene-binding consumers before replacement")
+            if any(getattr(c, "gi_frame_prepared", False) for c in consumers):
+                raise RuntimeError("Submit or cancel prepared GI frames before replacement")
+            current = self.bindings
+            for name, allocation in supplied.items():
+                if name not in current or current[name] is None:
+                    raise ValueError(f"Unknown or absent native scene buffer: {name}")
+                if (not isinstance(allocation, VulkanBuffer) or allocation.runtime is not self.runtime
+                        or allocation.byte_size != current[name].size
+                        or not allocation.usage & vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT):
+                    raise ValueError("Replacement buffers must preserve runtime, storage usage and byte capacity")
+                allocation.require_open()
+            if acceleration is not None:
+                self._validate_acceleration(acceleration)
+            new_owners = set(supplied.values())
+            if acceleration is not None:
+                new_owners.add(acceleration.owner)
+            old_owners = set(self._external_buffers.values())
+            if self._external_tlas is not None:
+                old_owners.add(self._external_tlas.owner)
+            retained = []
+            try:
+                for owner in new_owners - old_owners:
+                    owner.retain(self)
+                    retained.append(owner)
+                vk.vkQueueWaitIdle(self.runtime.queue)
+            except BaseException:
+                for owner in retained:
+                    owner.release(self)
+                raise
+            for name, allocation in supplied.items():
+                self._external_buffers[name] = allocation
+                setattr(self, name + "_buffer", allocation)
+            if acceleration is not None:
+                self._external_tlas = acceleration
+                self.tlas = AccelerationStructure(acceleration.handle, None)
+            self.binding_revision += 1
+            self.content_revision += 1
+            for consumer in consumers:
+                consumer._activate_scene_resources(self)
+                consumer._invalidate_scene_history()
+            live_owners = set(self._external_buffers.values())
+            if self._external_tlas is not None:
+                live_owners.add(self._external_tlas.owner)
+            for owner in old_owners - live_owners:
+                owner.release(self)
+            return self.binding_revision
+
     def sampled_resources(self, kind, *, count=None):
         """Borrow (sampled image, sampler) pairs in native descriptor order.
 
@@ -282,6 +417,13 @@ class VulkanSceneResources:
         self._structures.clear()
         self._buffers.clear()
         self._sampled_textures.clear()
+        external = set(self._external_buffers.values())
+        if self._external_tlas is not None:
+            external.add(self._external_tlas.owner)
+        for owner in external:
+            owner.release(self)
+        self._external_buffers.clear()
+        self._external_tlas = None
         self._core = None
         self.runtime.release(self)
 
@@ -1177,49 +1319,63 @@ class VulkanSceneUploader:
             lambda command: self.build_as(command, 1, [build], ranges)
         )
 
-    def _build_scene(self, scene):
+    def _build_scene(self, scene, *, acceleration=None, buffers=None):
         stage_start = time.perf_counter()
         programs, default_program = self._ensure_scene_pipeline(scene)
         custom_attribute_layout = self._material_attribute_layout(
             scene, programs, self.config.material_modifier
         )
         triangles = scene.render_triangles()
-        if not len(triangles):
+        if not len(triangles) and acceleration is None:
             raise ValueError("Vulkan ray-query rendering requires at least one triangle")
+        supplied = dict(buffers or {})
+
+        def upload(name, data, usage, *, device_address=False):
+            payload = np.ascontiguousarray(data)
+            if name in supplied:
+                allocation = supplied.pop(name)
+                if allocation.byte_size < (payload.nbytes or 16):
+                    raise ValueError(f"Imported {name} buffer is smaller than the native scene ABI")
+                return allocation
+            # Empty bindings remain valid Vulkan descriptors, but contain no
+            # scene primitives and never cause an acceleration build.
+            if payload.nbytes == 0:
+                payload = np.zeros(4, np.uint32)
+            return self._create_uploaded_device_buffer(payload, usage, device_address=device_address)
         positions = triangles.reshape((-1, 3))
         vertices = np.ascontiguousarray(
             np.column_stack((positions, np.ones(len(positions), dtype=np.float32))),
             dtype=np.float32,
         )
-        vertex_buffer = self._create_uploaded_device_buffer(
-            vertices,
+        vertex_buffer = upload(
+            "vertex", vertices,
             vk.VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
             | BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
             | vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             device_address=True,
         )
         self.scene_vertex_buffer = vertex_buffer
-        self.scene_previous_vertex_buffer = self._create_uploaded_device_buffer(
-            vertices, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        self.scene_previous_vertex_buffer = upload(
+            "previous_vertex", vertices, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         material_data = scene.triangle_material_data(programs, default_program)
-        self.scene_material_buffer = self._create_uploaded_device_buffer(
-            material_data,
+        self.scene_material_buffer = upload(
+            "material", material_data,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         light_data = scene.analytic_light_data()
-        self.scene_light_buffer = self._create_uploaded_device_buffer(
-            light_data,
+        self.scene_light_buffer = upload(
+            "light", light_data,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         area_light_data = scene.emissive_triangle_data()
-        self.scene_area_light_buffer = self._create_uploaded_device_buffer(
-            area_light_data,
+        self.scene_area_light_buffer = upload(
+            "area_light", area_light_data,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         attribute_data = scene.triangle_attribute_data()
-        self.scene_attribute_buffer = self._create_uploaded_device_buffer(
-            attribute_data,
+        self.scene_attribute_buffer = upload(
+            "attribute", attribute_data,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         self.scene_custom_attribute_layout = custom_attribute_layout
@@ -1229,8 +1385,8 @@ class VulkanSceneUploader:
             if custom_attribute_data.nbytes == 0:
                 custom_attribute_data = np.zeros(4, np.float32)
             self.scene_custom_attribute_buffer = (
-                self._create_uploaded_device_buffer(
-                    custom_attribute_data,
+                upload(
+                    "custom_attribute", custom_attribute_data,
                     vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                 )
             )
@@ -1241,9 +1397,9 @@ class VulkanSceneUploader:
             if self.native_textures_enabled
             else scene.texture_data()
         )
-        if self.config.wavefront_device_local_textures:
-            self.scene_texture_buffer = self._create_uploaded_device_buffer(
-                texture_data, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        if self.config.wavefront_device_local_textures or "texture" in supplied:
+            self.scene_texture_buffer = upload(
+                "texture", texture_data, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
             )
         else:
             self.scene_texture_buffer = self._create_buffer(
@@ -1254,8 +1410,8 @@ class VulkanSceneUploader:
                 data=texture_data,
             )
         texture_binding_data = scene.texture_binding_data()
-        self.scene_texture_binding_buffer = self._create_uploaded_device_buffer(
-            texture_binding_data,
+        self.scene_texture_binding_buffer = upload(
+            "texture_binding", texture_binding_data,
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         from ...volume import pack_volumes
@@ -1266,17 +1422,17 @@ class VulkanSceneUploader:
         self.scene_volume_empty_space_skipping = bool(
             np.any(volume_headers["acceleration_parameters"][:, 1:] > 0)
         )
-        self.scene_volume_header_buffer = self._create_uploaded_device_buffer(
-            volume_headers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        self.scene_volume_header_buffer = upload(
+            "volume_header", volume_headers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
-        self.scene_volume_scalar_buffer = self._create_uploaded_device_buffer(
-            volume_scalars, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        self.scene_volume_scalar_buffer = upload(
+            "volume_scalar", volume_scalars, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
-        self.scene_volume_transfer_buffer = self._create_uploaded_device_buffer(
-            volume_transfers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        self.scene_volume_transfer_buffer = upload(
+            "volume_transfer", volume_transfers, vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
-        self.scene_triangle_volume_buffer = self._create_uploaded_device_buffer(
-            scene.triangle_volume_indices(),
+        self.scene_triangle_volume_buffer = upload(
+            "triangle_volume", scene.triangle_volume_indices(),
             vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         )
         if len(scene.visible_volumes) > MAX_NATIVE_VOLUMES:
@@ -1312,6 +1468,14 @@ class VulkanSceneUploader:
         self.last_timings["scene_upload_ms"] = (
             time.perf_counter() - stage_start
         ) * 1000.0
+        if supplied:
+            raise ValueError(f"Scene has no native binding for: {', '.join(sorted(supplied))}")
+        if acceleration is not None:
+            self.scene_blases = []
+            self.scene_instances = []
+            self.scene_instance_buffer = None
+            self.last_timings["scene_acceleration_ms"] = 0.0
+            return AccelerationStructure(acceleration.handle, None)
         stage_start = time.perf_counter()
         blases = []
         instances = []

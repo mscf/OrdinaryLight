@@ -35,6 +35,7 @@ class RendererConfig:
     material_program: MaterialProgram | None = None
     material_modifier: object | None = None
     material_resources: object | None = None
+    geometry_resources: object | None = None
     samples_per_pixel: int = 1
     progressive_accumulation: bool = False
     stationary_accumulation: bool = False
@@ -105,6 +106,8 @@ class RendererConfig:
     vulkan_pipeline_cache: bool = True
     vulkan_pipeline_cache_path: str | None = None
     wavefront_hdr_capture: bool = False
+    wavefront_raw_hdr_output: bool = False
+    wavefront_primary_hits: bool = False
     wavefront_upscale_filter: str = "bilinear"
     wavefront_render_scale: float = 1.0
     wavefront_interactive_render_scale: float | None = None
@@ -190,6 +193,20 @@ class RendererConfig:
             raise ValueError("present_mode must be 'mailbox', 'immediate', or 'fifo'")
         if self.swapchain_images < 0:
             raise ValueError("swapchain_images cannot be negative")
+        if self.geometry_resources is not None:
+            from ...geometry.native import VulkanNativeGeometryResources
+            if not isinstance(self.geometry_resources, VulkanNativeGeometryResources):
+                raise TypeError("geometry_resources must be VulkanNativeGeometryResources")
+            if (self.wavefront_execution_strategy not in {"auto", "wavefront"}
+                    or not self.wavefront_ordinaryshade_shade or self.wavefront_custom_inline
+                    or not self.wavefront_fused_secondary or self.wavefront_material_bucketing):
+                raise ValueError("Native custom geometry currently requires ordinaryshade wavefront shading without inline continuation")
+            if any((self.wavefront_indirect_reuse_candidates,
+                    self.wavefront_indirect_reuse_temporal, self.wavefront_indirect_reuse_spatial,
+                    self.wavefront_indirect_reuse_apply)):
+                raise ValueError("Custom geometry indirect reservoir reuse is not yet supported")
+            if self.material_modifier is not None or self.material_resources is not None:
+                raise ValueError("Native custom geometry supplies its own evaluated materials")
         if self.material_resources is not None:
             from ...materials import VulkanMaterialResources
             if not isinstance(self.material_resources, VulkanMaterialResources):
@@ -659,6 +676,12 @@ class RendererConfig:
             raise ValueError("ser execution requires wavefront_ser=True")
         if not isinstance(self.wavefront_hdr_capture, bool):
             raise TypeError("wavefront_hdr_capture must be a bool")
+        if not isinstance(self.wavefront_raw_hdr_output, bool):
+            raise TypeError("wavefront_raw_hdr_output must be a bool")
+        if not isinstance(self.wavefront_primary_hits, bool):
+            raise TypeError("wavefront_primary_hits must be a bool")
+        if self.wavefront_primary_hits and self.wavefront_execution_strategy not in {"auto", "wavefront"}:
+            raise ValueError("Primary hit outputs require the wavefront execution strategy")
         if not isinstance(self.wavefront_pipeline_statistics, bool):
             raise TypeError("wavefront_pipeline_statistics must be a bool")
         if not isinstance(self.vulkan_pipeline_cache, bool):
@@ -680,7 +703,7 @@ class RendererConfig:
 
 def _resolve_execution_strategy(config, scene):
     """Choose an execution kernel without changing rendered results."""
-    if config.material_resources is not None:
+    if config.material_resources is not None or config.geometry_resources is not None or config.wavefront_primary_hits:
         return "wavefront"
     if config.wavefront_execution_strategy != "auto":
         return config.wavefront_execution_strategy
@@ -1677,6 +1700,13 @@ class VulkanGlfwPresenter:
         self.device_name = self._core.device_name
         self._output_history = None
 
+    @property
+    def runtime(self):
+        """Borrow the presenter's runtime for same-device graph composition."""
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        return self._core.runtime
+
     @staticmethod
     def _project_positions(positions, camera, width, height):
         return _VulkanGlobalIlluminationEngine._project_positions(
@@ -1851,23 +1881,113 @@ class VulkanGlfwPresenter:
             samples=samples,
         )
 
-    def set_gi_pipeline_builder(self, builder=None):
-        """Customize native GI recording with builder(default_pipeline, frame).
+    def invalidate_gi_commands(self):
+        """Re-record each GI frame slot on its next use, retaining history.
 
-        The builder returns a RenderPipeline; its stages borrow this presenter's
-        resources and record on its command buffer. Custom builders disable
-        command reuse. Pass None to restore the default composition. Call only
-        between frames, with no concurrent presentation in progress.
+        Call between frames after changing an application's recorded constants,
+        dispatch sizes or resource bindings. This does not wait for the GPU and
+        does not permit freeing resources still referenced by submitted work.
+        In-place GPU content updates alone do not require re-recording.
         """
-        if builder is not None and not callable(builder):
-            raise TypeError("GI pipeline builder must be callable or None")
-        self._core.gi_pipeline_builder = builder
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
         for frame in self._core.window_frames:
             frame["wavefront_command_key"] = None
+
+    def reconfigure(self, **changes):
+        """Apply supported GI settings between frames and reject old history.
+
+        Resolution/sample-capacity changes rebuild frame resources on the next
+        present call, after their GPU consumers retire. Other settings listed in
+        the error require a new presenter. Camera pose and output extent are
+        supplied to present_wavefront rather than stored in RendererConfig.
+        """
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        unsupported = set(changes) - _VulkanGlobalIlluminationEngine._HOT_SETTINGS
+        if unsupported:
+            raise ValueError("Presenter recreation required for settings: "
+                             + ", ".join(sorted(unsupported)))
+        updated = replace(self.config, **changes)
+        if updated == self.config:
+            return self.config
+        # Adaptive controllers retain their prepared bounds. Replacing these
+        # bounds requires rebuilding their controller alongside configuration.
+        adaptive_bounds = {
+            "samples_per_pixel", "wavefront_render_scale", "wavefront_interactive_render_scale",
+        }
+        if (set(changes) & adaptive_bounds and any(
+            getattr(self._core, name, None) is not None for name in (
+                "dynamic_resolution", "interactive_dynamic_resolution", "interactive_dynamic_samples",
+            )
+        )):
+            raise ValueError("Presenter recreation required to change adaptive controller bounds")
+        if any(getattr(updated, name) != getattr(self.config, name)
+               for name in ("samples_per_pixel", "wavefront_render_scale")):
+            self._core.swapchain_extent = None
+        self.config = updated
+        self._core.config = updated
+        self.invalidate_gi_history()
+        return updated
+
+    def invalidate_gi_history(self):
+        """Reject all temporal GI input after a cut or a content discontinuity.
+
+        Call between frames. Allocations and in-flight synchronization are
+        preserved; the next use of each slot starts new history. This is not a
+        GPU wait and does not make resident resources safe to overwrite.
+        """
+        self.invalidate_gi_commands()
+        for frame in self._core.window_frames:
             for name in ("wavefront_history_valid", "wavefront_relax_history_valid",
                          "wavefront_reservoir_valid", "wavefront_indirect_reservoir_valid"):
                 frame[name] = False
+        self._core.wavefront_previous_present_camera = None
         self._core.reset_accumulation()
+
+    def wait_idle(self):
+        """Wait for this runtime's queue before replacing borrowed resources.
+
+        This is an explicit lifetime boundary, not part of stage execution.
+        Applications using other queues must retire those consumers separately.
+        """
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        import vulkan as vk
+        with self._core.runtime.lock:
+            vk.vkQueueWaitIdle(self._core.queue)
+
+    def use_scene_resources(self, resources):
+        """Bind a resident triangle scene from this presenter's runtime.
+
+        Waits before changing bindings. The scene remains application-owned;
+        retain it until unbound or presenter close. This accepts native resident
+        scene snapshots, not arbitrary application acceleration structures.
+        """
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        self._core.use_scene_resources(resources)
+
+    def set_gi_pipeline_builder(self, builder=None, *, reuse_commands=False):
+        """Customize native GI recording with builder(default_pipeline, frame).
+
+        The builder returns a RenderPipeline; its stages borrow this presenter's
+        resources and record on its command buffer. With reuse_commands=True,
+        callbacks run only when a frame slot needs recording. Use persistent
+        resources and uniforms for changing data; call invalidate_gi_commands()
+        when recorded constants or bindings change. The default calls the
+        builder every frame. Pass None to restore the default composition.
+        Call only between frames, with no concurrent presentation in progress.
+        """
+        if builder is not None and not callable(builder):
+            raise TypeError("GI pipeline builder must be callable or None")
+        if not isinstance(reuse_commands, bool):
+            raise TypeError("reuse_commands must be bool")
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        self._core.gi_pipeline_builder = builder
+        self._core.gi_reuse_commands = reuse_commands
+        self.invalidate_gi_history()
 
     def present_wavefront(
         self, scene, camera, width, height, *, render_extent=None,

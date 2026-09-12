@@ -33,22 +33,29 @@ class AccumulationConstants:
     capacity: osh.u32
 
 
-@osh.compute(workgroup_size=(8, 8, 1))
-def external_hdr_tone_map(
-    hdr: osh.storage_image('rgba32f', access='read', binding=0),
-    output_image: osh.storage_image('rgba8', access='write', binding=1),
-    push: osh.push_constants(ToneConstants),
-):
-    pixel = osh.ivec2(osh.global_invocation_id.xy)
-    extent = output_image.size()
-    if pixel.x >= extent.x or pixel.y >= extent.y:
-        return
-    x = osh.maximum(hdr.load(pixel).rgb, osh.vec3(0.0)) * push.exposure
-    color = osh.clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14),
-                      osh.vec3(0.0), osh.vec3(1.0))
-    color = osh.select(color <= osh.vec3(0.0031308), 12.92 * color,
-                       1.055 * osh.power(color, osh.vec3(1.0 / 2.4)) - 0.055)
-    output_image.store(pixel, osh.vec4(color, 1.0))
+def _tone_map_program(format):
+    """Specialize only the storage format; both inputs use the same display transform."""
+    @osh.compute(workgroup_size=(8, 8, 1))
+    def external_hdr_tone_map(
+        hdr: osh.storage_image(format, access='read', binding=0),
+        output_image: osh.storage_image('rgba8', access='write', binding=1),
+        push: osh.push_constants(ToneConstants),
+    ):
+        pixel = osh.ivec2(osh.global_invocation_id.xy)
+        extent = output_image.size()
+        if pixel.x >= extent.x or pixel.y >= extent.y:
+            return
+        x = osh.maximum(hdr.load(pixel).rgb, osh.vec3(0.0)) * push.exposure
+        color = osh.clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14),
+                          osh.vec3(0.0), osh.vec3(1.0))
+        color = osh.select(color <= osh.vec3(0.0031308), 12.92 * color,
+                           1.055 * osh.power(color, osh.vec3(1.0 / 2.4)) - 0.055)
+        output_image.store(pixel, osh.vec4(color, 1.0))
+    return external_hdr_tone_map
+
+
+external_hdr_tone_map = _tone_map_program('rgba32f')
+external_hdr_tone_map_16f = _tone_map_program('rgba16f')
 
 
 @osh.compute(workgroup_size=(8, 8, 1))
@@ -128,7 +135,7 @@ def accumulation_resolve(
 
 
 PROGRAMS = {name: globals()[name] for name in (
-    'external_hdr_tone_map', 'fsr2_prepare', 'primary_metadata', 'accumulation_resolve',
+    'external_hdr_tone_map', 'external_hdr_tone_map_16f', 'fsr2_prepare', 'primary_metadata', 'accumulation_resolve',
 )}
 
 

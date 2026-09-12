@@ -2,19 +2,17 @@
 // Edit the typed Python source, not this generated GLSL.
 #ifndef ORDINARYLIGHT_ORDINARYSHADE_PRIMARY_GLSL
 #define ORDINARYLIGHT_ORDINARYSHADE_PRIMARY_GLSL 1
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+uint nativeSurfaceMask();
 void ordinarylight_secondary_trace_query(vec3 origin, vec3 direction, inout bool surface_hit, inout float distance, inout uint primitive, inout vec2 barycentrics)
 {
-    rayQueryEXT query;
-    rayQueryInitializeEXT(query, scene_tlas, uint(1), uint(1), origin, 0.001, direction, 1e+30);
-    while (rayQueryProceedEXT(query))
-    {
-    }
-    surface_hit = (rayQueryGetIntersectionTypeEXT(query, true) == uint(1));
+    NativeIntersection query = nativeTraceSurface(origin, 0.001, direction, 1e+30, false, nativeSurfaceMask());
+    surface_hit = (query.address.w == uint(1));
     if (surface_hit)
     {
-        distance = rayQueryGetIntersectionTEXT(query, true);
-        primitive = (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-        barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+        distance = query.position_distance.w;
+        primitive = (query.address.y + query.address.z);
+        barycentrics = query.texcoord.xy;
     }
 }
 #if WAVE_SER

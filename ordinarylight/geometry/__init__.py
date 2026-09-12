@@ -41,3 +41,9 @@ __all__ = [
     "SurfaceSamplingProgram",
     "intersect_triangle",
 ]
+
+from .native import (
+    NativeGeometryBuffer, NativeGeometryProgram, VulkanNativeGeometryResources,
+    NativeIntersection, NativeOpticalBoundary, NativeEmitterProgram, NativeEmitterSample, MaterialData as NativeMaterial, nativeIntersectionMiss,
+)
+__all__ += ["NativeEmitterProgram", "NativeEmitterSample", "NativeOpticalBoundary", "NativeGeometryBuffer", "NativeGeometryProgram", "VulkanNativeGeometryResources", "NativeIntersection", "NativeMaterial", "nativeIntersectionMiss"]

@@ -8,6 +8,7 @@ from .._presentation import (
 
 import math
 import struct
+from operator import index
 
 import vulkan as vk
 
@@ -53,21 +54,25 @@ class VulkanOutputFrame:
 class VulkanToneMapTarget(VulkanOutputFrame):
     """Persistent tone-map image/pipeline; operations can join an application graph."""
 
-    def __init__(self, runtime, hdr, *, exportable=False):
+    def __init__(self, runtime, hdr, *, exportable=False, extent=None):
         hdr.require_open()
         if (
             hdr.runtime is not runtime
-            or hdr.format != vk.VK_FORMAT_R32G32B32A32_SFLOAT
+            or hdr.format not in (vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+                                  vk.VK_FORMAT_R16G16B16A16_SFLOAT)
             or not hdr.usage & vk.VK_IMAGE_USAGE_STORAGE_BIT
         ):
-            raise ValueError("Tone mapping requires same-runtime RGBA32F storage HDR")
+            raise ValueError("Tone mapping requires same-runtime RGBA16F or RGBA32F storage HDR")
+        extent = (hdr.width, hdr.height) if extent is None else tuple(map(index, extent))
+        if (len(extent) != 2 or min(extent) < 1
+                or extent[0] > hdr.width or extent[1] > hdr.height):
+            raise ValueError("Tone-map extent must fit inside the HDR image")
         self.runtime, self.hdr = runtime, hdr
         self.closed = False
         self.completion = None
         self.kernel = None
         self.image = runtime.image(
-            hdr.width,
-            hdr.height,
+            *extent,
             format=vk.VK_FORMAT_R8G8B8A8_UNORM,
             exportable=exportable,
         )
@@ -75,7 +80,9 @@ class VulkanToneMapTarget(VulkanOutputFrame):
             self.kernel = VulkanKernel(
                 runtime,
                 files("ordinarylight.shaders")
-                .joinpath("external_hdr_tone_map.comp.spv")
+                .joinpath("external_hdr_tone_map_16f.comp.spv"
+                          if hdr.format == vk.VK_FORMAT_R16G16B16A16_SFLOAT
+                          else "external_hdr_tone_map.comp.spv")
                 .read_bytes(),
                 {0: VulkanResource.image(hdr), 1: VulkanResource.image(self.image)},
                 push_constant_size=4,
@@ -117,7 +124,7 @@ class VulkanToneMapTarget(VulkanOutputFrame):
                     lambda command: self.kernel.bind(
                         command, struct.pack("f", exposure)
                     ),
-                    ((self.hdr.width + 7) // 8, (self.hdr.height + 7) // 8, 1),
+                    ((self.image.width + 7) // 8, (self.image.height + 7) // 8, 1),
                 )
             ],
             validate=self.require_open,
@@ -159,7 +166,7 @@ class _SwapchainImage:
 
 
 class VulkanOutput:
-    """Reusable output stage accepting linear RGBA32F storage images.
+    """Reusable output stage accepting linear RGBA16F/RGBA32F storage images.
 
     ``after`` is mandatory: pass the producer's completion. No tracing,
     accumulation, scene upload, or GI initialization occurs on this path.
@@ -186,9 +193,9 @@ class VulkanOutput:
         if self.closed:
             raise RuntimeError("Vulkan output is closed")
 
-    def prepare(self, hdr, *, exportable=False):
+    def prepare(self, hdr, *, exportable=False, extent=None):
         self._require_open()
-        return VulkanToneMapTarget(self.runtime, hdr, exportable=exportable)
+        return VulkanToneMapTarget(self.runtime, hdr, exportable=exportable, extent=extent)
 
     def tone_map(self, hdr, *, after, exposure=1.0, exportable=False):
         target = self.prepare(hdr, exportable=exportable)

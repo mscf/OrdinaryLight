@@ -69,6 +69,7 @@ class _NativeShadeKernel:
         self.executor, self.pipeline, self.descriptor = executor, pipeline, descriptor
         self.runtime = executor.core.runtime
         self.material_resources = executor.core.material_resources
+        self.geometry_resources = executor.core.geometry_resources
         self.bindings = descriptor.bindings
         self.image_arrays = descriptor.image_arrays
         self.sampled_image_arrays = descriptor.sampled_image_arrays
@@ -78,6 +79,8 @@ class _NativeShadeKernel:
         self.descriptor.require_open()
         if self.material_resources is not None:
             self.material_resources.require_open()
+        if self.geometry_resources is not None:
+            self.geometry_resources.require_open()
 
     def bind(self, command, constants):
         self.require_open()
@@ -86,6 +89,8 @@ class _NativeShadeKernel:
         self.descriptor.bind(command, layout)
         if self.material_resources is not None:
             self.material_resources.bind_graph(command, layout)
+        if self.geometry_resources is not None:
+            self.geometry_resources.bind(command, layout)
         raw = vk.ffi.new("uint8_t[]", constants)
         vk.vkCmdPushConstants(
             command, layout, vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, len(constants), raw

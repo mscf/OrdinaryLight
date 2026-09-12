@@ -23,6 +23,8 @@ def generated_source():
     # profileWork is implemented in this typed stage.
     values = {name: value for module in (transport_programs, primary, lighting_programs, p) for name, value in vars(module).items() if isinstance(value, osh.StructType)}
     values.update(scene_tlas=osh.acceleration_structure(), paths=osh.runtime_array(p.WavePathState),
+                  primary_hits=osh.runtime_array(p.PrimaryHitOutput),
+                  primary_history=osh.runtime_array(osh.vec4), previous_vertices=osh.runtime_array(osh.vec4),
                   secondary_paths=osh.runtime_array(p.SecondaryPathState), materials=osh.runtime_array(p.MaterialData),
                   vertices=osh.runtime_array(osh.vec4), attributes=osh.runtime_array(p.VertexAttributeData),
                   output_queue=p.OutputQueue, camera=p.CameraData, previous_camera=p.CameraData,

@@ -217,6 +217,7 @@ uint reserveOutputIndex()
 #define WAVE_VOLUME_TRANSFER_BINDING 19
 #define WAVE_VOLUME_TRIANGLE_BINDING 20
 #define WAVE_VOLUME_SAMPLER_BINDING 21
+#include "native_intersection.glsl"
 #include "wavefront_textures.glsl"
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"
@@ -233,6 +234,8 @@ MaterialEvaluation evaluateMaterial(inout MaterialData material, inout vec3 norm
 void integrateVolumesBeforeSurface(vec3 origin, vec3 direction, float surface_distance, inout vec3 radiance, inout vec3 throughput);
 bool materialHasTextures(MaterialData material);
 bool materialUsesUv1(MaterialData material);
+uint nativeSurfaceMask();
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
 uint pathBounce(WavePathState path);
 float pathPreviousPdf(WavePathState path);
 uint pathRng(WavePathState path);
@@ -276,24 +279,20 @@ void main()
         profile_bounce = min(pathBounce(paths[input_ray.path_index]), uint(7));
         profileWork(uint(0), uint(1));
 #endif
-        rayQueryEXT query;
-        rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, 1, input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w);
-        while (rayQueryProceedEXT(query))
-        {
-        }
+        NativeIntersection query = nativeTraceSurface(input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w, false, nativeSurfaceMask());
         hit.path_index = input_ray.path_index;
         hit.ray_index = hit_index;
-        if ((rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionTriangleEXT))
+        if ((query.address.w == gl_RayQueryCommittedIntersectionTriangleEXT))
         {
-            float distance = rayQueryGetIntersectionTEXT(query, true);
-            uint primitive = (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+            float distance = query.position_distance.w;
+            uint primitive = (query.address.y + query.address.z);
             vec3 a = vertices[((primitive * uint(3)) + uint(0))].xyz;
             vec3 b = vertices[((primitive * uint(3)) + uint(1))].xyz;
             vec3 c = vertices[((primitive * uint(3)) + uint(2))].xyz;
             hit.position_t = vec4((input_ray.origin_tmin.xyz + (distance * input_ray.direction_tmax.xyz)), distance);
             hit.geometric_normal = normalize(cross((b - a), (c - a)));
             hit.primitive_index = primitive;
-            hit.barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+            hit.barycentrics = query.texcoord.xy;
         }
         else
         {

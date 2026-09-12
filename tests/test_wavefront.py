@@ -118,6 +118,14 @@ class WavefrontLayoutTests(unittest.TestCase):
         ):
             with self.subTest(shader=name):
                 source = (shader_root / name).read_text()
+                if 'nativeTraceSurface(' in source:
+                    # Custom hit identity is separate from the packed triangle
+                    # address. Verify the shared query's committed-hit mapping.
+                    shared = (shader_root / 'native_intersection.glsl').read_text()
+                    self.assertIn('uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true)', shared)
+                    self.assertIn('uint instance_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)', shared)
+                    self.assertIn('hit.address = uvec4((primitive + instance_offset), primitive, instance_offset, kind)', shared)
+                    continue
                 queries = source.count(
                     "rayQueryGetIntersectionPrimitiveIndexEXT"
                 )

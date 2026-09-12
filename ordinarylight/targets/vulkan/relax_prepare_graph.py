@@ -19,7 +19,8 @@ class _NativePrepareKernel:
             (1, executor.secondary_path_buffer),
             (9, executor.camera_buffers[slot]),
             (10, executor.previous_camera_buffers[slot]),
-            (11, executor.core.scene_previous_vertex_buffer),
+            (11, frame["wavefront_primary_history_buffer"] if executor.core.config.geometry_resources is not None
+             else executor.core.scene_previous_vertex_buffer),
         ):
             self.bindings[binding] = VulkanResource.buffer(
                 _Binding(
@@ -106,6 +107,7 @@ def record_relax_prepare(
         stage = VulkanRelaxPrepare(
             executor.core.runtime,
             capacity=executor.capacity,
+            custom_history=executor.core.config.geometry_resources is not None,
             **{names[b]: resource.owner for b, resource in bindings.items()},
         )
         cached[slot] = (key, stage)

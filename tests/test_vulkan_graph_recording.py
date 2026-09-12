@@ -73,5 +73,26 @@ def test_recording_failure_cannot_publish_or_retry(monkeypatch):
         recording.record(None)
     with pytest.raises(RuntimeError, match="Record commands"):
         recording.submitted(None)
+
+
+def test_callback_failure_still_publishes_other_consumers(monkeypatch):
+    monkeypatch.setattr(vk, "vkCmdPipelineBarrier", lambda *a: None)
+    runtime = SimpleNamespace(require_open=lambda: None)
+    published = []
+
+    def fail(completion):
+        raise RuntimeError("application failed")
+
+    graph = VulkanGraph()
+    for name, callback in (("app", fail), ("kernel", published.append)):
+        graph.add(name, VulkanOperation(
+            [VulkanPass(name, (), lambda command: None)], submitted=callback,
+        ))
+    recording = graph.compile().prepare_recording(runtime)
+    recording.record(None)
+    completion = object()
+    with pytest.raises(RuntimeError, match="application failed"):
+        recording.submitted(completion)
+    assert published == [completion]
     with pytest.raises(RuntimeError, match="new recording"):
         recording.record(None)

@@ -12,6 +12,7 @@ if DEFAULT_ORDINARYSHADE.is_dir():
     sys.path.insert(0, str(DEFAULT_ORDINARYSHADE))
 
 import ordinaryshade as osh
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
 
 
 class OrdinarylightWaveRayABI:
@@ -167,18 +168,12 @@ def ordinarylight_secondary_trace_query(
     primitive: osh.inout(osh.u32),
     barycentrics: osh.inout(osh.vec2),
 ) -> osh.void:
-    query = osh.ray_query()
-    query.initialize(
-        scene_tlas, osh.u32(1), osh.u32(1), origin, 0.001,
-        direction, 1.0e30,
-    )
-    while query.proceed():
-        pass
-    surface_hit = query.intersection_type(True) == osh.u32(1)
+    query = nativeTraceSurface(origin, 0.001, direction, 1e+30, False, nativeSurfaceMask())
+    surface_hit = query.address.w == osh.u32(1)
     if surface_hit:
-        distance = query.intersection_t(True)
-        primitive = query.primitive_index(True) + query.instance_custom_index(True)
-        barycentrics = query.barycentrics(True)
+        distance = query.position_distance.w
+        primitive = query.address.y + query.address.z
+        barycentrics = query.texcoord.xy
 
 
 @osh.function
@@ -1872,8 +1867,10 @@ def generated_source():
         osh.compile_function(
             ordinarylight_secondary_trace_query,
             external_values={
-                "scene_tlas": osh.opaque_type("accelerationStructureEXT")
+                "scene_tlas": osh.opaque_type("accelerationStructureEXT"),
+                "NativeIntersection": NativeIntersection,
             },
+            externals=(osh.external(nativeTraceSurface.function), osh.external(nativeSurfaceMask.function),),
         ).source.rstrip(),
         "#if WAVE_SER\n"
         + osh.compile_function(

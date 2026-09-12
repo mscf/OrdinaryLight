@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 import ordinaryshade as osh
 
 from ordinarylight.denoising.kernels import (
-    prepare_decode_normal, prepare_previous_pixel, prepare_relax_signals,
+    prepare_decode_normal, prepare_previous_pixel, prepare_surface_history, prepare_relax_signals,
     prepare_unpack_normal, relax_atrous, relax_compose, relax_temporal,
 )
 
@@ -30,7 +30,7 @@ def _digest(payload):
     return hashlib.sha256(payload).hexdigest()
 
 
-def build_artifacts():
+def build_artifacts(*, wgsl_validator="naga"):
     files = {}
     manifest = {
         "schema": 1,
@@ -38,8 +38,13 @@ def build_artifacts():
         "source_sha256": _digest(SOURCE.read_bytes()),
         "targets": {},
     }
+    device = None
+    if wgsl_validator == "wgpu":
+        import wgpu
+        adapter = wgpu.gpu.request_adapter_sync()
+        device = adapter.request_device_sync()
     for target in ("spirv", "wgsl"):
-        options = {"target": target, "validate": True}
+        options = {"target": target, "validate": target != "wgsl" or device is None}
         if target == "spirv":
             from ordinarylight.shaders.compiler import find_glsl_compiler
 
@@ -52,7 +57,7 @@ def build_artifacts():
                 "prepare", prepare_relax_signals,
                 (
                     prepare_decode_normal, prepare_unpack_normal,
-                    prepare_previous_pixel,
+                    prepare_previous_pixel, prepare_surface_history,
                 ),
             ),
             ("temporal", relax_temporal, ()),
@@ -60,6 +65,9 @@ def build_artifacts():
             ("compose", relax_compose, ()),
         ):
             shader = osh.compile(kernel, helpers=helpers, **options)
+            if target == "wgsl" and device is not None:
+                module = device.create_shader_module(code=shader.source)
+                module.get_compilation_info_sync()
             suffix = "spv" if target == "spirv" else "wgsl"
             filename = f"denoiser_relax_{name}.comp.{suffix}"
             payload = (
@@ -83,9 +91,10 @@ def build_artifacts():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--wgsl-validator", choices=("naga", "wgpu"), default="naga")
     args = parser.parse_args()
     failures = []
-    for filename, payload in build_artifacts().items():
+    for filename, payload in build_artifacts(wgsl_validator=args.wgsl_validator).items():
         path = OUTPUT / filename
         if args.check:
             if not path.is_file() or path.read_bytes() != payload:

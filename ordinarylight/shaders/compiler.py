@@ -210,7 +210,8 @@ def compile_wavefront_material_shader(
     inline_continuation=False,
     material_modifier=None, material_resources=None,
     compiler=None, shared_primary_reservoirs=0, surface_only=False, opaque_primary=False,
-    production_restir=False, camera_restir_policy=False,
+    production_restir=False, camera_restir_policy=False, primary_hits=False,
+    geometry_program=None,
 ):
     compiler = compiler or find_glsl_compiler()
     if compiler is None:
@@ -228,6 +229,20 @@ def compile_wavefront_material_shader(
             inline_continuation=inline_continuation,
             material_modifier=material_modifier, material_resources=material_resources,
         )
+    if geometry_program is not None:
+        from ..geometry.native import NativeGeometryProgram
+        if not isinstance(geometry_program, NativeGeometryProgram):
+            raise TypeError("geometry_program must be NativeGeometryProgram")
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_GEOMETRY 1\n", 1)
+        if geometry_program.boundary is not None:
+            source = source.replace("#version 460\n", "#version 460\n#define WAVE_NATIVE_OPTICAL_BOUNDARIES 1\n", 1)
+        if geometry_program.emitters is not None:
+            source = source.replace("#version 460\n", "#version 460\n#define WAVE_NATIVE_EMITTERS 1\n", 1)
+        source += "\n" + geometry_program.source
+    if primary_hits:
+        if shader_name != "wavefront_primary.comp":
+            raise ValueError("primary hit outputs require a primary shader")
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_PRIMARY_HITS 1\n", 1)
     if surface_only:
         if shader_name not in ("wavefront_shade_candidate.glsl", "wavefront_primary.comp") or any((
             overlapping_volumes, scattering_volumes,

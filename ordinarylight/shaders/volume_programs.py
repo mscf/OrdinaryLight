@@ -1,5 +1,6 @@
 """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
 import ordinaryshade as osh
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
 from .transport_programs import PointLightData
 
 @osh.structure
@@ -191,11 +192,8 @@ def volumePhase(header: VolumeHeader, cosine: osh.f32) -> osh.f32:
 @osh.function
 def volumeOpaqueVisibility(world_position: osh.vec3, direction: osh.vec3, maximum_distance: osh.f32) -> osh.f32:
     shadow_distance = osh.maximum(maximum_distance - 0.004, 0.001) if maximum_distance < 1e+29 else 1e+30
-    shadow = osh.ray_query()
-    shadow.initialize(scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 1, world_position + direction * 0.002, 0.001, direction, shadow_distance)
-    while shadow.proceed():
-        pass
-    return 1.0 if shadow.intersection_type(True) == gl_RayQueryCommittedIntersectionNoneEXT else 0.0
+    shadow = nativeTraceSurface(world_position + direction * 0.002, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+    return 1.0 if shadow.address.w == gl_RayQueryCommittedIntersectionNoneEXT else 0.0
 
 @osh.function
 def approximateVolumeLightTransmittance(world_position: osh.vec3, light_direction: osh.vec3, light_distance: osh.f32) -> osh.f32:

@@ -186,6 +186,23 @@ class VulkanRuntime:
         with self.lock:
             return VulkanSceneResources(self, scene, config=config)
 
+    def import_scene(self, scene, *, acceleration, buffers=None, config=None):
+        """Borrow a resident TLAS and optional native-layout storage buffers.
+
+        ``scene`` supplies lighting, material capabilities and native packing
+        metadata; it may be empty. No BLAS or TLAS is built. Missing buffers are
+        uploaded from that metadata. The acceleration resource's owner must
+        retain all referenced BLAS allocations until the imported scene closes.
+        Publish same-queue GPU updates with ``notify_content_changed`` and use
+        ``replace_resources`` when handles change. This imports the native ABI;
+        it does not enable procedural intersection or material callbacks.
+        """
+        from ..targets.vulkan.scene import VulkanSceneResources
+
+        with self.lock:
+            return VulkanSceneResources(self, scene, config=config,
+                                        acceleration=acceleration, buffers=buffers)
+
     def close(self):
         with self.lock:
             if self._closed:

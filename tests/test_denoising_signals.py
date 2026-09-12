@@ -352,7 +352,7 @@ class DenoiserSignalTests(unittest.TestCase):
     def test_ordinary_shade_denoiser_kernels_compile_for_both_targets(self):
         import ordinaryshade as osh
         from ordinarylight.denoising.kernels import (
-            prepare_decode_normal, prepare_previous_pixel,
+            prepare_decode_normal, prepare_previous_pixel, prepare_surface_history,
             prepare_relax_signals, prepare_unpack_normal, relax_atrous,
             relax_compose, relax_temporal,
         )
@@ -366,7 +366,7 @@ class DenoiserSignalTests(unittest.TestCase):
                 if kernel is prepare_relax_signals:
                     helpers = (
                         prepare_decode_normal, prepare_unpack_normal,
-                        prepare_previous_pixel,
+                        prepare_previous_pixel, prepare_surface_history,
                     )
                 source = osh.compile(
                     kernel, target=target, validate=False, helpers=helpers,
@@ -409,7 +409,7 @@ class DenoiserSignalTests(unittest.TestCase):
     def test_prepare_kernel_emits_canonical_signal_outputs(self):
         import ordinaryshade as osh
         from ordinarylight.denoising.kernels import (
-            prepare_decode_normal, prepare_previous_pixel,
+            prepare_decode_normal, prepare_previous_pixel, prepare_surface_history,
             prepare_relax_signals, prepare_unpack_normal,
         )
 
@@ -417,7 +417,7 @@ class DenoiserSignalTests(unittest.TestCase):
             prepare_relax_signals, target="glsl", validate=False,
             helpers=(
                 prepare_decode_normal, prepare_unpack_normal,
-                prepare_previous_pixel,
+                prepare_previous_pixel, prepare_surface_history,
             ),
         ).source
         for name in (

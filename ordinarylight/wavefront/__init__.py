@@ -9,3 +9,4 @@ from .primary_metadata import PreparedPrimaryMetadata as PreparedPrimaryMetadata
 from .primary import PrimarySettings as PrimarySettings
 
 from .primary_bindings import PrimaryBinding as PrimaryBinding, primary_bindings as primary_bindings
+from .primary_outputs import PRIMARY_HIT_DTYPE as PRIMARY_HIT_DTYPE

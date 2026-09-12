@@ -72,14 +72,47 @@ def prepare_previous_pixel(
     aspect = osh.f32(extent.x) / osh.f32(extent.y)
     if depth <= 0.0001 or vertical_scale <= 0.0001:
         return osh.vec3(-1.0, -1.0, depth)
+    projection_scale = 1.0 if osh.i32(previous_camera.up.w + 0.5) == 1 else depth
     ndc = osh.vec2(
         osh.dot(offset, osh.normalize(previous_camera.right.xyz))
-        / (depth * aspect * vertical_scale),
+        / (projection_scale * aspect * vertical_scale),
         -osh.dot(offset, osh.normalize(previous_camera.up.xyz))
-        / (depth * vertical_scale),
+        / (projection_scale * vertical_scale),
     )
     pixel = (ndc * 0.5 + 0.5) * osh.vec2(extent) - 0.5
     return osh.vec3(pixel, depth)
+
+
+@osh.structure
+class PrepareSurfaceHistory:
+    previous_position: osh.vec3
+    identity: osh.u32
+    valid: osh.boolean
+
+
+@osh.function
+def prepare_surface_history(secondary: SecondaryPathState, pixel_index: osh.u32) -> PrepareSurfaceHistory:
+    primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
+    barycentrics = osh.vec2(osh.absolute(secondary.primary_geometry.y), secondary.primary_geometry.z)
+    weights = osh.vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y)
+    previous = (previous_vertices[primitive * osh.u32(3)].xyz * weights.x
+                + previous_vertices[primitive * osh.u32(3) + osh.u32(1)].xyz * weights.y
+                + previous_vertices[primitive * osh.u32(3) + osh.u32(2)].xyz * weights.z)
+    return PrepareSurfaceHistory(previous, osh.float_bits_to_uint(secondary.primary_geometry.w), True)
+
+
+@osh.function(name="prepare_surface_history")
+def prepare_custom_surface_history(secondary: SecondaryPathState, pixel_index: osh.u32) -> PrepareSurfaceHistory:
+    identity = osh.float_bits_to_uint(previous_vertices[pixel_index * osh.u32(2)])
+    previous = previous_vertices[pixel_index * osh.u32(2) + osh.u32(1)]
+    key = osh.u32(2166136261)
+    component = 0
+    while component < 4:
+        key = (key ^ identity[component]) * osh.u32(16777619)
+        component = component + 1
+    valid = previous.w > 0.5
+    valid = valid and not osh.any_value(osh.is_nan(previous.xyz)) and not osh.any_value(osh.is_inf(previous.xyz))
+    return PrepareSurfaceHistory(previous.xyz, key, valid)
 
 
 @osh.compute(workgroup_size=(64, 1, 1))
@@ -192,23 +225,10 @@ def prepare_relax_signals(
         world_position - current_camera.origin.xyz,
         current_camera.forward.xyz,
     )
-    primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
-    instance_key = osh.float_bits_to_uint(secondary.primary_geometry.w)
-    transmissive = (
-        osh.float_bits_to_uint(secondary.primary_geometry.y) & osh.u32(0x80000000)
-    ) != osh.u32(0)
-    barycentrics = osh.vec2(
-        osh.absolute(secondary.primary_geometry.y), secondary.primary_geometry.z,
-    )
-    weights = osh.vec3(
-        1.0 - barycentrics.x - barycentrics.y,
-        barycentrics.x, barycentrics.y,
-    )
-    previous_world_position = (
-        previous_vertices[primitive * osh.u32(3)].xyz * weights.x
-        + previous_vertices[primitive * osh.u32(3) + osh.u32(1)].xyz * weights.y
-        + previous_vertices[primitive * osh.u32(3) + osh.u32(2)].xyz * weights.z
-    )
+    surface_history = prepare_surface_history(secondary, pixel_index)
+    instance_key = surface_history.identity
+    previous_world_position = surface_history.previous_position
+    transmissive = (osh.float_bits_to_uint(secondary.primary_geometry.y) & osh.u32(0x80000000)) != osh.u32(0)
     # Explicit static z=0 planar-mirror experiment. The first secondary hit
     # is reflected into virtual world space; no moving-object transform is
     # available for that hit yet. Preserve primary identity/material.
@@ -237,7 +257,7 @@ def prepare_relax_signals(
     motion = old.xy - osh.vec2(pixel)
     previous_view_z = old.z
     if (
-        old.z <= 0.0001 or osh.any_value(old.xy < osh.vec2(-0.5))
+        not surface_history.valid or old.z <= 0.0001 or osh.any_value(old.xy < osh.vec2(-0.5))
         or osh.any_value(old.xy >= osh.vec2(extent) - 0.5)
     ):
         motion = osh.vec2(0.0)
@@ -259,9 +279,9 @@ def prepare_relax_signals(
     if constants.extent_paths.w != osh.u32(0) and transmissive:
         transmission_cap = 1.0
     motion_output.store(pixel, osh.vec4(motion, previous_view_z, transmission_cap))
-    # Reprojection still uses the exact triangle and barycentrics above, but
-    # temporal continuity belongs to the scene instance.  Keying history to
-    # the triangle exposes tessellation edges on otherwise smooth surfaces.
+    # Native triangles retain instance continuity across tessellation edges.
+    # Custom surfaces use the application identity fingerprint supplied by
+    # prepare_surface_history, independently of the acceleration primitive.
     identity_output.store(pixel, osh.uvec4(instance_key, 0, 0, 0))
 
 

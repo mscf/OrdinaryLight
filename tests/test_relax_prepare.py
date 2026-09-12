@@ -22,7 +22,8 @@ from ordinarylight.wavefront import HOT_PATH_STATE_DTYPE, SECONDARY_PATH_STATE_D
     os.environ.get("ORDINARYLIGHT_TEST_VULKAN_GRAPH") != "1", reason="opt-in GPU"
 )
 @pytest.mark.parametrize("sampled", [False, True])
-def test_signal_scatter_and_static_motion(sampled):
+@pytest.mark.parametrize("custom_history", [False, True])
+def test_signal_scatter_and_static_motion(sampled, custom_history):
     with VulkanRuntime() as runtime, ExitStack() as stack:
 
         def buffer(data):
@@ -43,7 +44,16 @@ def test_signal_scatter_and_static_motion(sampled):
         camera = buffer(
             struct.pack("16f", 0, 0, 2, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0)
         )
-        vertices = buffer(bytes(48))
+        identity = (17, 42, 4, 71)
+        expected_identity = 7
+        if custom_history:
+            expected_identity = 2166136261
+            for word in identity:
+                expected_identity = ((expected_identity ^ word) * 16777619) & 0xffffffff
+            # The triangle address is deliberately unusable in this variant.
+            secondary_data['primary_geometry'].view(np.uint32)[0, 0] = 0xfffffffd
+            secondary.upload(secondary_data)
+        vertices = buffer(struct.pack('4I4f', *identity, 0, 0, 0, 1) if custom_history else bytes(48))
         names = (
             "packed_normal",
             "packed_material",
@@ -78,6 +88,7 @@ def test_signal_scatter_and_static_motion(sampled):
                 current_camera=camera,
                 previous_camera=camera,
                 previous_vertices=vertices,
+                custom_history=custom_history,
                 capacity=1,
                 **images,
             )
@@ -189,8 +200,19 @@ imageStore(material_image,ivec2(0),uvec4(0));}
         np.testing.assert_allclose(values[2], [0, 0, 1, 0.5], atol=0.001)
         assert values[3, 0] == 2
         np.testing.assert_allclose(values[4], [0, 0, 2, 0], atol=0.001)
-        assert values[5, 0] == 7
+        assert values[5, 0] == np.float32(expected_identity)
         np.testing.assert_allclose(values[6, :3], [3, 6, 9], atol=0.02)
+        if custom_history:
+            # A previous point shifted by 0.25 projects by 0.0625 pixels at
+            # depth 2 with this camera's unit vertical scale and unit extent.
+            vertices.upload(struct.pack('4I4f', *identity, .25, 0, 0, 1))
+            graph.compile().execute(runtime).wait()
+            moved = np.frombuffer(result.read(), np.float32).reshape(7, 4)
+            np.testing.assert_allclose(moved[4], [.0625, 0, 2, 0], atol=.001)
+            vertices.upload(struct.pack('4I4f', *identity, .25, 0, 0, 0))
+            graph.compile().execute(runtime).wait()
+            rejected = np.frombuffer(result.read(), np.float32).reshape(7, 4)
+            np.testing.assert_allclose(rejected[4], 0, atol=.001)
         with pytest.raises(ValueError, match="capacity"):
             stage.operation(path_count=2)
         with pytest.raises(RuntimeError, match="borrowers"):

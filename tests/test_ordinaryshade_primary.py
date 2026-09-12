@@ -105,7 +105,11 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
             "uint ordinarylight_secondary_area_sample_count", helper
         )
         self.assertIn('#include "ordinaryshade_primary.glsl"', primary)
-        self.assertNotIn("rayQueryGetIntersectionInstanceIdEXT", primary)
+        # TLAS instance IDs are exported explicitly; packed triangle indexing
+        # still uses the instance custom index in the transport helpers.
+        query = (ROOT / "ordinarylight/shaders/native_intersection.glsl").read_text()
+        self.assertIn("rayQueryGetIntersectionInstanceIdEXT", query)
+        self.assertIn("nativeTraceSurface(", primary)
         self.assertIn("uintBitsToFloat(instance_key)", helper)
         self.assertIn("ordinarylight_store_secondary_primary(", primary)
         self.assertNotIn("WAVE_ORDINARYSHADE_", primary)
@@ -120,8 +124,7 @@ class OrdinaryShadePrimaryTests(unittest.TestCase):
 
         # Backend operations and orchestration are compiled from typed functions.
         for primitive in (
-            "rayQueryInitializeEXT(",
-            "rayQueryProceedEXT(",
+            "nativeTraceSurface(",
             "integrateVolumesBeforeSurface(",
             "profileWork(",
         ):

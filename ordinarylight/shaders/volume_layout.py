@@ -1,5 +1,6 @@
 """Mechanical resource ABI and variant guards. Algorithms are typed helpers."""
 LAYOUT = r'''// OrdinaryLight volume transport ABI v1; bindings controlled by WAVE_VOLUME_* macros.
+#include "native_intersection.glsl"
 #ifndef WAVE_VOLUME_HEADER_BINDING
 #define WAVE_VOLUME_HEADER_BINDING 25
 #define WAVE_VOLUME_SCALAR_BINDING 26

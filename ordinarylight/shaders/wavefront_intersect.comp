@@ -26,6 +26,23 @@ struct WaveHit
     uint path_index;
 };
 
+struct NativeIntersection
+{
+    vec4 position_distance;
+    vec4 geometric_normal;
+    vec4 shading_normal;
+    uvec4 identity;
+    uvec4 address;
+    vec4 texcoord;
+    vec4 previous_position;
+};
+
+struct NativeOpticalBoundary
+{
+    vec2 ior;
+    bool enabled;
+};
+
 layout(set = 0, binding = 0) uniform accelerationStructureEXT scene_tlas;
 layout(std430, set = 0, binding = 1) readonly buffer ray_queue_Block
 {
@@ -48,6 +65,125 @@ layout(std430, set = 0, binding = 3) readonly buffer vertices_Block
     vec4 vertices[];
 };
 
+NativeIntersection nativeIntersectionMiss();
+uint nativeSurfaceMask();
+bool nativeBoundaryEnabled(NativeOpticalBoundary boundary);
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+
+NativeIntersection nativeIntersectCandidate(vec3 origin, vec3 direction, float t_min, float t_max, uint primitive, uint instance, uint instance_offset);
+NativeOpticalBoundary nativeEvaluateBoundary(NativeIntersection hit);
+
+NativeIntersection nativeIntersectionMiss()
+{
+    return NativeIntersection(vec4(0.0, 0.0, 0.0, (-1.0)), vec4(0.0), vec4(0.0), uvec4(4294967295), uvec4(4294967295, 4294967295, 0, 0), vec4(0.0), vec4(0.0));
+}
+
+uint nativeSurfaceMask()
+{
+#if WAVE_CUSTOM_GEOMETRY
+    return uint(3);
+#endif
+    return uint(1);
+}
+
+bool nativeBoundaryEnabled(NativeOpticalBoundary boundary)
+{
+    return (((boundary.enabled && all(greaterThan(boundary.ior, vec2(0.0)))) && (!any(isnan(boundary.ior)))) && (!any(isinf(boundary.ior))));
+}
+
+NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask)
+{
+    NativeIntersection hit = nativeIntersectionMiss();
+    NativeIntersection selected = hit;
+    uint selected_primitive = uint(4294967295);
+    uint selected_instance = uint(4294967295);
+    uint flags = uint(1);
+    if (visibility)
+    {
+        flags = (flags | uint(4));
+    }
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, scene_tlas, flags, mask, origin, t_min, direction, t_max);
+    while (rayQueryProceedEXT(query))
+    {
+#if WAVE_CUSTOM_GEOMETRY
+        if ((rayQueryGetIntersectionTypeEXT(query, false) != uint(1)))
+        {
+            continue;
+        }
+        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, false);
+        uint instance = rayQueryGetIntersectionInstanceIdEXT(query, false);
+        float limit = t_max;
+        if ((rayQueryGetIntersectionTypeEXT(query, true) != uint(0)))
+        {
+            limit = min(limit, rayQueryGetIntersectionTEXT(query, true));
+        }
+        NativeIntersection candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+        float distance = candidate.position_distance.w;
+        if (((distance < t_min) || (distance > limit)))
+        {
+            continue;
+        }
+        if ((isnan(distance) || isinf(distance)))
+        {
+            continue;
+        }
+        if (((any(isnan(candidate.geometric_normal.xyz)) || any(isinf(candidate.geometric_normal.xyz))) || (abs((dot(candidate.geometric_normal.xyz, candidate.geometric_normal.xyz) - 1.0)) > 0.001)))
+        {
+            continue;
+        }
+        if ((((any(isnan(candidate.shading_normal.xyz)) || any(isinf(candidate.shading_normal.xyz))) || (abs((dot(candidate.shading_normal.xyz, candidate.shading_normal.xyz) - 1.0)) > 0.001)) || (dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0)))
+        {
+            continue;
+        }
+        candidate.position_distance = vec4((origin + (distance * direction)), distance);
+        candidate.address = uvec4((primitive + rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)), primitive, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false), 2);
+#if WAVE_NATIVE_OPTICAL_BOUNDARIES
+        if (visibility)
+        {
+            NativeOpticalBoundary boundary = nativeEvaluateBoundary(candidate);
+            if ((nativeBoundaryEnabled(boundary) && (boundary.ior.x == boundary.ior.y)))
+            {
+                continue;
+            }
+        }
+#endif
+        rayQueryGenerateIntersectionEXT(query, distance);
+        if (((((rayQueryGetIntersectionTypeEXT(query, true) == uint(2)) && (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) == primitive)) && (rayQueryGetIntersectionInstanceIdEXT(query, true) == instance)) && (rayQueryGetIntersectionTEXT(query, true) == distance)))
+        {
+            selected = candidate;
+            selected_primitive = primitive;
+            selected_instance = instance;
+        }
+#endif
+    }
+    uint kind = rayQueryGetIntersectionTypeEXT(query, true);
+    if ((kind == uint(0)))
+    {
+        return hit;
+    }
+    float distance = rayQueryGetIntersectionTEXT(query, true);
+    uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true);
+    uint instance = rayQueryGetIntersectionInstanceIdEXT(query, true);
+    uint instance_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
+    if ((kind == uint(2)))
+    {
+        if (((primitive != selected_primitive) || (instance != selected_instance)))
+        {
+            return hit;
+        }
+        hit = selected;
+    }
+    else
+    {
+        hit.identity = uvec4(instance, primitive, (primitive + instance_offset), 0);
+        hit.texcoord.xy = rayQueryGetIntersectionBarycentricsEXT(query, true);
+    }
+    hit.position_distance = vec4((origin + (distance * direction)), distance);
+    hit.address = uvec4((primitive + instance_offset), primitive, instance_offset, kind);
+    return hit;
+}
+
 void main()
 {
     uint ray_index = gl_GlobalInvocationID.x;
@@ -60,11 +196,7 @@ void main()
     {
         hit_queue.count = min(active_count, hit_queue.capacity);
     }
-    rayQueryEXT query;
-    rayQueryInitializeEXT(query, scene_tlas, uint(1), uint(1), ray_queue.rays[ray_index].origin_tmin.xyz, ray_queue.rays[ray_index].origin_tmin.w, ray_queue.rays[ray_index].direction_tmax.xyz, ray_queue.rays[ray_index].direction_tmax.w);
-    while (rayQueryProceedEXT(query))
-    {
-    }
+    NativeIntersection query = nativeTraceSurface(ray_queue.rays[ray_index].origin_tmin.xyz, ray_queue.rays[ray_index].origin_tmin.w, ray_queue.rays[ray_index].direction_tmax.xyz, ray_queue.rays[ray_index].direction_tmax.w, false, nativeSurfaceMask());
     uint hit_index = ray_index;
     if ((hit_index >= hit_queue.capacity))
     {
@@ -72,17 +204,17 @@ void main()
     }
     hit_queue.hits[hit_index].path_index = ray_queue.rays[ray_index].path_index;
     hit_queue.hits[hit_index].ray_index = ray_index;
-    if ((rayQueryGetIntersectionTypeEXT(query, true) == uint(1)))
+    if ((query.address.w == uint(1)))
     {
-        float distance = rayQueryGetIntersectionTEXT(query, true);
-        uint primitive = (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) + rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+        float distance = query.position_distance.w;
+        uint primitive = (query.address.y + query.address.z);
         vec3 vertex_a = vertices[((primitive * uint(3)) + uint(0))].xyz;
         vec3 vertex_b = vertices[((primitive * uint(3)) + uint(1))].xyz;
         vec3 vertex_c = vertices[((primitive * uint(3)) + uint(2))].xyz;
         hit_queue.hits[hit_index].position_t = vec4((ray_queue.rays[ray_index].origin_tmin.xyz + (distance * ray_queue.rays[ray_index].direction_tmax.xyz)), distance);
         hit_queue.hits[hit_index].geometric_normal = normalize(cross((vertex_b - vertex_a), (vertex_c - vertex_a)));
         hit_queue.hits[hit_index].primitive_index = primitive;
-        hit_queue.hits[hit_index].barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+        hit_queue.hits[hit_index].barycentrics = query.texcoord.xy;
     }
     else
     {

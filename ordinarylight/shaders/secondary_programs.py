@@ -1,5 +1,6 @@
 """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
 import ordinaryshade as osh
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
 from .lighting_programs import AreaLightCandidate
 from .restir_programs import DirectLightReservoir
 WAVE_MAX_MEDIUM_STACK_DEPTH = 16
@@ -150,22 +151,19 @@ def main() -> osh.void:
         if osh.specialization('WAVE_WORK_COUNTERS'):
             profile_bounce = osh.minimum(pathBounce(paths[input_ray.path_index]), osh.u32(7))
             profileWork(osh.u32(0), osh.u32(1))
-        query = osh.ray_query()
-        query.initialize(scene_tlas, gl_RayFlagsOpaqueEXT, 1, input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w)
-        while query.proceed():
-            pass
+        query = nativeTraceSurface(input_ray.origin_tmin.xyz, input_ray.origin_tmin.w, input_ray.direction_tmax.xyz, input_ray.direction_tmax.w, False, nativeSurfaceMask())
         hit.path_index = input_ray.path_index
         hit.ray_index = hit_index
-        if query.intersection_type(True) == gl_RayQueryCommittedIntersectionTriangleEXT:
-            distance = query.intersection_t(True)
-            primitive = query.primitive_index(True) + query.instance_custom_index(True)
+        if query.address.w == gl_RayQueryCommittedIntersectionTriangleEXT:
+            distance = query.position_distance.w
+            primitive = query.address.y + query.address.z
             a = vertices[primitive * osh.u32(3) + osh.u32(0)].xyz
             b = vertices[primitive * osh.u32(3) + osh.u32(1)].xyz
             c = vertices[primitive * osh.u32(3) + osh.u32(2)].xyz
             hit.position_t = osh.vec4(input_ray.origin_tmin.xyz + distance * input_ray.direction_tmax.xyz, distance)
             hit.geometric_normal = osh.normalize(osh.cross(b - a, c - a))
             hit.primitive_index = primitive
-            hit.barycentrics = query.barycentrics(True)
+            hit.barycentrics = query.texcoord.xy
         else:
             if osh.specialization('WAVE_WORK_COUNTERS'):
                 profileWork(osh.u32(4), osh.u32(1))

@@ -5,6 +5,15 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.5.0
+
+- Add public persistent wavefront graph operations with reusable recording and borrowed GPU outputs.
+- Support typed OrdinaryShade intersection, material, optical-boundary and emitter callbacks over application-owned acceleration structures and GPU buffers.
+- Export sampled-ray primary hits, application instance/sub-element identity, raw HDR, denoised linear HDR and denoiser signals.
+- Add public content/resource update and history controls with explicit synchronization and lifetime contracts.
+- Fix orthographic denoising and ReSTIR reprojection; retain the same transport/history for direct and application-processed output.
+- Document the vxl8r adapter and its GPU face averaging, viewer integration and resource ownership.
+
 ## 0.4.1
 
 - Add experimental four-bounce, one-sample GI with reflections and sensible viewer defaults.

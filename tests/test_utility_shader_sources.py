@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize('name,offsets,bindings', [
     ('external_hdr_tone_map', (0,), 2), ('fsr2_prepare', (0, 8), 6),
+    ('external_hdr_tone_map_16f', (0,), 2),
     ('primary_metadata', (0, 4), 4), ('accumulation_resolve', (0, 4, 8), 2),
 ])
 def test_generated_utility_matches_source_and_abi(name, offsets, bindings):
