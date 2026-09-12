@@ -5,6 +5,13 @@ versioning while its public API develops toward 1.0.
 
 ## Unreleased
 
+## 0.6.0
+
+- Expose leased persistent AABB BLAS/TLAS builders and explicit GPU buffer range copies.
+- Support independently updateable acceleration chunks in application graphs.
+- Validate deferred recording lifetimes, instance identities and borrowed-resource retirement.
+- Integrate with vxl8r chunk acceleration and visible-face averaging.
+
 ## 0.5.0
 
 - Add public persistent wavefront graph operations with reusable recording and borrowed GPU outputs.

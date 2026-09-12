@@ -1,6 +1,10 @@
 """Algorithm-independent GPU services (Vulkan loaded on demand)."""
 
 _MODULES = {
+    "buffer_copy_operation": "acceleration",
+    "VulkanAabbBlas": "acceleration",
+    "VulkanTlas": "acceleration",
+    "VulkanBlasInstance": "acceleration",
     "VulkanWavefrontPipeline": "wavefront",
     "PreparedGiFrame": "wavefront",
     "primary_operation": "primary",
