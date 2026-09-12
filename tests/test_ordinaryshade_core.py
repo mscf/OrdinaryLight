@@ -137,7 +137,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_wavefront_shade_hit_loading_is_typed(self):
         module = self._generator_module()
-        source = module.osh.compile(
+        source = self._compile_native(module, 
             module.shade_control_probe,
             helpers=(
                 module.shadeLoadHit,
@@ -237,7 +237,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_complete_wavefront_shade_candidate_compiles(self):
         module = self._generator_module()
-        source = module.osh.compile(
+        source = self._compile_native(module, 
             module.wavefront_shade_candidate,
             helpers=module.WAVEFRONT_SHADE_CANDIDATE_HELPERS,
         ).source
@@ -249,7 +249,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("shadeReserveOutputIndex", source)
         compiler = ROOT / ".tools/glslang/usr/bin/glslangValidator"
         if compiler.is_file():
-            compiled = module.osh.compile(
+            compiled = self._compile_native(module, 
                 module.wavefront_shade_candidate, target="spirv",
                 spirv_compiler=str(compiler),
                 helpers=module.WAVEFRONT_SHADE_CANDIDATE_HELPERS,
@@ -310,7 +310,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_wavefront_volume_abi_and_interval_are_typed(self):
         module = self._generator_module()
-        source = module.osh.compile(
+        source = self._compile_native(module, 
             module.shade_volume_probe,
             helpers=(
                 module.shadeIsVolumePrimitive,
@@ -597,6 +597,23 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
                 output.read_text(),
                 module.generated_source(shader, module.HELPERS.get(output, ())),
             )
+
+    @staticmethod
+    def _compile_native(module, shader, *, helpers=(), **kwargs):
+        helpers = tuple(helpers) + (
+            module.nativeIntersectionMiss, module.nativeSurfaceMask,
+            module.nativeBoundaryEnabled, module.nativeTraceSurface,
+            module.nativeAreaLightCount, module.nativeEmitterValid,
+        )
+        if shader is module.wavefront_shade_candidate:
+            helpers += (module.waveSetMaterialAttributes,
+                        module.shadeCaptureSecondary, module.ordinarylightDielectric)
+        return module.osh.compile(shader, helpers=helpers, externals=(
+            module.nativeIntersectCandidate, module.nativeEvaluateBoundary,
+            module.nativeEvaluateMaterial, module.nativeEmitterCount,
+            module.nativeSelectEmitter, module.nativeEvaluateEmitter,
+            module.nativeEmitterPdf,
+        ), **kwargs)
 
     @staticmethod
     def _generator_module():
