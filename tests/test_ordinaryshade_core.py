@@ -137,7 +137,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_wavefront_shade_hit_loading_is_typed(self):
         module = self._generator_module()
-        source = self._compile_native(module, 
+        source = self._compile_native(module,
             module.shade_control_probe,
             helpers=(
                 module.shadeLoadHit,
@@ -237,7 +237,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_complete_wavefront_shade_candidate_compiles(self):
         module = self._generator_module()
-        source = self._compile_native(module, 
+        source = self._compile_native(module,
             module.wavefront_shade_candidate,
             helpers=module.WAVEFRONT_SHADE_CANDIDATE_HELPERS,
         ).source
@@ -249,7 +249,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("shadeReserveOutputIndex", source)
         compiler = ROOT / ".tools/glslang/usr/bin/glslangValidator"
         if compiler.is_file():
-            compiled = self._compile_native(module, 
+            compiled = self._compile_native(module,
                 module.wavefront_shade_candidate, target="spirv",
                 spirv_compiler=str(compiler),
                 helpers=module.WAVEFRONT_SHADE_CANDIDATE_HELPERS,
@@ -310,7 +310,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
     )
     def test_wavefront_volume_abi_and_interval_are_typed(self):
         module = self._generator_module()
-        source = self._compile_native(module, 
+        source = self._compile_native(module,
             module.shade_volume_probe,
             helpers=(
                 module.shadeIsVolumePrimitive,
