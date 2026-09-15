@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [640, 360], "samples": 4, "primary_hit_format": "identity", "secondary_first_median_ms": 0.816512, "primary_median_ms": 3.782032, "primary_p95_ms": 3.8679216000000003, "setup_median_ms": 0.010848, "total_median_ms": 6.839664, "face_output_median_ms": 1.090128, "overview": false, "material_fixture": "reflective", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-secondary-fields", "extent": [640, 360], "samples": 4, "primary_hit_format": "identity", "secondary_first_median_ms": 0.775648, "primary_median_ms": 3.759792, "primary_p95_ms": 3.8314576000000002, "setup_median_ms": 0.0060479999999999996, "total_median_ms": 1.199344, "face_output_median_ms": 0.105808, "overview": false, "material_fixture": "reflective", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 450.0}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 26.765625}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.622407853603363}
+{"compact_identity_validity_equal": true, "optimization": "full-secondary-fields"}

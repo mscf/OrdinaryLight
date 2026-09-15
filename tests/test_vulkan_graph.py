@@ -192,7 +192,30 @@ def test_dynamic_geometry_graph_refits_activation_growth_and_persistent_output(
                             .add("trace", transport.accumulate_operation())
                             .compile()
                         )
-                        assert scene.reserve_custom_geometry(4)
+                        borrower = object()
+                        scene.retain(borrower)
+                        previous_revision = scene.binding_revision
+                        try:
+                            with monkeypatch.context() as guarded:
+                                guarded.setattr(runtime, "buffer", lambda *a, **k: pytest.fail(
+                                    "Rejected growth allocated replacement resources"))
+                                with pytest.raises(RuntimeError, match="Close other scene consumers"):
+                                    scene.reserve_custom_geometry(4)
+                            assert scene.binding_revision == previous_revision
+                            assert scene.custom_capacity == 2
+                        finally:
+                            scene.release(borrower)
+                        with VulkanTransportIntegrator(
+                            scene, ray_samples([[0, 0, 3]], [[0, 0, -1]]), accumulator
+                        ) as second_transport:
+                            previous_kernels = (transport._kernel, second_transport._kernel)
+                            assert scene.reserve_custom_geometry(4)
+                            assert all(kernel.closed for kernel in previous_kernels)
+                            assert transport._kernel is not previous_kernels[0]
+                            assert second_transport._kernel is not previous_kernels[1]
+                            accumulator.reset()
+                            second_transport.accumulate()
+                            np.testing.assert_allclose(accumulator.means(), [[2, 1, 0.5]])
                         assert scene.resource("materials").handle == old_material
                         assert transport.samples.buffer is old_samples
                         with pytest.raises(ValueError, match="recompile"):

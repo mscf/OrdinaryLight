@@ -5,7 +5,7 @@ from pathlib import Path
 
 import ordinaryshade as osh
 from ordinarylight.shaders.native_intersection_programs import (
-    NativeIntersection, nativeIntersectionMiss, nativeTraceSurface, nativeIntersectCandidate, nativeSurfaceMask, NativeOpticalBoundary, nativeBoundaryEnabled, nativeEvaluateBoundary,
+    NativeIntersection, nativeIntersectionMiss, nativeTraceSurface, nativeOccluded, nativeIntersectCandidate, nativeEvaluateTriangle, nativeSurfaceMask, NativeOpticalBoundary, nativeBoundaryEnabled, nativeEvaluateBoundary,
 )
 
 
@@ -45,7 +45,11 @@ struct NativeIntersection {
     body += osh.compile_function(nativeSurfaceMask).source
     body += osh.compile_function(nativeBoundaryEnabled, external_values=values).source
     body += osh.compile_function(nativeTraceSurface, external_values=values, externals=(
-        osh.external(nativeIntersectionMiss.function), nativeIntersectCandidate,
+        osh.external(nativeIntersectionMiss.function), nativeIntersectCandidate, nativeEvaluateTriangle,
+        nativeEvaluateBoundary, osh.external(nativeBoundaryEnabled.function),
+    )).source
+    body += osh.compile_function(nativeOccluded, external_values=values, externals=(
+        osh.external(nativeIntersectionMiss.function), nativeIntersectCandidate, nativeEvaluateTriangle,
         nativeEvaluateBoundary, osh.external(nativeBoundaryEnabled.function),
     )).source
     body += osh.compile_function(nativeAreaLightCount, externals=(nativeEmitterCount,)).source

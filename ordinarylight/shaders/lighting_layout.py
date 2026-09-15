@@ -1,6 +1,17 @@
 """Mechanical resource ABI and variant guards. Algorithms are typed helpers."""
 LAYOUT = r'''// OrdinaryLight transport ABI v1. See docs/renderer_extensions.md.
 #include "native_intersection.glsl"
+// Shared typed analytic helpers are also used by native primary transport.
+#ifndef ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS
+#define ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS 1
+@ordinarylight_analytic_light_direction@
+@ordinarylight_analytic_light_distance_squared@
+@ordinarylight_analytic_light_attenuation@
+@ordinarylight_analytic_light_cosine@
+@ordinarylight_analytic_light_shadow_distance@
+@ordinarylight_analytic_light_incident@
+@ordinarylight_analytic_light_contribution@
+#endif
 #if !defined(ORDINARYLIGHT_TRANSPORT_LIGHTING_V1)
 #define ORDINARYLIGHT_TRANSPORT_LIGHTING_V1 1
 #if !defined(OL_TRANSPORT_RAY_ORIGIN)

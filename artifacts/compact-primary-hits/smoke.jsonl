@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [129, 97], "samples": 3, "primary_median_ms": 0.16832, "primary_p95_ms": 0.1754624, "setup_median_ms": 0.011776, "total_median_ms": 1.598848, "face_output_median_ms": 0.1784, "overview": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-compact-hits", "extent": [129, 97], "samples": 3, "primary_median_ms": 0.100576, "primary_p95_ms": 0.1337824, "setup_median_ms": 0.005024, "total_median_ms": 2.114528, "face_output_median_ms": 0.143648, "overview": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0}
+{"source": "upstream", "max_error": 0.0}
+{"source": "output", "max_error": 0.0}
+{"compact_identity_validity_equal": true, "bytes_written_per_hit": 20}

@@ -1,0 +1,104 @@
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/ordinarylight/shaders/wavefront_primary.comp
+Wrote ordinarylight/shaders/wavefront_primary.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_overlap_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_overlap_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_overlap_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap_scatter.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap_scatter_multi.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap_scatter_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_overlap_scatter_multi_skip.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_denoiser.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile_denoiser.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_denoiser.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile_denoiser.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_profile.comp.spv
+Wrote ordinarylight/shaders/wavefront_primary_native_profile.comp.spv

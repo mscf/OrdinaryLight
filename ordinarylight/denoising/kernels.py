@@ -334,6 +334,12 @@ def relax_temporal(
     if pixel.x >= extent.x or pixel.y >= extent.y:
         return
     current = current_radiance_hit_distance.load(pixel)
+    # Reset frames have no eligible history. Publish the unchanged sample
+    # without fetching geometry, motion, or previous-frame images.
+    if not (constants.extent_history.w > 0.5):
+        output_radiance.store(pixel, current)
+        output_history_length.store(pixel, osh.vec4(1.0))
+        return
     current_normal = normal_roughness.load(pixel).xyz
     current_depth = view_z.load(pixel).r
     motion_sample = motion.load(pixel)
@@ -587,8 +593,94 @@ def relax_atrous(
     )
 
 
+# Share geometry reads and weights; color filtering remains independent per lobe.
+@osh.compute(workgroup_size=(8, 8, 1))
+def relax_atrous_paired(
+    input_radiance: osh.storage_image("rgba16f", access="read", binding=0),
+    normal_roughness: osh.storage_image("rgba16f", access="read", binding=1),
+    view_z: osh.storage_image("r32f", access="read", binding=2),
+    material_id: osh.storage_image("r32ui", access="read", binding=3),
+    output_radiance: osh.storage_image("rgba16f", access="write", binding=4),
+    constants: osh.push_constants(AtrousConstants, wgsl_binding=7),
+    specular_input: osh.storage_image("rgba16f", access="read", binding=5),
+    specular_output: osh.storage_image("rgba16f", access="write", binding=6),
+):
+    pixel = osh.ivec2(osh.global_invocation_id.xy)
+    extent = osh.ivec2(constants.extent_step.xy)
+    if pixel.x >= extent.x or pixel.y >= extent.y:
+        return
+    step_width = osh.i32(constants.extent_step.z)
+    center = input_radiance.load(pixel)
+    center_spec = specular_input.load(pixel)
+    center_normal = normal_roughness.load(pixel).xyz
+    center_depth = view_z.load(pixel).r
+    center_material = material_id.load(pixel).r
+    center_luma = osh.dot(center.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
+    center_luma_spec = osh.dot(center_spec.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
+    total = center.rgb
+    total_spec = center_spec.rgb
+    weight_sum = 1.0
+    weight_sum_spec = 1.0
+    neighborhood_luma_sum = 0.0
+    neighborhood_luma_sum_spec = 0.0
+    neighborhood_luma_square_sum = 0.0
+    neighborhood_luma_square_sum_spec = 0.0
+    neighborhood_count = 0.0
+    neighborhood_count_spec = 0.0
+    for y in range(-1, 2):
+        for x in range(-1, 2):
+            if x == 0 and y == 0:
+                continue
+            sample_pixel = pixel + osh.ivec2(x, y) * step_width
+            if sample_pixel.x < 0 or sample_pixel.y < 0:
+                continue
+            if sample_pixel.x >= extent.x or sample_pixel.y >= extent.y:
+                continue
+            sample_depth = view_z.load(sample_pixel).r
+            sample_material = material_id.load(sample_pixel).r
+            if sample_material != center_material:
+                continue
+            if (sample_depth == 0.0) != (center_depth == 0.0):
+                continue
+            sample_normal = normal_roughness.load(sample_pixel).xyz
+            sample = input_radiance.load(sample_pixel)
+            sample_spec = specular_input.load(sample_pixel)
+            normal_weight = osh.power(osh.maximum(osh.dot(center_normal, sample_normal), 0.0), constants.weights.x)
+            depth_scale = osh.maximum(osh.absolute(center_depth) * constants.weights.y, 0.001)
+            depth_weight = osh.exp(-osh.absolute(sample_depth - center_depth) / depth_scale)
+            sample_luma = osh.dot(sample.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
+            sample_luma_spec = osh.dot(sample_spec.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
+            neighborhood_luma_sum = neighborhood_luma_sum + sample_luma
+            neighborhood_luma_sum_spec = neighborhood_luma_sum_spec + sample_luma_spec
+            neighborhood_luma_square_sum = neighborhood_luma_square_sum + sample_luma * sample_luma
+            neighborhood_luma_square_sum_spec = neighborhood_luma_square_sum_spec + sample_luma_spec * sample_luma_spec
+            neighborhood_count = neighborhood_count + 1.0
+            neighborhood_count_spec = neighborhood_count_spec + 1.0
+            color_scale = osh.maximum(osh.absolute(center_luma) / constants.weights.z, 0.02)
+            color_scale_spec = osh.maximum(osh.absolute(center_luma_spec) / constants.weights.z, 0.02)
+            color_weight = osh.exp(-osh.absolute(sample_luma - center_luma) / color_scale)
+            color_weight_spec = osh.exp(-osh.absolute(sample_luma_spec - center_luma_spec) / color_scale_spec)
+            kernel = 0.25
+            if x == 0 or y == 0:
+                kernel = 0.5
+            weight = kernel * normal_weight * depth_weight * color_weight
+            weight_spec = kernel * normal_weight * depth_weight * color_weight_spec
+            total = total + sample.rgb * weight
+            total_spec = total_spec + sample_spec.rgb * weight_spec
+            weight_sum = weight_sum + weight
+            weight_sum_spec = weight_sum_spec + weight_spec
+    if constants.weights.w > 0.5 and neighborhood_count_spec > 0.0:
+        neighborhood_luma_mean_spec = neighborhood_luma_sum_spec / neighborhood_count_spec
+        neighborhood_luma_variance_spec = osh.maximum(neighborhood_luma_square_sum_spec / neighborhood_count_spec - neighborhood_luma_mean_spec * neighborhood_luma_mean_spec, 0.0)
+        firefly_limit_spec = neighborhood_luma_mean_spec + 4.0 * osh.sqrt(neighborhood_luma_variance_spec) + 0.02
+        if center_luma_spec > firefly_limit_spec:
+            clamped_center_spec = center_spec.rgb * (firefly_limit_spec / osh.maximum(center_luma_spec, 1e-06))
+            total_spec = total_spec - center_spec.rgb + clamped_center_spec
+    output_radiance.store(pixel, osh.vec4(total / osh.maximum(weight_sum, 1e-06), center.a))
+    specular_output.store(pixel, osh.vec4(total_spec / osh.maximum(weight_sum_spec, 1e-06), center_spec.a))
+
 __all__ = [
     "AtrousConstants", "ComposeConstants", "PrepareCamera", "PrepareConstants",
     "SecondaryPathState", "TemporalConstants", "WavePathState",
-    "prepare_relax_signals", "relax_atrous", "relax_compose", "relax_temporal",
+    "prepare_relax_signals", "relax_atrous", "relax_atrous_paired", "relax_compose", "relax_temporal",
 ]

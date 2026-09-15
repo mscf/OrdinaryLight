@@ -2,6 +2,9 @@
 LAYOUT = r'''#include "transport_v1/material_contracts.glsl"
 #include "transport_v1/dielectric.glsl"
 
+#ifndef WAVE_PRIMARY_DIFFUSE_PROBABILITY
+#define WAVE_PRIMARY_DIFFUSE_PROBABILITY 1.0
+#endif
 #if !defined(WAVE_SHARED_PRIMARY_RESERVOIRS)
 #define WAVE_SHARED_PRIMARY_RESERVOIRS 0
 #endif
@@ -106,7 +109,11 @@ struct PrimaryHitOutput {
     vec4 ray_direction;
 };
 layout(set = 0, binding = 30, std430) buffer PrimaryHitOutputs {
+#if WAVE_PRIMARY_HIT_IDENTITY
+    uint primary_hit_words[];
+#else
     PrimaryHitOutput primary_hits[];
+#endif
 };
 #endif
 #if WAVE_CUSTOM_GEOMETRY && WAVE_DENOISER_SIGNAL_CAPTURE
@@ -260,6 +267,54 @@ uint ordinarylight_reserve_output_index(uint subgroup_enqueue);
 
 #define WAVE_RESTIR_PRIMARY 1
 #include "native_intersection.glsl"
+struct DistanceVisibility {
+    uint distance;
+    uint geometric_normal_x;
+    uint geometric_normal_y;
+    uint geometric_normal_z;
+    uint geometric_normal_w;
+    uint shading_normal_x;
+    uint shading_normal_y;
+    uint shading_normal_z;
+    uint shading_normal_w;
+    uint identity_x;
+    uint identity_y;
+    uint identity_z;
+    uint identity_w;
+    uint address_x;
+    uint address_y;
+    uint address_z;
+    uint address_w;
+    uint texcoord_x;
+    uint texcoord_y;
+    uint texcoord_z;
+    uint texcoord_w;
+    uint previous_position_x;
+    uint previous_position_y;
+    uint previous_position_z;
+    uint previous_position_w;
+};
+#if WAVE_PRIMARY_VISIBILITY_CAPTURE || WAVE_PRIMARY_VISIBILITY_REPLAY
+#if WAVE_PLANAR_VISIBILITY || WAVE_DISTANCE_PLANES
+layout(set = 0, binding = 33, std430) buffer VisibilityPlanes {
+    uvec4 visibility_planes[];
+};
+@storeVisibilityPlanes@
+@loadVisibilityPlanes@
+@storeDistancePlanes@
+@loadDistancePlanes@
+#elif WAVE_DISTANCE_VISIBILITY
+layout(set = 0, binding = 33, std430) buffer DistanceVisibilityCache {
+    DistanceVisibility distance_visibility[];
+};
+@packDistanceVisibility@
+@unpackDistanceVisibility@
+#else
+layout(set = 0, binding = 33, std430) buffer PrimaryVisibility {
+    NativeIntersection primary_visibility[];
+};
+#endif
+#endif
 #include "wavefront_textures.glsl"
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"
@@ -289,6 +344,21 @@ uint ordinarylight_reserve_output_index(uint subgroup_enqueue);
 @primaryRestirHistoryValid@
 
 @primaryRestirHistoryLimit@
+
+struct PbrLobeSample { vec4 direction_pdf; vec4 throughput_lobe; };
+#if WAVE_SELECTED_DIFFUSE
+#if WAVE_CONTINUATION_CLASSIFY || WAVE_CONTINUATION_RESUME
+layout(set=0,binding=36,std430) buffer DeferredControl { uint deferred_control[]; };
+layout(set=0,binding=37,std430) buffer DeferredIndices { uint deferred_indices[]; };
+#endif
+layout(set=0,binding=34,std430) readonly buffer DiffuseSelection { vec2 diffuse_selection[]; };
+layout(set=0,binding=35,std430) buffer PrimaryDirect { vec4 primary_direct[]; };
+@pbrLobeProbability@
+@pbrLobePdf@
+@pbrLobeValue@
+@samplePbrLobe@
+#endif
+@primaryDiffuseContinuationWeight@
 
 @processPrimaryPixel@
 #endif

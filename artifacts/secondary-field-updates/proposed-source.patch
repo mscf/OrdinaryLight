@@ -1,0 +1,19 @@
+--- a/scripts/generate_core_shaders.py
++++ b/scripts/generate_core_shaders.py
+@@ -5798,12 +5798,10 @@
+         and shadePathBounce(path) == osh.u32(1)
+         and secondary_paths[path_index].primary_throughput.w > 0.5
+     ):
+-        secondary = secondary_paths[path_index]
+-        secondary.position_valid = osh.vec4(loaded.hit.position_t.xyz, 1.0)
+-        secondary.normal_pdf = osh.vec4(
+-            surface.normal, secondary.normal_pdf.w
+-        )
+-        secondary_paths[path_index] = secondary
++        secondary_paths[path_index].position_valid = osh.vec4(loaded.hit.position_t.xyz, 1.0)
++        secondary_paths[path_index].normal_pdf = osh.vec4(
++            surface.normal, secondary_paths[path_index].normal_pdf.w
++        )
+     emission = shadeEmissionContribution(
+         path, surface.material, surface.vertex_a, surface.vertex_b,
+         surface.vertex_c, surface.geometric_normal, incoming,

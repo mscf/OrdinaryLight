@@ -26,8 +26,8 @@ class OrdinaryShadeEffectTests(unittest.TestCase):
         self.assertIn("encoded.rgb = ordinarylight_tint(", reconstruct)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_checked_in_helpers_match_ordinaryshade_output(self):
         path = ROOT / "scripts/generate_effect_shaders.py"

@@ -51,3 +51,13 @@ def nativeEmitterValid(sample: NativeEmitterSample) -> osh.boolean:
             and not osh.any_value(osh.is_nan(sample.emission))
             and not osh.any_value(osh.is_inf(sample.emission))
             and osh.all_value(sample.emission >= osh.vec3(0.0)))
+
+
+@osh.external
+def nativeEmitterInfluence(emitter: osh.u32, sample_position: osh.vec3, receiver: osh.vec3) -> osh.boolean:
+    pass
+
+
+@osh.function(name="nativeEmitterInfluence")
+def defaultEmitterInfluence(emitter: osh.u32, sample_position: osh.vec3, receiver: osh.vec3) -> osh.boolean:
+    return True

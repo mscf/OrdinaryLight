@@ -179,7 +179,13 @@ void main()
         accumulated = imageLoad(hdr_image, pixel).rgb;
     }
     imageStore(hdr_image, pixel, vec4((accumulated + contribution), 1.0));
-    if (((push.indirect_secondary_capture == uint(0)) || ((push.sample_index + uint(1)) != push.sample_count)))
+    if ((((push.indirect_secondary_capture == uint(0)) || ((push.sample_index + uint(1)) != push.sample_count)) || ((push.indirect_secondary_capture & uint(6)) == uint(6))))
+    {
+        return;
+    }
+    uvec2 reservoir_pixel = min(uvec2((((vec2(pixel) + 0.5) * vec2(push.reservoir_width, push.reservoir_height)) / vec2(push.image_width, push.image_height))), uvec2((push.reservoir_width - uint(1)), (push.reservoir_height - uint(1))));
+    ivec2 representative = ivec2((((vec2(reservoir_pixel) + 0.5) * vec2(push.image_width, push.image_height)) / vec2(push.reservoir_width, push.reservoir_height)));
+    if ((((push.indirect_secondary_capture & uint(2)) != uint(0)) && ((pixel.x != representative.x) || (pixel.y != representative.y))))
     {
         return;
     }
@@ -199,11 +205,9 @@ void main()
     {
         secondary.diffuse_radiance_hit_distance = vec4(diffuse_radiance, hit_distance);
         secondary.specular_radiance_hit_distance = vec4(specular_radiance, hit_distance);
+        secondary_paths[path_index] = secondary;
     }
-    secondary_paths[path_index] = secondary;
-    uvec2 reservoir_pixel = min(uvec2((((vec2(pixel) + 0.5) * vec2(push.reservoir_width, push.reservoir_height)) / vec2(push.image_width, push.image_height))), uvec2((push.reservoir_width - uint(1)), (push.reservoir_height - uint(1))));
-    ivec2 representative = ivec2((((vec2(reservoir_pixel) + 0.5) * vec2(push.image_width, push.image_height)) / vec2(push.reservoir_width, push.reservoir_height)));
-    if (((pixel.x != representative.x) || (pixel.y != representative.y)))
+    if (((((push.indirect_secondary_capture & uint(4)) != uint(0)) || (pixel.x != representative.x)) || (pixel.y != representative.y)))
     {
         return;
     }

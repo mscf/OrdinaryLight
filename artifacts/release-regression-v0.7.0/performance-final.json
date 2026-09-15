@@ -1,0 +1,341 @@
+{
+  "status": "pass",
+  "configuration": {
+    "scenes": [
+      "area_lights",
+      "diffuse",
+      "glossy_glass",
+      "textured",
+      "small_emitter",
+      "occlusion",
+      "nested_glass",
+      "dense"
+    ],
+    "stages": [
+      "performance"
+    ],
+    "quality_extent": [
+      320,
+      180
+    ],
+    "frames": 8,
+    "reference_samples": 16,
+    "parity_samples": 8,
+    "performance_frames": 120,
+    "performance_warmup_frames": 30,
+    "performance_orbits": 1.0,
+    "performance_strategy": "auto",
+    "performance_platform": "x11",
+    "performance_logical_extent": [
+      3840,
+      2160
+    ],
+    "bounces": 8
+  },
+  "results": [
+    {
+      "scene": "area_lights",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 11.447293026001716,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/area_lights.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 16.878288,
+        "gpu_p90_ms": 20.195072,
+        "cadence_median_ms": 17.12257044279025,
+        "wait_median_ms": 15.323672501835972,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 56.49473801006448,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "diffuse",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 3.9280387699982384,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/diffuse.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 13.351887999999999,
+        "gpu_p90_ms": 16.1888,
+        "cadence_median_ms": 14.648911481999509,
+        "wait_median_ms": 12.27871900118771,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 69.71454910252845,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "glossy_glass",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 4.392074178002076,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/glossy_glass.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 16.726784000000002,
+        "gpu_p90_ms": 21.50336,
+        "cadence_median_ms": 17.408174730916357,
+        "wait_median_ms": 15.41140799963614,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 55.6449796080767,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "textured",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 4.9383899479944375,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/textured.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 14.26744,
+        "gpu_p90_ms": 18.12992,
+        "cadence_median_ms": 14.856613789172737,
+        "wait_median_ms": 12.29022699772031,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 68.26762490349554,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "small_emitter",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 4.87996895499964,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/small_emitter.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 13.489488,
+        "gpu_p90_ms": 15.96576,
+        "cadence_median_ms": 14.649569268597087,
+        "wait_median_ms": 12.145746502937982,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 70.56649001323203,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "occlusion",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 3.981348445995536,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/occlusion.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 13.517536,
+        "gpu_p90_ms": 16.12144,
+        "cadence_median_ms": 14.638827553586324,
+        "wait_median_ms": 12.272684998606564,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 69.84527101004804,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "nested_glass",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 5.036866207003186,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/nested_glass.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 16.984144,
+        "gpu_p90_ms": 22.912768,
+        "cadence_median_ms": 17.733926019423635,
+        "wait_median_ms": 15.625979001924861,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 54.104334610308214,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    },
+    {
+      "scene": "dense",
+      "stage": "performance",
+      "status": "pass",
+      "returncode": 0,
+      "elapsed_seconds": 11.504328463001002,
+      "summary": "/tmp/upstream-release-regression/performance-final/performance/dense.json",
+      "metrics": {
+        "frames": 90,
+        "warmup_frames": 30,
+        "gpu_median_ms": 13.491792,
+        "gpu_p90_ms": 18.948832,
+        "cadence_median_ms": 14.04934732092147,
+        "wait_median_ms": 12.467577002098551,
+        "temporal_motion_pixels": 99.50003682300708,
+        "restir_effective_history_limit": 1,
+        "indirect_effective_history_limit": 1,
+        "indirect_reuse": {},
+        "indirect_reuse_metrics": {},
+        "gate": {
+          "status": "pass",
+          "failures": [],
+          "override_reason": "",
+          "throughput_fps": 68.16212322693534,
+          "minimum_fps": 50.0,
+          "measured_extent": [
+            3773,
+            2368
+          ],
+          "requested_extent": [
+            3840,
+            2160
+          ],
+          "pixel_ratio": 1.0771682098765432,
+          "minimum_pixel_ratio": 0.98
+        }
+      }
+    }
+  ]
+}

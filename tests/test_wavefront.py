@@ -23,11 +23,12 @@ class WavefrontLayoutTests(unittest.TestCase):
         from unittest.mock import Mock, patch
         from ordinarylight.targets.vulkan import path_resolve_graph as adapter
 
-        for indirect, denoiser in ((False, False), (False, True), (True, False)):
+        from itertools import product
+        for indirect, denoiser, sampled in product((False, True), repeat=3):
             executor = NS(
                 core=NS(runtime=object(), config=NS(
                     wavefront_indirect_reuse_candidates=indirect,
-                    denoiser_sampled_indirect=True,
+                    denoiser_sampled_indirect=sampled,
                 ), window_frames=[{}]),
                 capacity=1, _denoiser_signals_active=lambda: denoiser,
                 path_resolve_stages={0: ((), NS(runtime=object()), OrderedDict())},
@@ -37,7 +38,8 @@ class WavefrontLayoutTests(unittest.TestCase):
                  patch.object(adapter, "VulkanGraph", return_value=Mock()):
                 adapter.record_path_resolve(executor, object(), 0, 1, 1, 1)
                 self.assertEqual(operation.call_args.kwargs["capture_secondary"], indirect or denoiser)
-                self.assertEqual(operation.call_args.kwargs["sampled_indirect"], indirect or denoiser)
+                self.assertEqual(operation.call_args.kwargs["sampled_indirect"], sampled and (indirect or denoiser))
+                self.assertEqual(operation.call_args.kwargs["seed_reservoirs"], indirect)
 
     def test_denoiser_signals_resolve_after_all_samples(self):
         source = (

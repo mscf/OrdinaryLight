@@ -65,6 +65,11 @@ class _NativePrepareKernel:
         self.runtime.require_open()
 
 
+def fused_resolve_enabled(config):
+    return (config.denoiser_enabled and config.denoiser_fused_resolve and config.denoiser_sampled_indirect
+            and not config.wavefront_indirect_reuse_candidates)
+
+
 def close_relax_preparation(executor):
     cached = getattr(executor, "relax_preparation_stages", {})
     for _key, stage in cached.values():
@@ -79,6 +84,9 @@ def record_relax_prepare(
     from ...runtime.relax_prepare import VulkanRelaxPrepare
 
     bindings = _NativePrepareKernel(executor, slot).bindings
+    if fused_resolve_enabled(executor.core.config):
+        from .path_resolve_graph import _NativeResolveKernel
+        bindings[14]=_NativeResolveKernel(executor,slot).bindings[1]
     key = tuple(
         (b, r.handle, r.size, getattr(r.owner, "view", None))
         for b, r in sorted(bindings.items())
@@ -103,6 +111,7 @@ def record_relax_prepare(
             10: "previous_camera",
             11: "previous_vertices",
             12: "identity",
+            14: "hdr_output",
         }
         stage = VulkanRelaxPrepare(
             executor.core.runtime,

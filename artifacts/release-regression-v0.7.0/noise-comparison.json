@@ -1,0 +1,26 @@
+{
+  "quality_differences": {
+    "diffuse": {},
+    "area_light": {},
+    "glossy_glass": {},
+    "dense_motion": {},
+    "volume_static": {},
+    "volume_motion": {}
+  },
+  "candidate_timings": {
+    "diffuse": 0.8808480000000001,
+    "area_light": 0.591648,
+    "glossy_glass": 0.443184,
+    "dense_motion": 0.43155200000000005,
+    "volume_static": 0.546896,
+    "volume_motion": 4.116592000000001
+  },
+  "released_timings": {
+    "diffuse": 0.779776,
+    "area_light": 0.479184,
+    "glossy_glass": 0.48192,
+    "dense_motion": 0.46065599999999995,
+    "volume_static": 0.569184,
+    "volume_motion": 4.185840000000001
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "override_reason": "User-approved current small-emitter roulette baseline, identical on candidate and v0.6.0. Retain 15% relative headroom; all other configurations and error/bias limits are unchanged.",
+  "configuration": {
+    "scene": "small_emitter",
+    "width": 320,
+    "height": 180,
+    "frames": 8,
+    "reference_samples": 16,
+    "bounces": 8,
+    "candidate_bounces": null,
+    "motion": 0.24,
+    "strategy": "megakernel",
+    "area_light_samples": 1,
+    "secondary_area_light_samples": 0,
+    "environment_samples": 1,
+    "roulette_start": 4,
+    "minimum_survival": 0.1
+  },
+  "accepted_low_frequency_ratio": 1.243968128302576,
+  "maximum_relative_growth": 1.15,
+  "evidence": "artifacts/release-regression-v0.7.0/termination-comparison.json"
+}

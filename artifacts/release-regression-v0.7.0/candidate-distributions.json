@@ -1,0 +1,18 @@
+{
+  "ordinaryshade-0.1.0a8-py3-none-any.whl": {
+    "sha256": "9d86945d138eb42d63d6c566442f9cb4b6ede00bc6a89a04007b933d5c725d55",
+    "bytes": 49774
+  },
+  "ordinaryshade-0.1.0a8.tar.gz": {
+    "sha256": "2d0da2cffb26143878c41c5d7a7fbb52d423ca22e6ec0a10a33f90c9d71fa057",
+    "bytes": 57063
+  },
+  "ordinarylight-0.7.0-py3-none-any.whl": {
+    "sha256": "4f43d4de4a6a6c13aaa6298fe82e14a66c5c3ca08afc44c70dc7ffcb68e0ef6c",
+    "bytes": 42515794
+  },
+  "ordinarylight-0.7.0.tar.gz": {
+    "sha256": "0a8b59d04c2835e1135c1800319313512166c09dd756cb5061a4e50b48613680",
+    "bytes": 42680603
+  }
+}

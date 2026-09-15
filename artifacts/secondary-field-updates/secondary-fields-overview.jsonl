@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [3840, 2160], "samples": 40, "primary_hit_format": "identity", "secondary_first_median_ms": 0.5294719999999999, "primary_median_ms": 3.922464, "primary_p95_ms": 4.507182399999999, "setup_median_ms": 0.021488, "total_median_ms": 13.735600000000002, "face_output_median_ms": 3.107376, "overview": true, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-secondary-fields", "extent": [3840, 2160], "samples": 40, "primary_hit_format": "identity", "secondary_first_median_ms": 0.519008, "primary_median_ms": 3.895104, "primary_p95_ms": 4.4663344, "setup_median_ms": 0.021519999999999997, "total_median_ms": 13.716111999999999, "face_output_median_ms": 3.104336, "overview": true, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.59423828125}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.453125}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.4239257872104645}
+{"compact_identity_validity_equal": true, "optimization": "full-secondary-fields"}

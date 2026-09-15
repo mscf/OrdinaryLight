@@ -607,6 +607,8 @@ vec3 ordinarylight_pbr_weight(vec3 evaluated, float metallic, float occlusion, v
     vec3 weight = ((evaluated * max(dot(normal, outgoing), 0.0)) / pdf);
     return (weight * mix(occlusion, 1.0, metallic));
 }
+#ifndef ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS
+#define ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS 1
 vec3 ordinarylight_analytic_light_direction(int light_type, vec3 light_position, vec3 light_direction, vec3 hit)
 {
     if ((light_type == 1))
@@ -662,6 +664,7 @@ vec3 ordinarylight_analytic_light_contribution(vec3 evaluated_pbr, vec3 incident
 {
     return ((evaluated_pbr * incident) * cosine);
 }
+#endif
 vec3 ordinarylight_area_light_position(vec3 vertex_a, vec3 vertex_b, vec3 vertex_c, float root_u, float value_v)
 {
     return ((((1.0 - root_u) * vertex_a) + ((root_u * (1.0 - value_v)) * vertex_b)) + ((root_u * value_v) * vertex_c));

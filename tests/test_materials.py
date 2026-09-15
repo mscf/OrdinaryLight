@@ -296,7 +296,17 @@ class MaterialProgramTests(unittest.TestCase):
         )
         self.assertEqual(
             capture_source.count("secondary_paths[path_index] = secondary"),
-            2,
+            1,
+        )
+        # First-secondary hit capture updates only the changed fields; the
+        # continuation capture below still writes a complete record.
+        self.assertIn(
+            "secondary_paths[path_index].position_valid = vec4(loaded.hit.position_t.xyz, 1.0)",
+            capture_source,
+        )
+        self.assertIn(
+            "secondary_paths[path_index].normal_pdf = vec4(surface.normal, secondary_paths[path_index].normal_pdf.w)",
+            capture_source,
         )
         self.assertIn(
             "secondary.primary_throughput = vec4(path.throughput.rgb",

@@ -243,6 +243,20 @@ def reserve(scene, capacity):
     capacity = index(capacity)
     if capacity <= scene.custom_capacity:
         return False
+    # Kernel descriptor leases also appear in _borrowers. Only integrators
+    # own a supported rebind lifecycle; their kernels are released with them.
+    from .integrator import VulkanTransportIntegrator
+
+    integrators = tuple(
+        consumer for consumer in scene._borrowers
+        if isinstance(consumer, VulkanTransportIntegrator)
+    )
+    owned = set(integrators) | {consumer._kernel for consumer in integrators}
+    if scene._borrowers - owned:
+        raise RuntimeError(
+            "Close other scene consumers before growing scene capacity; "
+            "only transport integrators support automatic rebinding"
+        )
     # Build a replacement before retiring the old resources, so ordinary build
     # failures leave the current scene usable.
     from types import SimpleNamespace
@@ -277,8 +291,9 @@ def reserve(scene, capacity):
             buffer.close()
         raise
     vk.vkDeviceWaitIdle(scene.runtime.device)
-    for consumer in tuple(scene._borrowers):
-        consumer._kernel.close()
+    for consumer in integrators:
+        if consumer._kernel is not None:
+            consumer._kernel.close()
         consumer._kernel = None
     previous_builder, previous_buffer = scene._builder, scene._buffers["custom"]
     for name in (
@@ -301,7 +316,7 @@ def reserve(scene, capacity):
         previous_builder._structures, previous_builder._buffers
     )
     previous_buffer.close()
-    for consumer in tuple(scene._borrowers):
+    for consumer in integrators:
         consumer._refresh_scene_bindings()
     return True
 

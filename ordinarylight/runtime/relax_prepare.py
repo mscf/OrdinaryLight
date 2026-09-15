@@ -27,6 +27,19 @@ def _custom_history_shader():
     return compile_compute(shader.source)
 
 
+@lru_cache(maxsize=2)
+def _hdr_shader(custom_history):
+    import ordinaryshade as osh
+    from .kernel import compile_compute
+    from ..denoising.prepare_hdr import prepare_relax_signals_with_hdr
+    from ..denoising.kernels import (prepare_decode_normal,prepare_unpack_normal,
+        prepare_previous_pixel,prepare_surface_history,prepare_custom_surface_history)
+    shader=osh.compile(prepare_relax_signals_with_hdr,helpers=(prepare_decode_normal,
+        prepare_unpack_normal,prepare_previous_pixel,
+        prepare_custom_surface_history if custom_history else prepare_surface_history))
+    return compile_compute(shader.source)
+
+
 class VulkanRelaxPrepare:
     """Borrow path records, cameras, previous geometry and denoiser images.
 
@@ -35,6 +48,8 @@ class VulkanRelaxPrepare:
     With custom_history=True, previous_vertices instead contains pixel-indexed
     32-byte records: uint4 identity followed by float4 previous_position. The w
     component is validity (>0.5); invalid/nonfinite positions reject history.
+    Optional hdr_output fuses raw HDR resolve for sampled_indirect operations.
+    It must be distinct rgba16f storage; native reservoir seeding is not included.
     Initialize uncovered image pixels before use; the shader preserves them.
     """
 
@@ -57,11 +72,13 @@ class VulkanRelaxPrepare:
         identity,
         capacity,
         custom_history=False,
+        hdr_output=None,
     ):
         self.runtime, self.closed, self.completion = runtime, False, None
         if type(custom_history) is not bool:
             raise TypeError("custom_history must be a bool")
         self.custom_history = custom_history
+        self.resolve_hdr = hdr_output is not None
         self.capacity = index(capacity)
         if not 0 < self.capacity <= 0xFFFFFFFF:
             raise ValueError("Preparation capacity must fit a positive uint32")
@@ -120,7 +137,15 @@ class VulkanRelaxPrepare:
                     for binding, image in zip((2, 3, 4, 5, 6, 7, 8, 12), images)
                 }
             )
-            if custom_history:
+            if hdr_output is not None:
+                hdr_output.require_open()
+                if (hdr_output.format != vk.VK_FORMAT_R16G16B16A16_SFLOAT
+                        or (hdr_output.width,hdr_output.height) != self.extent
+                        or hdr_output.image in {image.image for image in images}):
+                    raise ValueError("HDR resolve requires a distinct matching rgba16f image")
+                bindings[14]=VulkanResource.image(hdr_output)
+                spirv=_hdr_shader(custom_history)
+            elif custom_history:
                 spirv = _custom_history_shader()
             else:
                 spirv = files("ordinarylight.shaders").joinpath("denoiser_relax_prepare.comp.spv").read_bytes()
@@ -144,6 +169,8 @@ class VulkanRelaxPrepare:
         after=(),
     ):
         self.require_open()
+        if self.resolve_hdr and not sampled_indirect:
+            raise ValueError("Combined HDR preparation requires sampled indirect signals")
         extent = self.extent if extent is None else tuple(map(index, extent))
         if len(extent) != 2 or any(
             n <= 0 or n > limit for n, limit in zip(extent, self.extent)
@@ -197,8 +224,15 @@ def relax_prepare_operation(
     transmission_motion_cap=False,
     planar_mirror_guides=False,
 ):
-    """Shared signal preparation recording for standalone and native bindings."""
+    """Shared signal preparation recording for standalone and native bindings.
+
+    A matching combined kernel may bind distinct rgba16f HDR output at 14.
+    It resolves each sample before preparing signals, without reservoir seeding.
+    Sample zero overwrites addressed pixels; later samples read/accumulate them.
+    """
     kernel.require_open()
+    if 14 in kernel.bindings and not sampled_indirect:
+        raise ValueError("Combined HDR preparation requires sampled indirect signals")
     path_count, sample_index, sample_count = map(
         index, (path_count, sample_index, sample_count)
     )
@@ -219,9 +253,9 @@ def relax_prepare_operation(
     uses = {}
     for binding, resource in kernel.bindings.items():
         access = vk.VK_ACCESS_SHADER_READ_BIT
-        if binding in (4, 5, 6, 7, 8, 12):
+        if binding in (4, 5, 6, 7, 8, 12, 14):
             access = vk.VK_ACCESS_SHADER_WRITE_BIT
-            if binding in (4, 5) and sampled_indirect and sample_index:
+            if (binding == 14 or binding in (4, 5) and sampled_indirect) and sample_index:
                 access |= vk.VK_ACCESS_SHADER_READ_BIT
         key = (resource.kind, resource.handle)
         previous = uses.get(key)

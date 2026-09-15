@@ -1,0 +1,357 @@
+--- a/ordinarylight/denoising/kernels.py
++++ b/ordinarylight/denoising/kernels.py
+@@ -460,6 +460,245 @@
+     output_history_length.store(pixel, osh.vec4(history_length))
+ 
+ 
++@osh.compute(workgroup_size=(8, 8, 1))
++def relax_temporal_pair(
++    current_radiance_hit_distance: osh.storage_image(
++        "rgba16f", access="read", binding=0,
++    ),
++    normal_roughness: osh.storage_image(
++        "rgba16f", access="read", binding=1,
++    ),
++    view_z: osh.storage_image("r32f", access="read", binding=2),
++    motion: osh.storage_image("rgba16f", access="read", binding=3),
++    material_id: osh.storage_image("r32ui", access="read", binding=4),
++    previous_radiance: osh.storage_image(
++        "rgba16f", access="read", binding=5,
++    ),
++    previous_normal_roughness: osh.storage_image(
++        "rgba16f", access="read", binding=6,
++    ),
++    previous_view_z: osh.storage_image("r32f", access="read", binding=7),
++    previous_material_id: osh.storage_image(
++        "r32ui", access="read", binding=8,
++    ),
++    previous_history_length: osh.storage_image(
++        "r32f", access="read", binding=9,
++    ),
++    output_radiance: osh.storage_image(
++        "rgba16f", access="write", binding=10,
++    ),
++    output_history_length: osh.storage_image(
++        "r32f", access="write", binding=11,
++    ),
++    constants: osh.uniform_buffer(TemporalConstants, binding=12),
++    identity: osh.storage_image(
++        "r32ui", access="read", binding=13,
++    ),
++    previous_identity: osh.storage_image(
++        "r32ui", access="read", binding=14,
++    ),
++    current_specular: osh.storage_image("rgba16f", access="read", binding=15),
++    previous_specular: osh.storage_image("rgba16f", access="read", binding=16),
++    previous_specular_length: osh.storage_image("r32f", access="read", binding=17),
++    output_specular: osh.storage_image("rgba16f", access="write", binding=18),
++    output_specular_length: osh.storage_image("r32f", access="write", binding=19),
++):
++    pixel = osh.ivec2(osh.global_invocation_id.xy)
++    extent = osh.ivec2(constants.extent_history.xy)
++    if pixel.x >= extent.x or pixel.y >= extent.y:
++        return
++    current = current_radiance_hit_distance.load(pixel)
++    specular_current = current_specular.load(pixel)
++    # Reset frames have no eligible history. Publish the unchanged sample
++    # without fetching geometry, motion, or previous-frame images.
++    if not (constants.extent_history.w > 0.5):
++        output_radiance.store(pixel, current)
++        output_history_length.store(pixel, osh.vec4(1.0))
++        output_specular.store(pixel, specular_current)
++        output_specular_length.store(pixel, osh.vec4(1.0))
++        return
++    current_normal = normal_roughness.load(pixel).xyz
++    current_depth = view_z.load(pixel).r
++    motion_sample = motion.load(pixel)
++    motion_vector = motion_sample.xy
++    expected_old_depth = motion_sample.z
++    previous_pixel = osh.ivec2(osh.vec2(pixel) + motion_vector + osh.vec2(0.5))
++    in_bounds = (
++        previous_pixel.x >= 0 and previous_pixel.y >= 0
++        and previous_pixel.x < extent.x and previous_pixel.y < extent.y
++    )
++    # ``extent_history.w`` is an explicit validity bit.  Newly allocated or
++    # invalidated history images contain unspecified device memory, so bounds
++    # and geometry tests alone must never make their contents eligible.
++    accepted = (
++        constants.extent_history.w > 0.5
++        and in_bounds and current_depth != 0.0 and expected_old_depth > 0.0
++    )
++    history = current
++    history_length = 1.0
++    specular_history = specular_current
++    specular_history_length = 1.0
++    specular_accepted = accepted
++    if accepted:
++        old_depth = previous_view_z.load(previous_pixel).r
++        old_normal = previous_normal_roughness.load(previous_pixel).xyz
++        old_material = previous_material_id.load(previous_pixel).r
++        old_primitive = previous_identity.load(previous_pixel).r
++        current_primitive = identity.load(pixel).r
++        current_material = material_id.load(pixel).r
++        depth_tolerance = osh.maximum(
++            osh.absolute(expected_old_depth) * constants.rejection.y, 0.001,
++        )
++        accepted = (
++            old_depth != 0.0
++            and osh.dot(current_normal, old_normal) >= constants.rejection.x
++            and osh.absolute(expected_old_depth - old_depth) <= depth_tolerance
++            and old_material == current_material
++            and old_primitive == current_primitive
++        )
++        specular_accepted = accepted
++        if accepted:
++            history = previous_radiance.load(previous_pixel)
++            specular_history = previous_specular.load(previous_pixel)
++            neighborhood_sum = osh.vec3(0.0)
++            neighborhood_square_sum = osh.vec3(0.0)
++            neighborhood_count = 0.0
++            specular_sum = osh.vec3(0.0)
++            specular_square_sum = osh.vec3(0.0)
++            for y in range(-1, 2):
++                for x in range(-1, 2):
++                    neighbor_pixel = pixel + osh.ivec2(x, y)
++                    if neighbor_pixel.x < 0 or neighbor_pixel.y < 0:
++                        continue
++                    if neighbor_pixel.x >= extent.x or neighbor_pixel.y >= extent.y:
++                        continue
++                    if constants.rejection.w > 0.0:
++                        # During motion, a foreground/background mixture can
++                        # make the clamp accept radiance from the wrong surface.
++                        # Derive its statistics only from compatible geometry.
++                        if material_id.load(neighbor_pixel).r != current_material:
++                            continue
++                        if identity.load(neighbor_pixel).r != current_primitive:
++                            continue
++                        neighbor_normal = normal_roughness.load(neighbor_pixel).xyz
++                        if osh.dot(current_normal, neighbor_normal) < constants.rejection.x:
++                            continue
++                    neighbor = current_radiance_hit_distance.load(
++                        neighbor_pixel
++                    ).rgb
++                    neighborhood_sum = neighborhood_sum + neighbor
++                    neighborhood_square_sum = (
++                        neighborhood_square_sum + neighbor * neighbor
++                    )
++                    specular_neighbor = current_specular.load(neighbor_pixel).rgb
++                    specular_sum = specular_sum + specular_neighbor
++                    specular_square_sum = specular_square_sum + specular_neighbor * specular_neighbor
++                    neighborhood_count = neighborhood_count + 1.0
++            neighborhood_mean = neighborhood_sum / osh.maximum(
++                neighborhood_count, 1.0
++            )
++            neighborhood_variance = osh.maximum(
++                neighborhood_square_sum / osh.maximum(
++                    neighborhood_count, 1.0
++                ) - neighborhood_mean * neighborhood_mean,
++                osh.vec3(0.0),
++            )
++            neighborhood_deviation = osh.sqrt(neighborhood_variance)
++            clamp_radius = neighborhood_deviation * constants.rejection.z
++            if constants.rejection.w > 0.0:
++                history_luma = osh.dot(
++                    history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
++                )
++                mean_luma = osh.dot(
++                    neighborhood_mean, osh.vec3(0.2126, 0.7152, 0.0722)
++                )
++                deviation_luma = osh.dot(
++                    neighborhood_deviation,
++                    osh.vec3(0.2126, 0.7152, 0.0722),
++                )
++                reactive_limit = osh.maximum(
++                    deviation_luma * constants.rejection.w,
++                    osh.absolute(mean_luma) * 0.1 + 0.01,
++                )
++                accepted = (
++                    osh.absolute(history_luma - mean_luma) <= reactive_limit
++                )
++            history = osh.vec4(
++                osh.clamp(
++                    history.rgb,
++                    neighborhood_mean - clamp_radius,
++                    neighborhood_mean + clamp_radius,
++                ),
++                history.a,
++            )
++            if accepted:
++                history_length = osh.minimum(
++                    previous_history_length.load(previous_pixel).r + 1.0,
++                    constants.extent_history.z,
++                )
++            specular_mean = specular_sum / osh.maximum(
++                neighborhood_count, 1.0
++            )
++            specular_variance = osh.maximum(
++                specular_square_sum / osh.maximum(
++                    neighborhood_count, 1.0
++                ) - specular_mean * specular_mean,
++                osh.vec3(0.0),
++            )
++            specular_deviation = osh.sqrt(specular_variance)
++            specular_clamp_radius = specular_deviation * constants.rejection.z
++            if constants.rejection.w > 0.0:
++                specular_history_luma = osh.dot(
++                    specular_history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
++                )
++                specular_mean_luma = osh.dot(
++                    specular_mean, osh.vec3(0.2126, 0.7152, 0.0722)
++                )
++                specular_deviation_luma = osh.dot(
++                    specular_deviation,
++                    osh.vec3(0.2126, 0.7152, 0.0722),
++                )
++                specular_reactive_limit = osh.maximum(
++                    specular_deviation_luma * constants.rejection.w,
++                    osh.absolute(specular_mean_luma) * 0.1 + 0.01,
++                )
++                specular_accepted = (
++                    osh.absolute(specular_history_luma - specular_mean_luma) <= specular_reactive_limit
++                )
++            specular_history = osh.vec4(
++                osh.clamp(
++                    specular_history.rgb,
++                    specular_mean - specular_clamp_radius,
++                    specular_mean + specular_clamp_radius,
++                ),
++                specular_history.a,
++            )
++            if specular_accepted:
++                specular_history_length = osh.minimum(
++                    previous_specular_length.load(previous_pixel).r + 1.0,
++                    constants.extent_history.z,
++                )
++    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
++        history_length = osh.minimum(history_length, 4.0)
++    if accepted:
++        alpha = 1.0 / osh.maximum(history_length, 1.0)
++        current = osh.vec4(
++            osh.mix(history.rgb, current.rgb, alpha), current.a,
++        )
++    output_radiance.store(pixel, current)
++    output_history_length.store(pixel, osh.vec4(history_length))
++
++    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
++        specular_history_length = osh.minimum(specular_history_length, 4.0)
++    if specular_accepted:
++        specular_alpha = 1.0 / osh.maximum(specular_history_length, 1.0)
++        specular_current = osh.vec4(
++            osh.mix(specular_history.rgb, specular_current.rgb, specular_alpha), specular_current.a,
++        )
++    output_specular.store(pixel, specular_current)
++    output_specular_length.store(pixel, osh.vec4(specular_history_length))
++
++
+ @osh.structure
+ class ComposeConstants:
+     extent: osh.vec4
+--- a/ordinarylight/runtime/relax_temporal.py
++++ b/ordinarylight/runtime/relax_temporal.py
+@@ -193,40 +193,47 @@
+                         self.buffers.append(runtime.buffer(len(data), data=data))
+                 source = (
+                     files("ordinarylight.shaders")
+-                    .joinpath("denoiser_relax_temporal.comp.spv")
++                    .joinpath("denoiser_relax_temporal_pair.comp.spv")
+                     .read_bytes()
+                 )
+-                for lobe, radiance in enumerate((diffuse, specular)):
+-                    normal, depth, material, identity = output.guides
+-                    old_normal, old_depth, old_material, old_identity = previous.guides
+-                    images = [
+-                        radiance,
+-                        normal,
+-                        depth,
+-                        motion,
+-                        material,
+-                        previous.images[lobe],
+-                        old_normal,
+-                        old_depth,
+-                        old_material,
+-                        previous.images[lobe + 2],
+-                        output.images[lobe],
+-                        output.images[lobe + 2],
+-                    ]
+-                    bindings = {
+-                        i: VulkanResource.image(image) for i, image in enumerate(images)
+-                    }
+-                    bindings[13] = VulkanResource.image(identity)
+-                    bindings[14] = VulkanResource.image(old_identity)
+-                    self.bindings.append(bindings)
+-                    for buffer in self.buffers:
+-                        self.kernels.append(
+-                            VulkanKernel(
+-                                runtime,
+-                                source,
+-                                {**bindings, 12: VulkanResource.uniform_buffer(buffer)},
+-                            )
++                lobe, radiance = 0, diffuse
++                normal, depth, material, identity = output.guides
++                old_normal, old_depth, old_material, old_identity = previous.guides
++                images = [
++                    radiance,
++                    normal,
++                    depth,
++                    motion,
++                    material,
++                    previous.images[lobe],
++                    old_normal,
++                    old_depth,
++                    old_material,
++                    previous.images[lobe + 2],
++                    output.images[lobe],
++                    output.images[lobe + 2],
++                ]
++                bindings = {
++                    i: VulkanResource.image(image) for i, image in enumerate(images)
++                }
++                bindings[13] = VulkanResource.image(identity)
++                bindings[14] = VulkanResource.image(old_identity)
++                bindings.update({
++                    15: VulkanResource.image(specular),
++                    16: VulkanResource.image(previous.images[1]),
++                    17: VulkanResource.image(previous.images[3]),
++                    18: VulkanResource.image(output.images[1]),
++                    19: VulkanResource.image(output.images[3]),
++                })
++                self.bindings.append(bindings)
++                for buffer in self.buffers:
++                    self.kernels.append(
++                        VulkanKernel(
++                            runtime,
++                            source,
++                            {**bindings, 12: VulkanResource.uniform_buffer(buffer)},
+                         )
++                    )
+             except Exception:
+                 self.close()
+                 raise
+@@ -266,7 +273,7 @@
+             for binding, resource in bindings.items():
+                 access = (
+                     vk.VK_ACCESS_SHADER_WRITE_BIT
+-                    if binding in (10, 11)
++                    if binding in (10, 11, 18, 19)
+                     else vk.VK_ACCESS_SHADER_READ_BIT
+                 )
+                 key = resource.handle
+--- a/scripts/generate_denoiser_artifacts.py
++++ b/scripts/generate_denoiser_artifacts.py
+@@ -18,7 +18,7 @@
+ 
+ from ordinarylight.denoising.kernels import (
+     prepare_decode_normal, prepare_previous_pixel, prepare_surface_history, prepare_relax_signals,
+-    prepare_unpack_normal, relax_atrous, relax_compose, relax_temporal,
++    prepare_unpack_normal, relax_atrous, relax_compose, relax_temporal, relax_temporal_pair,
+ )
+ 
+ 
+@@ -61,6 +61,7 @@
+                 ),
+             ),
+             ("temporal", relax_temporal, ()),
++            ("temporal_pair", relax_temporal_pair, ()),
+             ("atrous", relax_atrous, ()),
+             ("compose", relax_compose, ()),
+         ):

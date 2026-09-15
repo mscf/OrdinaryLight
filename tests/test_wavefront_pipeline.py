@@ -245,3 +245,42 @@ def test_imported_native_scene_matches_uploaded_lighting_and_retains_owners():
                 assert np.any(images[1][..., :3] > 0)
             assert source._borrowers == borrowers
             assert not materials._borrowers
+
+
+def test_history_resets_reuse_native_commands_and_match_forced_recording():
+    """Cached resets must reject the same GPU history as fresh commands."""
+    scene, glass, bars = fixture()
+    config = replace(_gi_config(
+        SimpleNamespace(id="glass-detail", renderer={}),
+        render_scale=0.5, upscale_filter="bilinear", capture=True,
+    ), max_bounces=4, samples_per_pixel=1, wavefront_raw_hdr_output=True)
+    camera = pose(scene, glass, bars, "camera", 0)
+    outputs = []
+    with VulkanRuntime(config=config) as runtime, runtime.upload_scene(scene) as resident:
+        for force_recording in (False, True):
+            images, hits = [], []
+            with VulkanWavefrontPipeline(runtime, resident, config=config) as pipeline:
+                for i in range(26):
+                    if i < 8 or 16 <= i < 22:
+                        pipeline.invalidate_gi_history()
+                    if i == 22:
+                        pipeline.reconfigure(max_bounces=3)
+                        assert all(f['wavefront_command_key'] is None
+                                   for f in pipeline._core.window_frames)
+                    if force_recording:
+                        pipeline.invalidate_gi_commands()
+                    extent = (128, 96) if i < 24 else (144, 104)
+                    frame = pipeline.render(camera, extent)
+                    frame.completion.wait()
+                    hits.append(bool(pipeline.last_timings['wavefront_command_cache_hit']))
+                    images.append(pipeline.capture_wavefront_hdr().copy())
+                if force_recording:
+                    assert not any(hits)
+                else:
+                    assert all(hits[4:8]), 'Repeated resets must reuse both slots'
+                    assert all(hits[20:22]), 'Reset after accumulated history must settle to reuse'
+                    assert not hits[22] and not hits[24], 'Settings and resize must record'
+            outputs.append(images)
+    for cached, recorded in zip(*outputs, strict=True):
+        assert np.isfinite(cached).all()
+        np.testing.assert_allclose(cached, recorded, rtol=2e-3, atol=2e-3)

@@ -13,9 +13,9 @@ if DEFAULT_ORDINARYSHADE.is_dir():
     sys.path.insert(0, str(DEFAULT_ORDINARYSHADE))
 
 import ordinaryshade as osh
-from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask, NativeOpticalBoundary, nativeEvaluateBoundary, nativeBoundaryEnabled
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeOccluded, nativeIntersectionMiss, nativeIntersectCandidate, nativeEvaluateTriangle, nativeSurfaceMask, NativeOpticalBoundary, nativeEvaluateBoundary, nativeBoundaryEnabled
 from ordinarylight.shaders.native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount,
-    nativeEmitterValid, nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)
+    nativeEmitterValid, nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf, nativeEmitterInfluence)
 from ordinarylight.shaders.native_surface_programs import nativeEvaluateMaterial
 from ordinarylight.shaders.transport_programs import ordinarylightDielectric, OrdinaryLightDielectricEvent
 from ordinarylight.shaders.easu import EASU_HELPERS, easu_resolve
@@ -845,8 +845,8 @@ def candidateSecondaryVisible(
     if connection_distance <= 0.006:
         return True
     direction = offset / connection_distance
-    query = nativeTraceSurface(primary_position + primary_normal * 0.002, 0.001, direction, osh.maximum(connection_distance - 0.004, 0.001), True, nativeSurfaceMask())
-    return query.address.w == osh.u32(0)
+    query = nativeOccluded(primary_position + primary_normal * 0.002, 0.001, direction, osh.maximum(connection_distance - 0.004, 0.001), nativeSurfaceMask())
+    return not query
 
 
 @osh.function
@@ -1807,6 +1807,30 @@ def wavefront_path_to_hdr(
     if (
         push.indirect_secondary_capture == osh.u32(0)
         or push.sample_index + osh.u32(1) != push.sample_count
+        or (push.indirect_secondary_capture & osh.u32(6)) == osh.u32(6)
+    ):
+        return
+    reservoir_pixel = osh.minimum(
+        osh.uvec2(
+            (osh.vec2(pixel) + 0.5)
+            * osh.vec2(push.reservoir_width, push.reservoir_height)
+            / osh.vec2(push.image_width, push.image_height)
+        ),
+        osh.uvec2(
+            push.reservoir_width - osh.u32(1),
+            push.reservoir_height - osh.u32(1),
+        ),
+    )
+    representative = osh.ivec2(
+        (osh.vec2(reservoir_pixel) + 0.5)
+        * osh.vec2(push.image_width, push.image_height)
+        / osh.vec2(push.reservoir_width, push.reservoir_height)
+    )
+    # Sampled-indirect preparation owns lobe classification and preserves the
+    # secondary record. Only reservoir representatives need to read it here.
+    if (
+        (push.indirect_secondary_capture & osh.u32(2)) != osh.u32(0)
+        and (pixel.x != representative.x or pixel.y != representative.y)
     ):
         return
     secondary = secondary_paths[path_index]
@@ -1847,24 +1871,10 @@ def wavefront_path_to_hdr(
         secondary.specular_radiance_hit_distance = osh.vec4(
             specular_radiance, hit_distance
         )
-    secondary_paths[path_index] = secondary
-    reservoir_pixel = osh.minimum(
-        osh.uvec2(
-            (osh.vec2(pixel) + 0.5)
-            * osh.vec2(push.reservoir_width, push.reservoir_height)
-            / osh.vec2(push.image_width, push.image_height)
-        ),
-        osh.uvec2(
-            push.reservoir_width - osh.u32(1),
-            push.reservoir_height - osh.u32(1),
-        ),
-    )
-    representative = osh.ivec2(
-        (osh.vec2(reservoir_pixel) + 0.5)
-        * osh.vec2(push.image_width, push.image_height)
-        / osh.vec2(push.reservoir_width, push.reservoir_height)
-    )
-    if pixel.x != representative.x or pixel.y != representative.y:
+        secondary_paths[path_index] = secondary
+    # Bit 2 disables reservoir/seed writes without disabling legacy signals.
+    if ((push.indirect_secondary_capture & osh.u32(4)) != osh.u32(0)
+            or pixel.x != representative.x or pixel.y != representative.y):
         return
     reservoir_index = (
         reservoir_pixel.y * push.reservoir_width + reservoir_pixel.x
@@ -3798,8 +3808,8 @@ def shadePreparePointLight(
 def shadePointLightVisible(sample: ShadePointLightSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, True, nativeSurfaceMask())
-    return shadow.address.w == osh.u32(0)
+    shadow = nativeOccluded(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, nativeSurfaceMask())
+    return not shadow
 
 
 @osh.function
@@ -3864,6 +3874,9 @@ def shadePrepareAreaLight(
         if not nativeEmitterValid(custom_sample):
             return ShadeAreaLightSample(normal, hit, osh.vec3(0.0), 0.0, 0.0,
                 osh.f32(sample_count), 0.0, random_state, False)
+        if not nativeEmitterInfluence(light_index, custom_sample.position, hit):
+            return ShadeAreaLightSample(normal, hit, osh.vec3(0.0), 0.0, 0.0,
+                osh.f32(sample_count), 0.0, random_state, False)
         custom_offset = custom_sample.position - hit
         custom_distance_squared = osh.dot(custom_offset, custom_offset)
         custom_distance = osh.sqrt(custom_distance_squared)
@@ -3921,8 +3934,8 @@ def shadePrepareAreaLight(
 def shadeAreaLightVisible(sample: ShadeAreaLightSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, True, nativeSurfaceMask())
-    return shadow.address.w == osh.u32(0)
+    shadow = nativeOccluded(sample.shadow_origin, 0.001, sample.direction, sample.shadow_distance, nativeSurfaceMask())
+    return not shadow
 
 
 @osh.function
@@ -4484,8 +4497,8 @@ def shadeVolumeOpaqueVisibility(
     shadow_distance = 1.0e30
     if maximum_distance < 1.0e29:
         shadow_distance = osh.maximum(maximum_distance - 0.004, 0.001)
-    shadow = nativeTraceSurface(world_position + direction * 0.002, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
-    return 1.0 if shadow.address.w == osh.u32(0) else 0.0
+    shadow = nativeOccluded(world_position + direction * 0.002, 0.001, direction, shadow_distance, nativeSurfaceMask())
+    return 1.0 if not shadow else 0.0
 
 
 @osh.function
@@ -5301,8 +5314,8 @@ def shadePrepareEnvironmentLight(
 def shadeEnvironmentVisible(sample: ShadeEnvironmentSample) -> osh.boolean:
     if not sample.valid:
         return False
-    shadow = nativeTraceSurface(sample.shadow_origin, 0.001, sample.direction, 1e+30, True, nativeSurfaceMask())
-    return shadow.address.w == osh.u32(0)
+    shadow = nativeOccluded(sample.shadow_origin, 0.001, sample.direction, 1e+30, nativeSurfaceMask())
+    return not shadow
 
 
 @osh.function
@@ -5623,8 +5636,6 @@ def shadeCandidateVolumeShadowTransmittance(
     maximum_distance: osh.f32,
     bounce: osh.u32,
 ) -> osh.f32:
-    if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
-        shadeProfileWork(osh.u32(1), osh.u32(1), bounce)
     configured_surface_only = False
     if osh.specialization("WAVE_SURFACE_ONLY"):
         configured_surface_only = True
@@ -5791,12 +5802,10 @@ def wavefront_shade_candidate(
         and shadePathBounce(path) == osh.u32(1)
         and secondary_paths[path_index].primary_throughput.w > 0.5
     ):
-        secondary = secondary_paths[path_index]
-        secondary.position_valid = osh.vec4(loaded.hit.position_t.xyz, 1.0)
-        secondary.normal_pdf = osh.vec4(
-            surface.normal, secondary.normal_pdf.w
+        secondary_paths[path_index].position_valid = osh.vec4(loaded.hit.position_t.xyz, 1.0)
+        secondary_paths[path_index].normal_pdf = osh.vec4(
+            surface.normal, secondary_paths[path_index].normal_pdf.w
         )
-        secondary_paths[path_index] = secondary
     emission = shadeEmissionContribution(
         path, surface.material, surface.vertex_a, surface.vertex_b,
         surface.vertex_c, surface.geometric_normal, incoming,
@@ -5915,6 +5924,9 @@ def wavefront_shade_candidate(
                     point_lights[osh.u32(light_index)],
                     loaded.hit.position_t.xyz, surface.normal,
                 )
+                if point_sample.valid:
+                    if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+                        shadeProfileWork(osh.u32(1), osh.u32(1), shadePathBounce(path))
                 if shadePointLightVisible(point_sample):
                     volume_transmittance = shadeCandidateVolumeShadowTransmittance(
                         point_sample.shadow_origin, point_sample.direction,
@@ -5943,6 +5955,9 @@ def wavefront_shade_candidate(
                         nativeAreaLightCount(push.area_light_count), domain.area_probability,
                     )
                     random_state = area_sample.random_state
+                    if area_sample.valid:
+                        if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+                            shadeProfileWork(osh.u32(1), osh.u32(1), shadePathBounce(path))
                     if shadeAreaLightVisible(area_sample):
                         volume_transmittance = shadeCandidateVolumeShadowTransmittance(
                             area_sample.shadow_origin, area_sample.direction,
@@ -5963,11 +5978,19 @@ def wavefront_shade_candidate(
                         1.0 - domain.area_probability,
                     )
                     random_state = environment_sample.random_state
+                    environment_radiance = osh.vec3(0.0)
+                    if osh.specialization('OL_ENVIRONMENT_EARLY_REJECT'):
+                        environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count)
+                        environment_sample.valid = environment_sample.valid and osh.any_value(environment_radiance != osh.vec3(0.0))
+                    if environment_sample.valid:
+                        if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+                            shadeProfileWork(osh.u32(1), osh.u32(1), shadePathBounce(path))
                     if shadeEnvironmentVisible(environment_sample):
-                        environment_radiance = shadeEnvironmentRadiance(
-                            environment_sample.direction,
-                            push.point_light_count,
-                        )
+                        if osh.specialization('!defined(OL_ENVIRONMENT_EARLY_REJECT) || !OL_ENVIRONMENT_EARLY_REJECT'):
+                            environment_radiance = shadeEnvironmentRadiance(
+                                environment_sample.direction,
+                                push.point_light_count,
+                            )
                         volume_transmittance = shadeCandidateVolumeShadowTransmittance(
                             environment_sample.shadow_origin,
                             environment_sample.direction, 1.0e30,
@@ -5996,6 +6019,9 @@ def wavefront_shade_candidate(
                         nativeAreaLightCount(push.area_light_count), 1.0,
                     )
                     random_state = area_sample.random_state
+                    if area_sample.valid:
+                        if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+                            shadeProfileWork(osh.u32(1), osh.u32(1), shadePathBounce(path))
                     if shadeAreaLightVisible(area_sample):
                         volume_transmittance = shadeCandidateVolumeShadowTransmittance(
                             area_sample.shadow_origin, area_sample.direction,
@@ -6022,11 +6048,19 @@ def wavefront_shade_candidate(
                         random_state, environment_count, 1.0,
                     )
                     random_state = environment_sample.random_state
+                    environment_radiance = osh.vec3(0.0)
+                    if osh.specialization('OL_ENVIRONMENT_EARLY_REJECT'):
+                        environment_radiance = shadeEnvironmentRadiance(environment_sample.direction, push.point_light_count)
+                        environment_sample.valid = environment_sample.valid and osh.any_value(environment_radiance != osh.vec3(0.0))
+                    if environment_sample.valid:
+                        if osh.specialization("!defined(WAVE_WORK_COUNTERS) || WAVE_WORK_COUNTERS"):
+                            shadeProfileWork(osh.u32(1), osh.u32(1), shadePathBounce(path))
                     if shadeEnvironmentVisible(environment_sample):
-                        environment_radiance = shadeEnvironmentRadiance(
-                            environment_sample.direction,
-                            push.point_light_count,
-                        )
+                        if osh.specialization('!defined(OL_ENVIRONMENT_EARLY_REJECT) || !OL_ENVIRONMENT_EARLY_REJECT'):
+                            environment_radiance = shadeEnvironmentRadiance(
+                                environment_sample.direction,
+                                push.point_light_count,
+                            )
                         volume_transmittance = shadeCandidateVolumeShadowTransmittance(
                             environment_sample.shadow_origin,
                             environment_sample.direction, 1.0e30,
@@ -7354,15 +7388,15 @@ def generated_source(shader, helpers=()):
     if shader is wavefront_shade_candidate:
         helpers += (shadeCaptureSecondary, ordinarylightDielectric, nativeAreaLightCount, nativeEmitterValid,)
     uses_native_query = any(
-        'nativeTraceSurface' in helper.function.__code__.co_names
+        any(name in helper.function.__code__.co_names for name in ('nativeTraceSurface','nativeOccluded'))
         for helper in (shader, *helpers)
     )
     if uses_native_query:
-        helpers = tuple(helpers) + (nativeIntersectionMiss, nativeSurfaceMask, nativeBoundaryEnabled, nativeTraceSurface)
+        helpers = tuple(helpers) + (nativeIntersectionMiss, nativeSurfaceMask, nativeBoundaryEnabled, nativeTraceSurface, nativeOccluded)
     source = osh.compile(shader, helpers=helpers,
-                         externals=((nativeIntersectCandidate, nativeEvaluateBoundary, nativeEvaluateMaterial,
-                                        nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)
-                                    if shader is wavefront_shade_candidate else (nativeIntersectCandidate, nativeEvaluateBoundary,))
+                         externals=((nativeIntersectCandidate, nativeEvaluateTriangle, nativeEvaluateBoundary, nativeEvaluateMaterial,
+                                        nativeEmitterCount, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf, nativeEmitterInfluence)
+                                    if shader is wavefront_shade_candidate else (nativeIntersectCandidate, nativeEvaluateTriangle, nativeEvaluateBoundary,))
                                    if uses_native_query else ()).source
     if shader is wavefront_shade_candidate:
         volume_defaults = """\

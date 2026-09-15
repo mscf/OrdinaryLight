@@ -1,0 +1,41 @@
+{"frame": 0, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 0, "guide": "motion", "max_error": 0.0}
+{"frame": 0, "guide": "view_z", "max_error": 0.0}
+{"frame": 0, "guide": "diffuse", "max_error": 0.0}
+{"frame": 0, "guide": "specular", "max_error": 0.0}
+{"frame": 1, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 1, "guide": "motion", "max_error": 0.0}
+{"frame": 1, "guide": "view_z", "max_error": 0.0}
+{"frame": 1, "guide": "diffuse", "max_error": 0.0}
+{"frame": 1, "guide": "specular", "max_error": 0.0}
+{"frame": 2, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 2, "guide": "motion", "max_error": 0.0}
+{"frame": 2, "guide": "view_z", "max_error": 0.0}
+{"frame": 2, "guide": "diffuse", "max_error": 0.0}
+{"frame": 2, "guide": "specular", "max_error": 0.0}
+{"frame": 3, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 3, "guide": "motion", "max_error": 0.0}
+{"frame": 3, "guide": "view_z", "max_error": 0.0}
+{"frame": 3, "guide": "diffuse", "max_error": 0.0}
+{"frame": 3, "guide": "specular", "max_error": 0.0}
+{"frame": 4, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 4, "guide": "motion", "max_error": 0.0}
+{"frame": 4, "guide": "view_z", "max_error": 0.0}
+{"frame": 4, "guide": "diffuse", "max_error": 0.0}
+{"frame": 4, "guide": "specular", "max_error": 0.0}
+{"frame": 5, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 5, "guide": "motion", "max_error": 0.0}
+{"frame": 5, "guide": "view_z", "max_error": 0.0}
+{"frame": 5, "guide": "diffuse", "max_error": 0.0}
+{"frame": 5, "guide": "specular", "max_error": 0.0}
+{"frame": 6, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 6, "guide": "motion", "max_error": 0.0}
+{"frame": 6, "guide": "view_z", "max_error": 0.0}
+{"frame": 6, "guide": "diffuse", "max_error": 0.0}
+{"frame": 6, "guide": "specular", "max_error": 0.0}
+{"workload": "full", "extent": [161, 97], "samples": 5, "primary_hit_format": "identity", "environment_samples": 1, "analytic_light_count": 0, "distance_planar_visibility": false, "planar_visibility": false, "distance_visibility": false, "single_visibility_dispatch": false, "omit_primary_analytic": false, "omit_primary_environment": false, "profile_selected_diffuse": false, "replay_width": 8, "baseline_visibility_format": "full", "compare_capture_dependencies": false, "selected_local_packed": false, "compact_continuations": false, "selected_local_state": false, "baseline_deferred_capture": false, "selected_deferred_capture": false, "selected_fixed_mask": null, "conservative_capture": false, "selected_baseline": false, "quad_visible_links": false, "candidate_group_size": null, "face_averaged": true, "emitter_object": false, "uneven_floor": false, "diagnostic_capture": false, "work_counters": {}, "fused_resolve": false, "reject_dark_environment": false, "tile_capacity": 524288, "baseline_face_stripes": null, "candidate_face_stripes": null, "split_face": false, "face_stage_ms": {}, "spatial_iterations": 3, "checked_each_frame": true, "spatial_ms": {}, "projection": "perspective", "history_policy": "local", "history_policy_frames": {"valid": 5, "reset": 3}, "split_denoiser": false, "reset_every": 3, "temporal_filter_median_ms": 0.0, "temporal_median_ms": 0.128192, "prepare_median_ms": 0.029728, "secondary_first_median_ms": 0.11856, "primary_median_ms": 0.171264, "primary_p95_ms": 0.1874624, "setup_median_ms": 0.00528, "total_median_ms": 1.368992, "face_output_median_ms": 0.138144, "overview": false, "material_fixture": "reflective", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-control", "extent": [161, 97], "samples": 5, "primary_hit_format": "identity", "environment_samples": 1, "analytic_light_count": 0, "distance_planar_visibility": false, "planar_visibility": false, "distance_visibility": false, "single_visibility_dispatch": false, "omit_primary_analytic": false, "omit_primary_environment": false, "profile_selected_diffuse": false, "replay_width": 8, "baseline_visibility_format": "full", "compare_capture_dependencies": false, "selected_local_packed": false, "compact_continuations": false, "selected_local_state": false, "baseline_deferred_capture": false, "selected_deferred_capture": false, "selected_fixed_mask": null, "conservative_capture": false, "selected_baseline": false, "quad_visible_links": false, "candidate_group_size": null, "face_averaged": true, "emitter_object": false, "uneven_floor": false, "diagnostic_capture": false, "work_counters": {}, "fused_resolve": false, "reject_dark_environment": true, "tile_capacity": 524288, "baseline_face_stripes": null, "candidate_face_stripes": null, "split_face": false, "face_stage_ms": {}, "spatial_iterations": 3, "checked_each_frame": true, "spatial_ms": {}, "projection": "perspective", "history_policy": "local", "history_policy_frames": {"valid": 5, "reset": 3}, "split_denoiser": false, "reset_every": 3, "temporal_filter_median_ms": 0.0, "temporal_median_ms": 0.098304, "prepare_median_ms": 0.025344, "secondary_first_median_ms": 0.098176, "primary_median_ms": 0.12848, "primary_p95_ms": 0.14769919999999997, "setup_median_ms": 0.001824, "total_median_ms": 2.06112, "face_output_median_ms": 0.169088, "overview": false, "material_fixture": "reflective", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 190.25}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 7.1875}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 2.699665069580078}
+{"compact_identity_validity_equal": true, "camera_ray_parity_checked": false}

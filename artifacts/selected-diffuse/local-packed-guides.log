@@ -1,0 +1,38 @@
+{"frame": 0, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 0, "guide": "motion", "max_error": 0.0}
+{"frame": 0, "guide": "view_z", "max_error": 0.0}
+{"frame": 0, "guide": "diffuse", "max_error": 0.0}
+{"frame": 0, "guide": "specular", "max_error": 0.0}
+{"frame": 1, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 1, "guide": "motion", "max_error": 0.0}
+{"frame": 1, "guide": "view_z", "max_error": 0.02771759033203125}
+Traceback (most recent call last):
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 628, in <module>
+    main()
+    ~~~~^^
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 511, in main
+    np.testing.assert_array_equal(ga,gb,err_msg=f'{index}: {guide}')
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 1128, in assert_array_equal
+    assert_array_compare(operator.__eq__, actual, desired, err_msg=err_msg,
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         verbose=verbose, header='Arrays are not equal',
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         strict=strict)
+                         ^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 988, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Arrays are not equal
+1: view_z
+Mismatched elements: 1 / 15617 (0.0064%)
+Mismatch at index:
+ [0, 0, 0]: 26.707578659057617 (ACTUAL), 26.73529624938965 (DESIRED)
+Max absolute difference among violations: 0.02771759
+Max relative difference among violations: 0.00103674
+ ACTUAL: array([[[26.707579],
+        [25.852665],
+        [26.65951 ],...
+ DESIRED: array([[[26.735296],
+        [25.852665],
+        [26.65951 ],...

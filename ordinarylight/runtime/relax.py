@@ -11,6 +11,12 @@ from ..pipeline.vulkan import VulkanPass, VulkanResource, VulkanResourceUse
 from .kernel import VulkanKernel
 
 
+def _supports_paired_filter(runtime):
+    limits = vk.vkGetPhysicalDeviceProperties(runtime.physical_device).limits
+    return (limits.maxPerStageDescriptorStorageImages >= 7
+            and limits.maxDescriptorSetStorageImages >= 7)
+
+
 class VulkanRelaxSpatial:
     """Prepared spatial denoiser; no scene, presenter, camera or temporal history.
 
@@ -18,6 +24,8 @@ class VulkanRelaxSpatial:
     Diffuse/specular are linear RGBA16F (alpha carries signal metadata), guides
     are RGBA16F normal/roughness, R32F view-space depth, and R32_UINT material IDs.
     Output is initialized RGBA16F HDR: zero-depth background is preserved.
+    Pairs diffuse/specular passes when seven storage-image bindings are supported;
+    otherwise retains separate passes with identical filtering semantics.
     Owns immutable descriptor/pipeline bindings. By default it owns four scratch
     images; scratch=(diffuse_a, diffuse_b, specular_a, specular_b) borrows those
     allocations instead. Borrowed scratch must outlive all submitted operations.
@@ -101,9 +109,11 @@ class VulkanRelaxSpatial:
                                 format=vk.VK_FORMAT_R16G16B16A16_SFLOAT,
                             )
                         )
+                self._paired = _supports_paired_filter(runtime)
                 atrous = (
                     files("ordinarylight.shaders")
-                    .joinpath("denoiser_relax_atrous.comp.spv")
+                    .joinpath("denoiser_relax_atrous_paired.comp.spv" if self._paired
+                              else "denoiser_relax_atrous.comp.spv")
                     .read_bytes()
                 )
                 compose = (
@@ -113,6 +123,18 @@ class VulkanRelaxSpatial:
                 )
                 current = [diffuse, specular]
                 for iteration in range(self.iterations):
+                    if self._paired:
+                        targets = [self.scratch[iteration % 2],
+                                   self.scratch[2 + iteration % 2]]
+                        self._add_pass(
+                            f"atrous_{iteration}_paired", atrous,
+                            [current[0], normal_roughness, view_z, material,
+                             targets[0], current[1], targets[1]],
+                            (4, 6), atrous_constants(self.width, self.height,
+                                                   iteration, 1, self.color_weight),
+                        )
+                        current = targets
+                        continue
                     for lobe in range(2):
                         target = self.scratch[lobe * 2 + iteration % 2]
                         self._add_pass(
@@ -145,6 +167,8 @@ class VulkanRelaxSpatial:
     def _add_pass(
         self, name, spirv, images, output_binding, constants, *, preserve=False
     ):
+        output_bindings = ((output_binding,) if isinstance(output_binding, int)
+                           else tuple(output_binding))
         resources = {i: VulkanResource.image(image) for i, image in enumerate(images)}
         kernel = VulkanKernel(
             self.runtime, spirv, resources, push_constant_size=len(constants)
@@ -158,7 +182,7 @@ class VulkanRelaxSpatial:
                     (vk.VK_ACCESS_SHADER_READ_BIT if preserve else 0)
                     | vk.VK_ACCESS_SHADER_WRITE_BIT
                 )
-                if i == output_binding
+                if i in output_bindings
                 else vk.VK_ACCESS_SHADER_READ_BIT,
                 vk.VK_IMAGE_LAYOUT_GENERAL,
             )
@@ -211,7 +235,8 @@ class VulkanRelaxSpatial:
                 compose_constants(width, height)
                 if index == len(self.passes) - 1
                 else atrous_constants(
-                    width, height, index // 2, index % 2, self.color_weight
+                    width, height, index if self._paired else index // 2,
+                    1 if self._paired else index % 2, self.color_weight
                 )
             )
             result.append(

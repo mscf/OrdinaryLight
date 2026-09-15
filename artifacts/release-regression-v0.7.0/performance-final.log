@@ -1,0 +1,131 @@
+
+=== area_lights / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=7120.71ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=119.28ms swapchain=62.50ms acquire=0.01ms record=210.18ms submit=0.09ms present=0.54ms
+frame=2 total=6.99ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.59ms submit=0.07ms present=0.07ms
+frame=3 total=501.44ms gpu=330.07ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=492.72ms acquire=0.01ms record=6.68ms submit=0.06ms present=0.34ms
+frame=120 total=17.42ms gpu=17.60ms wait=16.69ms cadence=18.46ms fps=54.2 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=0.00ms acquire=0.03ms record=0.17ms submit=0.14ms present=0.11ms
+SUMMARY frames=90 throughput=56.49fps gpu_median=16.88ms gpu_p90=20.20ms cadence_median=17.12ms wait_median=15.32ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/area_lights.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/area_lights.csv
+PASS in 11.4s
+
+=== diffuse / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=412.11ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=115.18ms swapchain=64.27ms acquire=0.02ms record=199.63ms submit=0.08ms present=0.53ms
+frame=2 total=7.04ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.65ms submit=0.07ms present=0.06ms
+frame=3 total=159.64ms gpu=16.04ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.06ms swapchain=150.77ms acquire=0.01ms record=6.76ms submit=0.06ms present=0.33ms
+frame=120 total=13.74ms gpu=13.70ms wait=12.94ms cadence=13.07ms fps=76.5 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=0.00ms acquire=0.02ms record=0.21ms submit=0.08ms present=0.15ms
+SUMMARY frames=90 throughput=69.71fps gpu_median=13.35ms gpu_p90=16.19ms cadence_median=14.65ms wait_median=12.28ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/diffuse.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/diffuse.csv
+PASS in 3.9s
+
+=== glossy_glass / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=424.77ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=115.10ms swapchain=67.23ms acquire=0.01ms record=205.51ms submit=0.08ms present=0.53ms
+frame=2 total=7.20ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.81ms submit=0.08ms present=0.06ms
+frame=3 total=159.23ms gpu=17.91ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=150.36ms acquire=0.01ms record=6.81ms submit=0.06ms present=0.33ms
+frame=120 total=17.30ms gpu=17.60ms wait=16.69ms cadence=18.69ms fps=53.5 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.03ms record=0.16ms submit=0.05ms present=0.10ms
+SUMMARY frames=90 throughput=55.64fps gpu_median=16.73ms gpu_p90=21.50ms cadence_median=17.41ms wait_median=15.41ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/glossy_glass.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/glossy_glass.csv
+PASS in 4.4s
+
+=== textured / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=403.38ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=108.64ms swapchain=61.81ms acquire=0.01ms record=194.98ms submit=0.09ms present=0.53ms
+frame=2 total=7.68ms gpu=0.00ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=7.30ms submit=0.07ms present=0.07ms
+frame=3 total=144.83ms gpu=15.94ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=136.09ms acquire=0.02ms record=6.74ms submit=0.06ms present=0.33ms
+frame=120 total=13.71ms gpu=13.90ms wait=12.94ms cadence=13.25ms fps=75.4 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=0.00ms acquire=0.02ms record=0.24ms submit=0.10ms present=0.16ms
+SUMMARY frames=90 throughput=68.27fps gpu_median=14.27ms gpu_p90=18.13ms cadence_median=14.86ms wait_median=12.29ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/textured.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/textured.csv
+PASS in 4.9s
+
+=== small_emitter / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=424.50ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=114.93ms swapchain=67.50ms acquire=0.02ms record=208.74ms submit=0.08ms present=0.54ms
+frame=2 total=7.02ms gpu=0.00ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.62ms submit=0.08ms present=0.08ms
+frame=3 total=158.66ms gpu=15.83ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=149.85ms acquire=0.01ms record=6.79ms submit=0.07ms present=0.36ms
+frame=120 total=12.59ms gpu=13.20ms wait=11.78ms cadence=12.91ms fps=77.5 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.02ms record=0.20ms submit=0.22ms present=0.14ms
+SUMMARY frames=90 throughput=70.57fps gpu_median=13.49ms gpu_p90=15.97ms cadence_median=14.65ms wait_median=12.15ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/small_emitter.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/small_emitter.csv
+PASS in 4.9s
+
+=== occlusion / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=437.35ms gpu=0.00ms wait=0.03ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=117.73ms swapchain=79.30ms acquire=0.02ms record=206.42ms submit=0.08ms present=0.57ms
+frame=2 total=7.04ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.66ms submit=0.07ms present=0.06ms
+frame=3 total=153.58ms gpu=15.99ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=144.78ms acquire=0.01ms record=6.75ms submit=0.06ms present=0.34ms
+frame=120 total=13.28ms gpu=13.42ms wait=12.72ms cadence=12.95ms fps=77.2 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=0.00ms acquire=0.01ms record=0.16ms submit=0.06ms present=0.11ms
+SUMMARY frames=90 throughput=69.85fps gpu_median=13.52ms gpu_p90=16.12ms cadence_median=14.64ms wait_median=12.27ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/occlusion.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/occlusion.csv
+PASS in 4.0s
+
+=== nested_glass / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=446.01ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=140.10ms swapchain=62.85ms acquire=0.01ms record=203.00ms submit=0.08ms present=0.58ms
+frame=2 total=7.33ms gpu=0.00ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.01ms record=6.95ms submit=0.07ms present=0.06ms
+frame=3 total=152.07ms gpu=18.16ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.02ms swapchain=143.18ms acquire=0.01ms record=6.87ms submit=0.06ms present=0.32ms
+frame=120 total=16.66ms gpu=16.98ms wait=15.80ms cadence=18.78ms fps=53.2 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=128.0MiB swapchain_images=6
+  cpu scene=0.03ms swapchain=0.00ms acquire=0.02ms record=0.19ms submit=0.25ms present=0.14ms
+SUMMARY frames=90 throughput=54.10fps gpu_median=16.98ms gpu_p90=22.91ms cadence_median=17.73ms wait_median=15.63ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/nested_glass.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/nested_glass.csv
+PASS in 5.0s
+
+=== dense / performance ===
+Vulkan device: NVIDIA GeForce RTX 5090 Laptop GPU
+frame=1 total=6799.58ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=173.75ms swapchain=68.93ms acquire=0.01ms record=208.76ms submit=0.08ms present=0.53ms
+frame=2 total=7.19ms gpu=0.00ms wait=0.02ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.05ms swapchain=0.00ms acquire=0.01ms record=6.77ms submit=0.07ms present=0.07ms
+frame=3 total=388.01ms gpu=194.90ms wait=0.01ms cadence=0.00ms fps=0.0 direct=no strategy=wavefront cache=build output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.05ms swapchain=378.77ms acquire=0.01ms record=7.07ms submit=0.06ms present=0.33ms
+frame=120 total=13.08ms gpu=13.87ms wait=11.83ms cadence=13.49ms fps=74.1 direct=no strategy=wavefront cache=hit output=3773x2368 internal=3773x2368 reservoir=204.5MiB gbuffer=204.5MiB media=0.0MiB swapchain_images=6
+  cpu scene=0.06ms swapchain=0.00ms acquire=0.02ms record=0.31ms submit=0.25ms present=0.20ms
+SUMMARY frames=90 throughput=68.16fps gpu_median=13.49ms gpu_p90=18.95ms cadence_median=14.05ms wait_median=12.47ms
+Wrote benchmark summary: /tmp/upstream-release-regression/performance-final/performance/dense.json
+PASS: 4K performance gate
+Wrote benchmark trace: /tmp/upstream-release-regression/performance-final/performance/dense.csv
+PASS in 11.5s
+
+Wrote /tmp/upstream-release-regression/performance-final/report.json
+PASS: renderer validation matrix

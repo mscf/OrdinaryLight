@@ -1,0 +1,4 @@
+
+# Preserve captured diagnostic output and archived patch context verbatim.
+artifacts/**/*.log -whitespace
+artifacts/**/*.patch -whitespace

@@ -1,0 +1,8 @@
+{"paired_temporal": false, "samples": 48, "gpu": {"total": {"median": 23.003535999999997, "p95": 23.8996176}, "native_gi": {"median": 19.539952, "p95": 20.3922928}, "primary": {"median": 6.6484000000000005, "p95": 6.8232192}, "intersect_shade.1": {"median": 5.853744000000001, "p95": 6.5851071999999995}, "gpu_population": {"median": 0.689184, "p95": 0.7237936}, "face_output": {"median": 2.5845599999999997, "p95": 2.6484176}, "resolve_hdr": {"median": 0.28356800000000004, "p95": 0.300008}, "relax_prepare": {"median": 2.488688, "p95": 2.5693600000000005}, "relax_temporal": {"median": 2.819664, "p95": 2.8449264}}}
+{"paired_temporal": true, "samples": 48, "gpu": {"total": {"median": 22.938352000000002, "p95": 23.8413392}, "native_gi": {"median": 19.474624, "p95": 20.4104512}, "primary": {"median": 6.64144, "p95": 6.855900800000001}, "intersect_shade.1": {"median": 5.808016, "p95": 6.5866432}, "gpu_population": {"median": 0.68776, "p95": 0.7220127999999999}, "face_output": {"median": 2.5924959999999997, "p95": 2.6471248000000003}, "resolve_hdr": {"median": 0.282528, "p95": 0.2965728}, "relax_prepare": {"median": 2.4946399999999995, "p95": 2.5821216}, "relax_temporal": {"median": 2.814432, "p95": 2.8421808}}}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0}
+{"source": "output", "max_error": 1.1920928955078125e-07, "mean_error": 1.1169950298040021e-08}
+{"phase": "stationary_history", "source": "raw", "max_error": 0.0}
+{"phase": "stationary_history", "source": "upstream", "max_error": 0.0}
+{"phase": "stationary_history", "source": "output", "max_error": 1.4901161193847656e-07}

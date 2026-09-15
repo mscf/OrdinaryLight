@@ -355,13 +355,13 @@ float volumePhase(VolumeHeader header, float cosine)
     return ((1.0 - (g * g)) / ((12.5663706144 * denominator) * sqrt(denominator)));
 }
 
+bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
 uint nativeSurfaceMask();
-NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
 float volumeOpaqueVisibility(vec3 world_position, vec3 direction, float maximum_distance)
 {
     float shadow_distance = ((maximum_distance < 1e+29) ? max((maximum_distance - 0.004), 0.001) : 1e+30);
-    NativeIntersection shadow = nativeTraceSurface((world_position + (direction * 0.002)), 0.001, direction, shadow_distance, true, nativeSurfaceMask());
-    return ((shadow.address.w == gl_RayQueryCommittedIntersectionNoneEXT) ? 1.0 : 0.0);
+    bool shadow = nativeOccluded((world_position + (direction * 0.002)), 0.001, direction, shadow_distance, nativeSurfaceMask());
+    return ((!shadow) ? 1.0 : 0.0);
 }
 
 vec2 volumeInterval(VolumeHeader header, vec3 origin, vec3 direction);

@@ -6,6 +6,7 @@ closes them. No implicit transient allocation or cross-queue ownership transfer.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 from operator import index
 from typing import Callable
 
@@ -121,18 +122,100 @@ class VulkanPass:
             object.__setattr__(self, "workgroups", groups)
         # Distinct byte ranges may share an allocation. Overlapping declarations
         # in a single pass must still be combined by the caller.
-        for i, use in enumerate(self.uses):
-            a = use.resource
-            for other in self.uses[:i]:
-                b = other.resource
-                if (a.kind, a.handle) != (b.kind, b.handle):
-                    continue
-                if a.kind != "buffer" or max(a.offset, b.offset) < min(
-                    a.offset + a.size, b.offset + b.size
-                ):
-                    raise ValueError(
-                        "Combine read/write access for duplicate resources in a pass"
+        ranges = {}
+        for use in self.uses:
+            resource = use.resource
+            key = (resource.kind, resource.handle)
+            previous = ranges.get(key)
+            if previous is None:
+                ranges[key] = [(resource.offset, resource.offset + resource.size)]
+            elif resource.kind != "buffer":
+                raise ValueError("Combine read/write access for duplicate resources in a pass")
+            else:
+                previous.append((resource.offset, resource.offset + resource.size))
+        for intervals in ranges.values():
+            if len(intervals) < 2:
+                continue
+            intervals.sort()
+            end = intervals[0][1]
+            for start, next_end in intervals[1:]:
+                if start < end:
+                    raise ValueError("Combine read/write access for duplicate resources in a pass")
+                end = next_end
+
+
+@lru_cache(maxsize=128)
+def _barrier_plan(signature, entry_layouts):
+    """Immutable Vulkan structures, keyed by exact uses and current layouts.
+
+    Contains raw handles only; resource ownership and frame callbacks are never
+    cached. Vulkan consumes these structures as const input while recording.
+    """
+    states = {}
+    layouts = dict(entry_layouts)
+    barriers = []
+    for stage_uses in signature:
+        buffers, images, memory = [], [], []
+        src_stages = dst_stages = 0
+        for kind, handle, offset, size, dst_stage, dst_access, layout in stage_uses:
+            key = (kind, handle)
+            previous = states.get(key)
+            # Conservative entry dependency includes prior submissions,
+            # scene AS builds and host uploads on the runtime queue.
+            src_stage, src_access = previous or (
+                vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+                | vk.VK_PIPELINE_STAGE_HOST_BIT,
+                vk.VK_ACCESS_MEMORY_READ_BIT
+                | vk.VK_ACCESS_MEMORY_WRITE_BIT
+                | vk.VK_ACCESS_HOST_WRITE_BIT,
+            )
+            src_stages |= src_stage
+            dst_stages |= dst_stage
+            if kind == "image":
+                old = layouts[key]
+                images.append(
+                    vk.VkImageMemoryBarrier(
+                        srcAccessMask=0
+                        if old == vk.VK_IMAGE_LAYOUT_UNDEFINED
+                        else src_access,
+                        dstAccessMask=dst_access,
+                        oldLayout=old,
+                        newLayout=layout,
+                        srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                        image=handle,
+                        subresourceRange=vk.VkImageSubresourceRange(
+                            aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                            levelCount=1,
+                            layerCount=1,
+                        ),
                     )
+                )
+                layouts[key] = layout
+            elif kind == "buffer":
+                buffers.append(
+                    vk.VkBufferMemoryBarrier(
+                        srcAccessMask=src_access,
+                        dstAccessMask=dst_access,
+                        srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
+                        buffer=handle,
+                        offset=offset,
+                        size=size,
+                    )
+                )
+            else:
+                memory.append(
+                    vk.VkMemoryBarrier(
+                        srcAccessMask=src_access, dstAccessMask=dst_access
+                    )
+                )
+            # Keep all prior stage/access types: an intervening use of a
+            # disjoint byte range must not hide an earlier overlapping use.
+            prior = states.get(key, (0, 0))
+            states[key] = (prior[0] | dst_stage, prior[1] | dst_access)
+        barriers.append((src_stages, dst_stages, tuple(memory), tuple(buffers), tuple(images)))
+    return tuple(barriers), tuple(layouts.items())
 
 
 class VulkanPassPipeline:
@@ -165,7 +248,6 @@ class VulkanPassPipeline:
                     "All pass resources must belong to the supplied runtime"
                 )
             owner.require_open()
-        states = {}
         layouts = {}
         image_owners = {}
         for stage in self.passes:
@@ -182,84 +264,25 @@ class VulkanPassPipeline:
                         )
                     aliases.add(resource.owner)
 
+        signature = tuple(tuple((use.resource.kind, use.resource.handle,
+                                 use.resource.offset, use.resource.size,
+                                 use.stage, use.access, use.layout)
+                                for use in stage.uses) for stage in self.passes)
+
         def record(command):
-            for stage in self.passes:
-                buffers, images, memory = [], [], []
-                src_stages = dst_stages = 0
-                for use in stage.uses:
-                    resource = use.resource
-                    key = (resource.kind, resource.handle)
-                    previous = states.get(key)
-                    # Conservative entry dependency includes prior submissions,
-                    # scene AS builds and host uploads on the runtime queue.
-                    src_stage, src_access = previous or (
-                        vk.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
-                        | vk.VK_PIPELINE_STAGE_HOST_BIT,
-                        vk.VK_ACCESS_MEMORY_READ_BIT
-                        | vk.VK_ACCESS_MEMORY_WRITE_BIT
-                        | vk.VK_ACCESS_HOST_WRITE_BIT,
-                    )
-                    src_stages |= src_stage
-                    dst_stages |= use.stage
-                    if resource.kind == "image":
-                        old = layouts.get(key, resource.owner.layout)
-                        images.append(
-                            vk.VkImageMemoryBarrier(
-                                srcAccessMask=0
-                                if old == vk.VK_IMAGE_LAYOUT_UNDEFINED
-                                else src_access,
-                                dstAccessMask=use.access,
-                                oldLayout=old,
-                                newLayout=use.layout,
-                                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                image=resource.handle,
-                                subresourceRange=vk.VkImageSubresourceRange(
-                                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                                    levelCount=1,
-                                    layerCount=1,
-                                ),
-                            )
-                        )
-                        layouts[key] = use.layout
-                    elif resource.kind == "buffer":
-                        buffers.append(
-                            vk.VkBufferMemoryBarrier(
-                                srcAccessMask=src_access,
-                                dstAccessMask=use.access,
-                                srcQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                dstQueueFamilyIndex=vk.VK_QUEUE_FAMILY_IGNORED,
-                                buffer=resource.handle,
-                                offset=resource.offset,
-                                size=resource.size,
-                            )
-                        )
-                    else:
-                        memory.append(
-                            vk.VkMemoryBarrier(
-                                srcAccessMask=src_access, dstAccessMask=use.access
-                            )
-                        )
-                    # Keep all prior stage/access types: an intervening use of a
-                    # disjoint byte range must not hide an earlier overlapping use.
-                    prior = states.get(key, (0, 0))
-                    states[key] = (prior[0] | use.stage, prior[1] | use.access)
+            # Read layouts at recording time, not preparation time: an external
+            # caller may have submitted other work after preparing this graph.
+            entry_layouts = tuple((key, next(iter(aliases)).layout)
+                                  for key, aliases in image_owners.items())
+            barriers, final_layouts = _barrier_plan(signature, entry_layouts)
+            layouts.update(final_layouts)
+            for stage, (src, dst, memory, buffers, images) in zip(self.passes, barriers):
                 if stage.uses:
-                    vk.vkCmdPipelineBarrier(
-                        command,
-                        src_stages,
-                        dst_stages,
-                        0,
-                        len(memory),
-                        memory or None,
-                        len(buffers),
-                        buffers or None,
-                        len(images),
-                        images or None,
-                    )
+                    vk.vkCmdPipelineBarrier(command, src, dst, 0,
+                        len(memory), memory or None, len(buffers), buffers or None,
+                        len(images), images or None)
                 stage.record(command)
                 if stage.workgroups is not None:
-                    # Recorder binds descriptors/pipeline; extent belongs to app.
                     vk.vkCmdDispatch(command, *stage.workgroups)
             # Make shader writes visible to subsequent queue consumers and host
             # readback after fence completion, including existing GI paths.

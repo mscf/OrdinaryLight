@@ -1,0 +1,4 @@
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0}
+{"occlusion": false, "samples": 48, "gpu": {"total": {"median": 37.682928, "p95": 39.9904304}, "native_gi": {"median": 34.8324, "p95": 37.054297600000005}, "primary": {"median": 13.444799999999999, "p95": 14.4939184}, "intersect_shade.1": {"median": 9.672384, "p95": 10.411719999999999}, "face_output": {"median": 2.6139520000000003, "p95": 2.6697392}}}
+{"occlusion": true, "samples": 48, "gpu": {"total": {"median": 37.506224, "p95": 40.3937088}, "native_gi": {"median": 34.591184, "p95": 37.434944}, "primary": {"median": 13.386128000000003, "p95": 14.629787199999999}, "intersect_shade.1": {"median": 9.625232, "p95": 10.3044544}, "face_output": {"median": 2.5997440000000003, "p95": 2.6650432}}}

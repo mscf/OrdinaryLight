@@ -211,8 +211,33 @@ def compile_wavefront_material_shader(
     material_modifier=None, material_resources=None,
     compiler=None, shared_primary_reservoirs=0, surface_only=False, opaque_primary=False,
     production_restir=False, camera_restir_policy=False, primary_hits=False,
-    geometry_program=None,
+    primary_hit_format="full",
+    primary_visibility="fused", primary_lobe_selection=False, primary_workgroup=(8, 8), primary_visibility_format="full",
+    geometry_program=None, primary_continuation="fused", environment_early_reject=False,
+    primary_diffuse_probability=1.0,
 ):
+    """Compile native material transport with optional primary specializations.
+
+    environment_early_reject evaluates an environment sample before visibility
+    and omits its shadow ray only when radiance is exactly zero. Random draws
+    are unchanged. Opt-in: earlier environment lookup can cost more on occluded
+    nonzero environments. Native custom primary and secondary pipelines expose this flag.
+    primary_workgroup selects a 64-thread compute shape. Callers must dispatch
+    ceil(tile_width/x), ceil(tile_height/y) groups using the matching shape.
+    This does not change the native presenter's fixed 8x8 dispatch policy.
+    Experimental primary_continuation='classify'/'resume' splits selected
+    diffuse replay using bindings 36/37 (see runtime.primary.primary_operation).
+    Resume instead consumes an indirect tile-local list with 64x1 workgroups;
+    its group geometry is derived from list count, not image dimensions.
+    The default 'fused' retains the existing per-pixel replay.
+    primary_visibility_format='distance' selects an experimental 100-byte
+    cache: XYZ is reconstructed from the identical sampled ray and distance;
+    all other payload words are preserved. The planes format retains all seven
+    vec4 fields in sample/field/pixel order, at 112 bytes per pixel. Consumers
+    must use the same format. distance_planes combines six vector planes with
+    a packed distance tail and reconstructs XYZ; allocate with
+    primary_visibility_byte_size to include per-sample 16-byte alignment.
+    """
     compiler = compiler or find_glsl_compiler()
     if compiler is None:
         raise RuntimeError("custom materials require glslangValidator or glslc")
@@ -229,16 +254,81 @@ def compile_wavefront_material_shader(
             inline_continuation=inline_continuation,
             material_modifier=material_modifier, material_resources=material_resources,
         )
+    import math
+    if (isinstance(primary_diffuse_probability, bool)
+            or not math.isfinite(primary_diffuse_probability)
+            or not 1e-6 <= primary_diffuse_probability <= 1.0):
+        raise ValueError("primary_diffuse_probability must be finite and in [1e-6, 1]")
+    if primary_diffuse_probability != 1.0:
+        if shader_name != "wavefront_primary.comp" or geometry_program is None or primary_lobe_selection or inline_continuation:
+            raise ValueError("Primary diffuse sampling requires native custom geometry and ordinary primary sampling")
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_PRIMARY_DIFFUSE_PROBABILITY "
+                                + repr(float(primary_diffuse_probability)) + "\n", 1)
     if geometry_program is not None:
         from ..geometry.native import NativeGeometryProgram
         if not isinstance(geometry_program, NativeGeometryProgram):
             raise TypeError("geometry_program must be NativeGeometryProgram")
         source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_GEOMETRY 1\n", 1)
+        if geometry_program.triangle is not None:
+            source = source.replace("#version 460\n", "#version 460\n#define WAVE_CUSTOM_TRIANGLES 1\n", 1)
         if geometry_program.boundary is not None:
             source = source.replace("#version 460\n", "#version 460\n#define WAVE_NATIVE_OPTICAL_BOUNDARIES 1\n", 1)
         if geometry_program.emitters is not None:
             source = source.replace("#version 460\n", "#version 460\n#define WAVE_NATIVE_EMITTERS 1\n", 1)
         source += "\n" + geometry_program.source
+    if (not isinstance(primary_workgroup, tuple) or len(primary_workgroup) != 2
+            or any(type(n) is not int or n not in (1,2,4,8,16,32,64) for n in primary_workgroup)
+            or primary_workgroup[0] * primary_workgroup[1] != 64):
+        raise ValueError("primary_workgroup must be a power-of-two shape with 64 threads")
+    if primary_workgroup != (8,8):
+        if shader_name != "wavefront_primary.comp" or inline_continuation:
+            raise ValueError("primary_workgroup requires non-inline primary compute")
+        source = source.replace("#version 460\n",
+            f"#version 460\n#define WAVE_LOCAL_SIZE_X {primary_workgroup[0]}\n#define WAVE_LOCAL_SIZE_Y {primary_workgroup[1]}\n",1)
+    if primary_visibility_format not in ("full","distance","planes","distance_planes"):
+        raise ValueError("primary_visibility_format must be full, distance, planes or distance_planes")
+    if primary_visibility_format == "distance":
+        if primary_visibility == "fused":
+            raise ValueError("distance visibility requires capture/replay")
+        source=source.replace("#version 460\n","#version 460\n#define WAVE_DISTANCE_VISIBILITY 1\n",1)
+    if primary_visibility_format == "planes":
+        if primary_visibility == "fused":
+            raise ValueError("planar visibility requires capture/replay")
+        source=source.replace("#version 460\n","#version 460\n#define WAVE_PLANAR_VISIBILITY 1\n",1)
+    if primary_visibility_format == "distance_planes":
+        if primary_visibility == "fused":
+            raise ValueError("distance planes require capture/replay")
+        source=source.replace("#version 460\n","#version 460\n#define WAVE_DISTANCE_PLANES 1\n",1)
+    if type(environment_early_reject) is not bool:
+        raise TypeError("environment_early_reject must be bool")
+    if environment_early_reject:
+        source=source.replace("#version 460\n","#version 460\n#define OL_ENVIRONMENT_EARLY_REJECT 1\n",1)
+    if primary_continuation not in ("fused","classify","resume"):
+        raise ValueError("Unknown primary continuation stage")
+    if primary_continuation != "fused":
+        if not primary_lobe_selection:
+            raise ValueError("Compact continuation requires selected diffuse replay")
+        if primary_continuation == "resume" and primary_workgroup != (64,1):
+            raise ValueError("Compact continuation resume requires 64x1 workgroups")
+        source=source.replace("#version 460\n",f"#version 460\n#define WAVE_CONTINUATION_{primary_continuation.upper()} 1\n",1)
+    if primary_lobe_selection:
+        if (shader_name != "wavefront_primary.comp" or primary_visibility != "replay"
+                or not surface_only or inline_continuation or not denoiser_signal_capture):
+            raise ValueError("Selected diffuse requires surface-only replay with denoiser signals")
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_SELECTED_DIFFUSE 1\n", 1)
+    if primary_visibility not in ("fused", "capture", "replay"):
+        raise ValueError("primary_visibility must be fused, capture or replay")
+    if primary_visibility != "fused":
+        if shader_name != "wavefront_primary.comp" or inline_continuation:
+            raise ValueError("split primary visibility requires a non-inline primary compute shader")
+        source = source.replace(
+            "#version 460\n",
+            f"#version 460\n#define WAVE_PRIMARY_VISIBILITY_{primary_visibility.upper()} 1\n", 1,
+        )
+    if primary_hit_format not in ("full", "identity"):
+        raise ValueError("primary_hit_format must be full or identity")
+    if primary_hits and primary_hit_format == "identity":
+        source = source.replace("#version 460\n", "#version 460\n#define WAVE_PRIMARY_HIT_IDENTITY 1\n", 1)
     if primary_hits:
         if shader_name != "wavefront_primary.comp":
             raise ValueError("primary hit outputs require a primary shader")

@@ -1670,3 +1670,193 @@ temporal/spatial reuse, mixed area/environment domain selection, and GPU-residen
 emitter-count updates against a path-only reference. A second scene hides the
 diffuse receiver behind a reflection to exercise secondary NEE. GPU work counters
 verify that shadow queries and accepted reservoir history actually occur.
+
+### History reset and native command reuse
+
+`invalidate_gi_history()` rejects temporal inputs and resets accumulation without
+unconditionally discarding native recorded commands. Recorded history state is
+still part of the command compatibility key; history-policy buffers are updated
+per frame. A transition can require recording, but repeated resets with the same
+recorded state reuse each frame slot's commands. Pending GPU synchronization is
+preserved, and a prepared frame must be submitted or cancelled before resetting.
+
+`invalidate_gi_commands()` remains the explicit interface for changed recorded
+constants or bindings. Reconfiguration and builder replacement invalidate commands
+automatically. Custom builders still invalidate commands on history reset, even
+when `reuse_commands=True`, because they can bake history inputs into recording.
+This optimization does not change history rejection or resource lifetime rules.
+
+## Selecting primary-hit exports
+
+`RendererConfig(wavefront_primary_hits=True,
+wavefront_primary_hit_format="identity")` requests compact primary-hit records.
+The default format remains `"full"`; disabling `wavefront_primary_hits` disables
+both formats. Transport, denoiser guides/signals, optical boundaries and history
+are independent of this export selection.
+
+`frame.buffers["primary_hits"].record_dtype` describes the actual buffer ABI.
+The public `ordinarylight.wavefront.primary_hit_dtype(format)` helper and
+`PRIMARY_HIT_DTYPE` / `PRIMARY_HIT_IDENTITY_DTYPE` constants describe both forms:
+
+| Format | Bytes/record | Fields |
+| --- | ---: | --- |
+| `full` (default) | 96 | Position/distance, geometric/shading normals, identity, ray origin/direction with jitter |
+| `identity` | 20 | Four uint32 identity components at offset 0, uint32 `valid` at offset 16 |
+
+Compact `valid` is 0 for a miss and 1 for a hit. All four application identity
+components are preserved; no identity value is reserved to encode validity.
+Normals, positions and camera rays are **not exported** in compact records.
+Request full records when a consumer needs those fields. The internal transport
+still evaluates the same sampled camera ray and all required material data.
+
+The compact GPU ABI is **five tightly packed scalar uint32 words**, not a
+std430 structure containing `uvec4` followed by `uint` (which has 32-byte stride).
+A typed OrdinaryShade consumer may use five `osh.u32` structure members or a
+uint32 buffer with `record_index * 5` addressing. The logical NumPy dtype groups
+the first four words as `identity`.
+
+Both formats use record index `sample * GI_width * GI_height + y * GI_width + x`.
+The active dimensions are `frame.render_extent`, not the presentation extent;
+`frame.sample_count` gives the active sample count. Buffer capacity can reserve
+more samples than the current frame uses. Reduced-resolution GI therefore has
+one record per sampled GI pixel, not per upscaled output pixel; consumers must
+apply their own documented GI-to-output mapping.
+
+Select the format when creating the pipeline/presenter. Changing it requires
+recreation and is intentionally rejected by `reconfigure`; it changes buffer
+sizes and shader/consumer ABIs. Submit or cancel a prepared frame, retire GPU
+consumers, and release borrowed views before replacing their owner. Existing
+resize/replacement/close invalidation applies to the compact buffers too. Use
+normal graph buffer-read dependencies; export selection adds no submission,
+CPU wait, readback or intermediate allocation.
+
+### Optional sampled-emitter influence policy
+
+`NativeEmitterProgram(..., influence=callback)` accepts a typed OrdinaryShade
+`nativeEmitterInfluence(emitter: u32, sample_position: vec3, receiver: vec3) -> bool`.
+The default callback returns true, preserving existing emitter programs without
+changing `NativeEmitterSample` or their selection/PDF signatures. False returns
+zero contribution before visibility in shared area-light candidate evaluation,
+including primary, secondary and ReSTIR evaluation. Distributions/PDFs are not
+renormalized. This is an explicitly biased sampled-light approximation; emissive
+BSDF hits, environment lighting and analytic point lights are not filtered.
+
+The application owns policy buffers and physical emitter-area/power semantics.
+For example it can accept when `luminance(emission) * emitting_area >= threshold *
+distance_squared`. Do not infer emitter area from the joint selection/area PDF:
+that would make the physical cutoff change with the sampling distribution.
+Retire GPU readers before uploading policy data and invalidate GI history when
+changing policy. Threshold zero should accept all samples. Coarse policies may
+cause discontinuities as receivers cross their influence boundary.
+
+## Application triangles in native GI
+
+`VulkanTriangleBlas(runtime, vertices, count, stride=12, allow_update=True,
+opaque=False)` borrows a non-indexed float32 XYZ vertex buffer: three vertices
+per triangle, with `count` measured in triangles. Buffer views, device-address
+usage, leases, deferred graph builds, and fixed-topology refits follow
+`VulkanAabbBlas`. `VulkanBlasInstance` and `VulkanTlas` support either BLAS type
+in the same TLAS. No dummy native mesh or descriptor overrides are required.
+
+Supply `NativeGeometryProgram(..., triangle=evaluate_triangle)` with a typed
+OrdinaryShade function exporting this signature:
+
+```python
+@osh.function(name='nativeEvaluateTriangle')
+def evaluate_triangle(origin: osh.vec3, direction: osh.vec3, distance: osh.f32,
+                      barycentrics: osh.vec2, primitive: osh.u32,
+                      instance: osh.u32, instance_offset: osh.u32) -> NativeIntersection:
+    # Return application identity, world-space unit normals and optional guides.
+    # A negative position_distance.w rejects a nonopaque candidate.
+    ...
+```
+
+Hardware computes the intersection and barycentrics. The callback supplies the
+surface payload, rather than recomputing triangle intersection. Accepted hits
+retain the hardware distance and receive a world-space position. Application
+triangle hits use `address.w == 2`, the existing application-surface transport
+class; material and optical-boundary code must not interpret their addresses
+as built-in mesh attribute indices. Stable slot/face identity remains entirely
+application-defined. Primary, secondary, shadow and ReSTIR visibility queries
+share this implementation.
+
+Nonopaque triangles permit candidate rejection and equal-IOR optical visibility
+rejection. `opaque=True` is an explicit application guarantee that every triangle
+is a valid occluder: hardware can commit it without running the candidate
+callback, and native GI evaluates only the committed surface payload. Do not
+use it for alpha cutouts, hidden optical interfaces, or any surface that needs
+candidate rejection. An opaque payload cannot reject a hit and resume traversal.
+The default remains nonopaque. Omitting `triangle` preserves the existing
+native triangle and procedural geometry behavior.
+
+### Boolean native visibility
+
+Native direct-light, secondary-light, volume-light and ReSTIR visibility checks
+use the OrdinaryShade `nativeOccluded` helper. It terminates at an accepted
+occluder without constructing a final surface payload. Candidate validation and
+optical-boundary rejection match `nativeTraceSurface(..., True, ...)`; callers
+that need a surface still use `nativeTraceSurface`.
+
+For application geometry, procedural and nonopaque triangle candidates retain
+their typed evaluation callbacks. Opaque triangles can commit in hardware without
+calling the application triangle evaluator for a visibility-only ray. Consequently,
+only mark geometry opaque if it needs neither candidate rejection nor transparent
+optical-boundary filtering. The ordinary primary/secondary surface query still
+resolves the committed triangle's application payload. All implementation and
+generated shader changes originate in OrdinaryShade.
+
+### Experimental primary diffuse continuation sampling
+
+`RendererConfig(wavefront_primary_diffuse_probability=0.125)` optionally thins
+continuations from the sampled primary surface. It currently requires the native
+custom-geometry wavefront pipeline. The default is `1.0`; finite values from
+`1e-6` through `1.0` are accepted. This is a pipeline specialization, so changing
+it requires recreating the pipeline; it is not a hot reconfiguration setting.
+The low-level `compile_wavefront_material_shader` entry exposes the corresponding
+`primary_diffuse_probability` keyword for custom primary shaders.
+
+Camera visibility, primary-hit outputs, emission and primary direct-light sampling
+remain full rate. Eligibility requires a sampled diffuse lobe, roughness at least
+0.25, metallic below 0.5, transmission at most 0.001, and no application-defined
+custom scattering event. Smooth/metallic surfaces, sampled specular lobes, glass
+and custom optical events bypass the thinning. Surviving diffuse continuations
+receive reciprocal-probability throughput weighting before denoiser signal capture
+and queue emission. At probability one no extra random draw is consumed.
+
+This is a material-aware sampling experiment, not a history-based adaptive sampler
+or a lower-resolution primary pass. The configured maximum bounce depth remains
+unchanged. Reflection/refraction reached after a diffuse event is still sampled,
+but less often. The compensation preserves expected raw transport contribution;
+individual frames have greater variance. Existing temporal clamping, cutoffs and
+display transforms mean this is not a claim that displayed images are unbiased or
+visually identical. Validate moving lights, disocclusions and indirect highlights
+before adopting a lower rate.
+
+Secondary shading work counters now count valid visibility queries before their
+occlusion test. Earlier versions counted only queries that reached the subsequent
+volume-transmittance routine, underreporting blocked shadow rays. Work-counter
+instrumentation can substantially slow rendering and must be measured separately
+from normal throughput.
+
+`wavefront_environment_early_reject` now covers native custom secondary shading
+as well as primary lighting. It evaluates environment radiance before visibility
+and skips queries for exactly zero radiance, preserving the random sequence.
+Black and nonzero environment parity checks cover moving optical scenes with
+voxel history and denoising. For nonzero occluded environments, moving the lookup
+earlier may cost more; this remains an explicit upstream option.
+
+### Optional buffer float32 atomic addition
+
+`VulkanRuntime.capabilities.buffer_float32_atomic_add` reports enabled hardware
+support for `VK_EXT_shader_atomic_float` buffer float32 atomic addition. The
+runtime queries the extension and both buffer float32 atomic feature bits before
+enabling them; unsupported devices continue without the capability. This does
+not enable shared-memory or image float atomics, float64 atomics, or WebGPU support.
+Applications must check the capability before creating a kernel that requires it.
+
+OrdinaryShade compute kernels declare
+`capabilities=('buffer_float32_atomic_add',)` and use `osh.atomic_add` on a scalar
+float in a storage buffer. Initialize sums before dispatch and synchronize writes
+before consumers read them. Atomic addition prevents lost updates; floating-point
+addition order remains nondeterministic. It does not provide an atomic vector
+transaction or deterministic rounding. OrdinaryLight transport defaults are unchanged.

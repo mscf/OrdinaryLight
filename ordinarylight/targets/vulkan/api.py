@@ -50,6 +50,9 @@ class RendererConfig:
     area_light_samples: int = 1
     wavefront_secondary_area_light_samples: int = 0
     wavefront_environment_samples: int = 1
+    # Experimental native custom-geometry primary diffuse continuation sampling.
+    # Surviving diffuse paths are reweighted; primary specular/glass paths remain.
+    wavefront_primary_diffuse_probability: float = 1.0
     wavefront_secondary_nee_probability: float = 1.0
     wavefront_unified_secondary_nee: bool = True
     wavefront_unified_primary_restir: bool = False
@@ -74,6 +77,8 @@ class RendererConfig:
     wavefront_restir_generalized_balance_cap: float = 2.0
     wavefront_restir_specialization: bool = True
     denoiser_enabled: bool = False
+    wavefront_environment_early_reject: bool = False
+    denoiser_fused_resolve: bool = False
     denoiser_iterations: int = 3
     denoiser_variance_threshold: float = 0.01
     # ReLAX keeps long histories for a stationary view, but bounds their
@@ -108,6 +113,7 @@ class RendererConfig:
     wavefront_hdr_capture: bool = False
     wavefront_raw_hdr_output: bool = False
     wavefront_primary_hits: bool = False
+    wavefront_primary_hit_format: str = "full"
     wavefront_upscale_filter: str = "bilinear"
     wavefront_render_scale: float = 1.0
     wavefront_interactive_render_scale: float | None = None
@@ -269,6 +275,10 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_environment_samples must be between 0 and 4"
             )
+        if (isinstance(self.wavefront_primary_diffuse_probability, bool)
+                or not math.isfinite(self.wavefront_primary_diffuse_probability)
+                or not 1e-6 <= self.wavefront_primary_diffuse_probability <= 1.0):
+            raise ValueError("wavefront_primary_diffuse_probability must be finite and in [1e-6, 1]")
         if not 0.0 < self.wavefront_secondary_nee_probability <= 1.0:
             raise ValueError(
                 "wavefront_secondary_nee_probability must be in (0, 1]"
@@ -333,6 +343,10 @@ class RendererConfig:
             raise ValueError(
                 "wavefront_restir_reservoirs must be between 1 and 8"
             )
+        if type(self.wavefront_environment_early_reject) is not bool:
+            raise TypeError("wavefront_environment_early_reject must be bool")
+        if type(self.denoiser_fused_resolve) is not bool:
+            raise TypeError("denoiser_fused_resolve must be bool")
         if not 1 <= self.denoiser_iterations <= 5:
             raise ValueError("denoiser_iterations must be between 1 and 5")
         if self.denoiser_enabled and not self.temporal_history:
@@ -678,6 +692,8 @@ class RendererConfig:
             raise TypeError("wavefront_hdr_capture must be a bool")
         if not isinstance(self.wavefront_raw_hdr_output, bool):
             raise TypeError("wavefront_raw_hdr_output must be a bool")
+        if self.wavefront_primary_hit_format not in ("full", "identity"):
+            raise ValueError("wavefront_primary_hit_format must be full or identity")
         if not isinstance(self.wavefront_primary_hits, bool):
             raise TypeError("wavefront_primary_hits must be a bool")
         if self.wavefront_primary_hits and self.wavefront_execution_strategy not in {"auto", "wavefront"}:
@@ -1927,6 +1943,7 @@ class VulkanGlfwPresenter:
             self._core.swapchain_extent = None
         self.config = updated
         self._core.config = updated
+        self.invalidate_gi_commands()
         self.invalidate_gi_history()
         return updated
 
@@ -1936,8 +1953,16 @@ class VulkanGlfwPresenter:
         Call between frames. Allocations and in-flight synchronization are
         preserved; the next use of each slot starts new history. This is not a
         GPU wait and does not make resident resources safe to overwrite.
+
+        Native commands remain cached when their recorded state is compatible.
+        Custom builders may bake history inputs into commands, so their commands
+        are conservatively invalidated. Use invalidate_gi_commands() explicitly
+        when changing recorded constants or bindings independently of history.
         """
-        self.invalidate_gi_commands()
+        if self._core is None:
+            raise RuntimeError("Presenter is closed")
+        if getattr(self._core, "gi_pipeline_builder", None) is not None:
+            self.invalidate_gi_commands()
         for frame in self._core.window_frames:
             for name in ("wavefront_history_valid", "wavefront_relax_history_valid",
                          "wavefront_reservoir_valid", "wavefront_indirect_reservoir_valid"):
@@ -1987,6 +2012,7 @@ class VulkanGlfwPresenter:
             raise RuntimeError("Presenter is closed")
         self._core.gi_pipeline_builder = builder
         self._core.gi_reuse_commands = reuse_commands
+        self.invalidate_gi_commands()
         self.invalidate_gi_history()
 
     def present_wavefront(

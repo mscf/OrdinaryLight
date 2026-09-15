@@ -1,0 +1,13 @@
+{
+  "close_camera_arrays": 32,
+  "close_camera_bitwise_equal": true,
+  "primary_identity_equal_all_moving_poses": true,
+  "upstream_tests": 34,
+  "upstream_subtests": 18,
+  "compiled_variants": 459,
+  "before_source_sha256": "a37d8aafa443214ad91db1c0f8f67e4062ce5cc5d124fc6f47fbd9a040e18988",
+  "after_source_sha256": "037554d0266e9b691ad2efe582436bdeed697519e45350012691ffd71f85261d",
+  "vxl8r_tests": 42,
+  "native_presentation_deselected": 6,
+  "vxl8r_test_log": "20260914T134351.585356Z-2179201.jsonl"
+}

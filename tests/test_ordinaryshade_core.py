@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -49,8 +50,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("history.rgb = clamp", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_pbr_helpers_form_a_typed_module(self):
         module = self._generator_module()
@@ -76,8 +77,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("MaterialData shadeApplyMaterialEvaluation", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_packed_texture_helpers_form_a_typed_module(self):
         module = self._generator_module()
@@ -104,8 +105,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("ShadeSurface shadeResolveSurface", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_native_texture_sampling_is_typed(self):
         module = self._generator_module()
@@ -119,8 +120,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("textureLod(native_textures[nonuniformEXT", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_work_counter_profiling_is_typed(self):
         module = self._generator_module()
@@ -132,8 +133,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("work_counters[(uint(16) + bounce)]", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_shade_hit_loading_is_typed(self):
         module = self._generator_module()
@@ -232,8 +233,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("ShadeOpaqueScatterResult shadeScatterOpaquePath", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_complete_wavefront_shade_candidate_compiles(self):
         module = self._generator_module()
@@ -247,7 +248,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("shadeEnvironmentRadiance", source)
         self.assertIn("shadeApplyMaterialEvaluation", source)
         self.assertIn("shadeReserveOutputIndex", source)
-        compiler = ROOT / ".tools/glslang/usr/bin/glslangValidator"
+        compiler = Path(shutil.which("glslangValidator") or ROOT / ".tools/glslang/usr/bin/glslangValidator")
         if compiler.is_file():
             compiled = self._compile_native(module,
                 module.wavefront_shade_candidate, target="spirv",
@@ -257,11 +258,11 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
             self.assertTrue(compiled.binary)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_shade_candidate_volume_specializations_compile(self):
-        compiler = ROOT / ".tools/glslang/usr/bin/glslangValidator"
+        compiler = Path(shutil.which("glslangValidator") or ROOT / ".tools/glslang/usr/bin/glslangValidator")
         if not compiler.is_file():
             self.skipTest("project glslangValidator is unavailable")
         module = self._generator_module()
@@ -305,8 +306,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
                 )
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_wavefront_volume_abi_and_interval_are_typed(self):
         module = self._generator_module()
@@ -587,8 +588,8 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         self.assertIn("imageStore(output_images[output_index]", source)
 
     @unittest.skipUnless(
-        (ROOT.parent / "ordinaryshade/ordinaryshade").is_dir(),
-        "sibling Ordinary Shade checkout is unavailable",
+        importlib.util.find_spec("ordinaryshade") is not None,
+        "Ordinary Shade is unavailable",
     )
     def test_checked_in_stage_matches_ordinaryshade_output(self):
         module = self._generator_module()
@@ -603,6 +604,7 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
         helpers = tuple(helpers) + (
             module.nativeIntersectionMiss, module.nativeSurfaceMask,
             module.nativeBoundaryEnabled, module.nativeTraceSurface,
+            module.nativeOccluded,
             module.nativeAreaLightCount, module.nativeEmitterValid,
         )
         if shader is module.wavefront_shade_candidate:
@@ -610,9 +612,10 @@ class OrdinaryShadeCoreShaderTests(unittest.TestCase):
                         module.shadeCaptureSecondary, module.ordinarylightDielectric)
         return module.osh.compile(shader, helpers=helpers, externals=(
             module.nativeIntersectCandidate, module.nativeEvaluateBoundary,
+            module.nativeEvaluateTriangle,
             module.nativeEvaluateMaterial, module.nativeEmitterCount,
             module.nativeSelectEmitter, module.nativeEvaluateEmitter,
-            module.nativeEmitterPdf,
+            module.nativeEmitterPdf, module.nativeEmitterInfluence,
         ), **kwargs)
 
     @staticmethod

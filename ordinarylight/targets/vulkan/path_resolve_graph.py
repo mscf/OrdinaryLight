@@ -34,7 +34,7 @@ class _NativeResolveKernel:
             4: buffer(executor.camera_buffers[slot]),
         }
         # Native descriptors use secondary storage as a dormant placeholder when
-        # capture is disabled. The shared operation omits those unused bindings.
+        # seeding is disabled. Signal-only resolve never accesses these aliases.
         for binding, name in (
             (3, "wavefront_indirect_reservoir_buffer"),
             (5, "wavefront_indirect_seed_buffer"),
@@ -96,6 +96,7 @@ def record_path_resolve(
         config.wavefront_indirect_reuse_candidates
         or executor._denoiser_signals_active()
     )
+    seed_reservoirs = bool(config.wavefront_indirect_reuse_candidates)
     extent = executor.core.window_frames[slot].get(
         "wavefront_indirect_reservoir_extent"
     ) or (1, 1)
@@ -107,6 +108,7 @@ def record_path_resolve(
         sample_count,
         capture,
         bool(config.denoiser_sampled_indirect),
+        seed_reservoirs,
         tuple(extent),
     )
     compiled = graphs.get(dispatch_key)
@@ -120,6 +122,7 @@ def record_path_resolve(
             sample_index=sample_index,
             sample_count=sample_count,
             capture_secondary=capture,
+            seed_reservoirs=seed_reservoirs,
             sampled_indirect=bool(config.denoiser_sampled_indirect) and capture,
         )
         compiled = VulkanGraph().add("resolve", operation).compile()

@@ -1,5 +1,7 @@
 """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
 import ordinaryshade as osh
+from .visibility_cache_programs import DistanceVisibility, packDistanceVisibility, unpackDistanceVisibility, storeVisibilityPlanes, loadVisibilityPlanes, storeDistancePlanes, loadDistancePlanes
+from .pbr_lobe_programs import PbrLobeSample, pbrLobeProbability, pbrLobePdf, pbrLobeValue, samplePbrLobe
 from .native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeSurfaceMask, NativeOpticalBoundary, nativeEvaluateBoundary, nativeBoundaryEnabled
 from .native_surface_programs import nativeEvaluateMaterial
 from .lighting_programs import AreaLightCandidate
@@ -412,6 +414,12 @@ def primaryRestirHistoryLimit() -> osh.u32:
     return push.restir_history_limit
 
 @osh.function
+def primaryDiffuseContinuationWeight(probability: osh.f32, random_value: osh.f32) -> osh.f32:
+    # Independent Bernoulli thinning: E[weight] = 1. Does not alter direct light.
+    return 1.0 / probability if random_value < probability else 0.0
+
+
+@osh.function
 def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profile_bounce = osh.u32(0)
@@ -421,8 +429,9 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
     if osh.any_value(pixel >= push.image_tile.xy):
         return
     path_index = local_pixel.y * push.tile_frame.x + local_pixel.x
-    if path_index >= output_queue.capacity:
-        return
+    if osh.specialization('!WAVE_PRIMARY_VISIBILITY_CAPTURE'):
+        if path_index >= output_queue.capacity:
+            return
     pixel_index = pixel.y * push.image_tile.x + pixel.x
     restir_reservoir_count = osh.maximum(push.tile_frame.z, osh.u32(1))
     restir_stream = osh.minimum(push.tile_frame.w, restir_reservoir_count - osh.u32(1))
@@ -435,11 +444,12 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
     else:
         direct_stream_count = osh.u32(1)
     frame_index = osh.u32(camera.origin.w + 0.5)
-    if push.restir_di != osh.u32(0):
-        stream = osh.u32(0)
-        while stream < direct_stream_count:
-            storeCurrentDirectLightReservoir(restir_reservoir_index + stream, emptyDirectLightReservoir())
-            stream = stream + 1
+    if osh.specialization('!WAVE_PRIMARY_VISIBILITY_CAPTURE'):
+        if push.restir_di != osh.u32(0):
+            stream = osh.u32(0)
+            while stream < direct_stream_count:
+                storeCurrentDirectLightReservoir(restir_reservoir_index + stream, emptyDirectLightReservoir())
+                stream = stream + 1
     rng = ordinarylight_primary_rng_seed(pixel_index, frame_index, push.tile_frame.w)
     rng = ordinarylight_primary_rng_step(rng)
     jitter_x = ordinarylight_primary_rng_value(rng)
@@ -453,6 +463,23 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
     camera_projection = osh.i32(camera.up.w + 0.5)
     ray_origin = ordinarylight_primary_ray_origin(camera.origin.xyz, camera.right.xyz, camera.up.xyz, ndc, aspect, camera_projection)
     incoming = ordinarylight_primary_ray_direction(camera.forward.xyz, camera.right.xyz, camera.up.xyz, ndc, aspect, camera_projection)
+    # Capture has no lighting, queue, medium, reservoir or guide side effects.
+    # Global sample-plane indexing survives a change in tile traversal order.
+    if osh.specialization('WAVE_PRIMARY_VISIBILITY_CAPTURE'):
+        capture_visibility_index = push.tile_frame.w * push.image_tile.x * push.image_tile.y + pixel_index
+        captured_hit = nativeTraceSurface(ray_origin, 0.001, incoming, 1e+30, False, nativeSurfaceMask())
+        if osh.specialization('WAVE_DISTANCE_PLANES'):
+            storeDistancePlanes(captured_hit, pixel_index, push.image_tile.x*push.image_tile.y, push.tile_frame.w)
+        elif osh.specialization('WAVE_PLANAR_VISIBILITY'):
+            storeVisibilityPlanes(captured_hit, pixel_index, push.image_tile.x*push.image_tile.y, push.tile_frame.w)
+        elif osh.specialization('WAVE_DISTANCE_VISIBILITY'):
+            distance_visibility[capture_visibility_index] = packDistanceVisibility(captured_hit)
+        else:
+            primary_visibility[capture_visibility_index] = captured_hit
+        return
+    if osh.specialization('WAVE_SELECTED_DIFFUSE'):
+        primary_direct[pixel_index] = osh.vec4(0.0)
+        selected_diffuse_active = False
     path = WavePathState(osh.vec4(0), osh.vec4(0), osh.uvec4(0))
     path.throughput = osh.vec4(1.0)
     path.radiance = osh.vec4(0.0)
@@ -468,26 +495,45 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
         ordinarylight_clear_secondary_path(path_index)
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(0), osh.u32(1))
-    intersection = nativeTraceSurface(ray_origin, 0.001, incoming, 1e+30, False, nativeSurfaceMask())
+    if osh.specialization('WAVE_PRIMARY_VISIBILITY_REPLAY'):
+        visibility_index = push.tile_frame.w * push.image_tile.x * push.image_tile.y + pixel_index
+        if osh.specialization('WAVE_DISTANCE_PLANES'):
+            intersection = loadDistancePlanes(pixel_index, push.image_tile.x*push.image_tile.y, push.tile_frame.w, ray_origin, incoming)
+        elif osh.specialization('WAVE_PLANAR_VISIBILITY'):
+            intersection = loadVisibilityPlanes(pixel_index, push.image_tile.x*push.image_tile.y, push.tile_frame.w)
+        elif osh.specialization('WAVE_DISTANCE_VISIBILITY'):
+            intersection = unpackDistanceVisibility(distance_visibility[visibility_index], ray_origin, incoming)
+        else:
+            intersection = primary_visibility[visibility_index]
+    else:
+        intersection = nativeTraceSurface(ray_origin, 0.001, incoming, 1e+30, False, nativeSurfaceMask())
     surface_hit = intersection.address.w != osh.u32(0)
     distance = intersection.position_distance.w if surface_hit else 1e+30
     if osh.specialization('WAVE_PRIMARY_HITS'):
         hit_output_index = push.tile_frame.w * push.image_tile.x * push.image_tile.y + pixel_index
-        primary_hits[hit_output_index] = PrimaryHitOutput(
-            osh.vec4(0.0, 0.0, 0.0, -1.0), osh.vec4(0), osh.vec4(0),
-            osh.uvec4(4294967295), osh.vec4(ray_origin, jitter.x), osh.vec4(incoming, jitter.y))
-        if surface_hit:
-            export_normal = intersection.geometric_normal.xyz
-            if intersection.address.w == osh.u32(1):
-                export_primitive = intersection.address.x
-                export_a = vertices[export_primitive * osh.u32(3)].xyz
-                export_b = vertices[export_primitive * osh.u32(3) + osh.u32(1)].xyz
-                export_c = vertices[export_primitive * osh.u32(3) + osh.u32(2)].xyz
-                export_normal = ordinarylight_primary_geometric_normal(export_a, export_b, export_c)
-            primary_hits[hit_output_index].position_distance = osh.vec4(ray_origin + distance * incoming, distance)
-            primary_hits[hit_output_index].geometric_normal = osh.vec4(export_normal, 0)
-            primary_hits[hit_output_index].shading_normal = osh.vec4(export_normal, 0)
-            primary_hits[hit_output_index].identity = intersection.identity
+        if osh.specialization('WAVE_PRIMARY_HIT_IDENTITY'):
+            compact_base = hit_output_index * osh.u32(5)
+            primary_hit_words[compact_base] = intersection.identity.x
+            primary_hit_words[compact_base + osh.u32(1)] = intersection.identity.y
+            primary_hit_words[compact_base + osh.u32(2)] = intersection.identity.z
+            primary_hit_words[compact_base + osh.u32(3)] = intersection.identity.w
+            primary_hit_words[compact_base + osh.u32(4)] = osh.u32(surface_hit)
+        else:
+            primary_hits[hit_output_index] = PrimaryHitOutput(
+                osh.vec4(0.0, 0.0, 0.0, -1.0), osh.vec4(0), osh.vec4(0),
+                osh.uvec4(4294967295), osh.vec4(ray_origin, jitter.x), osh.vec4(incoming, jitter.y))
+            if surface_hit:
+                export_normal = intersection.geometric_normal.xyz
+                if intersection.address.w == osh.u32(1):
+                    export_primitive = intersection.address.x
+                    export_a = vertices[export_primitive * osh.u32(3)].xyz
+                    export_b = vertices[export_primitive * osh.u32(3) + osh.u32(1)].xyz
+                    export_c = vertices[export_primitive * osh.u32(3) + osh.u32(2)].xyz
+                    export_normal = ordinarylight_primary_geometric_normal(export_a, export_b, export_c)
+                primary_hits[hit_output_index].position_distance = osh.vec4(ray_origin + distance * incoming, distance)
+                primary_hits[hit_output_index].geometric_normal = osh.vec4(export_normal, 0)
+                primary_hits[hit_output_index].shading_normal = osh.vec4(export_normal, 0)
+                primary_hits[hit_output_index].identity = intersection.identity
     if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
         if osh.specialization('WAVE_DENOISER_SIGNAL_CAPTURE'):
             history_identity = intersection.identity
@@ -622,7 +668,7 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
         position_image.store(osh.ivec2(pixel), ordinarylight_primary_hit_position_payload(distance))
         normal_image.store(osh.ivec2(pixel), ordinarylight_primary_packed_payload(restirPackNormalClass(shading_normal, surface_class)))
         material_image.store(osh.ivec2(pixel), ordinarylight_primary_packed_payload(material_signature))
-    if osh.specialization('WAVE_PRIMARY_HITS'):
+    if osh.specialization('WAVE_PRIMARY_HITS && !WAVE_PRIMARY_HIT_IDENTITY'):
         hit_output_index = push.tile_frame.w * push.image_tile.x * push.image_tile.y + pixel_index
         primary_hits[hit_output_index].shading_normal = osh.vec4(shading_normal, 0)
     path.radiance.rgb = path.radiance.rgb + ordinarylight_primary_emission(material.emission_metallic.rgb, entering, material.ior_distance.w > 0.5)
@@ -876,13 +922,61 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
             path.radiance.rgb = path.radiance.rgb + environment_direct / osh.f32(environment_samples)
         transportPbrPrepared = False
         bsdf_weight = osh.vec3(0)
-        samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular)
+        if osh.specialization('WAVE_SELECTED_DIFFUSE'):
+            selected_diffuse_active = (nativeAreaLightCount(push.area_light_count) == osh.u32(0)
+                and push.environment_samples == osh.u32(0)
+                and osh.all_value(material.advanced0 == osh.vec4(0.0))
+                and osh.all_value(material.advanced1 == osh.vec4(0.0))
+                and osh.all_value(material.sheen_color == osh.vec4(0.0)))
+            if selected_diffuse_active:
+                lobe_randoms = osh.vec3(0.0)
+                lobe_randoms.x = randomFloat(rng)
+                lobe_randoms.y = randomFloat(rng)
+                lobe_randoms.z = randomFloat(rng)
+                if osh.specialization('WAVE_CONTINUATION_CLASSIFY'):
+                    needs_continuation = (lobe_randoms.x < pbrLobeProbability(material.base_roughness.rgb, material.emission_metallic.a)
+                        or diffuse_selection[pixel_index].x > 0.0)
+                    if needs_continuation:
+                        deferred_index = osh.atomic_add(deferred_control[3], osh.u32(1))
+                        deferred_indices[deferred_index] = path_index
+                        return
+                    lobe_sample = PbrLobeSample(osh.vec4(normal, 0.0), osh.vec4(0.0))
+                else:
+                    lobe_sample = samplePbrLobe(material.base_roughness.rgb, material.base_roughness.a,
+                        material.emission_metallic.a, material.texture_parameters.w, normal, incoming,
+                        lobe_randoms, diffuse_selection[pixel_index].x > 0.0)
+                next_direction = lobe_sample.direction_pdf.xyz
+                bsdf_pdf = lobe_sample.direction_pdf.w
+                bsdf_weight = lobe_sample.throughput_lobe.rgb
+                sampled_specular = lobe_sample.throughput_lobe.w
+                transportLastSpecularFraction = osh.vec3(sampled_specular)
+            else:
+                samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular)
+        else:
+            samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular)
         indirect_specular_fraction = transportLastSpecularFraction
         path.throughput.rgb = ordinarylight_primary_apply_bsdf_weight(path.throughput.rgb, bsdf_weight)
         cone_spread = ordinarylight_primary_scattered_cone_spread(cone_spread, material.base_roughness.a)
+    if osh.specialization('WAVE_SELECTED_DIFFUSE'):
+        if selected_diffuse_active:
+            primary_direct[pixel_index] = osh.vec4(osh.maximum(path.radiance.rgb - primary_specular, osh.vec3(0.0)), 1.0 + osh.f32(osh.any_value(path.throughput.rgb > osh.vec3(0.0))))
     next_direction = ordinarylight_primary_continuation_direction(next_direction)
     setPathBounce(path, osh.u32(1))
     path.metadata.w = ordinarylight_primary_continuation_flags(path.metadata.w, medium_depth, transmission, push.restir_di != osh.u32(0) and WAVE_UNIFIED_PRIMARY_RESTIR != osh.u32(0))
+    # Keep camera visibility/direct light at full rate. Only the sampled diffuse
+    # continuation is thinned; specular, transmission and custom events bypass it.
+    # A probability of one compiles this block away and consumes no extra RNG.
+    if WAVE_PRIMARY_DIFFUSE_PROBABILITY < 1.0:
+        if (transmission <= 0.001 and sampled_specular < 0.5
+                and material.base_roughness.a >= 0.25 and material.emission_metallic.a < 0.5
+                and wave_surface_response.custom_scattering <= 0.5):
+            continuation_weight = primaryDiffuseContinuationWeight(WAVE_PRIMARY_DIFFUSE_PROBABILITY, randomFloat(rng))
+            path.throughput.rgb = path.throughput.rgb * continuation_weight
+            if continuation_weight == 0.0:
+                path.metadata.w = path.metadata.w & ~PATH_ACTIVE_BIT
+    if osh.specialization('WAVE_SELECTED_DIFFUSE'):
+        if selected_diffuse_active and not osh.any_value(path.throughput.rgb > osh.vec3(0.0)):
+            path.metadata.w = path.metadata.w & ~PATH_ACTIVE_BIT
     setPathPreviousPdf(path, ordinarylight_primary_previous_pdf(pathPreviousPdf(path), bsdf_pdf, transmission))
     if nativeBoundaryEnabled(optical_boundary):
         # Both reflection and refraction are delta events: neither competes
@@ -922,7 +1016,13 @@ def processPrimaryPixel(local_pixel: osh.uvec2) -> osh.void:
 
 @osh.function
 def main() -> osh.void:
-    if osh.specialization('WAVE_RAYGEN'):
+    if osh.specialization('WAVE_CONTINUATION_RESUME'):
+        deferred_index = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * osh.u32(64) + gl_LocalInvocationID.x
+        if deferred_index >= deferred_control[3]:
+            return
+        local_index = deferred_indices[deferred_index]
+        processPrimaryPixel(osh.uvec2(local_index % push.tile_frame.x, local_index / push.tile_frame.x))
+    elif osh.specialization('WAVE_RAYGEN'):
         pixel = gl_LaunchIDEXT.xy
         processPrimaryPixel(pixel)
     elif osh.specialization('WAVE_PERSISTENT_COARSE'):

@@ -761,6 +761,9 @@ class VulkanWavefrontExecutor:
             surface_only, self.core.config.wavefront_primary_scene_specialization,
             opaque_primary, production_restir,
             self.core.config.wavefront_primary_hits,
+            self.core.config.wavefront_primary_hit_format,
+            self.core.config.wavefront_primary_diffuse_probability,
+            self.core.config.wavefront_environment_early_reject,
             self.core.config.geometry_resources,
         )
         if signature == self.custom_material_signature:
@@ -780,6 +783,8 @@ class VulkanWavefrontExecutor:
             from ...shaders.compiler import compile_wavefront_material_shader
             primary = compile_wavefront_material_shader(
                 "wavefront_primary.comp", programs,
+                environment_early_reject=self.core.config.wavefront_environment_early_reject,
+                primary_diffuse_probability=self.core.config.wavefront_primary_diffuse_probability,
                 geometry_program=(self.core.config.geometry_resources.program if self.core.config.geometry_resources else None),
                 attribute_layout=layout, attribute_binding=24,
                 overlapping_volumes=overlapping_volumes,
@@ -798,6 +803,7 @@ class VulkanWavefrontExecutor:
                 production_restir=production_restir,
                 camera_restir_policy=shared_primary,
                 primary_hits=self.core.config.wavefront_primary_hits,
+                primary_hit_format=self.core.config.wavefront_primary_hit_format,
                 shared_primary_reservoirs=(
                     self.core.config.wavefront_restir_reservoirs if shared_primary else 0
                 ),
@@ -806,6 +812,7 @@ class VulkanWavefrontExecutor:
             if self.core.config.geometry_resources is not None:
                 shade = compile_wavefront_material_shader(
                     "wavefront_shade_candidate.glsl", programs,
+                    environment_early_reject=self.core.config.wavefront_environment_early_reject,
                     geometry_program=self.core.config.geometry_resources.program,
                     attribute_layout=layout, attribute_binding=16,
                     overlapping_volumes=overlapping_volumes,
@@ -1126,6 +1133,14 @@ class VulkanWavefrontExecutor:
         stride = int(round(inverse_scale))
         return stride if stride in (1, 2, 4) and abs(
             inverse_scale - stride) < 1e-6 else 0
+
+    def _needs_secondary_transfer_clear(self, fused_primary):
+        """Keep one initialization owner when fused primary visits every record."""
+        return self._denoiser_signals_active() and not (
+            fused_primary
+            and self.core.resolved_execution_strategy == "wavefront"
+            and self._indirect_capture_stride() <= 1
+        )
 
     def _denoiser_signals_active(self):
         return bool(
@@ -2382,7 +2397,8 @@ class VulkanWavefrontExecutor:
                     command, buffer.buffer, 4, 4, self.capacity
                 )
                 vk.vkCmdFillBuffer(command, buffer.buffer, 8, 4, 0)
-            if self._denoiser_signals_active():
+            clear_secondary = self._needs_secondary_transfer_clear(output_image_slot is not None)
+            if clear_secondary:
                 vk.vkCmdFillBuffer(
                     command, self.secondary_path_buffer.buffer, 0,
                     tile_width * tile_height
@@ -2402,7 +2418,7 @@ class VulkanWavefrontExecutor:
             reset_barriers.append(self._buffer_barrier(
                 self.secondary_path_buffer,
                 (vk.VK_ACCESS_TRANSFER_WRITE_BIT
-                 if self._denoiser_signals_active() else
+                 if clear_secondary else
                  vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT),
                 vk.VK_ACCESS_SHADER_READ_BIT | vk.VK_ACCESS_SHADER_WRITE_BIT,
             ))
@@ -3099,10 +3115,12 @@ class VulkanWavefrontExecutor:
                 if timestamp:
                     timestamp(command, "tone")
             else:
-                self.record_path_to_hdr(
-                    command, output_image_slot, tile_width * tile_height,
-                    image_width, image_height, sample_index, sample_count,
-                )
+                from .relax_prepare_graph import fused_resolve_enabled
+                if not fused_resolve_enabled(self.core.config):
+                    self.record_path_to_hdr(
+                        command, output_image_slot, tile_width * tile_height,
+                        image_width, image_height, sample_index, sample_count,
+                    )
                 if timestamp:
                     timestamp(command, "resolve_hdr")
                 self.record_relax_prepare(
@@ -3451,6 +3469,9 @@ class VulkanRayQueryCore(VulkanSceneUploader):
             config = RendererConfig(device_name=device_name)
         elif device_name is not None:
             raise ValueError("Pass device_name or config, not both")
+        if (config.wavefront_primary_diffuse_probability != 1.0
+                and config.geometry_resources is None):
+            raise ValueError("Primary diffuse sampling currently requires native custom geometry")
         self.config = config
         # Resources follow the immutable config; this gate permits matched
         # runtime A/B tests without reallocating them.
@@ -5785,7 +5806,8 @@ class VulkanRayQueryCore(VulkanSceneUploader):
                     else 1,
                 )
                 frame["wavefront_primary_hit_buffer"] = self._create_buffer(
-                    render_width * render_height * sample_capacity * 96,
+                    render_width * render_height * sample_capacity
+                    * (20 if self.config.wavefront_primary_hit_format == "identity" else 96),
                     vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                     vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 )

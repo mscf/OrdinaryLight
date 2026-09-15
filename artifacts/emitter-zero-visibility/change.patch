@@ -1,0 +1,13 @@
+--- before/lighting_programs.py
++++ after/lighting_programs.py
+@@ -175,6 +175,10 @@
+         custom_distance_to_light = 0.0
+         custom_contribution = evaluateAreaLightCandidateTechnique(custom_candidate, hit, normal, incoming, material,
+             sample_count, technique_probability, custom_direction, custom_distance_to_light)
++        # Preserve candidate evaluation and its random draws; visibility cannot
++        # change an exactly zero contribution (including back-facing emitters).
++        if osh.all_value(custom_contribution == osh.vec3(0.0)):
++            return osh.vec3(0.0)
+         return custom_contribution * areaLightCandidateVisibility(hit, normal, custom_direction, custom_distance_to_light)
+     if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
+         return osh.vec3(0.0)

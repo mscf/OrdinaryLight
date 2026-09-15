@@ -1,7 +1,7 @@
 """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
 import ordinaryshade as osh
-from .native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount, nativeEmitterValid, nativeSelectEmitter, nativeEvaluateEmitter)
-from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
+from .native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount, nativeEmitterValid, nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterInfluence)
+from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeOccluded, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
 from .transport_programs import MaterialData, AreaLightData, PointLightData
 from .restir_programs import DirectLightReservoir
 
@@ -152,8 +152,8 @@ def samplePointLights(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, mater
         shadow_distance = ordinarylight_analytic_light_shadow_distance(light_type, distance_to_light)
         if osh.specialization('WAVE_WORK_COUNTERS'):
             profileWork(osh.u32(1), osh.u32(1))
-        shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
-        if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
+        shadow = nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask())
+        if shadow:
             index = index + 1
             continue
         incident = ordinarylight_analytic_light_incident(light.color_intensity.rgb, light.color_intensity.a, attenuation, volumeShadowTransmittance(shadow_origin, direction, shadow_distance))
@@ -175,6 +175,10 @@ def sampleAreaLightTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3
         custom_distance_to_light = 0.0
         custom_contribution = evaluateAreaLightCandidateTechnique(custom_candidate, hit, normal, incoming, material,
             sample_count, technique_probability, custom_direction, custom_distance_to_light)
+        # Preserve candidate evaluation and its random draws; visibility cannot
+        # change an exactly zero contribution (including back-facing emitters).
+        if osh.all_value(custom_contribution == osh.vec3(0.0)):
+            return osh.vec3(0.0)
         return custom_contribution * areaLightCandidateVisibility(hit, normal, custom_direction, custom_distance_to_light)
     if nativeAreaLightCount(OL_TRANSPORT_AREA_LIGHT_COUNT) == osh.u32(0):
         return osh.vec3(0.0)
@@ -205,8 +209,8 @@ def sampleAreaLightTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3
     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask())
+    if shadow:
         return osh.vec3(0.0)
     effective_pdf = ordinarylight_area_light_pdf(light.distribution.y, distance_squared, light_cosine, light.emission_area.a, technique_probability)
     bsdf_pdf = pbrPdf(material, normal, -incoming, direction)
@@ -237,6 +241,8 @@ def evaluateAreaLightCandidateTechnique(candidate: AreaLightCandidate, hit: osh.
         direction = normal
         distance_to_light = 0.0
         if not nativeEmitterValid(custom_sample):
+            return osh.vec3(0.0)
+        if not nativeEmitterInfluence(candidate.light_index, custom_sample.position, hit):
             return osh.vec3(0.0)
         custom_offset = custom_sample.position - hit
         custom_distance_squared = osh.dot(custom_offset, custom_offset)
@@ -320,8 +326,8 @@ def areaLightCandidateVisibility(hit: osh.vec3, normal: osh.vec3, direction: osh
     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask())
+    if shadow:
         return 0.0
     return volumeShadowTransmittance(shadow_origin, direction, shadow_distance)
 
@@ -346,18 +352,25 @@ def environmentColor(direction: osh.vec3) -> osh.vec3:
 @osh.function
 def sampleEnvironmentTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, rng: osh.inout(osh.u32), sample_count: osh.u32, technique_probability: osh.f32) -> osh.vec3:
     direction = ordinarylight_pbr_cosine_hemisphere(normal, randomFloat(rng), randomFloat(rng))
+    if osh.specialization('OL_ENVIRONMENT_EARLY_REJECT'):
+        environment_radiance = environmentColor(direction)
+        if osh.all_value(environment_radiance == osh.vec3(0.0)):
+            return osh.vec3(0.0)
     shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
     if osh.specialization('WAVE_WORK_COUNTERS'):
         profileWork(osh.u32(1), osh.u32(1))
-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, 1e+30, True, nativeSurfaceMask())
-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
+    shadow = nativeOccluded(shadow_origin, 0.001, direction, 1e+30, nativeSurfaceMask())
+    if shadow:
         return osh.vec3(0.0)
     cosine = ordinarylight_analytic_light_cosine(normal, direction)
     pdf = cosine / 3.14159265359
     effective_pdf = ordinarylight_environment_effective_pdf(cosine, technique_probability)
     mis = ordinarylight_environment_mis(cosine, effective_pdf, osh.f32(sample_count))
     transmittance = volumeShadowTransmittance(shadow_origin, direction, 1e+30)
-    return ordinarylight_environment_contribution(evaluatePbr(material, normal, -incoming, direction), environmentColor(direction), cosine, mis, transmittance, effective_pdf, material.texture_parameters.w, material.emission_metallic.a)
+    if osh.specialization('OL_ENVIRONMENT_EARLY_REJECT'):
+        return ordinarylight_environment_contribution(evaluatePbr(material, normal, -incoming, direction), environment_radiance, cosine, mis, transmittance, effective_pdf, material.texture_parameters.w, material.emission_metallic.a)
+    else:
+        return ordinarylight_environment_contribution(evaluatePbr(material, normal, -incoming, direction), environmentColor(direction), cosine, mis, transmittance, effective_pdf, material.texture_parameters.w, material.emission_metallic.a)
 
 @osh.function
 def sampleEnvironment(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, material: MaterialData, rng: osh.inout(osh.u32), sample_count: osh.u32) -> osh.vec3:

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source": "ordinarylight/denoising/kernels.py",
-  "source_sha256": "e25fc27eda37d049d0d05e8a57e06e1c1ead621b176fccbee9d1a30b2e12e33c",
+  "source_sha256": "b123750e3fc18996a3e15074cefee23b36d36c729659e5142e650ed083bddff9",
   "targets": {
     "spirv": {
       "atrous": {
@@ -69,6 +69,88 @@
           ]
         },
         "sha256": "f9c372f1e2055919e844960688f3724bc52e8f49b5d95a2a2d1d5418e0bc6c01"
+      },
+      "atrous_paired": {
+        "cache_key": "8e9c4ddcb29482458b0d1f1707822c488fadeb4509d05385afee7c6d42957902",
+        "file": "denoiser_relax_atrous_paired.comp.spv",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "input_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": -1,
+              "format": "AtrousConstants",
+              "kind": "push_constants",
+              "name": "constants",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_input",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_output",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "fd9f2ec9ddae58708f4a2a48b61680c8ac6ea49aec537eb79ee4dfea5055d57b"
       },
       "compose": {
         "cache_key": "82810efe094eae1c01ab1474d55295aefff518405a6242a481b0ea8e88b225c9",
@@ -259,7 +341,7 @@
         "sha256": "90d70828618d1c6b00cceddad39f84cdf546c3eee315d208997e50824092dfe6"
       },
       "temporal": {
-        "cache_key": "5a218bb0ef047fc57eb43845dae2091c0881b165d556e3fea9d1bce5d1cfe047",
+        "cache_key": "80a6671a399692600167d991782f50a76239c73cdbe3d9c14b5d8b9c354977a1",
         "file": "denoiser_relax_temporal.comp.spv",
         "reflection": {
           "entry_point": "main",
@@ -394,7 +476,7 @@
             1
           ]
         },
-        "sha256": "908c6c3d56b2691e3c31a6a8957b0f17b781182e9a2a24d8e1d1827fafc0903f"
+        "sha256": "b748652aeae195f8bfeae0519d5312d7f0e0b5a664c6d616e2fec6653cc831b4"
       }
     },
     "wgsl": {
@@ -463,6 +545,88 @@
           ]
         },
         "sha256": "58b0e9faa4e723859a389d64da8505799c61344ef824a17a9bef1e8a4ff1de91"
+      },
+      "atrous_paired": {
+        "cache_key": "f980e25508d8e9ebd861aa75d2646dc67eebcd62540ba83ea3169aa745a4273c",
+        "file": "denoiser_relax_atrous_paired.comp.wgsl",
+        "reflection": {
+          "entry_point": "main",
+          "inputs": [],
+          "outputs": [],
+          "resources": [
+            {
+              "access": "read",
+              "binding": 0,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "input_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 1,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "normal_roughness",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 2,
+              "format": "r32f",
+              "kind": "storage_image",
+              "name": "view_z",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 3,
+              "format": "r32ui",
+              "kind": "storage_image",
+              "name": "material_id",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 4,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "output_radiance",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 7,
+              "format": "AtrousConstants",
+              "kind": "uniform_buffer",
+              "name": "constants",
+              "set": 0
+            },
+            {
+              "access": "read",
+              "binding": 5,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_input",
+              "set": 0
+            },
+            {
+              "access": "write",
+              "binding": 6,
+              "format": "rgba16f",
+              "kind": "storage_image",
+              "name": "specular_output",
+              "set": 0
+            }
+          ],
+          "stage": "compute",
+          "workgroup_size": [
+            8,
+            8,
+            1
+          ]
+        },
+        "sha256": "9cabaa8bcf7514b763ad5a21cf832e911b73237c20f8939c7132bce908a9fbc9"
       },
       "compose": {
         "cache_key": "4a66918b7ee25fc3ca121558d11d1f22971ee5a20f3abda2ba6d3990c708bbb1",
@@ -653,7 +817,7 @@
         "sha256": "75de40a2877af6607d5609a244f7567ba699728929239301eadde584fd44d631"
       },
       "temporal": {
-        "cache_key": "8a96a4756f3ddb7f8f7ee19cb524651c6e117d99c1cf7a76435575fc3f3cb2a5",
+        "cache_key": "b174112bcbf6c46e7981cac0d26f01fbd4fdad2de92d460aa208475c42d7d5a2",
         "file": "denoiser_relax_temporal.comp.wgsl",
         "reflection": {
           "entry_point": "main",
@@ -788,7 +952,7 @@
             1
           ]
         },
-        "sha256": "4e873916e6de98853779fed05bf0763d5ede0f6d90299eb5d9841d3b2a9cbf01"
+        "sha256": "18b61ae2a6267da2159a9900b38af1aee6a1544bf9a9f5e9b90931a80b12bceb"
       }
     }
   }

@@ -1,0 +1,130 @@
+{
+  "uniform_0_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_0_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_0_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_0_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_1_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_1_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_1_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_1_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_2_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_2_raw": {
+    "changed": 96,
+    "repeat_changed": 84
+  },
+  "uniform_2_upstream": {
+    "changed": 225,
+    "repeat_changed": 223
+  },
+  "uniform_2_output": {
+    "changed": 225,
+    "repeat_changed": 223
+  },
+  "uniform_3_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_3_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_3_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "uniform_3_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_0_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_0_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_0_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_0_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_1_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_1_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_1_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_1_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_2_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_2_raw": {
+    "changed": 0,
+    "repeat_changed": 75
+  },
+  "power_2_upstream": {
+    "changed": 0,
+    "repeat_changed": 223
+  },
+  "power_2_output": {
+    "changed": 0,
+    "repeat_changed": 223
+  },
+  "power_3_identity": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_3_raw": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_3_upstream": {
+    "changed": 0,
+    "repeat_changed": 0
+  },
+  "power_3_output": {
+    "changed": 0,
+    "repeat_changed": 0
+  }
+}

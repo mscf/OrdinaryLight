@@ -2,6 +2,9 @@
 #include "transport_v1/material_contracts.glsl"
 #include "transport_v1/dielectric.glsl"
 
+#ifndef WAVE_PRIMARY_DIFFUSE_PROBABILITY
+#define WAVE_PRIMARY_DIFFUSE_PROBABILITY 1.0
+#endif
 #if !defined(WAVE_SHARED_PRIMARY_RESERVOIRS)
 #define WAVE_SHARED_PRIMARY_RESERVOIRS 0
 #endif
@@ -124,7 +127,11 @@ struct PrimaryHitOutput {
     vec4 ray_direction;
 };
 layout(set = 0, binding = 30, std430) buffer PrimaryHitOutputs {
+#if WAVE_PRIMARY_HIT_IDENTITY
+    uint primary_hit_words[];
+#else
     PrimaryHitOutput primary_hits[];
+#endif
 };
 #endif
 #if WAVE_CUSTOM_GEOMETRY && WAVE_DENOISER_SIGNAL_CAPTURE
@@ -413,6 +420,103 @@ uint hashValue(uint value)
 
 #define WAVE_RESTIR_PRIMARY 1
 #include "native_intersection.glsl"
+struct DistanceVisibility {
+    uint distance;
+    uint geometric_normal_x;
+    uint geometric_normal_y;
+    uint geometric_normal_z;
+    uint geometric_normal_w;
+    uint shading_normal_x;
+    uint shading_normal_y;
+    uint shading_normal_z;
+    uint shading_normal_w;
+    uint identity_x;
+    uint identity_y;
+    uint identity_z;
+    uint identity_w;
+    uint address_x;
+    uint address_y;
+    uint address_z;
+    uint address_w;
+    uint texcoord_x;
+    uint texcoord_y;
+    uint texcoord_z;
+    uint texcoord_w;
+    uint previous_position_x;
+    uint previous_position_y;
+    uint previous_position_z;
+    uint previous_position_w;
+};
+#if WAVE_PRIMARY_VISIBILITY_CAPTURE || WAVE_PRIMARY_VISIBILITY_REPLAY
+#if WAVE_PLANAR_VISIBILITY || WAVE_DISTANCE_PLANES
+layout(set = 0, binding = 33, std430) buffer VisibilityPlanes {
+    uvec4 visibility_planes[];
+};
+void storeVisibilityPlanes(NativeIntersection hit, uint pixel, uint pixels, uint sample_)
+{
+    uint base = (((sample_ * pixels) * uint(7)) + pixel);
+    visibility_planes[base] = floatBitsToUint(hit.position_distance);
+    visibility_planes[(base + pixels)] = floatBitsToUint(hit.geometric_normal);
+    visibility_planes[(base + (pixels * uint(2)))] = floatBitsToUint(hit.shading_normal);
+    visibility_planes[(base + (pixels * uint(3)))] = hit.identity;
+    visibility_planes[(base + (pixels * uint(4)))] = hit.address;
+    visibility_planes[(base + (pixels * uint(5)))] = floatBitsToUint(hit.texcoord);
+    visibility_planes[(base + (pixels * uint(6)))] = floatBitsToUint(hit.previous_position);
+}
+NativeIntersection loadVisibilityPlanes(uint pixel, uint pixels, uint sample_)
+{
+    uint base = (((sample_ * pixels) * uint(7)) + pixel);
+    return NativeIntersection(uintBitsToFloat(visibility_planes[base]), uintBitsToFloat(visibility_planes[(base + pixels)]), uintBitsToFloat(visibility_planes[(base + (pixels * uint(2)))]), visibility_planes[(base + (pixels * uint(3)))], visibility_planes[(base + (pixels * uint(4)))], uintBitsToFloat(visibility_planes[(base + (pixels * uint(5)))]), uintBitsToFloat(visibility_planes[(base + (pixels * uint(6)))]));
+}
+void storeDistancePlanes(NativeIntersection hit, uint pixel, uint pixels, uint sample_)
+{
+    uint plane_start = (sample_ * ((pixels * uint(6)) + ((pixels + uint(3)) / uint(4))));
+    uint base = (plane_start + pixel);
+    visibility_planes[base] = floatBitsToUint(hit.geometric_normal);
+    visibility_planes[(base + pixels)] = floatBitsToUint(hit.shading_normal);
+    visibility_planes[(base + (pixels * uint(2)))] = hit.identity;
+    visibility_planes[(base + (pixels * uint(3)))] = hit.address;
+    visibility_planes[(base + (pixels * uint(4)))] = floatBitsToUint(hit.texcoord);
+    visibility_planes[(base + (pixels * uint(5)))] = floatBitsToUint(hit.previous_position);
+    visibility_planes[((plane_start + (pixels * uint(6))) + (pixel / uint(4)))][(pixel % uint(4))] = floatBitsToUint(hit.position_distance.w);
+}
+NativeIntersection loadDistancePlanes(uint pixel, uint pixels, uint sample_, vec3 origin, vec3 direction)
+{
+    uint plane_start = (sample_ * ((pixels * uint(6)) + ((pixels + uint(3)) / uint(4))));
+    uint base = (plane_start + pixel);
+    uvec4 address = visibility_planes[(base + (pixels * uint(3)))];
+    float distance = uintBitsToFloat(visibility_planes[((plane_start + (pixels * uint(6))) + (pixel / uint(4)))][(pixel % uint(4))]);
+    vec3 position = vec3(0.0);
+    if ((address.w != uint(0)))
+    {
+        position = (origin + (distance * direction));
+    }
+    return NativeIntersection(vec4(position, distance), uintBitsToFloat(visibility_planes[base]), uintBitsToFloat(visibility_planes[(base + pixels)]), visibility_planes[(base + (pixels * uint(2)))], address, uintBitsToFloat(visibility_planes[(base + (pixels * uint(4)))]), uintBitsToFloat(visibility_planes[(base + (pixels * uint(5)))]));
+}
+#elif WAVE_DISTANCE_VISIBILITY
+layout(set = 0, binding = 33, std430) buffer DistanceVisibilityCache {
+    DistanceVisibility distance_visibility[];
+};
+DistanceVisibility packDistanceVisibility(NativeIntersection hit)
+{
+    return DistanceVisibility(floatBitsToUint(hit.position_distance.w), floatBitsToUint(hit.geometric_normal.x), floatBitsToUint(hit.geometric_normal.y), floatBitsToUint(hit.geometric_normal.z), floatBitsToUint(hit.geometric_normal.w), floatBitsToUint(hit.shading_normal.x), floatBitsToUint(hit.shading_normal.y), floatBitsToUint(hit.shading_normal.z), floatBitsToUint(hit.shading_normal.w), hit.identity.x, hit.identity.y, hit.identity.z, hit.identity.w, hit.address.x, hit.address.y, hit.address.z, hit.address.w, floatBitsToUint(hit.texcoord.x), floatBitsToUint(hit.texcoord.y), floatBitsToUint(hit.texcoord.z), floatBitsToUint(hit.texcoord.w), floatBitsToUint(hit.previous_position.x), floatBitsToUint(hit.previous_position.y), floatBitsToUint(hit.previous_position.z), floatBitsToUint(hit.previous_position.w));
+}
+NativeIntersection unpackDistanceVisibility(DistanceVisibility value, vec3 origin, vec3 direction)
+{
+    float distance = uintBitsToFloat(value.distance);
+    vec3 position = vec3(0.0);
+    if ((value.address_w != uint(0)))
+    {
+        position = (origin + (distance * direction));
+    }
+    return NativeIntersection(vec4(position, distance), uintBitsToFloat(uvec4(value.geometric_normal_x, value.geometric_normal_y, value.geometric_normal_z, value.geometric_normal_w)), uintBitsToFloat(uvec4(value.shading_normal_x, value.shading_normal_y, value.shading_normal_z, value.shading_normal_w)), uvec4(value.identity_x, value.identity_y, value.identity_z, value.identity_w), uvec4(value.address_x, value.address_y, value.address_z, value.address_w), uintBitsToFloat(uvec4(value.texcoord_x, value.texcoord_y, value.texcoord_z, value.texcoord_w)), uintBitsToFloat(uvec4(value.previous_position_x, value.previous_position_y, value.previous_position_z, value.previous_position_w)));
+}
+#else
+layout(set = 0, binding = 33, std430) buffer PrimaryVisibility {
+    NativeIntersection primary_visibility[];
+};
+#endif
+#endif
 #include "wavefront_textures.glsl"
 #include "wavefront_volumes.glsl"
 #include "wavefront_lighting.glsl"
@@ -760,6 +864,120 @@ uint primaryRestirHistoryLimit()
     return push.restir_history_limit;
 }
 
+struct PbrLobeSample { vec4 direction_pdf; vec4 throughput_lobe; };
+#if WAVE_SELECTED_DIFFUSE
+#if WAVE_CONTINUATION_CLASSIFY || WAVE_CONTINUATION_RESUME
+layout(set=0,binding=36,std430) buffer DeferredControl { uint deferred_control[]; };
+layout(set=0,binding=37,std430) buffer DeferredIndices { uint deferred_indices[]; };
+#endif
+layout(set=0,binding=34,std430) readonly buffer DiffuseSelection { vec2 diffuse_selection[]; };
+layout(set=0,binding=35,std430) buffer PrimaryDirect { vec4 primary_direct[]; };
+float pbrLobeProbability(vec3 base, float metallic)
+{
+    vec3 f0 = mix(vec3(0.04), base, metallic);
+    return clamp(max(f0.r, max(f0.g, f0.b)), 0.1, 0.9);
+}
+float pbrLobePdf(float roughness, vec3 normal, vec3 view, vec3 outgoing, bool specular)
+{
+    float nl = max(dot(normal, outgoing), 0.0);
+    if ((nl <= 0.0))
+    {
+        return 0.0;
+    }
+    if ((!specular))
+    {
+        return (nl / 3.14159265359);
+    }
+    vec3 half_vector = normalize((view + outgoing));
+    float nh = max(dot(normal, half_vector), 0.0);
+    float vh = dot(view, half_vector);
+    if ((vh <= 0.0))
+    {
+        return 0.0;
+    }
+    float alpha = max((roughness * roughness), 0.0009);
+    float a2 = (alpha * alpha);
+    float denominator = ((1.0 - (nh * nh)) + ((a2 * nh) * nh));
+    float distribution = (a2 / max(((3.14159265359 * denominator) * denominator), 1e-30));
+    return ((distribution * nh) / (4.0 * vh));
+}
+vec3 pbrLobeValue(vec3 base, float roughness, float metallic, vec3 normal, vec3 view, vec3 outgoing, bool specular)
+{
+    float nv = max(dot(normal, view), 0.0);
+    float nl = max(dot(normal, outgoing), 0.0);
+    if (((nv <= 0.0) || (nl <= 0.0)))
+    {
+        return vec3(0.0);
+    }
+    vec3 half_vector = normalize((view + outgoing));
+    float nh = max(dot(normal, half_vector), 0.0);
+    float vh = max(dot(view, half_vector), 0.0);
+    vec3 f0 = mix(vec3(0.04), base, metallic);
+    vec3 fresnel = (f0 + ((vec3(1.0) - f0) * pow((1.0 - clamp(vh, 0.0, 1.0)), 5.0)));
+    if ((!specular))
+    {
+        return ((((vec3(1.0) - fresnel) * (1.0 - metallic)) * base) / 3.14159265359);
+    }
+    float alpha = max((roughness * roughness), 0.0009);
+    float a2 = (alpha * alpha);
+    float denominator = (((nh * nh) * (a2 - 1.0)) + 1.0);
+    float distribution = (a2 / max(((3.14159265359 * denominator) * denominator), 1e-06));
+    float gv = ((2.0 * nv) / max((nv + sqrt((a2 + (((1.0 - a2) * nv) * nv)))), 1e-06));
+    float gl = ((2.0 * nl) / max((nl + sqrt((a2 + (((1.0 - a2) * nl) * nl)))), 1e-06));
+    return (((fresnel * distribution) * (gv * gl)) / max(((4.0 * nv) * nl), 1e-06));
+}
+float pbrLobePdf(float roughness, vec3 normal, vec3 view, vec3 outgoing, bool specular);
+float pbrLobeProbability(vec3 base, float metallic);
+vec3 pbrLobeValue(vec3 base, float roughness, float metallic, vec3 normal, vec3 view, vec3 outgoing, bool specular);
+PbrLobeSample samplePbrLobe(vec3 base, float roughness, float metallic, float occlusion, vec3 normal, vec3 incoming, vec3 randoms, bool allow_diffuse)
+{
+    float probability = pbrLobeProbability(base, metallic);
+    bool specular = (randoms.x < probability);
+    float lobe = (specular ? 1.0 : 0.0);
+    PbrLobeSample result = PbrLobeSample(vec4(normal, 0.0), vec4(0.0, 0.0, 0.0, lobe));
+    if (((!specular) && (!allow_diffuse)))
+    {
+        return result;
+    }
+    vec3 tangent = normalize(((abs(normal.z) < 0.999) ? cross(normal, vec3(0.0, 0.0, 1.0)) : cross(normal, vec3(0.0, 1.0, 0.0))));
+    vec3 bitangent = cross(normal, tangent);
+    float phi = (6.28318530718 * randoms.z);
+    float cosine = sqrt((1.0 - randoms.y));
+    if (specular)
+    {
+        float alpha = max((roughness * roughness), 0.0009);
+        cosine = sqrt(((1.0 - randoms.y) / max(((1.0 - randoms.y) + ((alpha * alpha) * randoms.y)), 1e-30)));
+    }
+    float sine = sqrt(max(0.0, (1.0 - (cosine * cosine))));
+    vec3 sampled = normalize((((tangent * (sine * cos(phi))) + (bitangent * (sine * sin(phi)))) + (normal * cosine)));
+    vec3 outgoing = sampled;
+    if (specular)
+    {
+        outgoing = normalize((incoming - ((2.0 * dot(sampled, incoming)) * sampled)));
+    }
+    vec3 view = (-incoming);
+    if (((dot(normal, view) <= 0.0) || (dot(normal, outgoing) <= 0.0)))
+    {
+        return result;
+    }
+    float conditional_pdf = pbrLobePdf(roughness, normal, view, outgoing, specular);
+    float pdf = (conditional_pdf * (specular ? probability : (1.0 - probability)));
+    if ((pdf <= 0.0))
+    {
+        return result;
+    }
+    vec3 value = pbrLobeValue(base, roughness, metallic, normal, view, outgoing, specular);
+    vec3 weight = ((value * (dot(normal, outgoing) / pdf)) * mix(occlusion, 1.0, metallic));
+    result.direction_pdf = vec4(outgoing, pdf);
+    result.throughput_lobe = vec4(weight, lobe);
+    return result;
+}
+#endif
+float primaryDiffuseContinuationWeight(float probability, float random_value)
+{
+    return ((random_value < probability) ? (1.0 / probability) : 0.0);
+}
+
 void applyMaterialTextures(inout MaterialData material, vec2 uv0, vec2 uv1, float uv0_footprint, float uv1_footprint);
 vec3 applyNormalTexture(MaterialData material, vec2 uv0, vec2 uv1, float uv0_footprint, float uv1_footprint, vec3 shading_normal, vec4 tangent_data);
 float areaLightCandidateVisibility(vec3 hit, vec3 normal, vec3 direction, float distance_to_light);
@@ -777,8 +995,10 @@ AreaLightCandidate generateUnifiedPrimaryCandidate(vec3 hit, vec3 normal, vec3 i
 uint hashValue(uint value);
 void integrateVolumesBeforeSurface(vec3 origin, vec3 direction, float surface_distance, inout vec3 radiance, inout vec3 throughput);
 DirectLightReservoir limitDirectLightReservoir(DirectLightReservoir reservoir, float maximum_samples);
+NativeIntersection loadDistancePlanes(uint pixel, uint pixels, uint sample_, vec3 origin, vec3 direction);
 DirectLightReservoir loadPreviousDirectLightReservoir(uint reservoir_index);
 DirectLightReservoir loadPreviousEnvironmentReservoir(uint reservoir_index, uint pixel_count);
+NativeIntersection loadVisibilityPlanes(uint pixel, uint pixels, uint sample_);
 bool materialHasTextures(MaterialData material);
 bool mergeBalancedDirectLightReservoir(inout DirectLightReservoir destination, DirectLightReservoir source, float target_at_current_surface, float active_proposals_over_target_sum, float random_value);
 bool mergeCanonicalDirectLightReservoir(inout DirectLightReservoir destination, DirectLightReservoir source, float target_at_current_surface, float random_value);
@@ -840,9 +1060,12 @@ void ordinarylight_secondary_reorder(uint hint);
 void ordinarylight_set_medium_ior(uint path_index, uint depth, float value);
 void ordinarylight_store_path(uint path_index, WavePathState path);
 void ordinarylight_store_secondary_primary(uint path_index, vec3 throughput, vec3 radiance, float pdf, float sampled_specular, float specular_probability, vec3 position, float roughness, uint primitive, vec2 barycentrics, uint instance_key);
+DistanceVisibility packDistanceVisibility(NativeIntersection hit);
 float pathPreviousPdf(WavePathState path);
+float pbrLobeProbability(vec3 base, float metallic);
 float pbrSpecularProbability(MaterialData material);
 void preparePrimaryPbr(MaterialData material, vec3 normal, vec3 view);
+float primaryDiffuseContinuationWeight(float probability, float random_value);
 uint primaryRestirHistoryLimit();
 uint primaryRestirHistoryValid();
 void profileWork(uint counter, uint amount);
@@ -857,14 +1080,18 @@ ivec2 restirSpatialOffset(uint index, int radius);
 vec3 sampleAreaLight(vec3 hit, vec3 normal, vec3 incoming, MaterialData material, inout uint rng, uint sample_index, uint sample_count);
 vec3 sampleEnvironment(vec3 hit, vec3 normal, vec3 incoming, MaterialData material, inout uint rng, uint sample_count);
 void samplePbr(MaterialData material, vec3 normal, vec3 incoming, inout uint rng, out vec3 outgoing, out vec3 weight, out float pdf, out float sampled_specular);
+PbrLobeSample samplePbrLobe(vec3 base, float roughness, float metallic, float occlusion, vec3 normal, vec3 incoming, vec3 randoms, bool allow_diffuse);
 vec3 samplePointLights(vec3 hit, vec3 normal, vec3 incoming, MaterialData material);
 void setPathBounce(inout WavePathState path, uint bounce);
 void setPathPreviousPdf(inout WavePathState path, float pdf);
 void setPathRng(inout WavePathState path, uint rng);
 void storeCurrentDirectLightReservoir(uint reservoir_index, DirectLightReservoir reservoir);
 void storeCurrentEnvironmentReservoir(uint reservoir_index, uint pixel_count, DirectLightReservoir reservoir);
+void storeDistancePlanes(NativeIntersection hit, uint pixel, uint pixels, uint sample_);
+void storeVisibilityPlanes(NativeIntersection hit, uint pixel, uint pixels, uint sample_);
 bool textureBindingUsesUv1(float binding_index_value);
 void traceRemaining(inout WavePathState path, inout vec3 origin, inout vec3 direction, uint path_index, uint medium_depth, inout uint rng, inout float cone_width, inout float cone_spread);
+NativeIntersection unpackDistanceVisibility(DistanceVisibility value, vec3 origin, vec3 direction);
 bool updateDirectLightReservoir(inout DirectLightReservoir reservoir, uint light_index, vec2 barycentrics, float target, float candidate_weight, float represented_samples, float random_value);
 MaterialEvaluation waveApplyMaterialProgram(inout MaterialData material, vec3 normal, vec2 uv, vec3 direction, bool entering, uint primitive, vec3 weights, float bounce_index);
 void processPrimaryPixel(uvec2 local_pixel)
@@ -882,10 +1109,12 @@ void processPrimaryPixel(uvec2 local_pixel)
         return;
     }
     uint path_index = ((local_pixel.y * push.tile_frame.x) + local_pixel.x);
+#if !WAVE_PRIMARY_VISIBILITY_CAPTURE
     if ((path_index >= output_queue.capacity))
     {
         return;
     }
+#endif
     uint pixel_index = ((pixel.y * push.image_tile.x) + pixel.x);
     uint restir_reservoir_count = max(push.tile_frame.z, uint(1));
     uint restir_stream = min(push.tile_frame.w, (restir_reservoir_count - uint(1)));
@@ -899,6 +1128,7 @@ void processPrimaryPixel(uvec2 local_pixel)
     uint direct_stream_count = uint(1);
 #endif
     uint frame_index = uint((camera.origin.w + 0.5));
+#if !WAVE_PRIMARY_VISIBILITY_CAPTURE
     if ((push.restir_di != uint(0)))
     {
         uint stream = uint(0);
@@ -908,6 +1138,7 @@ void processPrimaryPixel(uvec2 local_pixel)
             stream = (stream + 1);
         }
     }
+#endif
     uint rng = ordinarylight_primary_rng_seed(pixel_index, frame_index, push.tile_frame.w);
     rng = ordinarylight_primary_rng_step(rng);
     float jitter_x = ordinarylight_primary_rng_value(rng);
@@ -923,6 +1154,28 @@ void processPrimaryPixel(uvec2 local_pixel)
     int camera_projection = int((camera.up.w + 0.5));
     vec3 ray_origin = ordinarylight_primary_ray_origin(camera.origin.xyz, camera.right.xyz, camera.up.xyz, ndc, aspect, camera_projection);
     vec3 incoming = ordinarylight_primary_ray_direction(camera.forward.xyz, camera.right.xyz, camera.up.xyz, ndc, aspect, camera_projection);
+#if WAVE_PRIMARY_VISIBILITY_CAPTURE
+    uint capture_visibility_index = (((push.tile_frame.w * push.image_tile.x) * push.image_tile.y) + pixel_index);
+    NativeIntersection captured_hit = nativeTraceSurface(ray_origin, 0.001, incoming, 1e+30, false, nativeSurfaceMask());
+#if WAVE_DISTANCE_PLANES
+    storeDistancePlanes(captured_hit, pixel_index, (push.image_tile.x * push.image_tile.y), push.tile_frame.w);
+#else
+#if WAVE_PLANAR_VISIBILITY
+    storeVisibilityPlanes(captured_hit, pixel_index, (push.image_tile.x * push.image_tile.y), push.tile_frame.w);
+#else
+#if WAVE_DISTANCE_VISIBILITY
+    distance_visibility[capture_visibility_index] = packDistanceVisibility(captured_hit);
+#else
+    primary_visibility[capture_visibility_index] = captured_hit;
+#endif
+#endif
+#endif
+    return;
+#endif
+#if WAVE_SELECTED_DIFFUSE
+    primary_direct[pixel_index] = vec4(0.0);
+    bool selected_diffuse_active = false;
+#endif
     WavePathState path = WavePathState(vec4(0), vec4(0), uvec4(0));
     path.throughput = vec4(1.0);
     path.radiance = vec4(0.0);
@@ -944,11 +1197,36 @@ void processPrimaryPixel(uvec2 local_pixel)
 #if WAVE_WORK_COUNTERS
     profileWork(uint(0), uint(1));
 #endif
+#if WAVE_PRIMARY_VISIBILITY_REPLAY
+    uint visibility_index = (((push.tile_frame.w * push.image_tile.x) * push.image_tile.y) + pixel_index);
+#if WAVE_DISTANCE_PLANES
+    NativeIntersection intersection = loadDistancePlanes(pixel_index, (push.image_tile.x * push.image_tile.y), push.tile_frame.w, ray_origin, incoming);
+#else
+#if WAVE_PLANAR_VISIBILITY
+    NativeIntersection intersection = loadVisibilityPlanes(pixel_index, (push.image_tile.x * push.image_tile.y), push.tile_frame.w);
+#else
+#if WAVE_DISTANCE_VISIBILITY
+    NativeIntersection intersection = unpackDistanceVisibility(distance_visibility[visibility_index], ray_origin, incoming);
+#else
+    NativeIntersection intersection = primary_visibility[visibility_index];
+#endif
+#endif
+#endif
+#else
     NativeIntersection intersection = nativeTraceSurface(ray_origin, 0.001, incoming, 1e+30, false, nativeSurfaceMask());
+#endif
     bool surface_hit = (intersection.address.w != uint(0));
     float distance = (surface_hit ? intersection.position_distance.w : 1e+30);
 #if WAVE_PRIMARY_HITS
     uint hit_output_index = (((push.tile_frame.w * push.image_tile.x) * push.image_tile.y) + pixel_index);
+#if WAVE_PRIMARY_HIT_IDENTITY
+    uint compact_base = (hit_output_index * uint(5));
+    primary_hit_words[compact_base] = intersection.identity.x;
+    primary_hit_words[(compact_base + uint(1))] = intersection.identity.y;
+    primary_hit_words[(compact_base + uint(2))] = intersection.identity.z;
+    primary_hit_words[(compact_base + uint(3))] = intersection.identity.w;
+    primary_hit_words[(compact_base + uint(4))] = uint(surface_hit);
+#else
     primary_hits[hit_output_index] = PrimaryHitOutput(vec4(0.0, 0.0, 0.0, (-1.0)), vec4(0), vec4(0), uvec4(4294967295), vec4(ray_origin, jitter.x), vec4(incoming, jitter.y));
     if (surface_hit)
     {
@@ -966,6 +1244,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         primary_hits[hit_output_index].shading_normal = vec4(export_normal, 0);
         primary_hits[hit_output_index].identity = intersection.identity;
     }
+#endif
 #endif
 #if WAVE_CUSTOM_GEOMETRY
 #if WAVE_DENOISER_SIGNAL_CAPTURE
@@ -1144,7 +1423,7 @@ void processPrimaryPixel(uvec2 local_pixel)
         imageStore(normal_image, ivec2(pixel), ordinarylight_primary_packed_payload(restirPackNormalClass(shading_normal, surface_class)));
         imageStore(material_image, ivec2(pixel), ordinarylight_primary_packed_payload(material_signature));
     }
-#if WAVE_PRIMARY_HITS
+#if WAVE_PRIMARY_HITS && !WAVE_PRIMARY_HIT_IDENTITY
     hit_output_index = (((push.tile_frame.w * push.image_tile.x) * push.image_tile.y) + pixel_index);
     primary_hits[hit_output_index].shading_normal = vec4(shading_normal, 0);
 #endif
@@ -1508,16 +1787,72 @@ void processPrimaryPixel(uvec2 local_pixel)
                 }
                 transportPbrPrepared = false;
                 vec3 bsdf_weight = vec3(0);
+#if WAVE_SELECTED_DIFFUSE
+                selected_diffuse_active = (((((nativeAreaLightCount(push.area_light_count) == uint(0)) && (push.environment_samples == uint(0))) && all(equal(material.advanced0, vec4(0.0)))) && all(equal(material.advanced1, vec4(0.0)))) && all(equal(material.sheen_color, vec4(0.0))));
+                if (selected_diffuse_active)
+                {
+                    vec3 lobe_randoms = vec3(0.0);
+                    lobe_randoms.x = randomFloat(rng);
+                    lobe_randoms.y = randomFloat(rng);
+                    lobe_randoms.z = randomFloat(rng);
+#if WAVE_CONTINUATION_CLASSIFY
+                    bool needs_continuation = ((lobe_randoms.x < pbrLobeProbability(material.base_roughness.rgb, material.emission_metallic.a)) || (diffuse_selection[pixel_index].x > 0.0));
+                    if (needs_continuation)
+                    {
+                        uint deferred_index = atomicAdd(deferred_control[3], uint(1));
+                        deferred_indices[deferred_index] = path_index;
+                        return;
+                    }
+                    PbrLobeSample lobe_sample = PbrLobeSample(vec4(normal, 0.0), vec4(0.0));
+#else
+                    PbrLobeSample lobe_sample = samplePbrLobe(material.base_roughness.rgb, material.base_roughness.a, material.emission_metallic.a, material.texture_parameters.w, normal, incoming, lobe_randoms, (diffuse_selection[pixel_index].x > 0.0));
+#endif
+                    next_direction = lobe_sample.direction_pdf.xyz;
+                    bsdf_pdf = lobe_sample.direction_pdf.w;
+                    bsdf_weight = lobe_sample.throughput_lobe.rgb;
+                    sampled_specular = lobe_sample.throughput_lobe.w;
+                    transportLastSpecularFraction = vec3(sampled_specular);
+                }
+                else
+                {
+                    samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
+                }
+#else
                 samplePbr(material, normal, incoming, rng, next_direction, bsdf_weight, bsdf_pdf, sampled_specular);
+#endif
                 indirect_specular_fraction = transportLastSpecularFraction;
                 path.throughput.rgb = ordinarylight_primary_apply_bsdf_weight(path.throughput.rgb, bsdf_weight);
                 cone_spread = ordinarylight_primary_scattered_cone_spread(cone_spread, material.base_roughness.a);
             }
         }
     }
+#if WAVE_SELECTED_DIFFUSE
+    if (selected_diffuse_active)
+    {
+        primary_direct[pixel_index] = vec4(max((path.radiance.rgb - primary_specular), vec3(0.0)), (1.0 + float(any(greaterThan(path.throughput.rgb, vec3(0.0))))));
+    }
+#endif
     next_direction = ordinarylight_primary_continuation_direction(next_direction);
     setPathBounce(path, uint(1));
     path.metadata.w = ordinarylight_primary_continuation_flags(path.metadata.w, medium_depth, transmission, ((push.restir_di != uint(0)) && (WAVE_UNIFIED_PRIMARY_RESTIR != uint(0))));
+    if ((WAVE_PRIMARY_DIFFUSE_PROBABILITY < 1.0))
+    {
+        if ((((((transmission <= 0.001) && (sampled_specular < 0.5)) && (material.base_roughness.a >= 0.25)) && (material.emission_metallic.a < 0.5)) && (wave_surface_response.custom_scattering <= 0.5)))
+        {
+            float continuation_weight = primaryDiffuseContinuationWeight(WAVE_PRIMARY_DIFFUSE_PROBABILITY, randomFloat(rng));
+            path.throughput.rgb = (path.throughput.rgb * continuation_weight);
+            if ((continuation_weight == 0.0))
+            {
+                path.metadata.w = (path.metadata.w & (~PATH_ACTIVE_BIT));
+            }
+        }
+    }
+#if WAVE_SELECTED_DIFFUSE
+    if ((selected_diffuse_active && (!any(greaterThan(path.throughput.rgb, vec3(0.0))))))
+    {
+        path.metadata.w = (path.metadata.w & (~PATH_ACTIVE_BIT));
+    }
+#endif
     setPathPreviousPdf(path, ordinarylight_primary_previous_pdf(pathPreviousPdf(path), bsdf_pdf, transmission));
     if (nativeBoundaryEnabled(optical_boundary))
     {
@@ -1580,6 +1915,15 @@ uvec2 ordinarylight_primary_scheduled_group(uvec2 group_id, uvec2 group_count, u
 void processPrimaryPixel(uvec2 local_pixel);
 void main()
 {
+#if WAVE_CONTINUATION_RESUME
+    uint deferred_index = ((((gl_WorkGroupID.y * gl_NumWorkGroups.x) + gl_WorkGroupID.x) * uint(64)) + gl_LocalInvocationID.x);
+    if ((deferred_index >= deferred_control[3]))
+    {
+        return;
+    }
+    uint local_index = deferred_indices[deferred_index];
+    processPrimaryPixel(uvec2((local_index % push.tile_frame.x), (local_index / push.tile_frame.x)));
+#else
 #if WAVE_RAYGEN
     uvec2 pixel = gl_LaunchIDEXT.xy;
     processPrimaryPixel(pixel);
@@ -1589,6 +1933,7 @@ void main()
 #else
     uvec2 group_id = ordinarylight_primary_scheduled_group(gl_WorkGroupID.xy, gl_NumWorkGroups.xy, uint(WAVE_GROUP_SWIZZLE_WIDTH));
     processPrimaryPixel(((group_id * gl_WorkGroupSize.xy) + gl_LocalInvocationID.xy));
+#endif
 #endif
 #endif
 }

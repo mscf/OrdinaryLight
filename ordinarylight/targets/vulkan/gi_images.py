@@ -14,7 +14,8 @@ def native_gi_buffers(core, slot):
     if buffer is None:
         return MappingProxyType({})
     old = frame.get("gi_buffers")
-    if old is not None and old["primary_hits"].buffer == buffer.buffer:
+    if (old is not None and frame.get("gi_buffers_allocation") is buffer
+            and frame.get("gi_buffers_generation") == core.swapchain_generation):
         return old
     owner = weakref.ref(core)
     generation = core.swapchain_generation
@@ -26,9 +27,13 @@ def native_gi_buffers(core, slot):
             raise RuntimeError("GI buffer allocation has been retired")
         current.runtime.require_open()
 
+    from ...wavefront import primary_hit_dtype
+    frame["gi_buffers_allocation"] = buffer
+    frame["gi_buffers_generation"] = generation
     frame["gi_buffers"] = MappingProxyType({"primary_hits": GiBuffer(
         core.runtime, buffer.buffer, buffer.size,
         vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, validate,
+        record_dtype=primary_hit_dtype(core.config.wavefront_primary_hit_format),
     )})
     return frame["gi_buffers"]
 

@@ -17,12 +17,13 @@ import ordinaryshade as osh
 
 from ..shaders.dynamic import _lock
 from ..shaders.native_intersection_programs import (
-    NativeIntersection, nativeIntersectionMiss, nativeIntersectCandidate,
+    NativeIntersection, nativeIntersectionMiss, nativeIntersectCandidate, nativeEvaluateTriangle,
     NativeOpticalBoundary, nativeEvaluateBoundary,
 )
 from ..shaders.native_surface_programs import nativeEvaluateMaterial
 from ..shaders.native_emitter_programs import (NativeEmitterSample, nativeEmitterCount,
-    nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)
+    nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf,
+    nativeEmitterInfluence, defaultEmitterInfluence)
 from ..shaders.transport_programs import MaterialData
 
 
@@ -48,15 +49,23 @@ class NativeEmitterProgram:
     IDs are contiguous in [0, count). Evaluation maps a pair of uniform random
     coordinates to a surface point and returns the joint selection/area PDF.
     The hit PDF must describe the same distribution, including emitter selection.
+    Optional ``influence`` exports nativeEmitterInfluence(id, sampled_position,
+    receiver) -> bool. False rejects a sampled-light connection before visibility,
+    including primary/secondary and reservoir candidate evaluation. The default
+    accepts all samples. Rejection is deliberately biased: it neither changes
+    sampling PDFs nor suppresses emission reached by BSDF paths. Applications
+    must invalidate lighting history when their influence policy changes.
     """
     count: object
     select: object
     evaluate: object
     pdf: object
+    influence: object = None
 
     @property
     def functions(self):
-        return (self.count, self.select, self.evaluate, self.pdf)
+        return (self.count, self.select, self.evaluate, self.pdf,
+                self.influence if self.influence is not None else defaultEmitterInfluence)
 
 
 @dataclass(frozen=True, init=False)
@@ -71,17 +80,34 @@ class NativeGeometryProgram:
     intersection geometric normal points outside. Additional
     helpers must also be typed OrdinaryShade functions. No shader source strings
     or opaque application externals are accepted.
+
+    Optional ``triangle`` exports ``nativeEvaluateTriangle(origin, direction,
+    distance, barycentrics, primitive, instance, instance_offset)`` and returns
+    NativeIntersection. Hardware supplies the ray distance and barycentrics;
+    a negative returned distance rejects the candidate, otherwise the hardware
+    distance is retained. Supply unit world-space geometric/shading normals and
+    application identity just as for the procedural callback. Both candidate
+    types share optical-boundary, material and visibility evaluation. The
+    returned address.w is 2 (application surface), even for hardware triangles;
+    it never directs transport to built-in triangle attribute buffers.
+
+    With ``triangle`` provided every triangle in the imported TLAS uses this
+    callback. Without it existing built-in triangle handling is unchanged.
+    Opaque BLAS triangles are evaluated only after hardware commits the hit;
+    they must not require candidate or optical visibility rejection. Use
+    nonopaque triangles (the public resource default) for filtered surfaces.
     """
 
     buffers: tuple
     helpers: tuple
     intersection: object
+    triangle: object
     material: object
     boundary: object
     emitters: object
     compiled: object
 
-    def __init__(self, intersection, material, *, buffers=(), helpers=(), boundary=None, emitters=None):
+    def __init__(self, intersection, material, *, buffers=(), helpers=(), boundary=None, emitters=None, triangle=None):
         object.__setattr__(self, "buffers", tuple(buffers))
         object.__setattr__(self, "helpers", tuple(helpers))
         if any(not isinstance(b, NativeGeometryBuffer) for b in self.buffers):
@@ -91,13 +117,15 @@ class NativeGeometryProgram:
         if any(not isinstance(h, osh.ShaderFunction) for h in self.helpers):
             raise TypeError("Geometry helpers must be typed OrdinaryShade functions")
         contracts = [(intersection, nativeIntersectCandidate), (material, nativeEvaluateMaterial)]
+        if triangle is not None:
+            contracts.append((triangle, nativeEvaluateTriangle))
         if boundary is not None:
             contracts.append((boundary, nativeEvaluateBoundary))
         if emitters is not None:
             if not isinstance(emitters, NativeEmitterProgram):
                 raise TypeError("emitters must be NativeEmitterProgram")
             contracts.extend(zip(emitters.functions, (nativeEmitterCount,
-                nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf)))
+                nativeSelectEmitter, nativeEvaluateEmitter, nativeEmitterPdf, nativeEmitterInfluence)))
         for callback, contract in contracts:
             if not isinstance(callback, osh.ShaderFunction):
                 raise TypeError("Geometry callbacks must be typed OrdinaryShade functions")
@@ -110,6 +138,7 @@ class NativeGeometryProgram:
                     or actual.return_annotation != required.return_annotation):
                 raise TypeError(f"Geometry callback signature must match {contract.__name__}")
         object.__setattr__(self, "intersection", intersection)
+        object.__setattr__(self, "triangle", triangle)
         object.__setattr__(self, "material", material)
         object.__setattr__(self, "boundary", boundary)
         object.__setattr__(self, "emitters", emitters)
@@ -130,6 +159,7 @@ class NativeGeometryProgram:
                 exec(compile(source, filename, 'exec'), scope)
                 return osh.compile(scope['geometry_declarations'],
                                    helpers=(*self.helpers, self.intersection, self.material,
+                                            *((self.triangle,) if self.triangle is not None else ()),
                                             *((self.boundary,) if self.boundary is not None else ()),
                                             *(self.emitters.functions if self.emitters is not None else ())),
                                    externals=(osh.external(nativeIntersectionMiss.function),))

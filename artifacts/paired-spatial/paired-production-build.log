@@ -1,0 +1,11 @@
+Wrote ordinarylight/shaders/denoiser_relax_prepare.comp.spv
+Wrote ordinarylight/shaders/denoiser_relax_temporal.comp.spv
+Wrote ordinarylight/shaders/denoiser_relax_atrous.comp.spv
+Wrote ordinarylight/shaders/denoiser_relax_atrous_paired.comp.spv
+Wrote ordinarylight/shaders/denoiser_relax_compose.comp.spv
+Wrote ordinarylight/shaders/denoiser_relax_prepare.comp.wgsl
+Wrote ordinarylight/shaders/denoiser_relax_temporal.comp.wgsl
+Wrote ordinarylight/shaders/denoiser_relax_atrous.comp.wgsl
+Wrote ordinarylight/shaders/denoiser_relax_atrous_paired.comp.wgsl
+Wrote ordinarylight/shaders/denoiser_relax_compose.comp.wgsl
+Wrote ordinarylight/shaders/denoiser_relax.json

@@ -1,0 +1,18 @@
+{
+  "package": "/tmp/upstream-release-regression/consumer/lib/python3.14/site-packages/ordinarylight/__init__.py",
+  "hdr_shape": [
+    6,
+    8,
+    4
+  ],
+  "named_outputs": [
+    "color",
+    "depth",
+    "object_id"
+  ],
+  "async": true,
+  "resident_transitions": true,
+  "object_effects": true,
+  "gltf": true,
+  "precompiled_raster_shaders": true
+}

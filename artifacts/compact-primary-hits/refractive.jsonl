@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.038031999999999996, "primary_p95_ms": 0.038112, "setup_median_ms": 0.005391999999999999, "total_median_ms": 0.777936, "face_output_median_ms": 0.045072, "overview": false, "material_fixture": "refractive", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-compact-hits", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.032896, "primary_p95_ms": 0.034, "setup_median_ms": 0.006, "total_median_ms": 0.77776, "face_output_median_ms": 0.045024, "overview": false, "material_fixture": "refractive", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.38818359375}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.031951904296875}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.031951904296875}
+{"compact_identity_validity_equal": true, "bytes_written_per_hit": 20}

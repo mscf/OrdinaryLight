@@ -44,16 +44,26 @@ _BASE = (
 )
 
 
-def primary_bindings(*, native_textures=False, profiling=False, primary_hits=False, custom_history=False):
+def primary_bindings(*, native_textures=False, profiling=False, primary_hits=False, custom_history=False, primary_visibility=False, diffuse_selection=False, deferred_continuation=False):
     """Return the immutable native-compatible fused layout in binding order.
 
     Reserved custom attributes remain in the layout even when a shader does not
     use them. Access is conservative across primary/hybrid/megakernel variants;
     optional runtime policies may disable individual writes. No handles required.
     """
-    if any(type(flag) is not bool for flag in (native_textures, profiling, primary_hits, custom_history)):
+    if any(type(flag) is not bool for flag in (native_textures, profiling, primary_hits, custom_history, primary_visibility, diffuse_selection, deferred_continuation)):
         raise TypeError("Primary layout flags must be bools")
     bindings = list(_BASE)
+    if deferred_continuation:
+        if not diffuse_selection:
+            raise ValueError("Deferred continuation requires diffuse selection")
+        bindings.extend((PrimaryBinding("deferred_control",36,"buffer",access="read_write"),
+                         PrimaryBinding("deferred_indices",37,"buffer",access="read_write")))
+    if diffuse_selection:
+        bindings.extend((PrimaryBinding("diffuse_selection",34,"buffer"),
+                         PrimaryBinding("primary_direct",35,"buffer",access="write")))
+    if primary_visibility:
+        bindings.append(PrimaryBinding("primary_visibility", 33, "buffer", access="read_write"))
     if custom_history:
         bindings.extend((PrimaryBinding("primary_history", 31, "buffer", access="write"),
                          PrimaryBinding("previous_vertices", 32, "buffer")))

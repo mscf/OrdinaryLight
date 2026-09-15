@@ -41,6 +41,7 @@ class VulkanCapabilities:
     # VulkanTransportScene supports programmable AABB ray-query candidates.
     # Existing built-in GI Scene upload still accepts triangles only.
     custom_intersections: bool = True
+    buffer_float32_atomic_add: bool = False
 
 
 class VulkanRuntime:
@@ -98,6 +99,7 @@ class VulkanRuntime:
         self.ray_pipeline_supported = self.ray_pipeline_enabled = False
         self.ser_supported = self.ser_reordering_supported = False
         self.present_wait_supported = False
+        self.buffer_float32_atomic_add_supported = False
         self.ray_tracing_shader_group_handle_size = 0
         self.ray_tracing_shader_group_handle_alignment = 0
         self.ray_tracing_shader_group_base_alignment = 0
@@ -122,6 +124,7 @@ class VulkanRuntime:
             self.native_textures_supported and self.config.wavefront_native_textures,
             self._headless_surface,
             self.surface is not None,
+            buffer_float32_atomic_add=self.buffer_float32_atomic_add_supported,
         )
 
     def require_open(self):
@@ -501,6 +504,17 @@ class VulkanRuntime:
             )
             feature_chain = pipeline_statistics
             self.pipeline_statistics_supported = True
+        atomic_float_extension = "VK_EXT_shader_atomic_float"
+        if atomic_float_extension in device_extensions:
+            atomic_query = vk.VkPhysicalDeviceShaderAtomicFloatFeaturesEXT()
+            vk.vkGetPhysicalDeviceFeatures2(self.physical_device,
+                vk.VkPhysicalDeviceFeatures2(pNext=atomic_query))
+            self.buffer_float32_atomic_add_supported = bool(
+                atomic_query.shaderBufferFloat32Atomics and atomic_query.shaderBufferFloat32AtomicAdd)
+            if self.buffer_float32_atomic_add_supported:
+                feature_chain = vk.VkPhysicalDeviceShaderAtomicFloatFeaturesEXT(
+                    pNext=feature_chain, shaderBufferFloat32Atomics=vk.VK_TRUE,
+                    shaderBufferFloat32AtomicAdd=vk.VK_TRUE)
         present_extensions = {"VK_KHR_present_id", "VK_KHR_present_wait"}
         if self.surface is not None and present_extensions.issubset(device_extensions):
             queried_wait = vk.VkPhysicalDevicePresentWaitFeaturesKHR()
@@ -527,6 +541,8 @@ class VulkanRuntime:
             bufferDeviceAddress=vk.VK_TRUE,
         )
         enabled_device_extensions = list(DEVICE_EXTENSIONS)
+        if self.buffer_float32_atomic_add_supported:
+            enabled_device_extensions.append(atomic_float_extension)
         if self._headless_surface:
             enabled_device_extensions.extend(EXTERNAL_INTEROP_DEVICE_EXTENSIONS)
         if self.ray_pipeline_enabled:

@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [640, 360], "samples": 4, "primary_hit_format": "identity", "secondary_first_median_ms": 3.787728, "primary_median_ms": 11.166464000000001, "primary_p95_ms": 11.676086399999999, "setup_median_ms": 0.006319999999999999, "total_median_ms": 16.504384, "face_output_median_ms": 0.1012, "overview": false, "material_fixture": "emissive", "stable_emitter_fixture": true, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-secondary-fields", "extent": [640, 360], "samples": 4, "primary_hit_format": "identity", "secondary_first_median_ms": 3.7497920000000002, "primary_median_ms": 11.48712, "primary_p95_ms": 11.7740848, "setup_median_ms": 0.0064, "total_median_ms": 16.471056, "face_output_median_ms": 0.100512, "overview": false, "material_fixture": "emissive", "stable_emitter_fixture": true, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 4.2578125}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 3.41796875}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 3.2667486667633057}
+{"compact_identity_validity_equal": true, "optimization": "full-secondary-fields"}

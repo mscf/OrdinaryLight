@@ -34,7 +34,10 @@ class VulkanKernel:
     Pipeline execution is recorded through VulkanPass, including non-image
     workgroup sizes. Push constants are explicitly supplied bytes. An optional
     material_resources bundle supplies and retains descriptor set 1; graph passes
-    must include its uses (shade_operation does this automatically).
+    must include its uses (shade_operation does this automatically). Native
+    geometry_resources supplies and retains set 2, inserting an empty set-1
+    layout if no material bundle is supplied. Graph passes must include its uses
+    (primary_operation does this automatically).
     """
 
     def __init__(
@@ -48,6 +51,7 @@ class VulkanKernel:
         sampled_image_arrays=None,
         sampled_image_layouts=None,
         material_resources=None,
+        geometry_resources=None,
     ):
         if spirv is None:
             raise TypeError("VulkanKernel requires SPIR-V")
@@ -61,6 +65,7 @@ class VulkanKernel:
                 sampled_image_arrays=sampled_image_arrays,
                 sampled_image_layouts=sampled_image_layouts,
                 material_resources=material_resources,
+                geometry_resources=geometry_resources,
             )
 
     def _initialize(
@@ -74,9 +79,15 @@ class VulkanKernel:
         sampled_image_arrays=None,
         sampled_image_layouts=None,
         material_resources=None,
+        geometry_resources=None,
     ):
         runtime.require_open()
         self.runtime = runtime
+        self.geometry_resources = geometry_resources
+        if geometry_resources is not None:
+            geometry_resources.require_open()
+            if geometry_resources.runtime is not runtime:
+                raise ValueError("Geometry resources must belong to kernel runtime")
         self.material_resources = material_resources
         if material_resources is not None:
             material_resources.require_open()
@@ -223,9 +234,10 @@ class VulkanKernel:
                 ):
                     owner.retain(self)
                     self._retained_allocations.append(owner)
-            if material_resources is not None:
-                material_resources.retain(self)
-                self._retained_allocations.append(material_resources)
+            for bundle in (material_resources, geometry_resources):
+                if bundle is not None:
+                    bundle.retain(self)
+                    self._retained_allocations.append(bundle)
             if spirv is not None:
                 self.module = vk.vkCreateShaderModule(
                     runtime.device,
@@ -276,16 +288,18 @@ class VulkanKernel:
                 if self.push_constant_size
                 else []
             )
+            set_layouts = [self.layout]
+            if material_resources is not None:
+                set_layouts.append(material_resources.layout)
+            elif geometry_resources is not None:
+                set_layouts.append(geometry_resources.empty_material_layout)
+            if geometry_resources is not None:
+                set_layouts.append(geometry_resources.layout)
             self.pipeline_layout = vk.vkCreatePipelineLayout(
                 runtime.device,
                 vk.VkPipelineLayoutCreateInfo(
-                    setLayoutCount=1 + int(material_resources is not None),
-                    pSetLayouts=[self.layout]
-                    + (
-                        [material_resources.layout]
-                        if material_resources is not None
-                        else []
-                    ),
+                    setLayoutCount=len(set_layouts),
+                    pSetLayouts=set_layouts,
                     pushConstantRangeCount=len(ranges),
                     pPushConstantRanges=ranges or None,
                 ),
@@ -420,6 +434,8 @@ class VulkanKernel:
             raise RuntimeError("Vulkan kernel is closed")
         if self.material_resources is not None:
             self.material_resources.require_open()
+        if self.geometry_resources is not None:
+            self.geometry_resources.require_open()
         for resource in (
             *self.bindings.values(),
             *(r for values in self.image_arrays.values() for r in values),
@@ -460,6 +476,8 @@ class VulkanKernel:
 
         if self.material_resources is not None:
             self.material_resources.bind_graph(command, self.pipeline_layout)
+        if self.geometry_resources is not None:
+            self.geometry_resources.bind(command, self.pipeline_layout)
 
     def close(self):
         with self.runtime.lock:

@@ -95,6 +95,7 @@ def _performance(args, scene, output):
     summary.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.update({
+        "WAVE_RENDER_PYTHON": sys.executable,
         "WAVE_RENDER_GLFW_PLATFORM": args.performance_platform,
         "WAVE_RENDER_GATE_LOGICAL_WIDTH": str(args.performance_logical_width),
         "WAVE_RENDER_GATE_LOGICAL_HEIGHT": str(args.performance_logical_height),

@@ -1,0 +1,3 @@
+{"workload": "full", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 6.645616, "primary_p95_ms": 7.959414400000001, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "material", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 5.983184000000001, "primary_p95_ms": 6.938246399999999, "diagnostic_only": true, "prefix_hdr_valid": false}
+{"sampled_primary_hits_equal": true, "fields": ["identity", "ray_origin", "ray_direction", "position_distance", "geometric_normal"]}

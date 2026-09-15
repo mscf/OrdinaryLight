@@ -1,0 +1,34 @@
+Traceback (most recent call last):
+  File "/tmp/selected_init_reconstruction_control.py", line 17, in <module>
+    main()
+    ~~~~^^
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 483, in main
+    np.testing.assert_allclose(a,b,atol=2e-6,rtol=2e-6,err_msg=f'{index}: {source}')
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 1780, in assert_allclose
+    assert_array_compare(compare, actual, desired, err_msg=str(err_msg),
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         verbose=verbose, header=header, equal_nan=equal_nan,
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         strict=strict)
+                         ^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 988, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Not equal to tolerance rtol=2e-06, atol=2e-06
+0: raw
+Mismatched elements: 16599 / 46851 (35.4%)
+First 5 mismatches are at indices:
+ [30, 61, 0]: 0.00909423828125 (ACTUAL), 0.00797271728515625 (DESIRED)
+ [30, 61, 1]: 0.07135009765625 (ACTUAL), 0.061492919921875 (DESIRED)
+ [30, 61, 2]: 0.1513671875 (ACTUAL), 0.127685546875 (DESIRED)
+ [31, 61, 0]: 0.00909423828125 (ACTUAL), 0.00797271728515625 (DESIRED)
+ [31, 61, 1]: 0.07135009765625 (ACTUAL), 0.061492919921875 (DESIRED)
+Max absolute difference among violations: 0.12841797
+Max relative difference among violations: 1.9048387
+ ACTUAL: array([[[0.      , 0.      , 0.      ],
+        [0.077515, 0.117981, 0.206055],
+        [0.066162, 0.100464, 0.175415],...
+ DESIRED: array([[[0.      , 0.      , 0.      ],
+        [0.077515, 0.117981, 0.206055],
+        [0.066162, 0.100464, 0.175415],...

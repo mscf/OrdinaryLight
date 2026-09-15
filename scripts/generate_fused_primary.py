@@ -23,7 +23,10 @@ def generated_source():
     # profileWork is implemented in this typed stage.
     values = {name: value for module in (transport_programs, primary, lighting_programs, p) for name, value in vars(module).items() if isinstance(value, osh.StructType)}
     values.update(scene_tlas=osh.acceleration_structure(), paths=osh.runtime_array(p.WavePathState),
-                  primary_hits=osh.runtime_array(p.PrimaryHitOutput),
+                  primary_hits=osh.runtime_array(p.PrimaryHitOutput), primary_hit_words=osh.runtime_array(osh.u32),
+                  primary_visibility=osh.runtime_array(p.NativeIntersection), distance_visibility=osh.runtime_array(p.DistanceVisibility), visibility_planes=osh.runtime_array(osh.uvec4),
+                  deferred_control=osh.runtime_array(osh.u32), deferred_indices=osh.runtime_array(osh.u32),
+                  diffuse_selection=osh.runtime_array(osh.vec2), primary_direct=osh.runtime_array(osh.vec4),
                   primary_history=osh.runtime_array(osh.vec4), previous_vertices=osh.runtime_array(osh.vec4),
                   secondary_paths=osh.runtime_array(p.SecondaryPathState), materials=osh.runtime_array(p.MaterialData),
                   vertices=osh.runtime_array(osh.vec4), attributes=osh.runtime_array(p.VertexAttributeData),
@@ -47,6 +50,7 @@ def generated_source():
                  'WAVE_SHARED_PRIMARY_RESERVOIRS','WAVE_HYBRID','WAVE_LOCAL_SIZE_X','WAVE_LOCAL_SIZE_Y','PATH_ACTIVE_BIT','PATH_PREVIOUS_DIFFUSE_BIT',
                  'PATH_PREVIOUS_UNIFIED_NEE_BIT','PATH_INDIRECT_CAPTURE_BIT','WAVE_MAX_MEDIUM_STACK_DEPTH'):
         values[name]=osh.u32
+    values["WAVE_PRIMARY_DIFFUSE_PROBABILITY"]=osh.f32
     source=LAYOUT
     for name in re.findall(r'@(\w+)@', LAYOUT):
         helper=available[name]

@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Terrain lighting comparisons</title>
+<style>body{margin:2rem auto;max-width:1000px;background:#181818;color:#eee;font:16px system-ui}label{margin-right:1rem}select,input{font:inherit}#pair{position:relative;width:100%;aspect-ratio:16/9;background:#000;margin-top:1rem}img{position:absolute;width:100%;height:100%;object-fit:contain}#candidate{clip-path:inset(0 0 0 50%)}#line{position:absolute;left:50%;height:100%;border-left:2px solid white}p{line-height:1.5}input{width:95%}</style>
+<h1>Moving emitter over stepped terrain</h1>
+<p>Baseline on the left, selected option on the right. These are matched 960×540 frames with deterministic emitter selection, captured separately from the 4K timing runs. Still images cannot establish temporal stability.</p>
+<label>Option <select id="option"><option value="filter2">Two filtering passes</option><option value="direct">Face averaging off</option><option value="local">Local history</option></select></label>
+<label>Animation frame <select id="frame"><option>0004</option><option>0010</option><option selected>0015</option></select></label>
+<div id="pair"><img id="baseline" alt="Baseline"><img id="candidate" alt="Selected option"><div id="line"></div></div>
+<label>Comparison split <input id="split" type="range" min="0" max="100" value="50"></label>
+<p id="note"></p>
+<script>
+const option=document.getElementById('option'),frame=document.getElementById('frame'),split=document.getElementById('split'),candidate=document.getElementById('candidate');
+const notes={filter2:'Default: three filtering passes. Candidate: two. Upstream raw lighting is unchanged; filtering and final output may differ.',direct:'Default: face averaging enabled. Candidate: disabled. Raw and denoised lighting match exactly; the output exposes more per-pixel noise.',local:'Default: reset history on content updates. Candidate: retain locally eligible history. Raw lighting matches; accumulated lighting differs. Moving illumination can outlive local rejection.'};
+function update(){document.getElementById('baseline').src=`${option.value}-images/full-${frame.value}.png`;candidate.src=`${option.value}-images/full-control-${frame.value}.png`;document.getElementById('note').textContent=notes[option.value]}
+option.onchange=frame.onchange=update;split.oninput=()=>{candidate.style.clipPath=`inset(0 0 0 ${split.value}%)`;document.getElementById('line').style.left=split.value+'%'};update();
+</script></html>

@@ -172,7 +172,10 @@ the application.
 `reserve_custom_geometry(larger_capacity)` grows custom storage at an explicit
 synchronized allocation boundary. It rebuilds the custom BLAS/combined TLAS while
 preserving triangle, material, sample, accumulator and HDR resources. Live
-integrators rebind their scene descriptors. Previously compiled graphs and
+integrators rebind their scene descriptors, including their owned kernel leases.
+Close other scene consumers (such as standalone descriptor kernels or ray-query
+clients) before growing capacity; unsupported borrowers are rejected before
+replacement allocation or binding changes. Previously compiled graphs and
 operations reject changed bindings and must be recreated. New shader programs,
 material palettes or triangle source edits still require a replacement scene;
 optional `intersection_programs` can register programs before activating slots.
@@ -273,3 +276,68 @@ This addresses the [Vulkan acquisition forward-progress requirement](https://doc
 It bounds acquisition only: GPU fence waits, swapchain recreation, pacing and
 shutdown have separate synchronization behavior. It does not fix a compositor
 crash or guarantee a bound on the entire presentation call.
+
+## Reusable staging uploads
+
+`ordinarylight.runtime.VulkanUploadRing` owns a bounded set of persistently mapped,
+host-coherent staging buffers. Construct it once, then snapshot byte ranges into a
+one-shot upload packet before building the frame graph:
+
+```python
+from ordinarylight.runtime import VulkanUploadRing
+
+with VulkanUploadRing(runtime, capacity=4 * 1024 * 1024, slots=3) as uploads:
+    packet = uploads.prepare([(resident_buffer, byte_offset, numpy_data)])
+    graph = VulkanGraph()
+    graph.add("upload", packet.operation)
+    graph.add("consume", consumer_operation, after=["upload"])
+    completion = graph.compile().execute(runtime)
+```
+
+Offsets are relative to the supplied buffer or `VulkanResource` view. Destination
+ranges must be disjoint, within bounds, and four-byte aligned, including byte
+counts. Buffers require transfer-destination usage and must belong to the same
+runtime. Capacity is the total payload bytes per packet. Input bytes are copied
+immediately; callers may then mutate their original arrays.
+
+Preparation polls completed slots without waiting. It allocates no Vulkan buffer
+or device memory and performs no device/queue idle wait. If the bounded ring is
+full of submitted work, the default `wait=True` waits for one slot's completion;
+`wait=False` raises `VulkanUploadBusy`. If slots contain unsubmitted packets,
+submit or cancel those packets to reclaim them. `packet.cancel()` releases an
+unsubmitted packet; after submission it has no effect. Closing the ring cancels
+pending packets and waits for submitted consumers before freeing staging memory.
+
+Packets borrow destination allocations until submission or cancellation. Normal
+submission resource retention and buffer-close rules then apply. Upload passes
+participate in graph resource hazards: prior reads on the runtime's queue finish
+before destination writes, and later consumers see the new data. No cross-queue
+synchronization is provided. Graph recording itself performs no upload or wait.
+Packets are one-shot: do not replay their commands from cached command buffers.
+A graph abandoned before submission can be retried with its prepared packet, or
+discarded with `packet.cancel()`. Record fresh operations for each new payload.
+
+### Reusing dependency and barrier plans
+
+Repeated `VulkanGraph.compile()` calls reuse a bounded dependency-order cache
+when node names, ordering constraints, resource handles/ranges, access masks and
+explicit versions match. Every result still contains the current operation
+objects and current binding revisions. Frame callbacks, upload packets,
+completion dependencies and semaphore state are never taken from the cache.
+
+Recording similarly reuses Vulkan barrier structures for matching pass uses and
+image entry layouts. Entry layouts are read at recording time, and final layouts
+are published only after successful submission. Resource ownership and runtime
+checks still run on each preparation. Changes in stages, accesses, ranges or
+layouts select a different plan; barrier scopes and byte-range hazard handling
+are unchanged. Neither cache retains allocation owners. Each stores at most 128
+plans, so application scene/extent churn cannot create unbounded cache growth.
+
+These optimizations are automatic through the existing public APIs. They cache
+CPU planning data, not entire submissions or prepared GI frame operations.
+Command allocation, queue submission and fresh per-frame recording callbacks
+remain necessary.
+
+Validation includes fresh callbacks and binding revisions after a schedule hit,
+owner retirement, invalid declarations, range hazards, layout changes between
+preparation and recording, and native GI / dynamic graph GPU regressions.

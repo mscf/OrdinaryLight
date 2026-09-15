@@ -75,6 +75,19 @@ def evaluate_termination(base, candidate, *, max_error_ratio,
     return failures
 
 
+def default_low_frequency_ratio(args):
+    """Apply the accepted baseline only to its exact capture configuration."""
+    path = Path(__file__).with_name("baselines") / "path_termination_quality.json"
+    baseline = json.loads(path.read_text())
+    if baseline["schema"] != 1:
+        raise ValueError("Unsupported path termination baseline schema")
+    if all(getattr(args, key) == value
+           for key, value in baseline["configuration"].items()):
+        return (baseline["accepted_low_frequency_ratio"]
+                * baseline["maximum_relative_growth"])
+    return 1.15
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene", choices=tuple(SCENES), default="dense")
@@ -98,7 +111,8 @@ def main():
     parser.add_argument("--minimum-survival", type=float, default=0.1)
     parser.add_argument("--max-error-ratio", type=float, default=1.25)
     parser.add_argument("--max-temporal-ratio", type=float, default=1.25)
-    parser.add_argument("--max-low-frequency-ratio", type=float, default=1.15)
+    parser.add_argument("--max-low-frequency-ratio", type=float,
+                        help="Override the configuration-specific accepted noise limit")
     parser.add_argument("--max-abs-bias", type=float, default=0.01)
     parser.add_argument(
         "--output", type=Path,
@@ -106,6 +120,8 @@ def main():
     )
     parser.add_argument("--gate", action="store_true")
     args = parser.parse_args()
+    if args.max_low_frequency_ratio is None:
+        args.max_low_frequency_ratio = default_low_frequency_ratio(args)
     if args.frames < 3 or args.reference_samples < 2:
         parser.error("at least three frames and two reference samples are required")
     if not 1 <= args.bounces <= 16:

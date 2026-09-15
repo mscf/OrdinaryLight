@@ -86,6 +86,18 @@ GPU = pytest.mark.skipif(
 )
 
 
+def test_standalone_surface_shader_compiles_without_primary_pipeline():
+    from examples.runtime_surface_samples import sample_shader
+    from ordinarylight.runtime import compile_compute
+    from ordinarylight.shaders.compiler import find_glsl_compiler
+
+    if find_glsl_compiler() is None:
+        pytest.skip("GLSL compiler unavailable")
+    # Transport lighting must carry its generated analytic-light helpers
+    # without requiring the native primary stage's types and global buffers.
+    assert compile_compute(sample_shader())[:4] == b"\x03\x02#\x07"
+
+
 @GPU
 def test_standalone_surface_transport():
     from examples.runtime_surface_samples import run

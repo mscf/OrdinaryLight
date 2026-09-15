@@ -38,6 +38,29 @@ SHELL_GATES = (
 
 
 class GateContractTests(unittest.TestCase):
+    def test_accepted_termination_baseline_is_configuration_scoped(self):
+        import json
+        from types import SimpleNamespace
+        from .path_termination_quality import default_low_frequency_ratio, evaluate_termination
+
+        data = json.loads((Path(__file__).parent / "baselines"
+                           / "path_termination_quality.json").read_text())
+        args = SimpleNamespace(**data["configuration"])
+        limit = default_low_frequency_ratio(args)
+        self.assertAlmostEqual(limit, 1.4305633475479623)
+        for field, value in (("scene", "dense"), ("bounces", 5),
+                             ("candidate_bounces", 4), ("width", 640),
+                             ("strategy", "wavefront")):
+            with self.subTest(field=field):
+                changed = dict(data["configuration"], **{field: value})
+                self.assertEqual(default_low_frequency_ratio(SimpleNamespace(**changed)), 1.15)
+        base = dict(relative_rmse_mean=1., temporal_residual_rmse_mean=1.,
+                    low_frequency_energy_ratio_mean=1., bias_mean=0.)
+        failures = evaluate_termination(base, dict(base, bias_mean=.02),
+            max_error_ratio=1.25, max_temporal_ratio=1.25,
+            max_low_frequency_ratio=limit, max_abs_bias=.01)
+        self.assertIn("absolute HDR bias exceeded limit", failures)
+
     def test_python_gates_are_importable_modules_with_main(self):
         for name in PYTHON_GATES:
             with self.subTest(name=name):

@@ -164,6 +164,15 @@ def test_reusable_composition_and_separate_history_invalidation():
     assert not state["wavefront_relax_history_valid"]
     # Never discard a pending semaphore signal when rejecting history contents.
     assert state["wavefront_history_ready_pending"]
+    # Reusable custom builders can bake history inputs; resets retire commands.
+    state["wavefront_command_key"] = ("custom",)
+    presenter.invalidate_gi_history()
+    assert state["wavefront_command_key"] is None
+    presenter.set_gi_pipeline_builder(None)
+    assert state["wavefront_command_key"] is None
+    state["wavefront_command_key"] = ("native",)
+    presenter.invalidate_gi_history()
+    assert state["wavefront_command_key"] == ("native",)
     with pytest.raises(TypeError):
         presenter.set_gi_pipeline_builder(reuse_commands="yes")
     presenter._core = None

@@ -1,0 +1,839 @@
+"""Ordinary Shade source for the portable spatiotemporal denoiser.
+
+These functions are the GPU source of truth.  Build tooling compiles them to
+SPIR-V and WGSL; :mod:`ordinarylight.denoising.portable` is the deterministic
+CPU oracle used to verify their behavior.
+"""
+
+import ordinaryshade as osh
+
+
+@osh.structure
+class WavePathState:
+    throughput: osh.vec4
+    radiance: osh.vec4
+    metadata: osh.uvec4
+
+
+@osh.structure
+class SecondaryPathState:
+    position_valid: osh.vec4
+    normal_pdf: osh.vec4
+    primary_throughput: osh.vec4
+    primary_radiance: osh.vec4
+    diffuse_radiance_hit_distance: osh.vec4
+    specular_radiance_hit_distance: osh.vec4
+    primary_position: osh.vec4
+    primary_geometry: osh.vec4
+
+
+@osh.structure
+class PrepareCamera:
+    origin: osh.vec4
+    forward: osh.vec4
+    right: osh.vec4
+    up: osh.vec4
+
+
+@osh.structure
+class PrepareConstants:
+    extent_paths: osh.uvec4
+    samples: osh.uvec4
+
+
+@osh.function
+def prepare_decode_normal(encoded: osh.vec2) -> osh.vec3:
+    normal = osh.vec3(
+        encoded, 1.0 - osh.absolute(encoded.x) - osh.absolute(encoded.y)
+    )
+    if normal.z < 0.0:
+        folded = (1.0 - osh.absolute(normal.yx)) * osh.sign(normal.xy)
+        normal.x = folded.x
+        normal.y = folded.y
+    return osh.normalize(normal)
+
+
+@osh.function
+def prepare_unpack_normal(packed: osh.u32) -> osh.vec3:
+    unit = osh.vec2(
+        osh.f32(packed & osh.u32(0x7FFF)),
+        osh.f32((packed >> osh.u32(15)) & osh.u32(0x7FFF)),
+    ) / 32767.0
+    return prepare_decode_normal(unit * 2.0 - 1.0)
+
+
+@osh.function
+def prepare_previous_pixel(
+    world_position: osh.vec3, extent: osh.ivec2,
+) -> osh.vec3:
+    offset = world_position - previous_camera.origin.xyz
+    depth = osh.dot(offset, previous_camera.forward.xyz)
+    vertical_scale = osh.length(previous_camera.up.xyz)
+    aspect = osh.f32(extent.x) / osh.f32(extent.y)
+    if depth <= 0.0001 or vertical_scale <= 0.0001:
+        return osh.vec3(-1.0, -1.0, depth)
+    projection_scale = 1.0 if osh.i32(previous_camera.up.w + 0.5) == 1 else depth
+    ndc = osh.vec2(
+        osh.dot(offset, osh.normalize(previous_camera.right.xyz))
+        / (projection_scale * aspect * vertical_scale),
+        -osh.dot(offset, osh.normalize(previous_camera.up.xyz))
+        / (projection_scale * vertical_scale),
+    )
+    pixel = (ndc * 0.5 + 0.5) * osh.vec2(extent) - 0.5
+    return osh.vec3(pixel, depth)
+
+
+@osh.structure
+class PrepareSurfaceHistory:
+    previous_position: osh.vec3
+    identity: osh.u32
+    valid: osh.boolean
+
+
+@osh.function
+def prepare_surface_history(secondary: SecondaryPathState, pixel_index: osh.u32) -> PrepareSurfaceHistory:
+    primitive = osh.float_bits_to_uint(secondary.primary_geometry.x)
+    barycentrics = osh.vec2(osh.absolute(secondary.primary_geometry.y), secondary.primary_geometry.z)
+    weights = osh.vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y)
+    previous = (previous_vertices[primitive * osh.u32(3)].xyz * weights.x
+                + previous_vertices[primitive * osh.u32(3) + osh.u32(1)].xyz * weights.y
+                + previous_vertices[primitive * osh.u32(3) + osh.u32(2)].xyz * weights.z)
+    return PrepareSurfaceHistory(previous, osh.float_bits_to_uint(secondary.primary_geometry.w), True)
+
+
+@osh.function(name="prepare_surface_history")
+def prepare_custom_surface_history(secondary: SecondaryPathState, pixel_index: osh.u32) -> PrepareSurfaceHistory:
+    identity = osh.float_bits_to_uint(previous_vertices[pixel_index * osh.u32(2)])
+    previous = previous_vertices[pixel_index * osh.u32(2) + osh.u32(1)]
+    key = osh.u32(2166136261)
+    component = 0
+    while component < 4:
+        key = (key ^ identity[component]) * osh.u32(16777619)
+        component = component + 1
+    valid = previous.w > 0.5
+    valid = valid and not osh.any_value(osh.is_nan(previous.xyz)) and not osh.any_value(osh.is_inf(previous.xyz))
+    return PrepareSurfaceHistory(previous.xyz, key, valid)
+
+
+@osh.compute(workgroup_size=(64, 1, 1))
+def prepare_relax_signals(
+    paths: osh.storage_buffer(WavePathState, access="read", binding=0),
+    secondary_paths: osh.storage_buffer(
+        SecondaryPathState, access="read", binding=1,
+    ),
+    packed_normal: osh.storage_image("r32ui", access="read", binding=2),
+    packed_material: osh.storage_image("r32ui", access="read", binding=3),
+    diffuse_output: osh.storage_image("rgba16f", binding=4),
+    specular_output: osh.storage_image("rgba16f", binding=5),
+    normal_roughness_output: osh.storage_image(
+        "rgba16f", access="write", binding=6,
+    ),
+    view_z_output: osh.storage_image("r32f", access="write", binding=7),
+    motion_output: osh.storage_image("rgba16f", access="write", binding=8),
+    current_camera: osh.storage_record(
+        PrepareCamera, access="read", binding=9,
+    ),
+    previous_camera: osh.storage_record(
+        PrepareCamera, access="read", binding=10,
+    ),
+    previous_vertices: osh.storage_buffer(
+        osh.vec4, access="read", binding=11,
+    ),
+    identity_output: osh.storage_image(
+        "r32ui", access="write", binding=12,
+    ),
+    constants: osh.push_constants(PrepareConstants, wgsl_binding=13),
+):
+    path_index = osh.global_invocation_id.x
+    path_count = constants.extent_paths.z
+    if path_index >= path_count:
+        return
+    extent = osh.ivec2(constants.extent_paths.xy)
+    pixel_index = paths[path_index].metadata.x
+    if pixel_index >= osh.u32(extent.x * extent.y):
+        return
+    pixel = osh.ivec2(
+        osh.i32(pixel_index % osh.u32(extent.x)),
+        osh.i32(pixel_index / osh.u32(extent.x)),
+    )
+    secondary = secondary_paths[path_index]
+    if constants.samples.z != osh.u32(0):
+        # Classify this sample before averaging; secondary records are reset
+        # by primary generation and cannot represent the whole sample batch.
+        resolved = osh.maximum(paths[path_index].radiance.rgb, osh.vec3(0.0))
+        primary = osh.minimum(
+            osh.maximum(secondary.primary_radiance.rgb, osh.vec3(0.0)), resolved,
+        )
+        indirect = resolved - primary
+        probability = osh.clamp(secondary.primary_radiance.w, 0.0, 1.0)
+        diffuse = primary * (1.0 - probability)
+        specular = primary * probability
+        if secondary.specular_radiance_hit_distance.w < 0.0:
+            specular = osh.minimum(
+                osh.maximum(secondary.specular_radiance_hit_distance.rgb, osh.vec3(0.0)),
+                primary,
+            )
+            diffuse = primary - specular
+        indirect_fraction = osh.vec3(0.0)
+        if secondary.primary_throughput.w >= 1.5:
+            indirect_fraction = osh.vec3(1.0)
+        if secondary.diffuse_radiance_hit_distance.w < 0.0:
+            indirect_fraction = osh.clamp(
+                secondary.diffuse_radiance_hit_distance.rgb,
+                osh.vec3(0.0), osh.vec3(1.0),
+            )
+        specular = specular + indirect * indirect_fraction
+        diffuse = diffuse + indirect * (osh.vec3(1.0) - indirect_fraction)
+        distance = 0.0
+        if secondary.primary_position.w > 0.5 and secondary.position_valid.w > 0.5:
+            distance = osh.length(
+                secondary.position_valid.xyz - secondary.primary_position.xyz
+            )
+        # Distance is still a last-sample guide, not an averaged path length.
+        diffuse_distance = 0.0
+        specular_distance = 0.0
+        if osh.any_value(indirect_fraction > osh.vec3(0.0)):
+            specular_distance = distance
+        if osh.any_value(indirect_fraction < osh.vec3(1.0)):
+            diffuse_distance = distance
+        scale = 1.0 / osh.f32(osh.maximum(constants.samples.y, osh.u32(1)))
+        diffuse = diffuse * scale
+        specular = specular * scale
+        if constants.samples.x != osh.u32(0):
+            diffuse = diffuse + diffuse_output.load(pixel).rgb
+            specular = specular + specular_output.load(pixel).rgb
+        diffuse_output.store(pixel, osh.vec4(diffuse, diffuse_distance))
+        specular_output.store(pixel, osh.vec4(specular, specular_distance))
+    # Radiance accumulates across samples above, but geometry guides are
+    # consumed only after the sample batch and represent its last sample.
+    # Avoid reprojecting and overwriting those images for earlier samples.
+    if constants.samples.x + osh.u32(1) < osh.maximum(constants.samples.y, osh.u32(1)):
+        return
+    valid = secondary.primary_position.w > 0.5
+    if not valid:
+        if constants.samples.z == osh.u32(0):
+            diffuse_output.store(pixel, osh.vec4(0.0))
+            specular_output.store(pixel, osh.vec4(0.0))
+        normal_roughness_output.store(pixel, osh.vec4(0.0))
+        view_z_output.store(pixel, osh.vec4(0.0))
+        motion_output.store(pixel, osh.vec4(0.0))
+        return
+    world_position = secondary.primary_position.xyz
+    normal = prepare_unpack_normal(packed_normal.load(pixel).x)
+    roughness = osh.clamp(secondary.primary_position.w - 1.0, 0.0, 1.0)
+    view_z = osh.dot(
+        world_position - current_camera.origin.xyz,
+        current_camera.forward.xyz,
+    )
+    surface_history = prepare_surface_history(secondary, pixel_index)
+    instance_key = surface_history.identity
+    previous_world_position = surface_history.previous_position
+    transmissive = (osh.float_bits_to_uint(secondary.primary_geometry.y) & osh.u32(0x80000000)) != osh.u32(0)
+    # Explicit static z=0 planar-mirror experiment. The first secondary hit
+    # is reflected into virtual world space; no moving-object transform is
+    # available for that hit yet. Preserve primary identity/material.
+    if (
+        constants.samples.w != osh.u32(0)
+        and osh.absolute(world_position.z) < 0.0001
+        and osh.absolute(normal.z) > 0.9999
+        and roughness <= 0.0011
+    ):
+        if secondary.position_valid.w > 0.5:
+            reflected = secondary.position_valid.xyz
+            world_position = osh.vec3(reflected.x, reflected.y, -reflected.z)
+            reflected_normal = secondary.normal_pdf.xyz
+            normal = osh.vec3(
+                reflected_normal.x, reflected_normal.y, -reflected_normal.z,
+            )
+            previous_world_position = world_position
+            view_z = osh.dot(
+                world_position - current_camera.origin.xyz,
+                current_camera.forward.xyz,
+            )
+        else:
+            # No finite secondary hit: do not reuse a prior reflected surface.
+            view_z = 0.0
+    old = prepare_previous_pixel(previous_world_position, extent)
+    motion = old.xy - osh.vec2(pixel)
+    previous_view_z = old.z
+    if (
+        not surface_history.valid or old.z <= 0.0001 or osh.any_value(old.xy < osh.vec2(-0.5))
+        or osh.any_value(old.xy >= osh.vec2(extent) - 0.5)
+    ):
+        motion = osh.vec2(0.0)
+        previous_view_z = 0.0
+    if constants.samples.z == osh.u32(0):
+        diffuse_output.store(
+            pixel, secondary.diffuse_radiance_hit_distance,
+        )
+        specular_output.store(
+            pixel, secondary.specular_radiance_hit_distance,
+        )
+    normal_roughness_output.store(pixel, osh.vec4(normal, roughness))
+    view_z_output.store(pixel, osh.vec4(view_z))
+    # Carry the expected previous-camera depth alongside the screen-space
+    # motion.  Temporal validation must compare values in the same camera
+    # space; current ``view_z`` and previous-frame ``view_z`` are not directly
+    # comparable while the camera moves.
+    transmission_cap = 0.0
+    if constants.extent_paths.w != osh.u32(0) and transmissive:
+        transmission_cap = 1.0
+    motion_output.store(pixel, osh.vec4(motion, previous_view_z, transmission_cap))
+    # Native triangles retain instance continuity across tessellation edges.
+    # Custom surfaces use the application identity fingerprint supplied by
+    # prepare_surface_history, independently of the acceleration primitive.
+    identity_output.store(pixel, osh.uvec4(instance_key, 0, 0, 0))
+
+
+@osh.structure
+class TemporalConstants:
+    extent_history: osh.vec4
+    rejection: osh.vec4
+
+
+@osh.compute(workgroup_size=(8, 8, 1))
+def relax_temporal(
+    current_radiance_hit_distance: osh.storage_image(
+        "rgba16f", access="read", binding=0,
+    ),
+    normal_roughness: osh.storage_image(
+        "rgba16f", access="read", binding=1,
+    ),
+    view_z: osh.storage_image("r32f", access="read", binding=2),
+    motion: osh.storage_image("rgba16f", access="read", binding=3),
+    material_id: osh.storage_image("r32ui", access="read", binding=4),
+    previous_radiance: osh.storage_image(
+        "rgba16f", access="read", binding=5,
+    ),
+    previous_normal_roughness: osh.storage_image(
+        "rgba16f", access="read", binding=6,
+    ),
+    previous_view_z: osh.storage_image("r32f", access="read", binding=7),
+    previous_material_id: osh.storage_image(
+        "r32ui", access="read", binding=8,
+    ),
+    previous_history_length: osh.storage_image(
+        "r32f", access="read", binding=9,
+    ),
+    output_radiance: osh.storage_image(
+        "rgba16f", access="write", binding=10,
+    ),
+    output_history_length: osh.storage_image(
+        "r32f", access="write", binding=11,
+    ),
+    constants: osh.uniform_buffer(TemporalConstants, binding=12),
+    identity: osh.storage_image(
+        "r32ui", access="read", binding=13,
+    ),
+    previous_identity: osh.storage_image(
+        "r32ui", access="read", binding=14,
+    ),
+):
+    pixel = osh.ivec2(osh.global_invocation_id.xy)
+    extent = osh.ivec2(constants.extent_history.xy)
+    if pixel.x >= extent.x or pixel.y >= extent.y:
+        return
+    current = current_radiance_hit_distance.load(pixel)
+    # Reset frames have no eligible history. Publish the unchanged sample
+    # without fetching geometry, motion, or previous-frame images.
+    if not (constants.extent_history.w > 0.5):
+        output_radiance.store(pixel, current)
+        output_history_length.store(pixel, osh.vec4(1.0))
+        return
+    current_normal = normal_roughness.load(pixel).xyz
+    current_depth = view_z.load(pixel).r
+    motion_sample = motion.load(pixel)
+    motion_vector = motion_sample.xy
+    expected_old_depth = motion_sample.z
+    previous_pixel = osh.ivec2(osh.vec2(pixel) + motion_vector + osh.vec2(0.5))
+    in_bounds = (
+        previous_pixel.x >= 0 and previous_pixel.y >= 0
+        and previous_pixel.x < extent.x and previous_pixel.y < extent.y
+    )
+    # ``extent_history.w`` is an explicit validity bit.  Newly allocated or
+    # invalidated history images contain unspecified device memory, so bounds
+    # and geometry tests alone must never make their contents eligible.
+    accepted = (
+        constants.extent_history.w > 0.5
+        and in_bounds and current_depth != 0.0 and expected_old_depth > 0.0
+    )
+    history = current
+    history_length = 1.0
+    if accepted:
+        old_depth = previous_view_z.load(previous_pixel).r
+        old_normal = previous_normal_roughness.load(previous_pixel).xyz
+        old_material = previous_material_id.load(previous_pixel).r
+        old_primitive = previous_identity.load(previous_pixel).r
+        current_primitive = identity.load(pixel).r
+        current_material = material_id.load(pixel).r
+        depth_tolerance = osh.maximum(
+            osh.absolute(expected_old_depth) * constants.rejection.y, 0.001,
+        )
+        accepted = (
+            old_depth != 0.0
+            and osh.dot(current_normal, old_normal) >= constants.rejection.x
+            and osh.absolute(expected_old_depth - old_depth) <= depth_tolerance
+            and old_material == current_material
+            and old_primitive == current_primitive
+        )
+        if accepted:
+            history = previous_radiance.load(previous_pixel)
+            neighborhood_sum = osh.vec3(0.0)
+            neighborhood_square_sum = osh.vec3(0.0)
+            neighborhood_count = 0.0
+            for y in range(-1, 2):
+                for x in range(-1, 2):
+                    neighbor_pixel = pixel + osh.ivec2(x, y)
+                    if neighbor_pixel.x < 0 or neighbor_pixel.y < 0:
+                        continue
+                    if neighbor_pixel.x >= extent.x or neighbor_pixel.y >= extent.y:
+                        continue
+                    if constants.rejection.w > 0.0:
+                        # During motion, a foreground/background mixture can
+                        # make the clamp accept radiance from the wrong surface.
+                        # Derive its statistics only from compatible geometry.
+                        if material_id.load(neighbor_pixel).r != current_material:
+                            continue
+                        if identity.load(neighbor_pixel).r != current_primitive:
+                            continue
+                        neighbor_normal = normal_roughness.load(neighbor_pixel).xyz
+                        if osh.dot(current_normal, neighbor_normal) < constants.rejection.x:
+                            continue
+                    neighbor = current_radiance_hit_distance.load(
+                        neighbor_pixel
+                    ).rgb
+                    neighborhood_sum = neighborhood_sum + neighbor
+                    neighborhood_square_sum = (
+                        neighborhood_square_sum + neighbor * neighbor
+                    )
+                    neighborhood_count = neighborhood_count + 1.0
+            neighborhood_mean = neighborhood_sum / osh.maximum(
+                neighborhood_count, 1.0
+            )
+            neighborhood_variance = osh.maximum(
+                neighborhood_square_sum / osh.maximum(
+                    neighborhood_count, 1.0
+                ) - neighborhood_mean * neighborhood_mean,
+                osh.vec3(0.0),
+            )
+            neighborhood_deviation = osh.sqrt(neighborhood_variance)
+            clamp_radius = neighborhood_deviation * constants.rejection.z
+            if constants.rejection.w > 0.0:
+                history_luma = osh.dot(
+                    history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                mean_luma = osh.dot(
+                    neighborhood_mean, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                deviation_luma = osh.dot(
+                    neighborhood_deviation,
+                    osh.vec3(0.2126, 0.7152, 0.0722),
+                )
+                reactive_limit = osh.maximum(
+                    deviation_luma * constants.rejection.w,
+                    osh.absolute(mean_luma) * 0.1 + 0.01,
+                )
+                accepted = (
+                    osh.absolute(history_luma - mean_luma) <= reactive_limit
+                )
+            history = osh.vec4(
+                osh.clamp(
+                    history.rgb,
+                    neighborhood_mean - clamp_radius,
+                    neighborhood_mean + clamp_radius,
+                ),
+                history.a,
+            )
+            if accepted:
+                history_length = osh.minimum(
+                    previous_history_length.load(previous_pixel).r + 1.0,
+                    constants.extent_history.z,
+                )
+    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
+        history_length = osh.minimum(history_length, 4.0)
+    if accepted:
+        alpha = 1.0 / osh.maximum(history_length, 1.0)
+        current = osh.vec4(
+            osh.mix(history.rgb, current.rgb, alpha), current.a,
+        )
+    output_radiance.store(pixel, current)
+    output_history_length.store(pixel, osh.vec4(history_length))
+
+
+@osh.compute(workgroup_size=(8, 8, 1))
+def relax_temporal_pair(
+    current_radiance_hit_distance: osh.storage_image(
+        "rgba16f", access="read", binding=0,
+    ),
+    normal_roughness: osh.storage_image(
+        "rgba16f", access="read", binding=1,
+    ),
+    view_z: osh.storage_image("r32f", access="read", binding=2),
+    motion: osh.storage_image("rgba16f", access="read", binding=3),
+    material_id: osh.storage_image("r32ui", access="read", binding=4),
+    previous_radiance: osh.storage_image(
+        "rgba16f", access="read", binding=5,
+    ),
+    previous_normal_roughness: osh.storage_image(
+        "rgba16f", access="read", binding=6,
+    ),
+    previous_view_z: osh.storage_image("r32f", access="read", binding=7),
+    previous_material_id: osh.storage_image(
+        "r32ui", access="read", binding=8,
+    ),
+    previous_history_length: osh.storage_image(
+        "r32f", access="read", binding=9,
+    ),
+    output_radiance: osh.storage_image(
+        "rgba16f", access="write", binding=10,
+    ),
+    output_history_length: osh.storage_image(
+        "r32f", access="write", binding=11,
+    ),
+    constants: osh.uniform_buffer(TemporalConstants, binding=12),
+    identity: osh.storage_image(
+        "r32ui", access="read", binding=13,
+    ),
+    previous_identity: osh.storage_image(
+        "r32ui", access="read", binding=14,
+    ),
+    current_specular: osh.storage_image("rgba16f", access="read", binding=15),
+    previous_specular: osh.storage_image("rgba16f", access="read", binding=16),
+    previous_specular_length: osh.storage_image("r32f", access="read", binding=17),
+    output_specular: osh.storage_image("rgba16f", access="write", binding=18),
+    output_specular_length: osh.storage_image("r32f", access="write", binding=19),
+):
+    pixel = osh.ivec2(osh.global_invocation_id.xy)
+    extent = osh.ivec2(constants.extent_history.xy)
+    if pixel.x >= extent.x or pixel.y >= extent.y:
+        return
+    current = current_radiance_hit_distance.load(pixel)
+    specular_current = current_specular.load(pixel)
+    # Reset frames have no eligible history. Publish the unchanged sample
+    # without fetching geometry, motion, or previous-frame images.
+    if not (constants.extent_history.w > 0.5):
+        output_radiance.store(pixel, current)
+        output_history_length.store(pixel, osh.vec4(1.0))
+        output_specular.store(pixel, specular_current)
+        output_specular_length.store(pixel, osh.vec4(1.0))
+        return
+    current_normal = normal_roughness.load(pixel).xyz
+    current_depth = view_z.load(pixel).r
+    motion_sample = motion.load(pixel)
+    motion_vector = motion_sample.xy
+    expected_old_depth = motion_sample.z
+    previous_pixel = osh.ivec2(osh.vec2(pixel) + motion_vector + osh.vec2(0.5))
+    in_bounds = (
+        previous_pixel.x >= 0 and previous_pixel.y >= 0
+        and previous_pixel.x < extent.x and previous_pixel.y < extent.y
+    )
+    # ``extent_history.w`` is an explicit validity bit.  Newly allocated or
+    # invalidated history images contain unspecified device memory, so bounds
+    # and geometry tests alone must never make their contents eligible.
+    accepted = (
+        constants.extent_history.w > 0.5
+        and in_bounds and current_depth != 0.0 and expected_old_depth > 0.0
+    )
+    history = current
+    history_length = 1.0
+    specular_history = specular_current
+    specular_history_length = 1.0
+    specular_accepted = accepted
+    if accepted:
+        old_depth = previous_view_z.load(previous_pixel).r
+        old_normal = previous_normal_roughness.load(previous_pixel).xyz
+        old_material = previous_material_id.load(previous_pixel).r
+        old_primitive = previous_identity.load(previous_pixel).r
+        current_primitive = identity.load(pixel).r
+        current_material = material_id.load(pixel).r
+        depth_tolerance = osh.maximum(
+            osh.absolute(expected_old_depth) * constants.rejection.y, 0.001,
+        )
+        accepted = (
+            old_depth != 0.0
+            and osh.dot(current_normal, old_normal) >= constants.rejection.x
+            and osh.absolute(expected_old_depth - old_depth) <= depth_tolerance
+            and old_material == current_material
+            and old_primitive == current_primitive
+        )
+        specular_accepted = accepted
+        if accepted:
+            history = previous_radiance.load(previous_pixel)
+            specular_history = previous_specular.load(previous_pixel)
+            neighborhood_sum = osh.vec3(0.0)
+            neighborhood_square_sum = osh.vec3(0.0)
+            neighborhood_count = 0.0
+            specular_sum = osh.vec3(0.0)
+            specular_square_sum = osh.vec3(0.0)
+            for y in range(-1, 2):
+                for x in range(-1, 2):
+                    neighbor_pixel = pixel + osh.ivec2(x, y)
+                    if neighbor_pixel.x < 0 or neighbor_pixel.y < 0:
+                        continue
+                    if neighbor_pixel.x >= extent.x or neighbor_pixel.y >= extent.y:
+                        continue
+                    if constants.rejection.w > 0.0:
+                        # During motion, a foreground/background mixture can
+                        # make the clamp accept radiance from the wrong surface.
+                        # Derive its statistics only from compatible geometry.
+                        if material_id.load(neighbor_pixel).r != current_material:
+                            continue
+                        if identity.load(neighbor_pixel).r != current_primitive:
+                            continue
+                        neighbor_normal = normal_roughness.load(neighbor_pixel).xyz
+                        if osh.dot(current_normal, neighbor_normal) < constants.rejection.x:
+                            continue
+                    neighbor = current_radiance_hit_distance.load(
+                        neighbor_pixel
+                    ).rgb
+                    neighborhood_sum = neighborhood_sum + neighbor
+                    neighborhood_square_sum = (
+                        neighborhood_square_sum + neighbor * neighbor
+                    )
+                    specular_neighbor = current_specular.load(neighbor_pixel).rgb
+                    specular_sum = specular_sum + specular_neighbor
+                    specular_square_sum = specular_square_sum + specular_neighbor * specular_neighbor
+                    neighborhood_count = neighborhood_count + 1.0
+            neighborhood_mean = neighborhood_sum / osh.maximum(
+                neighborhood_count, 1.0
+            )
+            neighborhood_variance = osh.maximum(
+                neighborhood_square_sum / osh.maximum(
+                    neighborhood_count, 1.0
+                ) - neighborhood_mean * neighborhood_mean,
+                osh.vec3(0.0),
+            )
+            neighborhood_deviation = osh.sqrt(neighborhood_variance)
+            clamp_radius = neighborhood_deviation * constants.rejection.z
+            if constants.rejection.w > 0.0:
+                history_luma = osh.dot(
+                    history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                mean_luma = osh.dot(
+                    neighborhood_mean, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                deviation_luma = osh.dot(
+                    neighborhood_deviation,
+                    osh.vec3(0.2126, 0.7152, 0.0722),
+                )
+                reactive_limit = osh.maximum(
+                    deviation_luma * constants.rejection.w,
+                    osh.absolute(mean_luma) * 0.1 + 0.01,
+                )
+                accepted = (
+                    osh.absolute(history_luma - mean_luma) <= reactive_limit
+                )
+            history = osh.vec4(
+                osh.clamp(
+                    history.rgb,
+                    neighborhood_mean - clamp_radius,
+                    neighborhood_mean + clamp_radius,
+                ),
+                history.a,
+            )
+            if accepted:
+                history_length = osh.minimum(
+                    previous_history_length.load(previous_pixel).r + 1.0,
+                    constants.extent_history.z,
+                )
+            specular_mean = specular_sum / osh.maximum(
+                neighborhood_count, 1.0
+            )
+            specular_variance = osh.maximum(
+                specular_square_sum / osh.maximum(
+                    neighborhood_count, 1.0
+                ) - specular_mean * specular_mean,
+                osh.vec3(0.0),
+            )
+            specular_deviation = osh.sqrt(specular_variance)
+            specular_clamp_radius = specular_deviation * constants.rejection.z
+            if constants.rejection.w > 0.0:
+                specular_history_luma = osh.dot(
+                    specular_history.rgb, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                specular_mean_luma = osh.dot(
+                    specular_mean, osh.vec3(0.2126, 0.7152, 0.0722)
+                )
+                specular_deviation_luma = osh.dot(
+                    specular_deviation,
+                    osh.vec3(0.2126, 0.7152, 0.0722),
+                )
+                specular_reactive_limit = osh.maximum(
+                    specular_deviation_luma * constants.rejection.w,
+                    osh.absolute(specular_mean_luma) * 0.1 + 0.01,
+                )
+                specular_accepted = (
+                    osh.absolute(specular_history_luma - specular_mean_luma) <= specular_reactive_limit
+                )
+            specular_history = osh.vec4(
+                osh.clamp(
+                    specular_history.rgb,
+                    specular_mean - specular_clamp_radius,
+                    specular_mean + specular_clamp_radius,
+                ),
+                specular_history.a,
+            )
+            if specular_accepted:
+                specular_history_length = osh.minimum(
+                    previous_specular_length.load(previous_pixel).r + 1.0,
+                    constants.extent_history.z,
+                )
+    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
+        history_length = osh.minimum(history_length, 4.0)
+    if accepted:
+        alpha = 1.0 / osh.maximum(history_length, 1.0)
+        current = osh.vec4(
+            osh.mix(history.rgb, current.rgb, alpha), current.a,
+        )
+    output_radiance.store(pixel, current)
+    output_history_length.store(pixel, osh.vec4(history_length))
+
+    if motion_sample.w > 0.5 and osh.length(motion_vector) > 1.0:
+        specular_history_length = osh.minimum(specular_history_length, 4.0)
+    if specular_accepted:
+        specular_alpha = 1.0 / osh.maximum(specular_history_length, 1.0)
+        specular_current = osh.vec4(
+            osh.mix(specular_history.rgb, specular_current.rgb, specular_alpha), specular_current.a,
+        )
+    output_specular.store(pixel, specular_current)
+    output_specular_length.store(pixel, osh.vec4(specular_history_length))
+
+
+@osh.structure
+class ComposeConstants:
+    extent: osh.vec4
+
+
+@osh.compute(workgroup_size=(8, 8, 1))
+def relax_compose(
+    diffuse: osh.storage_image("rgba16f", access="read", binding=0),
+    specular: osh.storage_image("rgba16f", access="read", binding=1),
+    view_z: osh.storage_image("r32f", access="read", binding=2),
+    output_hdr: osh.storage_image("rgba16f", access="write", binding=3),
+    constants: osh.push_constants(ComposeConstants, wgsl_binding=4),
+):
+    pixel = osh.ivec2(osh.global_invocation_id.xy)
+    extent = osh.ivec2(constants.extent.xy)
+    if pixel.x >= extent.x or pixel.y >= extent.y:
+        return
+    # Preserve the path tracer's environment/background.  Prepared surface
+    # signals are defined only where the primary guide depth is non-zero.
+    if view_z.load(pixel).r == 0.0:
+        return
+    diffuse_value = diffuse.load(pixel)
+    specular_value = specular.load(pixel)
+    output_hdr.store(pixel, osh.vec4(
+        diffuse_value.rgb + specular_value.rgb, 1.0,
+    ))
+
+
+@osh.structure
+class AtrousConstants:
+    extent_step: osh.vec4
+    weights: osh.vec4
+
+
+@osh.compute(workgroup_size=(8, 8, 1))
+def relax_atrous(
+    input_radiance: osh.storage_image(
+        "rgba16f", access="read", binding=0,
+    ),
+    normal_roughness: osh.storage_image(
+        "rgba16f", access="read", binding=1,
+    ),
+    view_z: osh.storage_image("r32f", access="read", binding=2),
+    material_id: osh.storage_image("r32ui", access="read", binding=3),
+    output_radiance: osh.storage_image(
+        "rgba16f", access="write", binding=4,
+    ),
+    constants: osh.push_constants(AtrousConstants, wgsl_binding=5),
+):
+    pixel = osh.ivec2(osh.global_invocation_id.xy)
+    extent = osh.ivec2(constants.extent_step.xy)
+    if pixel.x >= extent.x or pixel.y >= extent.y:
+        return
+    step_width = osh.i32(constants.extent_step.z)
+    center = input_radiance.load(pixel)
+    center_normal = normal_roughness.load(pixel).xyz
+    center_depth = view_z.load(pixel).r
+    center_material = material_id.load(pixel).r
+    center_luma = osh.dot(center.rgb, osh.vec3(0.2126, 0.7152, 0.0722))
+    total = center.rgb
+    weight_sum = 1.0
+    neighborhood_luma_sum = 0.0
+    neighborhood_luma_square_sum = 0.0
+    neighborhood_count = 0.0
+    for y in range(-1, 2):
+        for x in range(-1, 2):
+            if x == 0 and y == 0:
+                continue
+            sample_pixel = pixel + osh.ivec2(x, y) * step_width
+            if sample_pixel.x < 0 or sample_pixel.y < 0:
+                continue
+            if sample_pixel.x >= extent.x or sample_pixel.y >= extent.y:
+                continue
+            sample_depth = view_z.load(sample_pixel).r
+            sample_material = material_id.load(sample_pixel).r
+            if sample_material != center_material:
+                continue
+            if (sample_depth == 0.0) != (center_depth == 0.0):
+                continue
+            sample_normal = normal_roughness.load(sample_pixel).xyz
+            sample = input_radiance.load(sample_pixel)
+            normal_weight = osh.power(
+                osh.maximum(osh.dot(center_normal, sample_normal), 0.0),
+                constants.weights.x,
+            )
+            depth_scale = osh.maximum(
+                osh.absolute(center_depth) * constants.weights.y, 0.001,
+            )
+            depth_weight = osh.exp(
+                -osh.absolute(sample_depth - center_depth) / depth_scale,
+            )
+            sample_luma = osh.dot(
+                sample.rgb, osh.vec3(0.2126, 0.7152, 0.0722),
+            )
+            neighborhood_luma_sum = neighborhood_luma_sum + sample_luma
+            neighborhood_luma_square_sum = (
+                neighborhood_luma_square_sum + sample_luma * sample_luma
+            )
+            neighborhood_count = neighborhood_count + 1.0
+            color_scale = osh.maximum(
+                osh.absolute(center_luma) / constants.weights.z, 0.02,
+            )
+            color_weight = osh.exp(
+                -osh.absolute(sample_luma - center_luma) / color_scale,
+            )
+            kernel = 0.25
+            if x == 0 or y == 0:
+                kernel = 0.5
+            weight = kernel * normal_weight * depth_weight * color_weight
+            total = total + sample.rgb * weight
+            weight_sum = weight_sum + weight
+    if constants.weights.w > 0.5 and neighborhood_count > 0.0:
+        neighborhood_luma_mean = neighborhood_luma_sum / neighborhood_count
+        neighborhood_luma_variance = osh.maximum(
+            neighborhood_luma_square_sum / neighborhood_count
+            - neighborhood_luma_mean * neighborhood_luma_mean,
+            0.0,
+        )
+        firefly_limit = (
+            neighborhood_luma_mean
+            + 4.0 * osh.sqrt(neighborhood_luma_variance)
+            + 0.02
+        )
+        if center_luma > firefly_limit:
+            clamped_center = center.rgb * (
+                firefly_limit / osh.maximum(center_luma, 0.000001)
+            )
+            total = total - center.rgb + clamped_center
+    output_radiance.store(
+        pixel, osh.vec4(total / osh.maximum(weight_sum, 0.000001), center.a),
+    )
+
+
+__all__ = [
+    "AtrousConstants", "ComposeConstants", "PrepareCamera", "PrepareConstants",
+    "SecondaryPathState", "TemporalConstants", "WavePathState",
+    "prepare_relax_signals", "relax_atrous", "relax_compose", "relax_temporal",
+]

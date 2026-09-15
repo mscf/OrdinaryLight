@@ -183,6 +183,10 @@ class VulkanWavefrontPipeline(VulkanGlfwPresenter):
         self._between_frames()
         return super().invalidate_gi_commands()
 
+    def invalidate_gi_history(self):
+        self._between_frames()
+        return super().invalidate_gi_history()
+
     def set_wavefront_restir_enabled(self, enabled):
         self._between_frames()
         return super().set_wavefront_restir_enabled(enabled)

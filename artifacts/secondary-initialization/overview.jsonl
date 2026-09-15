@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 4.428144, "primary_p95_ms": 5.27752, "setup_median_ms": 0.7356800000000001, "total_median_ms": 14.927952000000001, "face_output_median_ms": 3.107488, "overview": true, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-secondary-clear", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 3.88992, "primary_p95_ms": 4.4831312, "setup_median_ms": 0.021296000000000002, "total_median_ms": 13.72912, "face_output_median_ms": 3.106368, "overview": true, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.59423828125}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.453125}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.4239257872104645}
+{"compact_identity_validity_equal": true, "shader_clear_only": true}

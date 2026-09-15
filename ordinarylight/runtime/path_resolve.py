@@ -14,7 +14,9 @@ class VulkanPathResolve:
 
     Pixel indices come from path metadata; each dispatch must contain at most one
     path per pixel. Untouched pixels are preserved. All six shader bindings are
-    explicit, including buffers unused when capture is disabled.
+    explicit, including buffers unused when capture or seeding is disabled.
+    operation(seed_reservoirs=False) resolves signals without producing indirect
+    seeds; sampled_indirect=True then leaves all secondary records untouched.
     """
 
     def __init__(
@@ -82,6 +84,7 @@ class VulkanPathResolve:
         sample_count=1,
         capture_secondary=False,
         sampled_indirect=False,
+        seed_reservoirs=True,
         after=(),
     ):
         self.require_open()
@@ -95,6 +98,7 @@ class VulkanPathResolve:
             sample_count=sample_count,
             capture_secondary=capture_secondary,
             sampled_indirect=sampled_indirect,
+            seed_reservoirs=seed_reservoirs,
         )
         after = tuple(after)
         operation.validate = self.require_open
@@ -132,8 +136,15 @@ def path_resolve_operation(
     sample_count=1,
     capture_secondary=False,
     sampled_indirect=False,
+    seed_reservoirs=True,
 ):
-    """Shared recording contract for prepared standalone and native bindings."""
+    """Resolve HDR, optionally legacy signals and indirect reservoir seeds.
+
+    seed_reservoirs=False leaves reservoir/seed buffers untouched. With sampled
+    indirect preparation this is HDR-only and preserves the entire secondary
+    record; legacy capture still writes resolved lobe signals. Native dormant
+    placeholders may alias secondary storage only when seeding is disabled.
+    """
     kernel.require_open()
     path_count, sample_index, sample_count = map(
         index, (path_count, sample_index, sample_count)
@@ -150,19 +161,30 @@ def path_resolve_operation(
         *extent,
         sample_index,
         sample_count,
-        int(bool(capture_secondary)) | (2 if sampled_indirect else 0),
+        int(bool(capture_secondary)) | (2 if sampled_indirect else 0)
+        | (4 if capture_secondary and not seed_reservoirs else 0),
         *reservoir_extent,
     )
     capture = capture_secondary and sample_index + 1 == sample_count
+    seeds = capture and seed_reservoirs
+    signals = capture and not sampled_indirect
+    if seeds:
+        handles=[kernel.bindings[b].handle for b in (0,2,3,4,5)]
+        if len(set(handles)) != len(handles):
+            raise ValueError("Active resolve seed buffers must not alias path, secondary or camera storage")
     uses = {}
     for binding, resource in kernel.bindings.items():
-        if binding >= 2 and not capture:
+        if binding == 2 and not (signals or seeds):
+            continue
+        if binding in (3,4,5) and not seeds:
             continue
         access = vk.VK_ACCESS_SHADER_READ_BIT
         if binding == 1:
             access = vk.VK_ACCESS_SHADER_WRITE_BIT | (access if sample_index else 0)
-        elif binding in (2, 3, 5):
-            access = vk.VK_ACCESS_SHADER_WRITE_BIT | (access if binding == 2 else 0)
+        elif binding == 2:
+            access |= vk.VK_ACCESS_SHADER_WRITE_BIT if signals else 0
+        elif binding in (3,5):
+            access = vk.VK_ACCESS_SHADER_WRITE_BIT
         key = (resource.kind, resource.handle)
         previous = uses.get(key)
         if previous is not None:

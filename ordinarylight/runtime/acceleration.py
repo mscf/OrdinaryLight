@@ -1,4 +1,4 @@
-"""Persistent public AABB BLAS/TLAS resources and same-queue build operations.
+"""Persistent public AABB/triangle BLAS and TLAS resources and build operations.
 
 Construction allocates storage; operation() records builds without allocations,
 readbacks or CPU waits. Inputs and referenced BLASes are leased until close.
@@ -184,16 +184,50 @@ class VulkanAabbBlas(_Acceleration):
                          source, allow_update=allow_update)
 
 
+class VulkanTriangleBlas(_Acceleration):
+    """Borrow non-indexed float32 XYZ vertices, three vertices per triangle.
+
+    ``count`` is the triangle count. Stride is in bytes between vertices.
+    The buffer view is leased until close. Builds/refits use the same graph
+    synchronization and fixed-topology rules as VulkanAabbBlas.
+
+    ``opaque=True`` permits hardware to commit hits without candidate callbacks.
+    With native custom geometry, this promises all triangles are valid occluders:
+    their payload callback cannot reject hits and their optical boundary cannot
+    require equal-IOR visibility rejection. Only the committed payload is then
+    evaluated. Leave false for cutouts, hidden boundaries or any hit filtering.
+    """
+    def __init__(self, runtime, vertices, count, *, stride=12, allow_update=True, opaque=False):
+        if type(opaque) is not bool:
+            raise TypeError('opaque must be bool')
+        count, stride = index(count), index(stride)
+        source = _view(vertices, runtime)
+        if (count < 1 or count * 3 > 2**32 or stride < 12 or stride % 4
+                or source.offset % 4 or (count * 3 - 1) * stride + 12 > source.size):
+            raise ValueError('Invalid triangle count, stride, alignment or input range')
+        geometry = vk.VkAccelerationStructureGeometryKHR(
+            geometryType=vk.VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+            flags=vk.VK_GEOMETRY_OPAQUE_BIT_KHR if opaque else 0,
+            geometry=vk.VkAccelerationStructureGeometryDataKHR(
+                triangles=vk.VkAccelerationStructureGeometryTrianglesDataKHR(
+                    vertexFormat=vk.VK_FORMAT_R32G32B32_SFLOAT,
+                    vertexData=vk.VkDeviceOrHostAddressConstKHR(deviceAddress=_address(runtime, source)),
+                    vertexStride=stride, maxVertex=count * 3 - 1,
+                    indexType=vk.VK_INDEX_TYPE_NONE_KHR)))
+        self._initialize(runtime, geometry, count, vk.VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                         source, allow_update=allow_update)
+
+
 @dataclass(frozen=True)
 class VulkanBlasInstance:
-    blas: VulkanAabbBlas
+    blas: VulkanAabbBlas | VulkanTriangleBlas
     custom_index: int = 0
     mask: int = 255
     transform: tuple = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0.)
 
     def pack(self):
-        if not isinstance(self.blas, VulkanAabbBlas):
-            raise TypeError("Instances require an AABB BLAS")
+        if not isinstance(self.blas, (VulkanAabbBlas, VulkanTriangleBlas)):
+            raise TypeError("Instances require an AABB or triangle BLAS")
         custom, mask = index(self.custom_index), index(self.mask)
         values = tuple(float(v) for v in self.transform)
         if not 0 <= custom < 2**24 or not 0 <= mask < 256 or len(values) != 12 or not all(map(math.isfinite, values)):

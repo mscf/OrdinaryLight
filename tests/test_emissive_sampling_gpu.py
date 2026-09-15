@@ -5,6 +5,10 @@ import os
 import numpy as np
 import pytest
 import ordinarylight as ol
+import ordinaryshade as osh
+from ordinarylight.shaders.transport_programs import (
+    ordinarylightSampleSphere, ordinarylightSampleSphere_pdf,
+)
 from ordinarylight.geometry import SdfSphere
 from ordinarylight.transport import (
     VulkanTransportScene,
@@ -171,29 +175,91 @@ uint plane(vec3 origin,vec3 direction,float t_min,float t_max,vec4 parameters,
     np.testing.assert_allclose(second, first * [2, 1, 1], rtol=1e-5, atol=1e-6)
 
 
-@pytest.mark.parametrize(
-    "replacement",
-    [
-        "area_pdf=-1.0;",
-        "area_pdf=uintBitsToFloat(0x7fc00000u);",
-        "area_pdf=2.0*ordinarylightSampleSphere_pdf(parameters,position,normal);",
-        "normal=vec3(0);",
-        "normal=-normal;",
-        "position=vec3(1000);",
-    ],
-)
-def test_invalid_custom_sampler_fails_paths(runtime, replacement):
+@osh.function(name="invalidSample")
+def sample_negative_pdf(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    area_pdf = -1.0
+    return result
+
+
+@osh.function(name="invalidSample")
+def sample_nan_pdf(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    area_pdf = osh.uint_bits_to_float(osh.u32(0x7fc00000))
+    return result
+
+
+@osh.function(name="invalidSample")
+def sample_inconsistent_pdf(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    area_pdf = 2.0 * area_pdf
+    return result
+
+
+@osh.function(name="invalidSample")
+def sample_zero_normal(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    normal = osh.vec3(0.0)
+    return result
+
+
+@osh.function(name="invalidSample")
+def sample_reversed_normal(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    normal = -normal
+    return result
+
+
+@osh.function(name="invalidSample")
+def sample_off_surface(parameters: osh.vec4, randoms: osh.vec3,
+        position: osh.out(osh.vec3), normal: osh.out(osh.vec3),
+        area_pdf: osh.out(osh.f32)) -> osh.u32:
+    result = ordinarylightSampleSphere(parameters, randoms, position, normal, area_pdf)
+    position = osh.vec3(1000.0)
+    return result
+
+
+@osh.function(name="invalidSample_pdf")
+def invalid_sample_pdf(parameters: osh.vec4, position: osh.vec3, normal: osh.vec3) -> osh.f32:
+    return ordinarylightSampleSphere_pdf(parameters, position, normal)
+
+
+@pytest.mark.parametrize("fault", [
+    sample_negative_pdf,
+    sample_nan_pdf,
+    sample_inconsistent_pdf,
+    sample_zero_normal,
+    sample_reversed_normal,
+    sample_off_surface,
+])
+def test_invalid_custom_sampler_fails_paths(runtime, fault):
     from dataclasses import replace
     from ordinarylight.geometry import SurfaceSamplingProgram
 
     geometry = SdfSphere(center=(0, 0, 2), radius=0.2).geometry()
     sampler = geometry.program.sampling
-    source = sampler.source.replace("return 1u;", replacement + " return 1u;")
+    # Author the faulty callbacks in OrdinaryShade: emitted GLSL spelling must
+    # never decide whether the regression actually injects its intended fault.
+    source = sampler.source + osh.compile_function(
+        fault, externals=(osh.external(ordinarylightSampleSphere.function),)
+    ).source + osh.compile_function(
+        invalid_sample_pdf, externals=(osh.external(ordinarylightSampleSphere_pdf.function),)
+    ).source
     invalid = replace(
         geometry,
         program=replace(
             geometry.program,
-            sampling=SurfaceSamplingProgram(sampler.name, source),
+            sampling=SurfaceSamplingProgram("invalidSample", source),
         ),
     )
     with VulkanTransportScene(

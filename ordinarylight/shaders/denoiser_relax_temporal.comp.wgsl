@@ -33,6 +33,11 @@ fn main(
         return;
     }
     var current: vec4<f32> = textureLoad(current_radiance_hit_distance, pixel);
+    if ((!(constants.extent_history.w > 0.5))) {
+        textureStore(output_radiance, pixel, current);
+        textureStore(output_history_length, pixel, vec4<f32>(1.0));
+        return;
+    }
     let current_normal: vec3<f32> = textureLoad(normal_roughness, pixel).xyz;
     let current_depth: f32 = textureLoad(view_z, pixel).r;
     let motion_sample: vec4<f32> = textureLoad(motion, pixel);

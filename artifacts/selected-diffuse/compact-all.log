@@ -1,0 +1,42 @@
+{"frame": 0, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 0, "guide": "motion", "max_error": 0.0}
+{"frame": 0, "guide": "view_z", "max_error": 0.0}
+{"frame": 0, "guide": "diffuse", "max_error": 0.0}
+{"frame": 0, "guide": "specular", "max_error": 0.0}
+{"frame": 1, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 1, "guide": "motion", "max_error": 0.0}
+{"frame": 1, "guide": "view_z", "max_error": 0.0}
+{"frame": 1, "guide": "diffuse", "max_error": 0.0}
+{"frame": 1, "guide": "specular", "max_error": 0.0}
+{"frame": 2, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 2, "guide": "motion", "max_error": 0.0}
+{"frame": 2, "guide": "view_z", "max_error": 0.0}
+{"frame": 2, "guide": "diffuse", "max_error": 0.0}
+{"frame": 2, "guide": "specular", "max_error": 0.0}
+{"frame": 3, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 3, "guide": "motion", "max_error": 0.0}
+{"frame": 3, "guide": "view_z", "max_error": 0.0}
+{"frame": 3, "guide": "diffuse", "max_error": 0.0}
+{"frame": 3, "guide": "specular", "max_error": 0.0}
+{"frame": 4, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 4, "guide": "motion", "max_error": 0.0}
+{"frame": 4, "guide": "view_z", "max_error": 0.0}
+{"frame": 4, "guide": "diffuse", "max_error": 0.0}
+{"frame": 4, "guide": "specular", "max_error": 0.0}
+{"frame": 5, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 5, "guide": "motion", "max_error": 0.0}
+{"frame": 5, "guide": "view_z", "max_error": 0.0}
+{"frame": 5, "guide": "diffuse", "max_error": 0.0}
+{"frame": 5, "guide": "specular", "max_error": 0.0}
+{"frame": 6, "guide": "normal_roughness", "max_error": 0.0}
+{"frame": 6, "guide": "motion", "max_error": 0.0}
+{"frame": 6, "guide": "view_z", "max_error": 0.0}
+{"frame": 6, "guide": "diffuse", "max_error": 0.0}
+{"frame": 6, "guide": "specular", "max_error": 0.0}
+{"workload": "full", "extent": [161, 97], "samples": 5, "primary_hit_format": "full", "environment_samples": 0, "analytic_light_count": 0, "distance_planar_visibility": false, "planar_visibility": true, "distance_visibility": false, "single_visibility_dispatch": true, "omit_primary_analytic": false, "omit_primary_environment": false, "profile_selected_diffuse": false, "replay_width": 32, "baseline_visibility_format": "full", "compare_capture_dependencies": false, "selected_local_packed": false, "compact_continuations": false, "selected_local_state": false, "baseline_deferred_capture": false, "selected_deferred_capture": false, "selected_fixed_mask": "all", "conservative_capture": false, "selected_baseline": true, "quad_visible_links": true, "candidate_group_size": null, "face_averaged": true, "baseline_face_stripes": null, "candidate_face_stripes": null, "split_face": false, "face_stage_ms": {}, "spatial_iterations": 3, "checked_each_frame": true, "spatial_ms": {}, "projection": "perspective", "history_policy": "local", "history_policy_frames": {"valid": 5, "reset": 3}, "split_denoiser": false, "reset_every": 3, "temporal_filter_median_ms": 0.0, "temporal_median_ms": 0.172544, "prepare_median_ms": 0.040128, "secondary_first_median_ms": 0.147136, "primary_median_ms": 0.497664, "primary_p95_ms": 0.6071103999999999, "setup_median_ms": 0.00816, "total_median_ms": 1.88352, "face_output_median_ms": 0.203008, "overview": false, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-selected-diffuse", "extent": [161, 97], "samples": 5, "primary_hit_format": "full", "environment_samples": 0, "analytic_light_count": 0, "distance_planar_visibility": false, "planar_visibility": true, "distance_visibility": false, "single_visibility_dispatch": true, "omit_primary_analytic": false, "omit_primary_environment": false, "profile_selected_diffuse": false, "replay_width": 32, "baseline_visibility_format": "full", "compare_capture_dependencies": false, "selected_local_packed": false, "compact_continuations": true, "selected_local_state": false, "baseline_deferred_capture": false, "selected_deferred_capture": false, "selected_fixed_mask": "all", "conservative_capture": false, "selected_baseline": true, "quad_visible_links": true, "candidate_group_size": null, "face_averaged": true, "baseline_face_stripes": null, "candidate_face_stripes": null, "split_face": false, "face_stage_ms": {}, "spatial_iterations": 3, "checked_each_frame": true, "spatial_ms": {}, "projection": "perspective", "history_policy": "local", "history_policy_frames": {"valid": 5, "reset": 3}, "split_denoiser": false, "reset_every": 3, "temporal_filter_median_ms": 0.0, "temporal_median_ms": 0.131104, "prepare_median_ms": 0.039936, "secondary_first_median_ms": 0.119936, "primary_median_ms": 0.580448, "primary_p95_ms": 0.6730496, "setup_median_ms": 0.00752, "total_median_ms": 3.857504, "face_output_median_ms": 0.21296, "overview": false, "material_fixture": "default", "stable_emitter_fixture": false, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"selected_diffuse": [{"fixed_mask": "all", "reconstruction_enabled": false, "visibility_format": "planes", "quad_links": true, "pixels": 15617, "eligible_pixels": 15617, "eligible_continuations": 14849, "planned_samples": 11656}, {"fixed_mask": "all", "reconstruction_enabled": false, "visibility_format": "planes", "quad_links": true, "pixels": 15617, "eligible_pixels": 15617, "eligible_continuations": 14849, "planned_samples": 11656}, {"fixed_mask": "all", "reconstruction_enabled": false, "visibility_format": "planes", "quad_links": true, "pixels": 15617, "eligible_pixels": 15617, "eligible_continuations": 14830, "planned_samples": 11661}, {"fixed_mask": "all", "reconstruction_enabled": false, "visibility_format": "planes", "quad_links": true, "pixels": 15617, "eligible_pixels": 15617, "eligible_continuations": 14830, "planned_samples": 11661}]}
+{"source": "raw", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.662109375}
+{"source": "upstream", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.5693359375}
+{"source": "output", "max_error": 0.0, "mean_error": 0.0, "baseline_max": 0.47734376788139343}
+{"sampled_primary_hits_equal": true, "sampled_camera_rays_equal": true, "fields": ["identity", "ray_origin", "ray_direction", "position_distance", "geometric_normal"]}

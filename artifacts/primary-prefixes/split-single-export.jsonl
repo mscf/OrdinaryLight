@@ -1,0 +1,6 @@
+{"workload": "full", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 5.925711999999999, "primary_p95_ms": 6.5434048, "setup_median_ms": 0.7671839999999999, "total_median_ms": 23.091952, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-single-export", "extent": [3840, 2160], "samples": 40, "primary_median_ms": 5.875792000000001, "primary_p95_ms": 6.434971200000001, "setup_median_ms": 0.7774559999999999, "total_median_ms": 23.005007999999997, "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.0}
+{"source": "upstream", "max_error": 0.0}
+{"source": "output", "max_error": 1.7881393432617188e-07}
+{"sampled_primary_hits_equal": true, "sampled_camera_rays_equal": true, "fields": ["identity", "ray_origin", "ray_direction", "position_distance", "geometric_normal"]}

@@ -2,20 +2,56 @@
 
 from dataclasses import replace
 from operator import index
+import struct
 import vulkan as vk
 from ..pipeline.graph import VulkanOperation
 from ..pipeline.vulkan import VulkanPass, VulkanResourceUse
 from ..wavefront.primary_bindings import primary_bindings
 
 
-def primary_operation(kernel, constants, *, workgroups, after=()):
+def primary_operation(kernel, constants, *, workgroups, after=(), visibility="fused", visibility_format="full"):
     """Dispatch a caller-owned kernel with the 176-byte PrimarySettings ABI.
 
     Shader variant and matching workgroup geometry are selected by the caller.
     Resources, descriptors and pipeline must remain alive through completion.
     This operation covers compute entry points, not ray-tracing/SBT dispatch.
+    Experimental compact selected-diffuse replay additionally binds a 16-byte
+    control buffer (dispatch x/y/z, count) at 36 and a tile-capacity uint index
+    list at 37. Zero the control before each classify dispatch, then prepare
+    indirect arguments and dispatch the matching resume variant. Resume uses
+    64x1 groups and tile-local indices. The caller must declare indirect argument
+    reads and order all three stages; this operation alone dispatches directly.
+    Camera, constants, visibility, selection and resident content must remain
+    identical through classify/resume. Do not reset the native output queue
+    between them. Buffers and kernels remain alive until GPU completion.
+    Resume repeats material/direct-light setup for listed pixels; extension
+    evaluation must be repeatable and profiling counters count that extra work.
+    Optional binding 33 holds full NativeIntersection records in sample/y/x
+    order (112 bytes each), the opt-in 100-byte distance format, or seven
+    vector field planes (112 bytes per pixel, indexed sample/field/pixel).
+    distance_planes stores six vector fields followed by packed distances,
+    with each sample padded to 16 bytes. Use primary_visibility_byte_size for
+    allocation. The visibility_format must match the shader and every consumer.
+    Capture and replay kernels must use the same camera,
+    sample and scene snapshot, and be explicitly ordered. The operation declares
+    conservative read/write cache access by default. Pass visibility="capture"
+    or "replay", matching the compiled variant, to declare the cache write or
+    read precisely and allow a graph consumer between those phases. It neither
+    allocates nor clears the cache. Capture excludes untouched path, queue,
+    reservoir, guide and hit-export outputs from its resource uses. Custom
+    geometry/material resource uses remain explicit and are always retained.
+    Capture can cover a full image independently
+    of lighting queue capacity; replay remains constrained by that queue.
     """
     kernel.require_open()
+    if visibility_format not in ("full","distance","planes","distance_planes"):
+        raise ValueError("Unknown primary visibility format")
+    if visibility_format != "full" and visibility == "fused":
+        raise ValueError("Specialized visibility requires capture/replay")
+    if visibility not in ("fused", "capture", "replay"):
+        raise ValueError("visibility must be fused, capture or replay")
+    if visibility != "fused" and 33 not in kernel.bindings:
+        raise ValueError("Split primary requires visibility binding 33")
     constants = bytes(constants)
     groups = tuple(map(index, workgroups))
     if len(constants) != 176:
@@ -27,6 +63,9 @@ def primary_operation(kernel, constants, *, workgroups, after=()):
         profiling=15 in kernel.bindings,
         primary_hits=30 in kernel.bindings,
         custom_history=31 in kernel.bindings,
+        primary_visibility=33 in kernel.bindings,
+        diffuse_selection=34 in kernel.bindings,
+        deferred_continuation=36 in kernel.bindings,
     )
     scalars = {b.binding: b for b in contract if b.count == 1}
     arrays = {b.binding: b for b in contract if b.count != 1}
@@ -36,6 +75,25 @@ def primary_operation(kernel, constants, *, workgroups, after=()):
         or kernel.image_arrays
     ):
         raise ValueError("Incomplete or unknown primary bindings")
+    if 33 in kernel.bindings:
+        # Global [sample, y, x] indexing, including when dispatching one tile.
+        width, height, _, _, _, _, _, sample = struct.unpack_from("<8I", constants)
+        from ..wavefront.primary_outputs import primary_visibility_byte_size
+        required = primary_visibility_byte_size(width,height,samples=sample+1,format=visibility_format)
+        if not width or not height or kernel.bindings[33].size < required:
+            raise ValueError("Primary visibility buffer is too small for the sample plane")
+    if 34 in kernel.bindings:
+        if visibility != "replay":
+            raise ValueError("Selected diffuse requires primary replay")
+        width,height,_,_,_,_,samples,sample=struct.unpack_from("<8I",constants)
+        if samples != 1 or sample != 0:
+            raise ValueError("Selected diffuse currently requires one sample per pixel")
+        if kernel.bindings[34].size < width*height*8 or kernel.bindings[35].size < width*height*16:
+            raise ValueError("Selected diffuse buffers must cover the image")
+    if 36 in kernel.bindings:
+        _,_,_,_,tile_width,tile_height,_,_=struct.unpack_from('<8I',constants)
+        if kernel.bindings[36].size < 16 or kernel.bindings[37].size < tile_width*tile_height*4:
+            raise ValueError("Deferred continuation buffers must cover the complete tile")
     uses = {}
 
     def add(
@@ -64,9 +122,21 @@ def primary_operation(kernel, constants, *, workgroups, after=()):
         resource = kernel.bindings[binding]
         if resource.kind != spec.kind:
             raise ValueError("Primary binding kind mismatch")
+        if visibility == "capture" and binding in (1,5,6,8,9,16,21,23,30,31):
+            # The capture variant returns immediately after nativeTraceSurface
+            # and cache storage. It does not initialize transport or exports.
+            # Still validate bound descriptor ownership/lifetime. Extension uses
+            # below remain authoritative, including aliases of these buffers.
+            resource.owner.require_open()
+            if resource.owner.runtime is not kernel.runtime:
+                raise ValueError("Primary resources must share a runtime")
+            continue
         access = vk.VK_ACCESS_SHADER_READ_BIT if "read" in spec.access else 0
         if "write" in spec.access:
             access |= vk.VK_ACCESS_SHADER_WRITE_BIT
+        if binding == 33 and visibility != "fused":
+            access = (vk.VK_ACCESS_SHADER_WRITE_BIT if visibility == "capture"
+                      else vk.VK_ACCESS_SHADER_READ_BIT)
         if spec.kind == "acceleration_structure":
             access = vk.VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR
         add(

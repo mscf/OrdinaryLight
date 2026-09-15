@@ -99,8 +99,10 @@ NativeIntersection nativeIntersectionMiss();
 uint nativeSurfaceMask();
 bool nativeBoundaryEnabled(NativeOpticalBoundary boundary);
 NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
 
 NativeIntersection nativeIntersectCandidate(vec3 origin, vec3 direction, float t_min, float t_max, uint primitive, uint instance, uint instance_offset);
+NativeIntersection nativeEvaluateTriangle(vec3 origin, vec3 direction, float distance, vec2 barycentrics, uint primitive, uint instance, uint instance_offset);
 NativeOpticalBoundary nativeEvaluateBoundary(NativeIntersection hit);
 
 NativeIntersection nativeIntersectionMiss()
@@ -127,7 +129,12 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
     NativeIntersection selected = hit;
     uint selected_primitive = uint(4294967295);
     uint selected_instance = uint(4294967295);
+    bool custom_triangles = false;
     uint flags = uint(1);
+#if WAVE_CUSTOM_TRIANGLES
+    custom_triangles = true;
+    flags = uint(0);
+#endif
     if (visibility)
     {
         flags = (flags | uint(4));
@@ -137,7 +144,8 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
     while (rayQueryProceedEXT(query))
     {
 #if WAVE_CUSTOM_GEOMETRY
-        if ((rayQueryGetIntersectionTypeEXT(query, false) != uint(1)))
+        bool triangle = (rayQueryGetIntersectionTypeEXT(query, false) == uint(0));
+        if ((triangle && (!custom_triangles)))
         {
             continue;
         }
@@ -148,7 +156,21 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
         {
             limit = min(limit, rayQueryGetIntersectionTEXT(query, true));
         }
-        NativeIntersection candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+        NativeIntersection candidate = nativeIntersectionMiss();
+#if WAVE_CUSTOM_TRIANGLES
+        if (triangle)
+        {
+            candidate = nativeEvaluateTriangle(origin, direction, rayQueryGetIntersectionTEXT(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false), primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+            if ((candidate.position_distance.w >= 0.0))
+            {
+                candidate.position_distance.w = rayQueryGetIntersectionTEXT(query, false);
+            }
+        }
+#endif
+        if ((!triangle))
+        {
+            candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+        }
         float distance = candidate.position_distance.w;
         if (((distance < t_min) || (distance > limit)))
         {
@@ -178,8 +200,15 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
             }
         }
 #endif
-        rayQueryGenerateIntersectionEXT(query, distance);
-        if (((((rayQueryGetIntersectionTypeEXT(query, true) == uint(2)) && (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) == primitive)) && (rayQueryGetIntersectionInstanceIdEXT(query, true) == instance)) && (rayQueryGetIntersectionTEXT(query, true) == distance)))
+        if (triangle)
+        {
+            rayQueryConfirmIntersectionEXT(query);
+        }
+        else
+        {
+            rayQueryGenerateIntersectionEXT(query, distance);
+        }
+        if (((((rayQueryGetIntersectionTypeEXT(query, true) != uint(0)) && (rayQueryGetIntersectionPrimitiveIndexEXT(query, true) == primitive)) && (rayQueryGetIntersectionInstanceIdEXT(query, true) == instance)) && (rayQueryGetIntersectionTEXT(query, true) == distance)))
         {
             selected = candidate;
             selected_primitive = primitive;
@@ -196,7 +225,24 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
     uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, true);
     uint instance = rayQueryGetIntersectionInstanceIdEXT(query, true);
     uint instance_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(query, true);
-    if ((kind == uint(2)))
+    bool opaque_triangle = false;
+    if ((custom_triangles && (kind == uint(1))))
+    {
+        opaque_triangle = ((primitive != selected_primitive) || (instance != selected_instance));
+    }
+#if WAVE_CUSTOM_TRIANGLES
+    if (opaque_triangle)
+    {
+        selected = nativeEvaluateTriangle(origin, direction, distance, rayQueryGetIntersectionBarycentricsEXT(query, true), primitive, instance, instance_offset);
+        if ((selected.position_distance.w < 0.0))
+        {
+            return hit;
+        }
+        selected_primitive = primitive;
+        selected_instance = instance;
+    }
+#endif
+    if (((kind == uint(2)) || custom_triangles))
     {
         if (((primitive != selected_primitive) || (instance != selected_instance)))
         {
@@ -211,7 +257,91 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, 
     }
     hit.position_distance = vec4((origin + (distance * direction)), distance);
     hit.address = uvec4((primitive + instance_offset), primitive, instance_offset, kind);
+    if (custom_triangles)
+    {
+        hit.address.w = uint(2);
+    }
     return hit;
+}
+
+bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask)
+{
+    bool custom_triangles = false;
+    uint flags = uint(1);
+#if WAVE_CUSTOM_TRIANGLES
+    custom_triangles = true;
+    flags = uint(0);
+#endif
+    flags = (flags | uint(4));
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, scene_tlas, flags, mask, origin, t_min, direction, t_max);
+    while (rayQueryProceedEXT(query))
+    {
+#if WAVE_CUSTOM_GEOMETRY
+        bool triangle = (rayQueryGetIntersectionTypeEXT(query, false) == uint(0));
+        if ((triangle && (!custom_triangles)))
+        {
+            continue;
+        }
+        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, false);
+        uint instance = rayQueryGetIntersectionInstanceIdEXT(query, false);
+        float limit = t_max;
+        if ((rayQueryGetIntersectionTypeEXT(query, true) != uint(0)))
+        {
+            limit = min(limit, rayQueryGetIntersectionTEXT(query, true));
+        }
+        NativeIntersection candidate = nativeIntersectionMiss();
+#if WAVE_CUSTOM_TRIANGLES
+        if (triangle)
+        {
+            candidate = nativeEvaluateTriangle(origin, direction, rayQueryGetIntersectionTEXT(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false), primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+            if ((candidate.position_distance.w >= 0.0))
+            {
+                candidate.position_distance.w = rayQueryGetIntersectionTEXT(query, false);
+            }
+        }
+#endif
+        if ((!triangle))
+        {
+            candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+        }
+        float distance = candidate.position_distance.w;
+        if (((distance < t_min) || (distance > limit)))
+        {
+            continue;
+        }
+        if ((isnan(distance) || isinf(distance)))
+        {
+            continue;
+        }
+        if (((any(isnan(candidate.geometric_normal.xyz)) || any(isinf(candidate.geometric_normal.xyz))) || (abs((dot(candidate.geometric_normal.xyz, candidate.geometric_normal.xyz) - 1.0)) > 0.001)))
+        {
+            continue;
+        }
+        if ((((any(isnan(candidate.shading_normal.xyz)) || any(isinf(candidate.shading_normal.xyz))) || (abs((dot(candidate.shading_normal.xyz, candidate.shading_normal.xyz) - 1.0)) > 0.001)) || (dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0)))
+        {
+            continue;
+        }
+        candidate.position_distance = vec4((origin + (distance * direction)), distance);
+        candidate.address = uvec4((primitive + rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)), primitive, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false), 2);
+#if WAVE_NATIVE_OPTICAL_BOUNDARIES
+        NativeOpticalBoundary boundary = nativeEvaluateBoundary(candidate);
+        if ((nativeBoundaryEnabled(boundary) && (boundary.ior.x == boundary.ior.y)))
+        {
+            continue;
+        }
+#endif
+        if (triangle)
+        {
+            rayQueryConfirmIntersectionEXT(query);
+        }
+        else
+        {
+            rayQueryGenerateIntersectionEXT(query, distance);
+        }
+#endif
+    }
+    return (rayQueryGetIntersectionTypeEXT(query, true) != uint(0));
 }
 
 void main()

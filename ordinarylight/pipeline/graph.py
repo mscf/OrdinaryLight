@@ -1,6 +1,8 @@
 """Single-queue graph compilation with explicit versions and native alias checks."""
 
 from dataclasses import dataclass, replace
+from collections import OrderedDict
+from threading import Lock
 import heapq
 
 import vulkan as vk
@@ -34,6 +36,16 @@ _READ = (
 
 def _key(resource):
     return resource.kind, resource.handle
+
+
+# Cache only scheduling facts, never frame callbacks, allocations or leases.
+_schedule_cache = OrderedDict()
+_schedule_lock = Lock()
+_SCHEDULE_CACHE_LIMIT = 128
+
+
+def _schedule_resource(resource):
+    return resource.kind, resource.handle, resource.offset, resource.size
 
 
 @dataclass(frozen=True)
@@ -119,6 +131,33 @@ class VulkanGraph:
         return self
 
     def compile(self):
+        nodes = tuple(self._nodes)
+        signature = tuple((
+            node.name, node.after,
+            tuple((_schedule_resource(use.resource), use.access)
+                  for stage in node.operation.passes for use in stage.uses),
+            tuple((_schedule_resource(v.resource), v.version) for v in node.reads),
+            tuple((_schedule_resource(v.resource), v.version) for v in node.writes),
+        ) for node in nodes)
+        with _schedule_lock:
+            order = _schedule_cache.get(signature)
+            if order is not None:
+                _schedule_cache.move_to_end(signature)
+        if order is None:
+            compiled = self._compile_uncached()
+            indices = {node.name: i for i, node in enumerate(nodes)}
+            order = tuple(indices[name] for name in compiled.order)
+            with _schedule_lock:
+                _schedule_cache[signature] = order
+                _schedule_cache.move_to_end(signature)
+                if len(_schedule_cache) > _SCHEDULE_CACHE_LIMIT:
+                    _schedule_cache.popitem(last=False)
+            return compiled
+        # Fresh operations and binding revisions are essential: GI frames and
+        # upload packets are one-shot even when their dependency order repeats.
+        return CompiledVulkanGraph(tuple(nodes[i] for i in order))
+
+    def _compile_uncached(self):
         nodes = tuple(self._nodes)
         names = {n.name: i for i, n in enumerate(nodes)}
         edges = {i: set() for i in range(len(nodes))}

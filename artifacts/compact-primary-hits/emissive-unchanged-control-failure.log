@@ -1,0 +1,37 @@
+{"workload": "full", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.05136, "primary_p95_ms": 0.057936, "setup_median_ms": 0.00536, "total_median_ms": 0.812224, "face_output_median_ms": 0.045184, "overview": false, "material_fixture": "emissive", "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-control", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.050367999999999996, "primary_p95_ms": 0.056424, "setup_median_ms": 0.005712, "total_median_ms": 0.810832, "face_output_median_ms": 0.045184, "overview": false, "material_fixture": "emissive", "diagnostic_only": true, "prefix_hdr_valid": true}
+{"source": "raw", "max_error": 0.578125, "mean_error": 0.016989288851618767, "baseline_max": 4.1484375}
+Traceback (most recent call last):
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 264, in <module>
+    main()
+    ~~~~^^
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 234, in main
+    np.testing.assert_allclose(a, b, atol=0.000002, rtol=0.000002)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 1780, in assert_allclose
+    assert_array_compare(compare, actual, desired, err_msg=str(err_msg),
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         verbose=verbose, header=header, equal_nan=equal_nan,
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         strict=strict)
+                         ^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 988, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Not equal to tolerance rtol=2e-06, atol=2e-06
+
+Mismatched elements: 48126 / 111795 (43%)
+First 5 mismatches are at indices:
+ [0, 1, 0]: 0.0938720703125 (ACTUAL), 0.09393310546875 (DESIRED)
+ [0, 1, 2]: 0.2474365234375 (ACTUAL), 0.24755859375 (DESIRED)
+ [0, 6, 0]: 0.08135986328125 (ACTUAL), 0.081298828125 (DESIRED)
+ [0, 6, 1]: 0.12298583984375 (ACTUAL), 0.1229248046875 (DESIRED)
+ [0, 7, 0]: 0.05419921875 (ACTUAL), 0.054229736328125 (DESIRED)
+Max absolute difference among violations: 0.578125
+Max relative difference among violations: 92.72533
+ ACTUAL: array([[[0.07428 , 0.112549, 0.19519 ],
+        [0.093872, 0.142578, 0.247437],
+        [0.063477, 0.095581, 0.164673],...
+ DESIRED: array([[[0.07428 , 0.112549, 0.19519 ],
+        [0.093933, 0.142578, 0.247559],
+        [0.063477, 0.095581, 0.164673],...

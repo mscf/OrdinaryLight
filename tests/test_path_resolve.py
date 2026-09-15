@@ -5,6 +5,7 @@ import os
 import numpy as np
 import pytest
 import vulkan as vk
+import ordinaryshade as osh
 from ordinarylight.runtime import (
     VulkanRuntime,
     VulkanPathResolve,
@@ -16,13 +17,25 @@ from ordinarylight.pipeline.vulkan import VulkanPass, VulkanResource, VulkanReso
 from ordinarylight.wavefront import HOT_PATH_STATE_DTYPE, SECONDARY_PATH_STATE_DTYPE
 
 
+@osh.compute(workgroup_size=(1, 1, 1))
+def read_resolved_hdr(
+    source_image: osh.storage_image("rgba16f", access="read", binding=0),
+    values: osh.storage_buffer(osh.vec4, access="write", binding=1),
+):
+    x = osh.global_invocation_id.x
+    values[x] = source_image.load(osh.ivec2(x, 0))
+
+
 @pytest.mark.skipif(
     os.environ.get("ORDINARYLIGHT_TEST_VULKAN_GRAPH") != "1", reason="opt-in GPU"
 )
 @pytest.mark.parametrize(
     "capture,sampled", [(False, False), (True, False), (True, True)]
 )
-def test_resolve_accumulation_and_capture(capture, sampled):
+@pytest.mark.parametrize("seed_reservoirs", [False, True])
+@pytest.mark.parametrize("reservoir_width", [1, 2])
+@pytest.mark.parametrize("valid_secondary", [False, True])
+def test_resolve_accumulation_and_capture(capture, sampled, reservoir_width, valid_secondary, seed_reservoirs):
     with VulkanRuntime() as runtime, ExitStack() as stack:
 
         def buffer(size, data=None):
@@ -33,9 +46,13 @@ def test_resolve_accumulation_and_capture(capture, sampled):
         records["radiance"][:, :3] = [[2, 4, 6], [4, 8, 12]]
         paths = buffer(records.nbytes, records.tobytes())
         secondary_data = np.zeros(2, SECONDARY_PATH_STATE_DTYPE)
+        secondary_data["normal_pdf"][:] = 0.125
+        if valid_secondary:
+            secondary_data["position_valid"][:, 3] = 1
+            secondary_data["primary_position"][:, 3] = 1
         secondary = buffer(secondary_data.nbytes, secondary_data.tobytes())
-        reservoirs = buffer(48, bytes([255]) * 48)
-        seeds = buffer(8, bytes(8))
+        reservoirs = buffer(24 * reservoir_width, bytes([255]) * (24 * reservoir_width))
+        seeds = buffer(4 * reservoir_width, bytes(4 * reservoir_width))
         camera = buffer(64, bytes(64))
         hdr = stack.enter_context(
             runtime.image(2, 1, format=vk.VK_FORMAT_R16G16B16A16_SFLOAT)
@@ -50,7 +67,7 @@ def test_resolve_accumulation_and_capture(capture, sampled):
                 camera=camera,
                 seeds=seeds,
                 capacity=2,
-                reservoir_extent=(2, 1),
+                reservoir_extent=(reservoir_width, 1),
             )
         )
         result = buffer(32)
@@ -61,12 +78,7 @@ def test_resolve_accumulation_and_capture(capture, sampled):
         reader = stack.enter_context(
             VulkanKernel(
                 runtime,
-                compile_compute("""#version 460
-layout(local_size_x=1) in;
-layout(binding=0,rgba16f) readonly uniform image2D source_image;
-layout(binding=1,std430) buffer Result { vec4 values[]; };
-void main(){uint x=gl_GlobalInvocationID.x; values[x]=imageLoad(source_image,ivec2(x,0));}
-"""),
+                compile_compute(osh.compile(read_resolved_hdr).source),
                 {0: image_resource, 1: result_resource},
             )
         )
@@ -100,6 +112,7 @@ void main(){uint x=gl_GlobalInvocationID.x; values[x]=imageLoad(source_image,ive
                     sample_count=2,
                     capture_secondary=capture,
                     sampled_indirect=sampled,
+                    seed_reservoirs=seed_reservoirs,
                 ),
             )
             graph.add("read", read_operation())
@@ -109,18 +122,25 @@ void main(){uint x=gl_GlobalInvocationID.x; values[x]=imageLoad(source_image,ive
             np.testing.assert_array_equal(pixels[:, :3], expected)
             np.testing.assert_array_equal(pixels[:, 3], 1)
             if sample == 0:
-                assert reservoirs.read() == bytes([255]) * 48
+                assert reservoirs.read() == bytes([255]) * (24 * reservoir_width)
+        if sampled:
+            assert secondary.read() == secondary_data.tobytes()
         if capture:
-            assert reservoirs.read() == bytes(48)
+            if not seed_reservoirs:
+                assert reservoirs.read() == bytes([255]) * (24 * reservoir_width)
+            elif valid_secondary:
+                assert reservoirs.read() != bytes(24 * reservoir_width)
+            else:
+                assert reservoirs.read() == bytes(24 * reservoir_width)
             signals = np.frombuffer(secondary.read(), SECONDARY_PATH_STATE_DTYPE)
             np.testing.assert_array_equal(
                 signals["diffuse_radiance_hit_distance"][:, :3],
                 np.zeros((2, 3)) if sampled else records["radiance"][:, :3],
             )
-            assert seeds.read() != bytes(8)
+            assert (seeds.read() != bytes(4 * reservoir_width)) == seed_reservoirs
         else:
             assert secondary.read() == secondary_data.tobytes()
-            assert reservoirs.read() == bytes([255]) * 48
+            assert reservoirs.read() == bytes([255]) * (24 * reservoir_width)
         with pytest.raises(ValueError, match="capacity"):
             stage.operation(path_count=3)
         with pytest.raises(ValueError, match="sample"):

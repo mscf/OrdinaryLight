@@ -31,6 +31,13 @@
         "scripts/generate_denoiser_artifacts.py"
       ]
     },
+    "ordinarylight/shaders/denoiser_relax_atrous_paired.comp.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_denoiser_artifacts.py",
+        "ordinarylight/denoising/kernels.py"
+      ]
+    },
     "ordinarylight/shaders/denoiser_relax_compose.comp.wgsl": {
       "status": "generated",
       "sources": [

@@ -57,6 +57,15 @@ def nativeIntersectCandidate(
     pass
 
 
+@osh.external
+def nativeEvaluateTriangle(
+    origin: osh.vec3, direction: osh.vec3, distance: osh.f32, barycentrics: osh.vec2,
+    primitive: osh.u32, instance: osh.u32, instance_offset: osh.u32,
+) -> NativeIntersection:
+    """Evaluate a hardware triangle candidate; a negative distance rejects it."""
+    pass
+
+
 @osh.function
 def nativeTraceSurface(
     origin: osh.vec3, t_min: osh.f32,
@@ -66,24 +75,39 @@ def nativeTraceSurface(
     selected = hit
     selected_primitive = osh.u32(4294967295)
     selected_instance = osh.u32(4294967295)
+    custom_triangles = False
     flags = osh.u32(1)
+    if osh.specialization('WAVE_CUSTOM_TRIANGLES'):
+        custom_triangles = True
+        flags = osh.u32(0)
     if visibility:
         flags = flags | osh.u32(4)
     query = osh.ray_query()
     query.initialize(scene_tlas, flags, mask, origin, t_min, direction, t_max)
     while query.proceed():
         if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
-            if query.intersection_type(False) != osh.u32(1):
+            triangle = query.intersection_type(False) == osh.u32(0)
+            if triangle and not custom_triangles:
                 continue
             primitive = query.primitive_index(False)
             instance = query.instance_id(False)
             limit = t_max
             if query.intersection_type(True) != osh.u32(0):
                 limit = osh.minimum(limit, query.intersection_t(True))
-            candidate = nativeIntersectCandidate(
-                origin, direction, t_min, limit, primitive, instance,
-                query.instance_custom_index(False),
-            )
+            candidate = nativeIntersectionMiss()
+            if osh.specialization('WAVE_CUSTOM_TRIANGLES'):
+                if triangle:
+                    candidate = nativeEvaluateTriangle(
+                        origin, direction, query.intersection_t(False), query.barycentrics(False),
+                        primitive, instance, query.instance_custom_index(False),
+                    )
+                    if candidate.position_distance.w >= 0.0:
+                        candidate.position_distance.w = query.intersection_t(False)
+            if not triangle:
+                candidate = nativeIntersectCandidate(
+                    origin, direction, t_min, limit, primitive, instance,
+                    query.instance_custom_index(False),
+                )
             distance = candidate.position_distance.w
             if distance < t_min or distance > limit:
                 continue
@@ -108,8 +132,11 @@ def nativeTraceSurface(
                     boundary = nativeEvaluateBoundary(candidate)
                     if nativeBoundaryEnabled(boundary) and boundary.ior.x == boundary.ior.y:
                         continue
-            query.generate_intersection(distance)
-            if (query.intersection_type(True) == osh.u32(2)
+            if triangle:
+                query.confirm_intersection()
+            else:
+                query.generate_intersection(distance)
+            if (query.intersection_type(True) != osh.u32(0)
                     and query.primitive_index(True) == primitive
                     and query.instance_id(True) == instance
                     and query.intersection_t(True) == distance):
@@ -123,7 +150,20 @@ def nativeTraceSurface(
     primitive = query.primitive_index(True)
     instance = query.instance_id(True)
     instance_offset = query.instance_custom_index(True)
-    if kind == osh.u32(2):
+    opaque_triangle = False
+    if custom_triangles and kind == osh.u32(1):
+        opaque_triangle = primitive != selected_primitive or instance != selected_instance
+    if osh.specialization('WAVE_CUSTOM_TRIANGLES'):
+        if opaque_triangle:
+            # Opaque geometry promises every candidate is a valid surface;
+            # evaluate payload only for the hardware-selected hit.
+            selected = nativeEvaluateTriangle(origin, direction, distance, query.barycentrics(True),
+                                               primitive, instance, instance_offset)
+            if selected.position_distance.w < 0.0:
+                return hit
+            selected_primitive = primitive
+            selected_instance = instance
+    if kind == osh.u32(2) or custom_triangles:
         if primitive != selected_primitive or instance != selected_instance:
             return hit
         hit = selected
@@ -132,7 +172,78 @@ def nativeTraceSurface(
         hit.texcoord.xy = query.barycentrics(True)
     hit.position_distance = osh.vec4(origin + distance * direction, distance)
     hit.address = osh.uvec4(primitive + instance_offset, primitive, instance_offset, kind)
+    if custom_triangles:
+        # Native transport uses 2 for application-evaluated surfaces. Hardware
+        # triangles with custom payloads must not index built-in mesh buffers.
+        hit.address.w = osh.u32(2)
     return hit
+
+
+@osh.function
+def nativeOccluded(
+    origin: osh.vec3, t_min: osh.f32,
+    direction: osh.vec3, t_max: osh.f32, mask: osh.u32,
+) -> osh.boolean:
+    custom_triangles = False
+    flags = osh.u32(1)
+    if osh.specialization('WAVE_CUSTOM_TRIANGLES'):
+        custom_triangles = True
+        flags = osh.u32(0)
+    flags = flags | osh.u32(4)
+    query = osh.ray_query()
+    query.initialize(scene_tlas, flags, mask, origin, t_min, direction, t_max)
+    while query.proceed():
+        if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
+            triangle = query.intersection_type(False) == osh.u32(0)
+            if triangle and not custom_triangles:
+                continue
+            primitive = query.primitive_index(False)
+            instance = query.instance_id(False)
+            limit = t_max
+            if query.intersection_type(True) != osh.u32(0):
+                limit = osh.minimum(limit, query.intersection_t(True))
+            candidate = nativeIntersectionMiss()
+            if osh.specialization('WAVE_CUSTOM_TRIANGLES'):
+                if triangle:
+                    candidate = nativeEvaluateTriangle(
+                        origin, direction, query.intersection_t(False), query.barycentrics(False),
+                        primitive, instance, query.instance_custom_index(False),
+                    )
+                    if candidate.position_distance.w >= 0.0:
+                        candidate.position_distance.w = query.intersection_t(False)
+            if not triangle:
+                candidate = nativeIntersectCandidate(
+                    origin, direction, t_min, limit, primitive, instance,
+                    query.instance_custom_index(False),
+                )
+            distance = candidate.position_distance.w
+            if distance < t_min or distance > limit:
+                continue
+            if osh.is_nan(distance) or osh.is_inf(distance):
+                continue
+            if (osh.any_value(osh.is_nan(candidate.geometric_normal.xyz))
+                    or osh.any_value(osh.is_inf(candidate.geometric_normal.xyz))
+                    or osh.absolute(osh.dot(candidate.geometric_normal.xyz,
+                                            candidate.geometric_normal.xyz) - 1.0) > 0.001):
+                continue
+            if (osh.any_value(osh.is_nan(candidate.shading_normal.xyz))
+                    or osh.any_value(osh.is_inf(candidate.shading_normal.xyz))
+                    or osh.absolute(osh.dot(candidate.shading_normal.xyz,
+                                            candidate.shading_normal.xyz) - 1.0) > 0.001
+                    or osh.dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0):
+                continue
+            candidate.position_distance = osh.vec4(origin + distance * direction, distance)
+            candidate.address = osh.uvec4(primitive + query.instance_custom_index(False),
+                                         primitive, query.instance_custom_index(False), 2)
+            if osh.specialization('WAVE_NATIVE_OPTICAL_BOUNDARIES'):
+                boundary = nativeEvaluateBoundary(candidate)
+                if nativeBoundaryEnabled(boundary) and boundary.ior.x == boundary.ior.y:
+                    continue
+            if triangle:
+                query.confirm_intersection()
+            else:
+                query.generate_intersection(distance)
+    return query.intersection_type(True) != osh.u32(0)
 
 
 @osh.function

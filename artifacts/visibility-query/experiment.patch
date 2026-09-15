@@ -1,0 +1,283 @@
+diff --git a/ordinarylight/shaders/lighting_programs.py b/ordinarylight/shaders/lighting_programs.py
+index 7e6db8b..7edae7e 100644
+--- a/ordinarylight/shaders/lighting_programs.py
++++ b/ordinarylight/shaders/lighting_programs.py
+@@ -1,7 +1,7 @@
+ """Typed transport helpers. Generated artifacts must be rebuilt from this source."""
+ import ordinaryshade as osh
+ from .native_emitter_programs import (NativeEmitterSample, nativeAreaLightCount, nativeEmitterValid, nativeSelectEmitter, nativeEvaluateEmitter)
+-from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
++from ordinarylight.shaders.native_intersection_programs import NativeIntersection, nativeTraceSurface, nativeOccluded, nativeIntersectionMiss, nativeIntersectCandidate, nativeSurfaceMask
+ from .transport_programs import MaterialData, AreaLightData, PointLightData
+ from .restir_programs import DirectLightReservoir
+ 
+@@ -152,8 +152,7 @@ def samplePointLights(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3, mater
+         shadow_distance = ordinarylight_analytic_light_shadow_distance(light_type, distance_to_light)
+         if osh.specialization('WAVE_WORK_COUNTERS'):
+             profileWork(osh.u32(1), osh.u32(1))
+-        shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+-        if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
++        if nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()):
+             index = index + 1
+             continue
+         incident = ordinarylight_analytic_light_incident(light.color_intensity.rgb, light.color_intensity.a, attenuation, volumeShadowTransmittance(shadow_origin, direction, shadow_distance))
+@@ -205,8 +204,7 @@ def sampleAreaLightTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.vec3
+     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
+     if osh.specialization('WAVE_WORK_COUNTERS'):
+         profileWork(osh.u32(1), osh.u32(1))
+-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
++    if nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()):
+         return osh.vec3(0.0)
+     effective_pdf = ordinarylight_area_light_pdf(light.distribution.y, distance_squared, light_cosine, light.emission_area.a, technique_probability)
+     bsdf_pdf = pbrPdf(material, normal, -incoming, direction)
+@@ -320,8 +318,7 @@ def areaLightCandidateVisibility(hit: osh.vec3, normal: osh.vec3, direction: osh
+     shadow_distance = osh.maximum(distance_to_light - 0.004, 0.001)
+     if osh.specialization('WAVE_WORK_COUNTERS'):
+         profileWork(osh.u32(1), osh.u32(1))
+-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, True, nativeSurfaceMask())
+-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
++    if nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()):
+         return 0.0
+     return volumeShadowTransmittance(shadow_origin, direction, shadow_distance)
+ 
+@@ -349,8 +346,7 @@ def sampleEnvironmentTechnique(hit: osh.vec3, normal: osh.vec3, incoming: osh.ve
+     shadow_origin = OL_TRANSPORT_RAY_ORIGIN(hit, normal)
+     if osh.specialization('WAVE_WORK_COUNTERS'):
+         profileWork(osh.u32(1), osh.u32(1))
+-    shadow = nativeTraceSurface(shadow_origin, 0.001, direction, 1e+30, True, nativeSurfaceMask())
+-    if shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT:
++    if nativeOccluded(shadow_origin, 0.001, direction, 1e+30, nativeSurfaceMask()):
+         return osh.vec3(0.0)
+     cosine = ordinarylight_analytic_light_cosine(normal, direction)
+     pdf = cosine / 3.14159265359
+diff --git a/ordinarylight/shaders/native_intersection.glsl b/ordinarylight/shaders/native_intersection.glsl
+index e2e5480..fd1b5c8 100644
+--- a/ordinarylight/shaders/native_intersection.glsl
++++ b/ordinarylight/shaders/native_intersection.glsl
+@@ -132,6 +132,59 @@ NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction,
+     hit.address = uvec4((primitive + instance_offset), primitive, instance_offset, kind);
+     return hit;
+ }
++NativeIntersection nativeIntersectCandidate(vec3 origin, vec3 direction, float t_min, float t_max, uint primitive, uint instance, uint instance_offset);
++NativeOpticalBoundary nativeEvaluateBoundary(NativeIntersection hit);
++bool nativeBoundaryEnabled(NativeOpticalBoundary boundary);
++bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask)
++{
++    rayQueryEXT query;
++    rayQueryInitializeEXT(query, scene_tlas, uint(5), mask, origin, t_min, direction, t_max);
++    while (rayQueryProceedEXT(query))
++    {
++#if WAVE_CUSTOM_GEOMETRY
++        if ((rayQueryGetIntersectionTypeEXT(query, false) != uint(1)))
++        {
++            continue;
++        }
++        uint primitive = rayQueryGetIntersectionPrimitiveIndexEXT(query, false);
++        uint instance = rayQueryGetIntersectionInstanceIdEXT(query, false);
++        float limit = t_max;
++        if ((rayQueryGetIntersectionTypeEXT(query, true) != uint(0)))
++        {
++            limit = min(limit, rayQueryGetIntersectionTEXT(query, true));
++        }
++        NativeIntersection candidate = nativeIntersectCandidate(origin, direction, t_min, limit, primitive, instance, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
++        float distance = candidate.position_distance.w;
++        if (((distance < t_min) || (distance > limit)))
++        {
++            continue;
++        }
++        if ((isnan(distance) || isinf(distance)))
++        {
++            continue;
++        }
++        if (((any(isnan(candidate.geometric_normal.xyz)) || any(isinf(candidate.geometric_normal.xyz))) || (abs((dot(candidate.geometric_normal.xyz, candidate.geometric_normal.xyz) - 1.0)) > 0.001)))
++        {
++            continue;
++        }
++        if ((((any(isnan(candidate.shading_normal.xyz)) || any(isinf(candidate.shading_normal.xyz))) || (abs((dot(candidate.shading_normal.xyz, candidate.shading_normal.xyz) - 1.0)) > 0.001)) || (dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0)))
++        {
++            continue;
++        }
++        candidate.position_distance = vec4((origin + (distance * direction)), distance);
++        candidate.address = uvec4((primitive + rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)), primitive, rayQueryGetIntersectionInstanceCustomIndexEXT(query, false), 2);
++#if WAVE_NATIVE_OPTICAL_BOUNDARIES
++        NativeOpticalBoundary boundary = nativeEvaluateBoundary(candidate);
++        if ((nativeBoundaryEnabled(boundary) && (boundary.ior.x == boundary.ior.y)))
++        {
++            continue;
++        }
++#endif
++        return true;
++#endif
++    }
++    return (rayQueryGetIntersectionTypeEXT(query, true) != uint(0));
++}
+ uint nativeEmitterCount();
+ uint nativeAreaLightCount(uint fallback)
+ {
+diff --git a/ordinarylight/shaders/native_intersection_programs.py b/ordinarylight/shaders/native_intersection_programs.py
+index b93f892..4becab3 100644
+--- a/ordinarylight/shaders/native_intersection_programs.py
++++ b/ordinarylight/shaders/native_intersection_programs.py
+@@ -140,3 +140,52 @@ def nativeSurfaceMask() -> osh.u32:
+     if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
+         return osh.u32(3)
+     return osh.u32(1)
++
++
++@osh.function
++def nativeOccluded(
++    origin: osh.vec3, t_min: osh.f32,
++    direction: osh.vec3, t_max: osh.f32, mask: osh.u32,
++) -> osh.boolean:
++    # Visibility needs any accepted blocker, not a committed surface payload.
++    # Preserve the same candidate validation and optical pass-through contract.
++    query = osh.ray_query()
++    query.initialize(scene_tlas, osh.u32(5), mask, origin, t_min, direction, t_max)
++    while query.proceed():
++        if osh.specialization('WAVE_CUSTOM_GEOMETRY'):
++            if query.intersection_type(False) != osh.u32(1):
++                continue
++            primitive = query.primitive_index(False)
++            instance = query.instance_id(False)
++            limit = t_max
++            if query.intersection_type(True) != osh.u32(0):
++                limit = osh.minimum(limit, query.intersection_t(True))
++            candidate = nativeIntersectCandidate(
++                origin, direction, t_min, limit, primitive, instance,
++                query.instance_custom_index(False),
++            )
++            distance = candidate.position_distance.w
++            if distance < t_min or distance > limit:
++                continue
++            if osh.is_nan(distance) or osh.is_inf(distance):
++                continue
++            if (osh.any_value(osh.is_nan(candidate.geometric_normal.xyz))
++                    or osh.any_value(osh.is_inf(candidate.geometric_normal.xyz))
++                    or osh.absolute(osh.dot(candidate.geometric_normal.xyz,
++                                            candidate.geometric_normal.xyz) - 1.0) > 0.001):
++                continue
++            if (osh.any_value(osh.is_nan(candidate.shading_normal.xyz))
++                    or osh.any_value(osh.is_inf(candidate.shading_normal.xyz))
++                    or osh.absolute(osh.dot(candidate.shading_normal.xyz,
++                                            candidate.shading_normal.xyz) - 1.0) > 0.001
++                    or osh.dot(candidate.shading_normal.xyz, candidate.geometric_normal.xyz) <= 0.0):
++                continue
++            candidate.position_distance = osh.vec4(origin + distance * direction, distance)
++            candidate.address = osh.uvec4(primitive + query.instance_custom_index(False),
++                                         primitive, query.instance_custom_index(False), 2)
++            if osh.specialization('WAVE_NATIVE_OPTICAL_BOUNDARIES'):
++                boundary = nativeEvaluateBoundary(candidate)
++                if nativeBoundaryEnabled(boundary) and boundary.ior.x == boundary.ior.y:
++                    continue
++            return True
++    return query.intersection_type(True) != osh.u32(0)
+diff --git a/ordinarylight/shaders/transport_v1/lighting.glsl b/ordinarylight/shaders/transport_v1/lighting.glsl
+index b2956e2..2fa93d4 100644
+--- a/ordinarylight/shaders/transport_v1/lighting.glsl
++++ b/ordinarylight/shaders/transport_v1/lighting.glsl
+@@ -187,8 +187,8 @@ void samplePbr(MaterialData material, vec3 normal, vec3 incoming, inout uint rng
+ }
+ 
+ vec3 evaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
++bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
+ uint nativeSurfaceMask();
+-NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+ float ordinarylight_analytic_light_attenuation(int light_type, float distance_squared, vec3 direction, vec3 light_direction, float spot_inner, float spot_outer);
+ vec3 ordinarylight_analytic_light_contribution(vec3 evaluated_pbr, vec3 incident, float cosine);
+ float ordinarylight_analytic_light_cosine(vec3 normal, vec3 direction);
+@@ -237,8 +237,7 @@ vec3 samplePointLights(vec3 hit, vec3 normal, vec3 incoming, MaterialData materi
+ #if WAVE_WORK_COUNTERS
+         profileWork(uint(1), uint(1));
+ #endif
+-        NativeIntersection shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, true, nativeSurfaceMask());
+-        if ((shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT))
++        if (nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()))
+         {
+             index = (index + 1);
+             continue;
+@@ -262,9 +261,9 @@ float areaLightCandidateVisibility(vec3 hit, vec3 normal, vec3 direction, float
+ vec3 evaluateAreaLightCandidateTechnique(AreaLightCandidate candidate, vec3 hit, vec3 normal, vec3 incoming, MaterialData material, uint sample_count, float technique_probability, out vec3 direction, out float distance_to_light);
+ vec3 evaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
+ uint nativeAreaLightCount(uint fallback);
++bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
+ uint nativeSelectEmitter(float selector);
+ uint nativeSurfaceMask();
+-NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+ vec3 ordinarylight_area_light_contribution(vec3 evaluated_pbr, vec3 emission, float surface_cosine, float mis, float transmittance, float effective_pdf);
+ float ordinarylight_area_light_cosine(vec3 vertex_a, vec3 vertex_b, vec3 vertex_c, vec3 direction, bool two_sided);
+ float ordinarylight_area_light_mis(float effective_pdf, float sample_count, float bsdf_pdf);
+@@ -328,8 +327,7 @@ vec3 sampleAreaLightTechnique(vec3 hit, vec3 normal, vec3 incoming, MaterialData
+ #if WAVE_WORK_COUNTERS
+     profileWork(uint(1), uint(1));
+ #endif
+-    NativeIntersection shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, true, nativeSurfaceMask());
+-    if ((shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT))
++    if (nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()))
+     {
+         return vec3(0.0);
+     }
+@@ -483,8 +481,8 @@ AreaLightCandidate generateAreaLightCandidate(vec3 hit, vec3 normal, vec3 incomi
+     return candidate;
+ }
+ 
++bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
+ uint nativeSurfaceMask();
+-NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+ void profileWork(uint counter, uint amount);
+ float volumeShadowTransmittance(vec3 origin, vec3 direction, float maximum_distance);
+ float areaLightCandidateVisibility(vec3 hit, vec3 normal, vec3 direction, float distance_to_light)
+@@ -498,8 +496,7 @@ float areaLightCandidateVisibility(vec3 hit, vec3 normal, vec3 direction, float
+ #if WAVE_WORK_COUNTERS
+     profileWork(uint(1), uint(1));
+ #endif
+-    NativeIntersection shadow = nativeTraceSurface(shadow_origin, 0.001, direction, shadow_distance, true, nativeSurfaceMask());
+-    if ((shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT))
++    if (nativeOccluded(shadow_origin, 0.001, direction, shadow_distance, nativeSurfaceMask()))
+     {
+         return 0.0;
+     }
+@@ -537,8 +534,8 @@ vec3 environmentColor(vec3 direction)
+ 
+ vec3 environmentColor(vec3 direction);
+ vec3 evaluatePbr(MaterialData material, vec3 normal, vec3 view, vec3 outgoing);
++bool nativeOccluded(vec3 origin, float t_min, vec3 direction, float t_max, uint mask);
+ uint nativeSurfaceMask();
+-NativeIntersection nativeTraceSurface(vec3 origin, float t_min, vec3 direction, float t_max, bool visibility, uint mask);
+ float ordinarylight_analytic_light_cosine(vec3 normal, vec3 direction);
+ vec3 ordinarylight_environment_contribution(vec3 evaluated_pbr, vec3 radiance, float cosine, float mis, float transmittance, float effective_pdf, float occlusion, float metallic);
+ float ordinarylight_environment_effective_pdf(float cosine, float technique_probability);
+@@ -554,8 +551,7 @@ vec3 sampleEnvironmentTechnique(vec3 hit, vec3 normal, vec3 incoming, MaterialDa
+ #if WAVE_WORK_COUNTERS
+     profileWork(uint(1), uint(1));
+ #endif
+-    NativeIntersection shadow = nativeTraceSurface(shadow_origin, 0.001, direction, 1e+30, true, nativeSurfaceMask());
+-    if ((shadow.address.w != gl_RayQueryCommittedIntersectionNoneEXT))
++    if (nativeOccluded(shadow_origin, 0.001, direction, 1e+30, nativeSurfaceMask()))
+     {
+         return vec3(0.0);
+     }
+diff --git a/scripts/generate_native_intersection.py b/scripts/generate_native_intersection.py
+index 122cdb7..fa5c430 100644
+--- a/scripts/generate_native_intersection.py
++++ b/scripts/generate_native_intersection.py
+@@ -5,7 +5,7 @@ from pathlib import Path
+ 
+ import ordinaryshade as osh
+ from ordinarylight.shaders.native_intersection_programs import (
+-    NativeIntersection, nativeIntersectionMiss, nativeTraceSurface, nativeIntersectCandidate, nativeSurfaceMask, NativeOpticalBoundary, nativeBoundaryEnabled, nativeEvaluateBoundary,
++    NativeIntersection, nativeIntersectionMiss, nativeTraceSurface, nativeOccluded, nativeIntersectCandidate, nativeSurfaceMask, NativeOpticalBoundary, nativeBoundaryEnabled, nativeEvaluateBoundary,
+ )
+ 
+ 
+@@ -48,6 +48,10 @@ struct NativeIntersection {
+         osh.external(nativeIntersectionMiss.function), nativeIntersectCandidate,
+         nativeEvaluateBoundary, osh.external(nativeBoundaryEnabled.function),
+     )).source
++    body += osh.compile_function(nativeOccluded, external_values=values, externals=(
++        nativeIntersectCandidate, nativeEvaluateBoundary,
++        osh.external(nativeBoundaryEnabled.function),
++    )).source
+     body += osh.compile_function(nativeAreaLightCount, externals=(nativeEmitterCount,)).source
+     body += osh.compile_function(nativeEmitterValid, external_values=values).source
+     return declaration + body + "#endif\n"

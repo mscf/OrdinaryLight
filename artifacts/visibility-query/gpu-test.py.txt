@@ -1,0 +1,81 @@
+"""Boolean visibility must match full-hit visibility, including rejected candidates."""
+import os
+import numpy as np
+import ordinaryshade as osh
+import pytest
+from test_native_intersection import CellRecord, TestRay, intersect_cell
+from ordinarylight.shaders.native_intersection_programs import (
+    NativeIntersection, NativeOpticalBoundary, nativeIntersectionMiss,
+    nativeBoundaryEnabled, nativeTraceSurface, nativeOccluded,
+)
+
+boxHit = osh.function(name='boxHit')(intersect_cell.function)
+
+@osh.function(name='nativeIntersectCandidate')
+def candidate(origin: osh.vec3, direction: osh.vec3, t_min: osh.f32,
+              t_max: osh.f32, primitive: osh.u32, instance: osh.u32,
+              instance_offset: osh.u32) -> NativeIntersection:
+    hit = boxHit(origin, direction, t_min, t_max, primitive, instance, instance_offset)
+    mode = rays[osh.global_invocation_id.x].metadata.y
+    # Reject only the near box, allowing traversal to find a later blocker.
+    if hit.identity.y == osh.u32(42):
+        if mode == osh.u32(1):
+            hit.geometric_normal = osh.vec4(0.0)
+        elif mode == osh.u32(2):
+            hit.shading_normal = -hit.geometric_normal
+        elif mode == osh.u32(3):
+            hit.position_distance.w = osh.uint_bits_to_float(osh.u32(2143289344))
+        elif mode == osh.u32(4):
+            hit.position_distance.w = osh.uint_bits_to_float(osh.u32(2139095040))
+    return hit
+
+@osh.function(name='nativeEvaluateBoundary')
+def boundary(hit: NativeIntersection) -> NativeOpticalBoundary:
+    # Exercise the filled position/address ABI before boundary evaluation.
+    transparent = (hit.position_distance.z < 3.0 and hit.address.x == osh.u32(0))
+    return NativeOpticalBoundary(osh.vec2(1.0, 1.0 if transparent else 1.5), True)
+
+@osh.compute(workgroup_size=(1,1,1))
+def compare(scene_tlas: osh.acceleration_structure(binding=0),
+            cells: osh.storage_buffer(CellRecord, access='read', binding=1),
+            rays: osh.storage_buffer(TestRay, access='read', binding=2),
+            results: osh.storage_buffer(osh.uvec2, access='write', binding=3)):
+    i = osh.global_invocation_id.x
+    ray = rays[i]
+    full = nativeTraceSurface(ray.origin_tmin.xyz, ray.origin_tmin.w,
+        ray.direction_tmax.xyz, ray.direction_tmax.w, True, ray.metadata.x)
+    blocked = nativeOccluded(ray.origin_tmin.xyz, ray.origin_tmin.w,
+        ray.direction_tmax.xyz, ray.direction_tmax.w, ray.metadata.x)
+    results[i] = osh.uvec2(osh.u32(full.address.w != osh.u32(0)), osh.u32(blocked))
+
+@pytest.mark.skipif(os.environ.get('ORDINARYLIGHT_TEST_VULKAN_GRAPH')!='1', reason='Opt-in Vulkan')
+@pytest.mark.parametrize('optical', [False, True])
+def test_boolean_visibility_matches_surface_query(optical):
+    from ordinarylight.geometry import CustomGeometry, IntersectionProgram
+    from ordinarylight.transport import VulkanTransportScene, TransportMaterial
+    from ordinarylight.runtime import VulkanRuntime, VulkanKernel, compile_compute
+    from ordinarylight.pipeline.graph import reflected_operation
+    from ordinarylight.pipeline.vulkan import VulkanResource
+    compiled = osh.compile(compare, helpers=(nativeIntersectionMiss, boxHit, candidate,
+        boundary, nativeBoundaryEnabled, nativeTraceSurface, nativeOccluded))
+    defines = '#define WAVE_CUSTOM_GEOMETRY 1\n' + ('#define WAVE_NATIVE_OPTICAL_BOUNDARIES 1\n' if optical else '')
+    binary = compile_compute(compiled.source.replace('#version 460', '#version 460\n'+defines,1))
+    data=[]
+    for mode in range(5):
+        for mask in (0,1,2,3):
+            for origin,direction in (((.5,.5,0),(0,0,1)),((.5,.5,8),(0,0,-1)),
+                                     ((.5,.5,1.5),(0,0,1)),((2,2,0),(0,0,1))):
+                for limit in (.5,2.5,20):data.append(((*origin,.001),(*direction,limit),(mask,mode,0,0)))
+    dtype=np.dtype([('origin','<f4',(4,)),('direction','<f4',(4,)),('metadata','<u4',(4,))])
+    rays_data=np.array(data,dtype=dtype)
+    shapes=[CustomGeometry(((0,0,z),(1,1,z+1)),IntersectionProgram.sdf_sphere(),
+        (.5,.5,z+.5,.5),identity=slot) for z,slot in ((1,42),(4,900))]
+    with VulkanRuntime() as runtime, VulkanTransportScene(runtime,custom_geometry=shapes,custom_materials=[TransportMaterial()]) as scene:
+        with runtime.buffer(rays_data.nbytes,data=rays_data) as inputs, runtime.buffer(len(data)*8) as output:
+            with VulkanKernel(runtime,binary,{0:scene.resource('tlas'),1:scene.resource('custom'),
+                2:VulkanResource.buffer(inputs),3:VulkanResource.buffer(output)}) as kernel:
+                reflected_operation(kernel,compiled.reflection,workgroups=(len(data),1,1)).execute(runtime).wait()
+                result=np.frombuffer(output.read(),np.uint32).reshape(-1,2)
+                np.testing.assert_array_equal(result[:,0],result[:,1])
+                assert set(result[:,0])=={0,1}
+                assert np.all(result[rays_data['metadata'][:,0]==0]==0)

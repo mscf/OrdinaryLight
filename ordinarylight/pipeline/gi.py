@@ -37,13 +37,19 @@ class GiImage:
 
 @dataclass(frozen=True)
 class GiBuffer:
-    """Borrowed GPU buffer; lifetime matches the native allocation generation."""
+    """Borrowed GPU buffer; lifetime matches the native allocation generation.
+
+    ``record_dtype`` describes typed record buffers (including primary hits).
+    It is None for buffers without a declared record ABI. Capacity in bytes is
+    independent of the active per-frame sample count and render extent.
+    """
 
     runtime: object
     buffer: object
     byte_size: int
     usage: int
     _validate: object = field(repr=False, compare=False)
+    record_dtype: object = field(default=None, repr=False, compare=False)
 
     def require_open(self):
         self._validate()

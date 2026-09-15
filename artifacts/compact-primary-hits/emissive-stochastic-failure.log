@@ -1,0 +1,36 @@
+{"workload": "full", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.053392, "primary_p95_ms": 0.0584, "setup_median_ms": 0.005504, "total_median_ms": 0.8175680000000001, "face_output_median_ms": 0.045168, "overview": false, "material_fixture": "emissive", "diagnostic_only": true, "prefix_hdr_valid": true}
+{"workload": "full-compact-hits", "extent": [257, 145], "samples": 6, "primary_median_ms": 0.046224, "primary_p95_ms": 0.05388, "setup_median_ms": 0.0054719999999999994, "total_median_ms": 0.804864, "face_output_median_ms": 0.045152, "overview": false, "material_fixture": "emissive", "diagnostic_only": true, "prefix_hdr_valid": true}
+Traceback (most recent call last):
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 264, in <module>
+    main()
+    ~~~~^^
+  File "/home/mscf/projects/personal/Ordinary/components/OrdinaryLight/scripts/profile_primary_prefixes.py", line 233, in main
+    np.testing.assert_allclose(a, b, atol=0.000002, rtol=0.000002)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 1780, in assert_allclose
+    assert_array_compare(compare, actual, desired, err_msg=str(err_msg),
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         verbose=verbose, header=header, equal_nan=equal_nan,
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         strict=strict)
+                         ^^^^^^^^^^^^^^
+  File "/home/mscf/projects/personal/Ordinary/.venv/lib/python3.14/site-packages/numpy/testing/_private/utils.py", line 988, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Not equal to tolerance rtol=2e-06, atol=2e-06
+
+Mismatched elements: 35398 / 111795 (31.7%)
+First 5 mismatches are at indices:
+ [0, 7, 0]: 0.05419921875 (ACTUAL), 0.054229736328125 (DESIRED)
+ [0, 9, 0]: 0.043792724609375 (ACTUAL), 0.04376220703125 (DESIRED)
+ [0, 9, 1]: 0.06536865234375 (ACTUAL), 0.0653076171875 (DESIRED)
+ [0, 9, 2]: 0.11199951171875 (ACTUAL), 0.1119384765625 (DESIRED)
+ [0, 11, 0]: 0.058929443359375 (ACTUAL), 0.0589599609375 (DESIRED)
+Max absolute difference among violations: 0.578125
+Max relative difference among violations: 51.822697
+ ACTUAL: array([[[0.07428 , 0.112549, 0.19519 ],
+        [0.093933, 0.142578, 0.247559],
+        [0.063477, 0.095581, 0.164673],...
+ DESIRED: array([[[0.07428 , 0.112549, 0.19519 ],
+        [0.093933, 0.142578, 0.247559],
+        [0.063477, 0.095581, 0.164673],...

@@ -18,7 +18,7 @@ import ordinaryshade as osh
 
 from ordinarylight.denoising.kernels import (
     prepare_decode_normal, prepare_previous_pixel, prepare_surface_history, prepare_relax_signals,
-    prepare_unpack_normal, relax_atrous, relax_compose, relax_temporal,
+    prepare_unpack_normal, relax_atrous, relax_atrous_paired, relax_compose, relax_temporal,
 )
 
 
@@ -62,6 +62,7 @@ def build_artifacts(*, wgsl_validator="naga"):
             ),
             ("temporal", relax_temporal, ()),
             ("atrous", relax_atrous, ()),
+            ("atrous_paired", relax_atrous_paired, ()),
             ("compose", relax_compose, ()),
         ):
             shader = osh.compile(kernel, helpers=helpers, **options)

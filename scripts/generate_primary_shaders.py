@@ -2127,6 +2127,7 @@ def generated_source():
         ).source.rstrip(),
         osh.compile_function(ordinarylight_pbr_reflect).source.rstrip(),
         osh.compile_function(ordinarylight_pbr_weight).source.rstrip(),
+        "#ifndef ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS\n#define ORDINARYLIGHT_ANALYTIC_LIGHT_HELPERS 1",
         osh.compile_function(
             ordinarylight_analytic_light_direction
         ).source.rstrip(),
@@ -2148,6 +2149,7 @@ def generated_source():
         osh.compile_function(
             ordinarylight_analytic_light_contribution
         ).source.rstrip(),
+        "#endif",
         osh.compile_function(
             ordinarylight_area_light_position
         ).source.rstrip(),

@@ -1,0 +1,207 @@
+{
+  "configuration": {
+    "width": 320,
+    "height": 180,
+    "frames": 8,
+    "reference_samples": 16,
+    "candidate_samples": 1,
+    "max_bounces": 8,
+    "area_light_samples": 2,
+    "atrous_iterations": 3,
+    "history_limit": 32,
+    "scenarios": [
+      {
+        "name": "diffuse",
+        "scene_name": "diffuse",
+        "motion_radians": 0.0,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [
+          0.0,
+          1.25,
+          0.0
+        ]
+      },
+      {
+        "name": "area_light",
+        "scene_name": "area_lights",
+        "motion_radians": 0.12,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [
+          0.0,
+          1.25,
+          0.0
+        ]
+      },
+      {
+        "name": "glossy_glass",
+        "scene_name": "glossy_glass",
+        "motion_radians": 0.16,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [
+          0.0,
+          1.25,
+          0.0
+        ]
+      },
+      {
+        "name": "dense_motion",
+        "scene_name": "dense",
+        "motion_radians": 0.4,
+        "orbit_radius": 8.5,
+        "camera_height": 3.2,
+        "target": [
+          0.0,
+          1.25,
+          0.0
+        ]
+      },
+      {
+        "name": "volume_static",
+        "scene_name": "volume_isolated",
+        "motion_radians": 0.0,
+        "orbit_radius": 8.8,
+        "camera_height": 3.5,
+        "target": [
+          0.0,
+          1.5,
+          0.0
+        ]
+      },
+      {
+        "name": "volume_motion",
+        "scene_name": "volume",
+        "motion_radians": 0.12,
+        "orbit_radius": 8.8,
+        "camera_height": 3.5,
+        "target": [
+          0.0,
+          1.5,
+          0.0
+        ]
+      }
+    ]
+  },
+  "quality": {
+    "diffuse": {
+      "bias_mean": -0.0007538601130363531,
+      "bright_edge_temporal_residual_mean": 0.0,
+      "horizontal_band_rms_p95": 0.0013467862678226083,
+      "low_frequency_energy_ratio_mean": 2.076942946385736,
+      "positive_outlier_p999_p95": 1.0436587084064175,
+      "relative_rmse_mean": 0.221427470893944,
+      "relative_rmse_p95": 0.28671470235242497,
+      "structural_edge_error_mean": 0.36027561500668526,
+      "structural_edge_gain_mean": 0.8738926121091485,
+      "temporal_residual_rmse_mean": 0.017998576164245605,
+      "temporal_residual_rmse_p95": 0.022639456950128076,
+      "vertical_band_rms_p95": 0.0015852262382395562
+    },
+    "area_light": {
+      "bias_mean": -0.005317560280673206,
+      "bright_edge_temporal_residual_mean": 1.2474783658981323,
+      "horizontal_band_rms_p95": 0.010556635027751327,
+      "low_frequency_energy_ratio_mean": 2.109237926465889,
+      "positive_outlier_p999_p95": 2.434662055479398,
+      "relative_rmse_mean": 0.16650866261359326,
+      "relative_rmse_p95": 0.19484274516634076,
+      "structural_edge_error_mean": 0.09801792446523905,
+      "structural_edge_gain_mean": 0.990378024096227,
+      "temporal_residual_rmse_mean": 0.1876434963196516,
+      "temporal_residual_rmse_p95": 0.2523677423596382,
+      "vertical_band_rms_p95": 0.012161778472363948
+    },
+    "glossy_glass": {
+      "bias_mean": -0.0030692398140672594,
+      "bright_edge_temporal_residual_mean": 1.1481065973639488,
+      "horizontal_band_rms_p95": 0.008269313117489218,
+      "low_frequency_energy_ratio_mean": 1.1457464578024183,
+      "positive_outlier_p999_p95": 12.71664157490534,
+      "relative_rmse_mean": 0.7912556302276402,
+      "relative_rmse_p95": 0.8379720982783903,
+      "structural_edge_error_mean": 0.34697600826621056,
+      "structural_edge_gain_mean": 0.9205427707071525,
+      "temporal_residual_rmse_mean": 0.13031037244945765,
+      "temporal_residual_rmse_p95": 0.16914418786764143,
+      "vertical_band_rms_p95": 0.010500215599313379
+    },
+    "dense_motion": {
+      "bias_mean": -0.001286429920583032,
+      "bright_edge_temporal_residual_mean": 0.0,
+      "horizontal_band_rms_p95": 0.0013785066665150225,
+      "low_frequency_energy_ratio_mean": 2.2172130127616514,
+      "positive_outlier_p999_p95": 1.4925916215369166,
+      "relative_rmse_mean": 0.3483888467325127,
+      "relative_rmse_p95": 0.3505551265208658,
+      "structural_edge_error_mean": 0.27115054056048393,
+      "structural_edge_gain_mean": 0.9417247276874333,
+      "temporal_residual_rmse_mean": 0.027324599213898182,
+      "temporal_residual_rmse_p95": 0.03335449192672968,
+      "vertical_band_rms_p95": 0.0016719416773412377
+    },
+    "volume_static": {
+      "bias_mean": 0.00014554681456502294,
+      "bright_edge_temporal_residual_mean": 0.044929695315659046,
+      "horizontal_band_rms_p95": 0.00030753789760638026,
+      "low_frequency_energy_ratio_mean": 1.5282141425772213,
+      "positive_outlier_p999_p95": 0.35531094436668365,
+      "relative_rmse_mean": 0.03870537609734846,
+      "relative_rmse_p95": 0.039561105370110206,
+      "structural_edge_error_mean": 0.01899773720651865,
+      "structural_edge_gain_mean": 1.0027219780277399,
+      "temporal_residual_rmse_mean": 0.009970926097594202,
+      "temporal_residual_rmse_p95": 0.013082148367539048,
+      "vertical_band_rms_p95": 0.00044099413062212987
+    },
+    "volume_motion": {
+      "bias_mean": -0.0030746019911020994,
+      "bright_edge_temporal_residual_mean": 2.740271210670471,
+      "horizontal_band_rms_p95": 0.01811544373631477,
+      "low_frequency_energy_ratio_mean": 1.4153812574043583,
+      "positive_outlier_p999_p95": 0.9313401379186055,
+      "relative_rmse_mean": 0.18409514562942497,
+      "relative_rmse_p95": 0.20274729210925588,
+      "structural_edge_error_mean": 0.0734085813164711,
+      "structural_edge_gain_mean": 0.9989536010458957,
+      "temporal_residual_rmse_mean": 0.2253625188022852,
+      "temporal_residual_rmse_p95": 0.298870313167572,
+      "vertical_band_rms_p95": 0.014919596165418625
+    }
+  },
+  "timings": {
+    "diffuse": {
+      "reference_gpu_ms_mean": 2.005172,
+      "candidate_gpu_ms_mean": 0.8333680000000001
+    },
+    "area_light": {
+      "reference_gpu_ms_mean": 2.213884,
+      "candidate_gpu_ms_mean": 0.500444
+    },
+    "glossy_glass": {
+      "reference_gpu_ms_mean": 1.809248,
+      "candidate_gpu_ms_mean": 0.33573600000000003
+    },
+    "dense_motion": {
+      "reference_gpu_ms_mean": 1.730004,
+      "candidate_gpu_ms_mean": 0.326292
+    },
+    "volume_static": {
+      "reference_gpu_ms_mean": 2.5697039999999998,
+      "candidate_gpu_ms_mean": 0.41136
+    },
+    "volume_motion": {
+      "reference_gpu_ms_mean": 20.13608,
+      "candidate_gpu_ms_mean": 3.1187880000000003
+    }
+  },
+  "candidate_median_gpu_ms": {
+    "diffuse": 0.8808480000000001,
+    "area_light": 0.591648,
+    "glossy_glass": 0.443184,
+    "dense_motion": 0.43155200000000005,
+    "volume_static": 0.546896,
+    "volume_motion": 4.116592000000001
+  }
+}

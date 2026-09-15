@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import ordinaryshade as osh
-from ordinarylight.shaders.native_intersection_programs import nativeBoundaryEnabled, nativeEvaluateBoundary
+from ordinarylight.shaders.native_intersection_programs import nativeBoundaryEnabled, nativeEvaluateBoundary, nativeEvaluateTriangle
 import pytest
 
 from ordinarylight.shaders.native_intersection_programs import (
@@ -93,7 +93,7 @@ def trace_cells(scene_tlas: osh.acceleration_structure(binding=0),
 def shader():
     return osh.compile(trace_cells, helpers=(
         nativeIntersectionMiss, intersect_cell, nativeBoundaryEnabled, nativeTraceSurface,
-    ), externals=(nativeEvaluateBoundary,))
+    ), externals=(nativeEvaluateBoundary, nativeEvaluateTriangle,))
 
 
 def test_shared_query_and_callback_compile_from_typed_sources():
@@ -487,6 +487,11 @@ def cell_emitter_pdf(hit: NativeIntersection) -> osh.f32:
     return 1.0 / (size.x * size.y)
 
 
+@osh.function(name='nativeEmitterInfluence')
+def cell_emitter_influence(emitter: osh.u32, sample_position: osh.vec3, receiver: osh.vec3) -> osh.boolean:
+    return cells[1].parameters.y >= 0.0
+
+
 def cell_emitters():
     return NativeEmitterProgram(cell_emitter_count, select_cell_emitter,
                                 evaluate_cell_emitter, cell_emitter_pdf)
@@ -565,7 +570,7 @@ def test_native_emitters_nee_restir_and_path_hit_energy(secondary):
             with VulkanTransportScene(runtime, custom_geometry=shapes, custom_materials=[TransportMaterial()]) as owner:
                 for mode, area_samples, candidates in (('path', 1, 1), ('nee', 1, 1), ('nee', 4, 1), ('restir', 1, 4)):
                     program = NativeGeometryProgram(intersect_cell, evaluate_cell_material,
-                        emitters=None if mode == 'path' else cell_emitters(),
+                        emitters=None if mode == 'path' else replace(cell_emitters(), influence=cell_emitter_influence),
                         boundary=evaluate_cell_boundary if secondary else None, buffers=(
                         NativeGeometryBuffer('cells', CellRecord), NativeGeometryBuffer('cell_materials', MaterialData)))
                     with VulkanNativeGeometryResources(runtime, program, {'cells': cells, 'cell_materials': materials}) as geometry:
@@ -611,6 +616,21 @@ def test_native_emitters_nee_restir_and_path_hit_energy(secondary):
                                     frame = pipeline.prepare(camera, (32, 32))
                                     VulkanGraph().add('updated gi', frame.operation).compile().execute(runtime).wait()
                                     means.append(pipeline.capture_wavefront_hdr()[..., :3].mean(axis=(0, 1)))
+                                if mode == 'nee':
+                                    # Reject all sampled connections through the public
+                                    # policy hook, including the secondary-only fixture.
+                                    cell_data[1, 2, 1] = -1
+                                    cells.upload(cell_data)
+                                    geometry.notify_content_changed()
+                                    pipeline.invalidate_gi_history()
+                                    frame = pipeline.prepare(camera, (32, 32))
+                                    VulkanGraph().add('cutoff gi', frame.operation).compile().execute(runtime).wait()
+                                    counters = pipeline._core.wavefront_executor.read_work_counters(frame.slot)
+                                    assert counters['shadow_rays'] == 0
+                                    assert np.isfinite(pipeline.capture_wavefront_hdr()).all()
+                                    cell_data[1, 2, 1] = 0
+                                    cells.upload(cell_data)
+                                    geometry.notify_content_changed()
     assert means[0][0] > .03
     for estimate in means[1:]:
         np.testing.assert_allclose(estimate, means[0], rtol=.08, atol=.01)
@@ -662,3 +682,22 @@ def test_native_buffers_lease_public_transport_scene_owner():
                     with pytest.raises(RuntimeError):
                         replacement.close()
                     geometry.close()
+
+
+@osh.function(name='nativeEmitterInfluence')
+def bounded_emitter_influence_policy(emitter: osh.u32, sample_position: osh.vec3, receiver: osh.vec3) -> osh.boolean:
+    offset = sample_position - receiver
+    return osh.dot(offset, offset) <= 16.0
+
+
+def test_native_emitter_influence_is_optional_and_typed():
+    from dataclasses import replace
+    from ordinarylight.geometry import NativeGeometryProgram, NativeGeometryBuffer
+    buffers = (NativeGeometryBuffer('cells', CellRecord), NativeGeometryBuffer('cell_materials', MaterialData))
+    for callback in (None, bounded_emitter_influence_policy):
+        program = NativeGeometryProgram(intersect_cell, evaluate_cell_material,
+            buffers=buffers, emitters=replace(cell_emitters(), influence=callback))
+        assert 'bool nativeEmitterInfluence' in program.source
+    with pytest.raises(ValueError, match='nativeEmitterInfluence'):
+        NativeGeometryProgram(intersect_cell, evaluate_cell_material, buffers=buffers,
+            emitters=replace(cell_emitters(), influence=cell_emitter_count))
