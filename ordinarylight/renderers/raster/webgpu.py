@@ -20,6 +20,17 @@ from ...raster import (
 from ..base import RendererImplementation, RendererImplementationInfo
 
 
+def _webgpu_projection(matrix):
+    """Convert OpenGL clip depth [-w, w] to WebGPU [0, w].
+
+    Keep the shared camera matrices and history in their documented OpenGL
+    convention; convert at the target boundary, before upload or inversion.
+    """
+    result = np.array(matrix, dtype=np.float32, copy=True)
+    result[2] = (result[2] + result[3]) * 0.5
+    return result
+
+
 class WebGpuRasterRenderer(RendererImplementation):
     """Draw Ordinary Shade WGSL programs into an offscreen RGBA target."""
 
@@ -399,8 +410,17 @@ class WebGpuRasterRenderer(RendererImplementation):
         index = self.device.create_buffer_with_data(
             data=mesh.indices, usage=wgpu.BufferUsage.INDEX,
         ) if mesh.indices is not None and mesh.indices.size else None
+        from ...raster.resources import GEOMETRY_PRODUCT_CAMERA_DTYPE
+        product_camera = np.frombuffer(
+            mesh.resources["geometry_product_camera"],
+            dtype=GEOMETRY_PRODUCT_CAMERA_DTYPE,
+        ).copy()
+        for field in ("current_view_projection", "previous_view_projection"):
+            product_camera[field][0] = _webgpu_projection(
+                product_camera[field][0].T,
+            ).T
         uniform = self.device.create_buffer_with_data(
-            data=mesh.resources["geometry_product_camera"],
+            data=product_camera.tobytes(),
             usage=wgpu.BufferUsage.UNIFORM,
         )
         pipeline = self._product_pipeline(mesh.layout)
@@ -989,7 +1009,8 @@ class WebGpuRasterRenderer(RendererImplementation):
             native_shadow_maps=True, gpu_camera=True,
         )
         camera_data = np.zeros(1, CAMERA_DTYPE)
-        camera_data["view_projection"][0] = camera_matrix(camera, width, height).T
+        projection = _webgpu_projection(camera_matrix(camera, width, height))
+        camera_data["view_projection"][0] = projection.T
         camera_data["position_exposure"][0] = (*camera.position, 1.0)
         camera_data["viewport_optics"][0] = (width, height, 1.0 if self.config.optical_quality == "screen-space" else 0.0, self.config.screen_space_ray_steps)
         camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
@@ -1006,7 +1027,7 @@ class WebGpuRasterRenderer(RendererImplementation):
         ))
         mesh.resources["camera_uniform"] = camera_data.tobytes()
         mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
-            camera_matrix(camera, width, height),
+            projection,
         )
         mesh.resources["volume_camera_position"] = (*camera.position, 1.0)
         image = self.render(mesh, width, height)
@@ -1025,9 +1046,8 @@ class WebGpuRasterRenderer(RendererImplementation):
                 native_shadow_maps=True, gpu_camera=True,
             )
             camera_data = np.zeros(1, CAMERA_DTYPE)
-            camera_data["view_projection"][0] = camera_matrix(
-                camera, width, height,
-            ).T
+            projection = _webgpu_projection(camera_matrix(camera, width, height))
+            camera_data["view_projection"][0] = projection.T
             camera_data["position_exposure"][0] = (*camera.position, 1.0)
             camera_data["viewport_optics"][0] = (width, height, 1.0 if self.config.optical_quality == "screen-space" else 0.0, self.config.screen_space_ray_steps)
             camera_data["optical_diagnostic"][0, 0] = _OPTICAL_DEBUG_MODES[
@@ -1046,7 +1066,7 @@ class WebGpuRasterRenderer(RendererImplementation):
             )
             color_mesh.resources["camera_uniform"] = camera_data.tobytes()
             color_mesh.resources["volume_inverse_view_projection"] = np.linalg.inv(
-                camera_matrix(camera, width, height),
+                projection,
             )
             color_mesh.resources["volume_camera_position"] = (
                 *camera.position, 1.0,
