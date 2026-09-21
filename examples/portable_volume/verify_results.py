@@ -9,8 +9,8 @@ import numpy as np
 from PIL import Image
 
 from ordinarylight.portable import PortablePackage
-from ordinaryscience.rt_density import rt_histogram_reference
-from ordinaryscience.vector_volume import reprepare_volume
+from ordinarylattice.rt_density import rt_histogram_reference
+from ordinarylattice.vector_volume import reprepare_volume
 
 
 def main():
@@ -116,7 +116,7 @@ def main():
         assert reference.sum() + excluded.sum() == native[science["output"]].size
         report["comparisons"][label] = comparison
         if science.get("sample_axis") == "time":
-            from ordinaryscience.hh_neuron import hh_reference
+            from ordinarylattice.hh_neuron import hh_reference
 
             values = dict(manifest["state"]["parameters"])
             traces = []

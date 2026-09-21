@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("ordinaryscience.vector_volume")
+pytest.importorskip("ordinarylattice.vector_volume")
 pytest.importorskip("ordinarylattice.portable")
 pytest.importorskip("latticemodel")
 
 from ordinarylattice.portable import export_batched
-from ordinaryscience.rt_density import load_rt_program
-from ordinaryscience.vector_volume import VectorHistogramPreparation, reprepare_volume
+from ordinarylattice.rt_density import load_rt_program
+from ordinarylattice.vector_volume import VectorHistogramPreparation, reprepare_volume
 
 
 def preparation(**updates):

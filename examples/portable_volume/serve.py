@@ -18,15 +18,15 @@ def main():
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--example", choices=("dmc", "hh"), default="dmc")
     args = parser.parse_args()
-    from ordinaryscience.rt_density import load_rt_program
-    from ordinaryscience.vector_volume import (
+    from ordinarylattice.rt_density import load_rt_program
+    from ordinarylattice.vector_volume import (
         VectorHistogramPreparation,
         reprepare_volume,
     )
     import ordinarylight.portable
 
     if args.example == "hh":
-        from ordinaryscience.hh_neuron import prepare_hh_volume
+        from ordinarylattice.hh_neuron import prepare_hh_volume
 
         package = prepare_hh_volume().export()
         scenario = dict(
