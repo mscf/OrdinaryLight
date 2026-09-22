@@ -21,6 +21,9 @@ python -m pip install -e '.[qt]'
 python -m pip install -e '.[window]'
 ```
 
+The `webgpu` extra requires Python 3.11 or newer because it uses `wgpu>=0.32`.
+The portable core continues to support Python 3.10.
+
 Vulkan paths require Vulkan 1.2; GI additionally requires hardware ray-query
 support. `Renderer(renderer_preference="auto")` selects GI when available and
 Vulkan raster otherwise. Explicit `"gi"` and `"raster"` requests do not switch
