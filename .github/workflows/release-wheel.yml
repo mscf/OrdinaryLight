@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mscf/OrdinaryShade
-          ref: cf16445f71db8fa35c168c4dc577815033b5cbdf
+          ref: v0.1.0a10
           path: compatibility/OrdinaryShade
       - uses: actions/setup-python@v5
         with:
