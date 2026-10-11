@@ -703,6 +703,13 @@
         "ordinarylight/shaders/native_intersection_programs.py",
         "ordinarylight/shaders/native_emitter_programs.py"
       ]
+    },
+    "ordinarylight/portable/surface.wgsl": {
+      "status": "generated",
+      "sources": [
+        "scripts/generate_portable_surface.py",
+        "ordinarylight/shaders/portable_surface_programs.py"
+      ]
     }
   }
 }
